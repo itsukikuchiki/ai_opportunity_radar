@@ -1,0 +1,17 @@
+openapi: 3.1.0
+info:
+  title: AI Opportunity Radar API
+  version: 0.6.0
+paths:
+  /api/v1/captures:
+    post:
+      summary: Submit a quick capture
+  /api/v1/followups/{id}/submit:
+    post:
+      summary: Submit follow-up answer
+  /api/v1/weekly/current:
+    get:
+      summary: Get current weekly insight
+  /api/v1/opportunities/{id}:
+    get:
+      summary: Get opportunity detail

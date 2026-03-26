@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  profile    UserProfile?
+  captures   Capture[]
+}
+
+model UserProfile {
+  userId                    String @id
+  selectedRepeatArea        String?
+  selectedAiHelpType        String?
+  selectedOutputPreference  String?
+  onboardingCompleted       Boolean @default(false)
+  user                      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Capture {
+  id        String   @id
+  userId    String
+  content   String
+  inputMode String
+  tagHint   String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

@@ -1,0 +1,28 @@
+import 'package:flutter/foundation.dart';
+import '../../../core/api/repositories/memory_repository.dart';
+import '../../../core/models/memory_models.dart';
+import '../../../shared/states/load_state.dart';
+
+class MemoryViewModel extends ChangeNotifier {
+  final MemoryRepository repository;
+  LoadState loadState = LoadState.initial;
+  MemorySummaryModel? summary;
+  String? errorMessage;
+
+  MemoryViewModel(this.repository) {
+    load();
+  }
+
+  Future<void> load() async {
+    loadState = LoadState.loading;
+    notifyListeners();
+    try {
+      summary = await repository.fetchMemorySummary();
+      loadState = LoadState.ready;
+    } catch (e) {
+      errorMessage = e.toString();
+      loadState = LoadState.error;
+    }
+    notifyListeners();
+  }
+}

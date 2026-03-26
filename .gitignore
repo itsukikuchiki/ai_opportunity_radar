@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/**/*.pyc
+backend/ai_radar.db
+
+# Flutter / Dart
+frontend_flutter/.dart_tool/
+frontend_flutter/build/
+frontend_flutter/.flutter-plugins
+frontend_flutter/.flutter-plugins-dependencies
+frontend_flutter/.packages
+
+# IDE
+**/.idea/
+**/.vscode/
+
+# Misc
+*.log

@@ -1,0 +1,22 @@
+create table opportunities (
+  id text primary key,
+  user_id text not null references users(id) on delete cascade,
+  name text not null,
+  description text,
+  related_pattern_ids jsonb not null default '[]'::jsonb,
+  related_friction_ids jsonb not null default '[]'::jsonb,
+  related_desire_ids jsonb not null default '[]'::jsonb,
+  opportunity_type text,
+  maturity text not null default 'candidate',
+  score_total numeric(4,3) not null default 0,
+  score_repeatability numeric(4,3) not null default 0,
+  score_pain numeric(4,3) not null default 0,
+  score_clarity numeric(4,3) not null default 0,
+  score_desire numeric(4,3) not null default 0,
+  score_ai_fit numeric(4,3) not null default 0,
+  expected_value text,
+  recommendation text,
+  status text not null default 'open',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
