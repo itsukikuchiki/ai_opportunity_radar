@@ -47,3 +47,4 @@ This repository now includes:
 - The backend and Flutter skeleton are designed for a local demo first.
 - The current LLM generation layer is stubbed with deterministic text so you can wire the full flow before swapping to a real model.
 - The container used to generate this package did not have `sqlalchemy` available at runtime, so end-to-end execution was not verified here. The files are prepared for local setup using `requirements.txt`.
+# ai_opportunity_radar
