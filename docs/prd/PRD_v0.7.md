@@ -45,3 +45,26 @@ flutter run -d chrome
 4. 进入 Weekly 查看本周洞察
 5. 进入 Opportunity Detail 提交 `想试试`
 6. 系统会把该 opportunity 标记为 `testing` 并创建 experiment
+
+---
+
+## Note for v0.8+
+
+PRD v0.7 focuses on the first runnable implementation package, local demo flow, and core engineering handoff.
+
+Starting from v0.8, the product direction is further clarified as:
+
+- a private diary / notebook-like observation product
+- observation-first rather than management-first
+- low-friction real-fragment capture as the primary entry
+- light AI acknowledgement and follow-up as support for continued input
+- Weekly as a stage-level interpretation layer
+- Memory as a long-term structured learning layer
+
+For updated product principles and scope boundaries, see:
+
+- `docs/prd/product_design_principles_v0.8.md`
+- `docs/prd/prd_v0.8_foundation.md`
+
+These v0.8 documents do not replace earlier PRDs.
+They refine the product philosophy, feature boundaries, and future expansion rules on top of the existing architecture and implementation path.

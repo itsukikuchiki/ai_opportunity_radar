@@ -1,17 +1,161 @@
 openapi: 3.1.0
 info:
   title: AI Opportunity Radar API
-  version: 0.6.0
+  version: 0.8.0
+  description: |
+    Stub OpenAPI summary for the current MVP / v0.8 demo flow.
+
+    This file is intentionally lightweight.
+    It documents the currently important surface area used by the frontend and local demo,
+    but does not yet attempt to be a full backend contract.
+
+servers:
+  - url: http://localhost:8000
+    description: Local FastAPI development server
+
+tags:
+  - name: onboarding
+  - name: captures
+  - name: followups
+  - name: weekly
+  - name: opportunities
+  - name: memory
+
 paths:
+  /health:
+    get:
+      tags: [onboarding]
+      summary: Health check
+      description: Simple health endpoint for local development and connectivity checks.
+      responses:
+        '200':
+          description: API is healthy
+
+  /api/v1/onboarding/complete:
+    post:
+      tags: [onboarding]
+      summary: Complete onboarding
+      description: Save the initial onboarding choice and start the user flow.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                selected_repeat_area:
+                  type: string
+                  description: Initial repeated scenario selected by the user
+                  examples: [information_gathering, scheduling, writing]
+                selected_ai_help_type:
+                  type: string
+                  nullable: true
+                selected_output_preference:
+                  type: string
+                  nullable: true
+      responses:
+        '200':
+          description: Onboarding completed
+
   /api/v1/captures:
     post:
+      tags: [captures]
       summary: Submit a quick capture
+      description: Submit a real-life fragment from Today page for classification and memory update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                tag_hint:
+                  type: string
+                  nullable: true
+                  examples: [friction, repetition, desire]
+      responses:
+        '200':
+          description: Capture accepted and processed
+
   /api/v1/followups/{id}/submit:
     post:
+      tags: [followups]
       summary: Submit follow-up answer
+      description: Submit answer for a follow-up question generated after a capture.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                answer_value:
+                  type: string
+      responses:
+        '200':
+          description: Follow-up answer submitted
+
   /api/v1/weekly/current:
     get:
+      tags: [weekly]
       summary: Get current weekly insight
+      description: Returns the current weekly interpretation, or an insufficient-data state.
+      responses:
+        '200':
+          description: Weekly insight returned
+
   /api/v1/opportunities/{id}:
     get:
+      tags: [opportunities]
       summary: Get opportunity detail
+      description: Returns the detail view of a specific opportunity.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Opportunity detail returned
+
+  /api/v1/opportunities/{id}/feedback:
+    post:
+      tags: [opportunities]
+      summary: Submit opportunity feedback
+      description: Submit user feedback for a specific opportunity.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                feedback_value:
+                  type: string
+      responses:
+        '200':
+          description: Opportunity feedback submitted
+
+  /api/v1/memory/summary:
+    get:
+      tags: [memory]
+      summary: Get memory summary
+      description: Returns structured memory summaries such as patterns, frictions, desires, and experiments.
+      responses:
+        '200':
+          description: Memory summary returned
