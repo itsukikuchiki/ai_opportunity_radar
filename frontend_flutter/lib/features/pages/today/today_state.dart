@@ -12,6 +12,8 @@ class TodayState {
   final DailyBestActionModel? bestAction;
   final List<RecentSignalModel> recentSignals;
   final String? errorMessage;
+  final int captureSuccessTick;
+  final int followupSuccessTick;
 
   const TodayState({
     required this.loadState,
@@ -24,6 +26,8 @@ class TodayState {
     required this.bestAction,
     required this.recentSignals,
     required this.errorMessage,
+    required this.captureSuccessTick,
+    required this.followupSuccessTick,
   });
 
   factory TodayState.initial() => const TodayState(
@@ -37,7 +41,20 @@ class TodayState {
         bestAction: null,
         recentSignals: [],
         errorMessage: null,
+        captureSuccessTick: 0,
+        followupSuccessTick: 0,
       );
+
+  bool get isInitialLoading =>
+      loadState == LoadState.initial || loadState == LoadState.loading;
+
+  bool get isCaptureSubmitting => captureSubmitState == SubmitState.submitting;
+
+  bool get isFollowupSubmitting => followupSubmitState == SubmitState.submitting;
+
+  bool get hasError => errorMessage != null && errorMessage!.trim().isNotEmpty;
+
+  bool get hasRecentSignals => recentSignals.isNotEmpty;
 
   TodayState copyWith({
     LoadState? loadState,
@@ -50,18 +67,27 @@ class TodayState {
     DailyBestActionModel? bestAction,
     List<RecentSignalModel>? recentSignals,
     String? errorMessage,
+    int? captureSuccessTick,
+    int? followupSuccessTick,
+    bool clearAcknowledgement = false,
+    bool clearPendingQuestion = false,
+    bool clearErrorMessage = false,
   }) {
     return TodayState(
       loadState: loadState ?? this.loadState,
       captureSubmitState: captureSubmitState ?? this.captureSubmitState,
       followupSubmitState: followupSubmitState ?? this.followupSubmitState,
       inputText: inputText ?? this.inputText,
-      acknowledgement: acknowledgement ?? this.acknowledgement,
+      acknowledgement:
+          clearAcknowledgement ? null : (acknowledgement ?? this.acknowledgement),
       insight: insight ?? this.insight,
-      pendingQuestion: pendingQuestion ?? this.pendingQuestion,
+      pendingQuestion:
+          clearPendingQuestion ? null : (pendingQuestion ?? this.pendingQuestion),
       bestAction: bestAction ?? this.bestAction,
       recentSignals: recentSignals ?? this.recentSignals,
-      errorMessage: errorMessage,
+      errorMessage: clearErrorMessage ? null : (errorMessage ?? this.errorMessage),
+      captureSuccessTick: captureSuccessTick ?? this.captureSuccessTick,
+      followupSuccessTick: followupSuccessTick ?? this.followupSuccessTick,
     );
   }
 }
