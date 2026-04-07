@@ -1,0 +1,17 @@
+=== ROOT ===
+total 32
+drwxr-xr-x@ 11 yangyang  staff   352 Apr  2 10:33 .
+drwxr-x---+ 45 yangyang  staff  1440 Mar 27 15:24 ..
+-rw-r--r--@  1 yangyang  staff  6148 Apr  2 10:32 .DS_Store
+drwxr-xr-x  12 yangyang  staff   384 Mar 27 15:14 .git
+-rw-r--r--   1 yangyang  staff   323 Mar 26 16:41 .gitignore
+-rw-r--r--@  1 yangyang  staff  1320 Mar 26 16:45 README.md
+drwxr-xr-x@ 12 yangyang  staff   384 Mar 31 14:22 backend
+drwxr-xr-x   6 yangyang  staff   192 Apr  2 10:33 chatgpt_handoff
+drwxr-xr-x@  5 yangyang  staff   160 Mar 27 15:19 docs
+drwxr-xr-x@ 22 yangyang  staff   704 Mar 26 17:12 frontend_flutter
+drwxr-xr-x@  5 yangyang  staff   160 Mar 24 11:28 scripts
+
+=== LIB TREE ===
+
+=== TEST TREE ===

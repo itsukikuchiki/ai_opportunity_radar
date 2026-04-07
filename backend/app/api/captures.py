@@ -1,23 +1,32 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
 from app.core.db import get_db
-from app.core.config import settings
 from app.schemas.capture_schema import SubmitCaptureRequest
 from app.services.capture_service import CaptureService
+from app.services.classification_service import ClassificationService
+from app.repositories.capture_repository import CaptureRepository
 
-router = APIRouter()
+router = APIRouter(tags=["captures"])
 
 
 @router.post("")
-def submit_capture(payload: SubmitCaptureRequest, db: Session = Depends(get_db)) -> dict:
+def submit_capture(
+    payload: SubmitCaptureRequest,
+    db: Session = Depends(get_db),
+) -> dict:
     try:
-        result = CaptureService(db).submit_capture(
-            user_id=settings.demo_user_id,
+        repository = CaptureRepository(db)
+
+        result = CaptureService(
+            repository,
+            ClassificationService(),
+        ).submit_capture(
+            user_id="demo-user",
             content=payload.content,
             input_mode=payload.input_mode,
             tag_hint=payload.tag_hint,
         )
-        return {"success": True, "data": result}
+        return {"data": result.model_dump()}
     except Exception as e:
-        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))

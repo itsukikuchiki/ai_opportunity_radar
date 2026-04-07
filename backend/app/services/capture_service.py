@@ -1,63 +1,91 @@
-from uuid import uuid4
-from sqlalchemy.orm import Session
-from app.models import Capture, RawMemory
-from app.repositories.capture_repository import CaptureRepository
-from app.repositories.core_repository import ensure_demo_user
+from __future__ import annotations
+
+from app.schemas.capture_schema import (
+    CaptureSubmitResponseSchema,
+    RecentSignalSchema,
+)
 from app.services.classification_service import ClassificationService
-from app.services.memory_service import MemoryService
-from app.services.followup_service import FollowupService
+from app.repositories.capture_repository import CaptureRepository
 
 
 class CaptureService:
-    def __init__(self, db: Session) -> None:
-        self.db = db
-        self.repo = CaptureRepository(db)
-        self.classifier = ClassificationService()
-        self.memory = MemoryService(db)
-        self.followups = FollowupService(db)
+    def __init__(
+        self,
+        capture_repository: CaptureRepository,
+        classification_service: ClassificationService,
+    ):
+        self.capture_repository = capture_repository
+        self.classification_service = classification_service
 
-    def submit_capture(self, user_id: str, content: str, input_mode: str, tag_hint: str | None = None) -> dict:
-        ensure_demo_user(self.db, user_id)
-        capture = Capture(
-            id=f"cap_{uuid4().hex[:8]}",
+    def submit_capture(
+        self,
+        user_id: str,
+        content: str,
+        input_mode: str = "quick_capture",
+        tag_hint: str | None = None,
+    ) -> CaptureSubmitResponseSchema:
+        content = (content or "").strip()
+        if not content:
+            raise ValueError("content is required")
+
+        previous_recent = self.capture_repository.list_recent_raw_memories(
+            user_id=user_id,
+            limit=10,
+        )
+        recent_assistant_texts = [
+            item.get("acknowledgement")
+            for item in previous_recent
+            if item.get("acknowledgement")
+        ]
+
+        acknowledgement = self.classification_service.generate_acknowledgement(
+            content,
+            recent_assistant_texts=recent_assistant_texts,
+        )
+
+        created = self.capture_repository.create_capture(
             user_id=user_id,
             content=content,
             input_mode=input_mode,
             tag_hint=tag_hint,
+            acknowledgement=acknowledgement,
         )
-        self.repo.create_capture(capture)
-        classified = self.classifier.classify_capture(content, tag_hint)
-        raw = RawMemory(
-            id=f"raw_{uuid4().hex[:8]}",
+
+        recent = self.capture_repository.list_recent_raw_memories(
             user_id=user_id,
-            capture_id=capture.id,
-            source=input_mode,
-            content=content,
-            signal_type=classified['signal_type'],
-            scene_type=classified['scene_type'],
-            friction_type=classified['friction_type'],
-            emotion_strength=classified['emotion_strength'],
-            repetition_flag=classified['repetition_flag'],
-            desire_flag=classified['desire_flag'],
-            metadata_json={'tag_hint': tag_hint},
+            limit=50,
         )
-        self.repo.create_raw_memory(raw)
-        memory_result = self.memory.update_from_classified_signal(user_id, raw.id, classified, content)
-        raw.related_pattern_id = memory_result.get('pattern_id')
-        raw.related_friction_id = memory_result.get('friction_id')
-        followup = self.followups.maybe_generate_followup(
-            user_id=user_id,
-            raw_memory_id=raw.id,
-            classified_signal=classified,
-            related_pattern_id=memory_result.get('pattern_id'),
-            related_friction_id=memory_result.get('friction_id'),
+
+        created_id = created.get("id")
+        created_exists = any(
+            item.get("id") == created_id
+            for item in recent
+            if item.get("id") is not None
         )
-        recent = self.repo.list_recent_raw_memories(user_id)
-        self.db.commit()
-        return {
-            'capture_id': capture.id,
-            'acknowledgement': self.classifier.generate_acknowledgement(content, classified),
-            'classified_signal': classified,
-            'followup': followup,
-            'recent_signals': [{'content': r.content} for r in recent],
-        }
+
+        if not created_exists:
+            recent = [
+                {
+                    "id": created.get("id"),
+                    "content": created.get("content", content),
+                    "created_at": created.get("created_at"),
+                    "acknowledgement": created.get("acknowledgement", acknowledgement),
+                },
+                *recent,
+            ]
+
+        recent_schemas = [
+            RecentSignalSchema(
+                id=item.get("id"),
+                content=item.get("content") or "",
+                created_at=item.get("created_at"),
+                acknowledgement=item.get("acknowledgement"),
+            )
+            for item in recent
+        ]
+
+        return CaptureSubmitResponseSchema(
+            acknowledgement=acknowledgement,
+            followup=None,
+            recent_signals=recent_schemas,
+        )
