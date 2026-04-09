@@ -64,7 +64,8 @@ class _RadarAppState extends State<RadarApp> {
         ),
       ],
       child: MaterialApp.router(
-        title: 'AI Opportunity Radar',
+        debugShowCheckedModeBanner: false,
+        title: 'Signal Path：AI手帳',
         localizationsDelegates: const [
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
@@ -90,8 +91,7 @@ class _RadarAppState extends State<RadarApp> {
           }
 
           if (languageCode == 'zh') {
-            final isTraditional =
-                scriptCode == 'hant' ||
+            final isTraditional = scriptCode == 'hant' ||
                 countryCode == 'TW' ||
                 countryCode == 'HK' ||
                 countryCode == 'MO';
