@@ -111,12 +111,14 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   final active = index <= _currentStep;
                   return Expanded(
                     child: Container(
-                      margin: EdgeInsets.only(right: index == _stepCount - 1 ? 0 : 8),
+                      margin: EdgeInsets.only(
+                          right: index == _stepCount - 1 ? 0 : 8),
                       height: 4,
                       decoration: BoxDecoration(
                         color: active
                             ? theme.colorScheme.primary
-                            : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                            : theme.colorScheme.outlineVariant
+                                .withValues(alpha: 0.5),
                         borderRadius: BorderRadius.circular(999),
                       ),
                     ),
@@ -209,27 +211,26 @@ class _HeroIntroStep extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const _PathGlowHero(),
-          const SizedBox(height: 28),
-          Text(
-            'Signal Path',
-            style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w800,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(36),
+            child: Image.asset(
+              'assets/icon-1024.png',
+              width: 180,
+              height: 180,
+              fit: BoxFit.cover,
             ),
-            textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 28),
           Text(
             AppLocaleText.tr(
               context,
-              en: 'AI Journal',
-              zhHans: 'AI 手帐',
-              zhHant: 'AI 手帳',
-              ja: 'AI手帳',
+              en: 'Signal Path: AI Journal',
+              zhHans: 'Signal Path：AI 手帐',
+              zhHant: 'Signal Path：AI 手帳',
+              ja: 'Signal Path：AI手帳',
             ),
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w700,
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w800,
             ),
             textAlign: TextAlign.center,
           ),
@@ -490,7 +491,10 @@ class _HowItWorksStep extends StatelessWidget {
             margin: const EdgeInsets.only(top: 12),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+              color: Theme.of(context)
+                  .colorScheme
+                  .surfaceContainerHighest
+                  .withValues(alpha: 0.45),
               borderRadius: BorderRadius.circular(18),
             ),
             child: Text(
@@ -562,7 +566,10 @@ class _FocusAreaStep extends StatelessWidget {
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: selected
-                          ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.55)
+                          ? Theme.of(context)
+                              .colorScheme
+                              .primaryContainer
+                              .withValues(alpha: 0.55)
                           : Theme.of(context)
                               .colorScheme
                               .surfaceContainerHighest
@@ -571,7 +578,10 @@ class _FocusAreaStep extends StatelessWidget {
                       border: Border.all(
                         color: selected
                             ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
+                            : Theme.of(context)
+                                .colorScheme
+                                .outlineVariant
+                                .withValues(alpha: 0.5),
                         width: selected ? 1.6 : 1,
                       ),
                     ),
@@ -579,7 +589,9 @@ class _FocusAreaStep extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Icon(
-                          selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                          selected
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_off,
                           color: selected
                               ? Theme.of(context).colorScheme.primary
                               : Theme.of(context).colorScheme.onSurfaceVariant,
@@ -591,7 +603,10 @@ class _FocusAreaStep extends StatelessWidget {
                             children: [
                               Text(
                                 option.title,
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(
                                       fontWeight: FontWeight.w800,
                                     ),
                               ),
@@ -772,7 +787,8 @@ class _OnboardingInfoCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
+        color:
+            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
           color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
