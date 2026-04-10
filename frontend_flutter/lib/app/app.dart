@@ -32,7 +32,7 @@ class _RadarAppState extends State<RadarApp> {
   @override
   void initState() {
     super.initState();
-    dependencies = AppDependencies.create();
+    dependencies = widget.bootstrapState.dependencies;
     router = createAppRouter(widget.bootstrapState);
   }
 
@@ -40,8 +40,10 @@ class _RadarAppState extends State<RadarApp> {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        Provider.value(value: dependencies),
-        ChangeNotifierProvider.value(value: widget.bootstrapState),
+        Provider<AppDependencies>.value(value: dependencies),
+        ChangeNotifierProvider<AppBootstrapState>.value(
+          value: widget.bootstrapState,
+        ),
         ChangeNotifierProvider(
           create: (_) => OnboardingViewModel(dependencies.apiClient),
         ),
@@ -137,8 +139,10 @@ class _RadarAppState extends State<RadarApp> {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
-              borderSide:
-                  const BorderSide(color: Color(0xFF6B7A90), width: 1.4),
+              borderSide: const BorderSide(
+                color: Color(0xFF6B7A90),
+                width: 1.4,
+              ),
             ),
           ),
           textTheme: const TextTheme(
