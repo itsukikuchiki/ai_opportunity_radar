@@ -32,3 +32,17 @@ def submit_capture(
         return {"data": result.model_dump()}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/recent")
+def list_recent_captures(
+    user_id: str = Depends(get_user_id),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        repository = CaptureRepository(db)
+        service = CaptureService(repository, ClassificationService())
+        recent = service.list_recent_signals(user_id=user_id, limit=200)
+        return {"data": {"recent_signals": [item.model_dump() for item in recent]}}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

@@ -152,7 +152,6 @@ class _TodayPageState extends State<TodayPage> {
           if (!state.isInitialLoading) ...[
             const SizedBox(height: 20),
             _DailyObservationCard(
-                entryCount: todaySignals.length,
                 summary: _buildDailyObservation(context, todaySignals),
               ),
             const SizedBox(height: 16),
@@ -336,14 +335,30 @@ class _TodayPageState extends State<TodayPage> {
     BuildContext context,
     List<RecentSignalModel> signals,
   ) {
-    return _buildTodayInsight(context, signals).observation;
+    final observation = _buildTodayInsight(context, signals).observation;
+    final count = signals.length;
+    final countPrefix = AppLocaleText.tr(
+      context,
+      en: 'Today has $count entr${count == 1 ? 'y' : 'ies'}.',
+      zhHans: '今天记录了 $count 条。',
+      zhHant: '今天記錄了 $count 條。',
+      ja: '今日は $count 件記録しました。',
+    );
+    return '$countPrefix $observation';
   }
 
   String _buildTryNext(
     BuildContext context,
     List<RecentSignalModel> signals,
   ) {
-    return _buildTodayInsight(context, signals).nextStep;
+    final insight = _buildTodayInsight(context, signals);
+    return AppLocaleText.tr(
+      context,
+      en: 'Based on today’s observation: ${insight.observation} ${insight.nextStep}',
+      zhHans: '根据今天的小观察：${insight.observation} ${insight.nextStep}',
+      zhHant: '根據今天的小觀察：${insight.observation} ${insight.nextStep}',
+      ja: '今日の小さな観察にもとづいて：${insight.observation} ${insight.nextStep}',
+    );
   }
 
   _TodayInsightResult _buildTodayInsight(
@@ -732,18 +747,15 @@ class _AiResponseBubble extends StatelessWidget {
 }
 
 class _DailyObservationCard extends StatelessWidget {
-  final int entryCount;
   final String summary;
 
   const _DailyObservationCard({
-    required this.entryCount,
     required this.summary,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final count = entryCount;
 
     return Card(
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
@@ -772,20 +784,6 @@ class _DailyObservationCard extends StatelessWidget {
                     ),
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'Today has $count entr${count == 1 ? 'y' : 'ies'}',
-                      zhHans: '今天记录了 $count 条',
-                      zhHant: '今天記錄了 $count 條',
-                      ja: '今日は $count 件記録しました',
-                    ),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 6),

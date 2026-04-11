@@ -89,3 +89,22 @@ class CaptureService:
             followup=None,
             recent_signals=recent_schemas,
         )
+
+    def list_recent_signals(
+        self,
+        user_id: str,
+        limit: int = 200,
+    ) -> list[RecentSignalSchema]:
+        recent = self.capture_repository.list_recent_raw_memories(
+            user_id=user_id,
+            limit=limit,
+        )
+        return [
+            RecentSignalSchema(
+                id=item.get("id"),
+                content=item.get("content") or "",
+                created_at=item.get("created_at"),
+                acknowledgement=item.get("acknowledgement"),
+            )
+            for item in recent
+        ]

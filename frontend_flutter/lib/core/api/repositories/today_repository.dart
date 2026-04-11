@@ -9,11 +9,21 @@ class TodayRepository {
   Future<Map<String, dynamic>> fetchToday() async {
     final weeklyRes = await apiClient.getJson('/api/v1/weekly/current');
     final memoryRes = await apiClient.getJson('/api/v1/memory/summary');
+    Map<String, dynamic>? captureRes;
+    try {
+      captureRes = await apiClient.getJson('/api/v1/captures/recent');
+    } catch (_) {
+      captureRes = null;
+    }
 
     final weekly = weeklyRes['data'] as Map<String, dynamic>;
     final memory = memoryRes['data'] as Map<String, dynamic>;
+    final captureData = (captureRes?['data'] as Map<String, dynamic>?) ?? const {};
 
-    final recentSignals = _extractRecentSignals(memory);
+    final recentSignals = _extractRecentSignals(
+      memory: memory,
+      captureData: captureData,
+    );
 
     return {
       'insight': weekly['key_insight'] == null
@@ -71,12 +81,24 @@ class TodayRepository {
     );
   }
 
-  List<RecentSignalModel> _extractRecentSignals(Map<String, dynamic> memory) {
+  List<RecentSignalModel> _extractRecentSignals({
+    required Map<String, dynamic> memory,
+    required Map<String, dynamic> captureData,
+  }) {
+    final recentCaptureRaw = captureData['recent_signals'];
+    if (recentCaptureRaw is List && recentCaptureRaw.isNotEmpty) {
+      return recentCaptureRaw
+          .map((e) => RecentSignalModel.fromJson(e as Map<String, dynamic>))
+          .toList()
+        ..sort(_compareByCreatedAtDesc);
+    }
+
     final recentRaw = memory['recent_signals'];
     if (recentRaw is List && recentRaw.isNotEmpty) {
       return recentRaw
           .map((e) => RecentSignalModel.fromJson(e as Map<String, dynamic>))
-          .toList();
+          .toList()
+        ..sort(_compareByCreatedAtDesc);
     }
 
     final fallback = <RecentSignalModel>[];
@@ -92,7 +114,7 @@ class TodayRepository {
       }
     }
 
-    return _dedupeSignals(fallback);
+    return _dedupeSignals(fallback)..sort(_compareByCreatedAtDesc);
   }
 
   List<RecentSignalModel> _dedupeSignals(List<RecentSignalModel> signals) {
@@ -107,5 +129,11 @@ class TodayRepository {
     }
 
     return result;
+  }
+
+  int _compareByCreatedAtDesc(RecentSignalModel a, RecentSignalModel b) {
+    final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return bTime.compareTo(aTime);
   }
 }
