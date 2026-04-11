@@ -152,8 +152,9 @@ class _TodayPageState extends State<TodayPage> {
           if (!state.isInitialLoading) ...[
             const SizedBox(height: 20),
             _DailyObservationCard(
-              summary: _buildDailyObservation(context, todaySignals),
-            ),
+                entryCount: todaySignals.length,
+                summary: _buildDailyObservation(context, todaySignals),
+              ),
             const SizedBox(height: 16),
             _TryNextCard(
               summary: _buildTryNext(context, todaySignals),
@@ -731,9 +732,13 @@ class _AiResponseBubble extends StatelessWidget {
 }
 
 class _DailyObservationCard extends StatelessWidget {
+  final int entryCount;
   final String summary;
 
-  const _DailyObservationCard({required this.summary});
+  const _DailyObservationCard({
+    required this.entryCount,
+    required this.summary,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -766,6 +771,20 @@ class _DailyObservationCard extends StatelessWidget {
                     ),
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Today has $entryCount entr${entryCount == 1 ? 'y' : 'ies'}',
+                      zhHans: '今天记录了 $entryCount 条',
+                      zhHant: '今天記錄了 $entryCount 條',
+                      ja: '今日は $entryCount 件記録しました',
+                    ),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -816,6 +835,20 @@ class _TryNextCard extends StatelessWidget {
                     ),
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Today has $entryCount entr${entryCount == 1 ? 'y' : 'ies'}',
+                      zhHans: '今天记录了 $entryCount 条',
+                      zhHant: '今天記錄了 $entryCount 條',
+                      ja: '今日は $entryCount 件記録しました',
+                    ),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 6),

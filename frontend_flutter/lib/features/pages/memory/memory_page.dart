@@ -112,9 +112,9 @@ class _JourneyReadyBody extends StatelessWidget {
           summary: AppLocaleText.tr(
             context,
             en: '$totalCount long-term clues are starting to settle',
-            zhHans: '目前已经沉淀了 $totalCount 条长期线索',
-            zhHant: '目前已經沉澱了 $totalCount 條長期線索',
-            ja: 'ここまでに $totalCount 件の長期的な手がかりが少しずつ積み上がっています',
+            zhHans: totalCount == 0 ? '第 1 天暂不展示 Journey（从第 2 天开始）' : '目前已经沉淀了 $totalCount 条长期线索',
+            zhHant: totalCount == 0 ? '第 1 天暫不展示 Journey（從第 2 天開始）' : '目前已經沉澱了 $totalCount 條長期線索',
+            ja: totalCount == 0 ? '初日は Journey を表示しません（2日目から開始）' : 'ここまでに $totalCount 件の長期的な手がかりが少しずつ積み上がっています',
           ),
         ),
         const SizedBox(height: 14),
