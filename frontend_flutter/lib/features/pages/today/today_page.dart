@@ -743,6 +743,7 @@ class _DailyObservationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final count = entryCount;
 
     return Card(
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
@@ -777,10 +778,10 @@ class _DailyObservationCard extends StatelessWidget {
                   Text(
                     AppLocaleText.tr(
                       context,
-                      en: 'Today has $entryCount entr${entryCount == 1 ? 'y' : 'ies'}',
-                      zhHans: '今天记录了 $entryCount 条',
-                      zhHant: '今天記錄了 $entryCount 條',
-                      ja: '今日は $entryCount 件記録しました',
+                      en: 'Today has $count entr${count == 1 ? 'y' : 'ies'}',
+                      zhHans: '今天记录了 $count 条',
+                      zhHant: '今天記錄了 $count 條',
+                      ja: '今日は $count 件記録しました',
                     ),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w600,
@@ -835,20 +836,6 @@ class _TryNextCard extends StatelessWidget {
                     ),
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'Today has $entryCount entr${entryCount == 1 ? 'y' : 'ies'}',
-                      zhHans: '今天记录了 $entryCount 条',
-                      zhHant: '今天記錄了 $entryCount 條',
-                      ja: '今日は $entryCount 件記録しました',
-                    ),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 6),
