@@ -24,146 +24,130 @@ class MePage extends StatelessWidget {
             ja: 'Me',
           ),
         ),
-        actions: [
-          IconButton(
-            tooltip: AppLocaleText.tr(
-              context,
-              en: 'Refresh',
-              zhHans: '刷新',
-              zhHant: '重新整理',
-              ja: '更新',
-            ),
-            onPressed: vm.loading || vm.saving ? null : vm.reload,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
       ),
-      body: RefreshIndicator(
-        onRefresh: vm.reload,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: [
-            Text(
-              AppLocaleText.tr(
-                context,
-                en: 'Me',
-                zhHans: 'Me',
-                zhHant: 'Me',
-                ja: 'Me',
-              ),
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Me',
+              zhHans: 'Me',
+              zhHant: 'Me',
+              ja: 'Me',
             ),
-            const SizedBox(height: 6),
-            Text(
-              AppLocaleText.tr(
-                context,
-                en: 'This is where your preferences and personal settings come together.',
-                zhHans: '这里会慢慢收纳你的偏好设置和个人选项。',
-                zhHant: '這裡會慢慢收納你的偏好設定和個人選項。',
-                ja: 'ここに、設定や個人の好みが少しずつまとまっていきます。',
-              ),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w800,
             ),
-            const SizedBox(height: 20),
-            SectionHeader(
+          ),
+          const SizedBox(height: 6),
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'This is where your preferences and personal settings come together.',
+              zhHans: '这里会慢慢收纳你的偏好设置和个人选项。',
+              zhHant: '這裡會慢慢收納你的偏好設定和個人選項。',
+              ja: 'ここに、設定や個人の好みが少しずつまとまっていきます。',
+            ),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 20),
+          SectionHeader(
+            title: AppLocaleText.tr(
+              context,
+              en: 'Preferences',
+              zhHans: '偏好设置',
+              zhHant: '偏好設定',
+              ja: '好みの設定',
+            ),
+            subtitle: AppLocaleText.tr(
+              context,
+              en: 'These settings are not fixed forever. You can adjust them later anytime.',
+              zhHans: '这些设置不会把你固定住，之后随时都可以调整。',
+              zhHant: '這些設定不會把你固定住，之後隨時都可以調整。',
+              ja: 'これらの設定は固定ではなく、あとからいつでも変えられます。',
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (vm.loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else ...[
+            _EditablePreferenceCard(
+              icon: Icons.tune_rounded,
               title: AppLocaleText.tr(
                 context,
-                en: 'Preferences',
-                zhHans: '偏好设置',
-                zhHant: '偏好設定',
-                ja: '好みの設定',
+                en: 'Focus area',
+                zhHans: '关注方向',
+                zhHant: '關注方向',
+                ja: '注目方向',
               ),
               subtitle: AppLocaleText.tr(
                 context,
-                en: 'These settings are not fixed forever. You can adjust them later anytime.',
-                zhHans: '这些设置不会把你固定住，之后随时都可以调整。',
-                zhHant: '這些設定不會把你固定住，之後隨時都可以調整。',
-                ja: 'これらの設定は固定ではなく、あとからいつでも変えられます。',
+                en: 'What you want the system to notice first',
+                zhHans: '你更希望系统先留意哪些方面',
+                zhHant: '你更希望系統先留意哪些方面',
+                ja: 'システムにまず見てほしい方向',
+              ),
+              value: _focusAreaLabel(context, vm.selectedRepeatArea),
+              helper: _focusAreaBody(context, vm.selectedRepeatArea),
+              actionLabel: AppLocaleText.tr(
+                context,
+                en: 'Change',
+                zhHans: '修改',
+                zhHant: '修改',
+                ja: '変更',
+              ),
+              onTap: vm.saving ? null : () => _showFocusAreaSheet(context, vm),
+              isBusy: vm.saving,
+            ),
+            const SizedBox(height: 12),
+            _ReadonlyPreferenceCard(
+              icon: Icons.language_rounded,
+              title: AppLocaleText.tr(
+                context,
+                en: 'Language',
+                zhHans: '语言',
+                zhHant: '語言',
+                ja: '言語',
+              ),
+              subtitle: AppLocaleText.tr(
+                context,
+                en: 'The app follows your system language by default',
+                zhHans: 'App 默认跟随系统语言',
+                zhHant: 'App 預設跟隨系統語言',
+                ja: 'アプリは基本的にシステム言語に合わせます',
+              ),
+              value: _languageLabel(context),
+              helper: AppLocaleText.tr(
+                context,
+                en: 'English is used when the system language is not supported.',
+                zhHans: '当系统语言不在支持范围内时，会回退到英文。',
+                zhHant: '當系統語言不在支援範圍內時，會回退到英文。',
+                ja: 'システム言語が未対応の場合は英語に戻ります。',
               ),
             ),
-            const SizedBox(height: 10),
-            if (vm.loading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 32),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else ...[
-              _EditablePreferenceCard(
-                icon: Icons.tune_rounded,
-                title: AppLocaleText.tr(
-                  context,
-                  en: 'Focus area',
-                  zhHans: '关注方向',
-                  zhHant: '關注方向',
-                  ja: '注目方向',
-                ),
-                subtitle: AppLocaleText.tr(
-                  context,
-                  en: 'What you want the system to notice first',
-                  zhHans: '你更希望系统先留意哪些方面',
-                  zhHant: '你更希望系統先留意哪些方面',
-                  ja: 'システムにまず見てほしい方向',
-                ),
-                value: _focusAreaLabel(context, vm.selectedRepeatArea),
-                helper: _focusAreaBody(context, vm.selectedRepeatArea),
-                actionLabel: AppLocaleText.tr(
-                  context,
-                  en: 'Change',
-                  zhHans: '修改',
-                  zhHant: '修改',
-                  ja: '変更',
-                ),
-                onTap: vm.saving ? null : () => _showFocusAreaSheet(context, vm),
-                isBusy: vm.saving,
-              ),
-              const SizedBox(height: 12),
-              _ReadonlyPreferenceCard(
-                icon: Icons.language_rounded,
-                title: AppLocaleText.tr(
-                  context,
-                  en: 'Language',
-                  zhHans: '语言',
-                  zhHant: '語言',
-                  ja: '言語',
-                ),
-                subtitle: AppLocaleText.tr(
-                  context,
-                  en: 'The app follows your system language by default',
-                  zhHans: 'App 默认跟随系统语言',
-                  zhHant: 'App 預設跟隨系統語言',
-                  ja: 'アプリは基本的にシステム言語に合わせます',
-                ),
-                value: _languageLabel(context),
-                helper: AppLocaleText.tr(
-                  context,
-                  en: 'English is used when the system language is not supported.',
-                  zhHans: '当系统语言不在支持范围内时，会回退到英文。',
-                  zhHant: '當系統語言不在支援範圍內時，會回退到英文。',
-                  ja: 'システム言語が未対応の場合は英語に戻ります。',
-                ),
-              ),
-            ],
-            if (vm.errorMessage != null && vm.errorMessage!.trim().isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Card(
-                color: theme.colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    vm.errorMessage!,
-                    style: TextStyle(
-                      color: theme.colorScheme.onErrorContainer,
-                    ),
+          ],
+          if (vm.errorMessage != null && vm.errorMessage!.trim().isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Card(
+              color: theme.colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  vm.errorMessage!,
+                  style: TextStyle(
+                    color: theme.colorScheme.onErrorContainer,
                   ),
                 ),
               ),
-            ],
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

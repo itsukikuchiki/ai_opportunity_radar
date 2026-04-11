@@ -36,83 +36,67 @@ class WeeklyPage extends StatelessWidget {
             ja: 'Weekly',
           ),
         ),
-        actions: [
-          IconButton(
-            tooltip: AppLocaleText.tr(
-              context,
-              en: 'Refresh',
-              zhHans: '刷新',
-              zhHant: '重新整理',
-              ja: '更新',
-            ),
-            onPressed: vm.loadState == LoadState.loading ? null : vm.retry,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
       ),
-      body: RefreshIndicator(
-        onRefresh: vm.retry,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-          children: [
-            AppHeader(
-              title: AppLocaleText.tr(
-                context,
-                en: 'Weekly',
-                zhHans: 'Weekly',
-                zhHant: 'Weekly',
-                ja: 'Weekly',
-              ),
-              subtitle: _buildWeekRange(context, vm),
-              summary: _buildHeaderSummary(context, vm),
-              preferenceText: _preferenceText(context, meVm.selectedRepeatArea),
-              onTapPreference: () => _openMePage(context),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+        children: [
+          AppHeader(
+            title: AppLocaleText.tr(
+              context,
+              en: 'Weekly',
+              zhHans: 'Weekly',
+              zhHant: 'Weekly',
+              ja: 'Weekly',
             ),
-            const SizedBox(height: 8),
-            switch (vm.loadState) {
-              LoadState.loading => const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 56),
-                  child: Center(child: CircularProgressIndicator()),
+            subtitle: _buildWeekRange(context, vm),
+            summary: _buildHeaderSummary(context, vm),
+            preferenceText: _preferenceText(context, meVm.selectedRepeatArea),
+            onTapPreference: () => _openMePage(context),
+          ),
+          const SizedBox(height: 8),
+          switch (vm.loadState) {
+            LoadState.loading => const Padding(
+                padding: EdgeInsets.symmetric(vertical: 56),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            LoadState.error => EmptyStateBlock(
+                icon: Icons.error_outline,
+                title: AppLocaleText.tr(
+                  context,
+                  en: 'Failed to load this week',
+                  zhHans: '这周的内容加载失败了',
+                  zhHant: '這週的內容載入失敗了',
+                  ja: '今週の内容を読み込めませんでした',
                 ),
-              LoadState.error => EmptyStateBlock(
-                  icon: Icons.error_outline,
-                  title: AppLocaleText.tr(
-                    context,
-                    en: 'Failed to load this week',
-                    zhHans: '这周的内容加载失败了',
-                    zhHant: '這週的內容載入失敗了',
-                    ja: '今週の内容を読み込めませんでした',
-                  ),
-                  subtitle: vm.errorMessage ??
-                      AppLocaleText.tr(
-                        context,
-                        en: 'Please try again later.',
-                        zhHans: '请稍后重试。',
-                        zhHant: '請稍後重試。',
-                        ja: 'しばらくしてから、もう一度試してください。',
-                      ),
+                subtitle: vm.errorMessage ??
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Please try again later.',
+                      zhHans: '请稍后重试。',
+                      zhHant: '請稍後重試。',
+                      ja: 'しばらくしてから、もう一度試してください。',
+                    ),
+              ),
+            LoadState.empty => EmptyStateBlock(
+                icon: Icons.stacked_line_chart_outlined,
+                title: AppLocaleText.tr(
+                  context,
+                  en: 'Not enough signals yet this week',
+                  zhHans: '这周的记录还不够多',
+                  zhHant: '這週的記錄還不夠多',
+                  ja: '今週はまだ記録が足りません',
                 ),
-              LoadState.empty => EmptyStateBlock(
-                  icon: Icons.stacked_line_chart_outlined,
-                  title: AppLocaleText.tr(
-                    context,
-                    en: 'Not enough signals yet this week',
-                    zhHans: '这周的记录还不够多',
-                    zhHant: '這週的記錄還不夠多',
-                    ja: '今週はまだ記録が足りません',
-                  ),
-                  subtitle: AppLocaleText.tr(
-                    context,
-                    en: 'After a few more entries, this page will start showing what repeats, what drains you, and what may be worth trying next.',
-                    zhHans: '等你再记几条之后，这里会慢慢开始看见哪些情况在重复，哪些地方最耗你，以及接下来最值得试的一步。',
-                    zhHant: '等你再記幾條之後，這裡會慢慢開始看見哪些情況在重複，哪些地方最耗你，以及接下來最值得試的一步。',
-                    ja: 'もう少し記録がたまると、何が繰り返されているのか、どこがいちばん消耗を生んでいるのか、次に何を試すとよさそうかが少しずつ見えてきます。',
-                  ),
+                subtitle: AppLocaleText.tr(
+                  context,
+                  en: 'After a few more entries, this page will start showing what repeats, what drains you, and what may be worth trying next.',
+                  zhHans: '等你再记几条之后，这里会慢慢开始看见哪些情况在重复，哪些地方最耗你，以及接下来最值得试的一步。',
+                  zhHant: '等你再記幾條之後，這裡會慢慢開始看見哪些情況在重複，哪些地方最耗你，以及接下來最值得試的一步。',
+                  ja: 'もう少し記録がたまると、何が繰り返されているのか、どこがいちばん消耗を生んでいるのか、次に何を試すとよさそうかが少しずつ見えてきます。',
                 ),
-              _ => _WeeklyReadyBody(vm: vm),
-            },
-          ],
-        ),
+              ),
+            _ => _WeeklyReadyBody(vm: vm),
+          },
+        ],
       ),
     );
   }

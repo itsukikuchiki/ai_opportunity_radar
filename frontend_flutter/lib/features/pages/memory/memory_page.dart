@@ -26,50 +26,34 @@ class MemoryPage extends StatelessWidget {
             ja: 'Journey',
           ),
         ),
-        actions: [
-          IconButton(
-            tooltip: AppLocaleText.tr(
-              context,
-              en: 'Refresh',
-              zhHans: '刷新',
-              zhHant: '重新整理',
-              ja: '更新',
-            ),
-            onPressed: vm.loadState == LoadState.loading ? null : vm.retry,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
       ),
-      body: RefreshIndicator(
-        onRefresh: vm.retry,
-        child: switch (vm.loadState) {
-          LoadState.loading => const Center(child: CircularProgressIndicator()),
-          LoadState.error => ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                EmptyStateBlock(
-                  icon: Icons.error_outline,
-                  title: AppLocaleText.tr(
-                    context,
-                    en: 'Journey failed to load',
-                    zhHans: 'Journey 加载失败了',
-                    zhHant: 'Journey 載入失敗了',
-                    ja: 'Journey の読み込みに失敗しました',
-                  ),
-                  subtitle: vm.errorMessage ??
-                      AppLocaleText.tr(
-                        context,
-                        en: 'Please try again later.',
-                        zhHans: '请稍后重试。',
-                        zhHant: '請稍後重試。',
-                        ja: 'しばらくしてから、もう一度試してください。',
-                      ),
+      body: switch (vm.loadState) {
+        LoadState.loading => const Center(child: CircularProgressIndicator()),
+        LoadState.error => ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              EmptyStateBlock(
+                icon: Icons.error_outline,
+                title: AppLocaleText.tr(
+                  context,
+                  en: 'Journey failed to load',
+                  zhHans: 'Journey 加载失败了',
+                  zhHant: 'Journey 載入失敗了',
+                  ja: 'Journey の読み込みに失敗しました',
                 ),
-              ],
-            ),
-          _ => _JourneyReadyBody(vm: vm),
-        },
-      ),
+                subtitle: vm.errorMessage ??
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Please try again later.',
+                      zhHans: '请稍后重试。',
+                      zhHant: '請稍後重試。',
+                      ja: 'しばらくしてから、もう一度試してください。',
+                    ),
+              ),
+            ],
+          ),
+        _ => _JourneyReadyBody(vm: vm),
+      },
     );
   }
 }

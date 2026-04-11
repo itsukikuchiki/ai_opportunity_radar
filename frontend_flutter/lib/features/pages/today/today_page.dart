@@ -85,87 +85,81 @@ class _TodayPageState extends State<TodayPage> {
       appBar: AppBar(
         title: Text(_todayTitle(context)),
         centerTitle: false,
-        actions: [
-          IconButton(
-            tooltip: _refreshText(context),
-            onPressed: state.isInitialLoading ? null : vm.retry,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
       ),
-      body: RefreshIndicator(
-        onRefresh: vm.retry,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: [
-            AppHeader(
-              title: _todayTitle(context),
-              subtitle: _todayDateText(context),
-              summary: _buildTodaySummary(context, todaySignals, state.isInitialLoading),
-              preferenceText: _preferenceText(context, meVm.selectedRepeatArea),
-              onTapPreference: _openMePage,
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          AppHeader(
+            title: _todayTitle(context),
+            subtitle: _todayDateText(context),
+            summary: _buildTodaySummary(
+              context,
+              todaySignals,
+              state.isInitialLoading,
             ),
-            const SizedBox(height: 8),
-            _CaptureInputCard(
-              controller: _controller,
-              isSubmitting: state.isCaptureSubmitting,
-              onChanged: vm.updateInput,
-              onSubmit: () => vm.submitCapture(),
-            ),
-            if (state.hasError) ...[
-              const SizedBox(height: 16),
-              Card(
-                color: theme.colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    _displayErrorText(context, state.errorMessage),
-                    style: TextStyle(
-                      color: theme.colorScheme.onErrorContainer,
-                    ),
+            preferenceText: _preferenceText(context, meVm.selectedRepeatArea),
+            onTapPreference: _openMePage,
+          ),
+          const SizedBox(height: 8),
+          _CaptureInputCard(
+            controller: _controller,
+            isSubmitting: state.isCaptureSubmitting,
+            onChanged: vm.updateInput,
+            onSubmit: () => vm.submitCapture(),
+          ),
+          if (state.hasError) ...[
+            const SizedBox(height: 16),
+            Card(
+              color: theme.colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  _displayErrorText(context, state.errorMessage),
+                  style: TextStyle(
+                    color: theme.colorScheme.onErrorContainer,
                   ),
                 ),
               ),
-            ],
-            if (state.pendingQuestion != null) ...[
-              const SizedBox(height: 16),
-              _FollowupQuestionCard(
-                question: state.pendingQuestion!,
-                isSubmitting: state.isFollowupSubmitting,
-                onSubmit: vm.submitFollowup,
-              ),
-            ],
-            const SizedBox(height: 20),
-            if (todaySignals.isEmpty && !state.isInitialLoading) ...[
-              EmptyStateBlock(
-                icon: Icons.timeline_rounded,
-                title: _emptyTitleText(context),
-                subtitle: _emptySubtitleText(context),
-              ),
-            ] else ...[
-              SectionHeader(
-                title: _todayRecordsTitle(context),
-                subtitle: _todayRecordsSubtitle(context),
-              ),
-              const SizedBox(height: 8),
-              _TimelineList(signals: todaySignals),
-            ],
-            if (state.isInitialLoading) ...[
-              const SizedBox(height: 24),
-              const Center(child: CircularProgressIndicator()),
-            ],
-            if (!state.isInitialLoading) ...[
-              const SizedBox(height: 20),
-              _DailyObservationCard(
-                summary: _buildDailyObservation(context, todaySignals),
-              ),
-              const SizedBox(height: 16),
-              _TryNextCard(
-                summary: _buildTryNext(context, todaySignals),
-              ),
-            ],
+            ),
           ],
-        ),
+          if (state.pendingQuestion != null) ...[
+            const SizedBox(height: 16),
+            _FollowupQuestionCard(
+              question: state.pendingQuestion!,
+              isSubmitting: state.isFollowupSubmitting,
+              onSubmit: vm.submitFollowup,
+            ),
+          ],
+          const SizedBox(height: 20),
+          if (todaySignals.isEmpty && !state.isInitialLoading) ...[
+            EmptyStateBlock(
+              icon: Icons.timeline_rounded,
+              title: _emptyTitleText(context),
+              subtitle: _emptySubtitleText(context),
+            ),
+          ] else ...[
+            SectionHeader(
+              title: _todayRecordsTitle(context),
+              subtitle: _todayRecordsSubtitle(context),
+            ),
+            const SizedBox(height: 8),
+            _TimelineList(signals: todaySignals),
+          ],
+          if (state.isInitialLoading) ...[
+            const SizedBox(height: 24),
+            const Center(child: CircularProgressIndicator()),
+          ],
+          if (!state.isInitialLoading) ...[
+            const SizedBox(height: 20),
+            _DailyObservationCard(
+              summary: _buildDailyObservation(context, todaySignals),
+            ),
+            const SizedBox(height: 16),
+            _TryNextCard(
+              summary: _buildTryNext(context, todaySignals),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -194,16 +188,6 @@ class _TodayPageState extends State<TodayPage> {
       zhHans: 'Today',
       zhHant: 'Today',
       ja: 'Today',
-    );
-  }
-
-  String _refreshText(BuildContext context) {
-    return AppLocaleText.tr(
-      context,
-      en: 'Refresh',
-      zhHans: '刷新',
-      zhHant: '重新整理',
-      ja: '更新',
     );
   }
 
