@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import uuid4
 from sqlalchemy.orm import Session
 from app.models import Pattern, Friction, Desire, Opportunity
@@ -149,12 +149,25 @@ class MemoryService:
         return row
 
     def get_memory_summary(self, user_id: str) -> dict:
-        patterns = self.repo.list_patterns(user_id, limit=10)
-        frictions = self.repo.list_frictions(user_id, limit=10)
-        desires = self.repo.list_desires(user_id, limit=10)
+        user_created = self.repo.get_user_created_date(user_id)
+        since_date = user_created + timedelta(days=1) if user_created else None
+
+        patterns = self.repo.list_patterns(user_id, limit=10, since_date=since_date)
+        frictions = self.repo.list_frictions(user_id, limit=10, since_date=since_date)
+        desires = self.repo.list_desires(user_id, limit=10, since_date=since_date)
+        recent_raws = self.repo.list_recent_raw_memories(user_id, limit=50, since_date=since_date)
         return {
             'patterns': [{'id': p.id, 'name': p.name, 'status': p.status, 'summary': p.description or ''} for p in patterns],
             'frictions': [{'id': f.id, 'name': f.name, 'status': f.status, 'summary': f.description or ''} for f in frictions],
             'desires': [{'id': d.id, 'name': d.name, 'summary': d.description or d.name} for d in desires],
+            'recent_signals': [
+                {
+                    'id': r.id,
+                    'content': r.content or '',
+                    'created_at': r.created_at.isoformat() if r.created_at else None,
+                    'acknowledgement': (r.metadata_json or {}).get('acknowledgement'),
+                }
+                for r in recent_raws
+            ],
             'experiments': [],
         }

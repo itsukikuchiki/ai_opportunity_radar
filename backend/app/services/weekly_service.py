@@ -14,9 +14,28 @@ class WeeklyService:
         self.llm = LlmService()
 
     def get_current_weekly(self, user_id: str) -> dict:
+        ensure_demo_user(self.db, user_id)
         today = date.today()
-        week_start = today - timedelta(days=today.weekday())
-        return self.get_weekly_by_start(user_id, week_start)
+        rolling_start = today - timedelta(days=6)
+        user_created = self.memory_repo.get_user_created_date(user_id)
+        if user_created:
+            rolling_start = max(rolling_start, user_created + timedelta(days=1))
+
+        existing = self.weekly_repo.find_by_user_and_week(user_id, rolling_start)
+        if existing and existing.week_end == today:
+            return {
+                'week_start': existing.week_start.isoformat(),
+                'week_end': existing.week_end.isoformat(),
+                'status': existing.status,
+                'key_insight': existing.key_insight,
+                'patterns': existing.top_patterns_json,
+                'frictions': existing.top_frictions_json,
+                'best_action': existing.best_action,
+                'opportunity_snapshot': existing.opportunity_snapshot_json,
+                'feedback_submitted': existing.feedback_value is not None,
+            }
+
+        return self.generate_weekly(user_id, rolling_start, week_end=today)
 
     def get_weekly_by_start(self, user_id: str, week_start: date) -> dict:
         ensure_demo_user(self.db, user_id)
@@ -42,8 +61,8 @@ class WeeklyService:
             raise ValueError('Weekly insight not found')
         return {'week_start': week_start.isoformat(), 'feedback_value': feedback_value, 'message': '周报反馈已记录。'}
 
-    def generate_weekly(self, user_id: str, week_start: date) -> dict:
-        week_end = week_start + timedelta(days=6)
+    def generate_weekly(self, user_id: str, week_start: date, week_end: date | None = None) -> dict:
+        week_end = week_end or (week_start + timedelta(days=6))
         summary = self.memory_repo.raw_summary(user_id, week_start, week_end)
         if summary['signal_count'] < 1:
             payload = {'week_start': week_start.isoformat(), 'week_end': week_end, 'status': 'insufficient_data'}

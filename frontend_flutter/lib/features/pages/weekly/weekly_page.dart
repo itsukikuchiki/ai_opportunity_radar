@@ -36,25 +36,10 @@ class WeeklyPage extends StatelessWidget {
             ja: 'Weekly',
           ),
         ),
-        actions: [
-          IconButton(
-            tooltip: AppLocaleText.tr(
-              context,
-              en: 'Refresh',
-              zhHans: '刷新',
-              zhHant: '重新整理',
-              ja: '更新',
-            ),
-            onPressed: vm.loadState == LoadState.loading ? null : vm.retry,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
       ),
-      body: RefreshIndicator(
-        onRefresh: vm.retry,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-          children: [
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+        children: [
             AppHeader(
               title: AppLocaleText.tr(
                 context,
@@ -112,7 +97,6 @@ class WeeklyPage extends StatelessWidget {
               _ => _WeeklyReadyBody(vm: vm),
             },
           ],
-        ),
       ),
     );
   }

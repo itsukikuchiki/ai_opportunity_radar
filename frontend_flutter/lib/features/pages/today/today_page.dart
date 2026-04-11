@@ -85,19 +85,10 @@ class _TodayPageState extends State<TodayPage> {
       appBar: AppBar(
         title: Text(_todayTitle(context)),
         centerTitle: false,
-        actions: [
-          IconButton(
-            tooltip: _refreshText(context),
-            onPressed: state.isInitialLoading ? null : vm.retry,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
       ),
-      body: RefreshIndicator(
-        onRefresh: vm.retry,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: [
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
             AppHeader(
               title: _todayTitle(context),
               subtitle: _todayDateText(context),
@@ -165,7 +156,6 @@ class _TodayPageState extends State<TodayPage> {
               ),
             ],
           ],
-        ),
       ),
     );
   }
@@ -194,16 +184,6 @@ class _TodayPageState extends State<TodayPage> {
       zhHans: 'Today',
       zhHant: 'Today',
       ja: 'Today',
-    );
-  }
-
-  String _refreshText(BuildContext context) {
-    return AppLocaleText.tr(
-      context,
-      en: 'Refresh',
-      zhHans: '刷新',
-      zhHant: '重新整理',
-      ja: '更新',
     );
   }
 
@@ -351,14 +331,90 @@ class _TodayPageState extends State<TodayPage> {
     BuildContext context,
     List<RecentSignalModel> signals,
   ) {
-    return _buildTodayInsight(context, signals).observation;
+    final count = signals.length;
+    final insight = _buildTodayInsight(context, signals).observation;
+    if (count <= 0) {
+      return insight;
+    }
+
+    return AppLocaleText.tr(
+      context,
+      en: 'Today has $count entr${count == 1 ? 'y' : 'ies'}. $insight',
+      zhHans: '今天记录了 $count 条。$insight',
+      zhHant: '今天記錄了 $count 條。$insight',
+      ja: '今日は $count 件記録しました。$insight',
+    );
   }
 
   String _buildTryNext(
     BuildContext context,
     List<RecentSignalModel> signals,
   ) {
-    return _buildTodayInsight(context, signals).nextStep;
+    if (signals.isEmpty) {
+      return _buildTodayInsight(context, signals).nextStep;
+    }
+
+    final latest = signals.first.content.trim();
+    return _buildSuggestionFromLatest(context, latest);
+  }
+
+  String _buildSuggestionFromLatest(BuildContext context, String latest) {
+    final text = latest.toLowerCase();
+
+    final isRepeat = text.contains('又') ||
+        text.contains('重复') ||
+        text.contains('again') ||
+        text.contains('repeat');
+    final isInterruption = text.contains('打断') ||
+        text.contains('中断') ||
+        text.contains('切换') ||
+        text.contains('interrupt') ||
+        text.contains('switch');
+    final isEmotion = text.contains('烦') ||
+        text.contains('累') ||
+        text.contains('焦虑') ||
+        text.contains('生气') ||
+        text.contains('annoy') ||
+        text.contains('tired') ||
+        text.contains('anxious');
+
+    if (isRepeat) {
+      return AppLocaleText.tr(
+        context,
+        en: 'From today’s observation, this looks repeatable. If it happens again, record what stayed the same and what changed.',
+        zhHans: '根据今天的小观察，这件事有重复迹象。下次再发生时，补一条“哪里一样、哪里不一样”。',
+        zhHant: '根據今天的小觀察，這件事有重複跡象。下次再發生時，補一條「哪裡一樣、哪裡不一樣」。',
+        ja: '今日の観察から見ると、これは繰り返しの兆しがあります。次に起きたら「同じ点」と「違う点」を一つずつ残してください。',
+      );
+    }
+
+    if (isInterruption) {
+      return AppLocaleText.tr(
+        context,
+        en: 'From today’s observation, interruption may be the key drain. Next time, note what you were doing right before being interrupted.',
+        zhHans: '根据今天的小观察，节奏被打断可能是关键消耗点。下次发生时，补一句“被打断前我在做什么”。',
+        zhHant: '根據今天的小觀察，節奏被打斷可能是關鍵消耗點。下次發生時，補一句「被打斷前我在做什麼」。',
+        ja: '今日の観察では、流れを切られることが主な消耗点かもしれません。次回は「中断される直前に何をしていたか」を一言残してください。',
+      );
+    }
+
+    if (isEmotion) {
+      return AppLocaleText.tr(
+        context,
+        en: 'From today’s observation, emotion intensity seems important. Next time, add one short reason for what triggered the feeling.',
+        zhHans: '根据今天的小观察，情绪强度可能是关键信号。下次发生时，补一句“触发这感觉的原因”。',
+        zhHant: '根據今天的小觀察，情緒強度可能是關鍵信號。下次發生時，補一句「觸發這感覺的原因」。',
+        ja: '今日の観察では、感情の強さが重要な手がかりです。次回は「その感情を引き起こした要因」を一言だけ足してください。',
+      );
+    }
+
+    return AppLocaleText.tr(
+      context,
+      en: 'Based on today’s observation, try adding one concrete detail next time: when, where, and who was involved.',
+      zhHans: '根据今天的小观察，下次可补 1 个具体细节：发生时间、场景，或涉及的人。',
+      zhHant: '根據今天的小觀察，下次可補 1 個具體細節：發生時間、場景，或涉及的人。',
+      ja: '今日の観察をもとに、次回は具体情報を1つ追加してみてください（時間・場面・関係者のいずれか）。',
+    );
   }
 
   _TodayInsightResult _buildTodayInsight(
