@@ -88,6 +88,13 @@ class MemoryRepository:
         weekly = self.db.scalars(stmt).first()
         return {'weekly_feedback_last_week': weekly.feedback_value if weekly else None}
 
+    def get_first_signal_date(self, user_id: str) -> date | None:
+        stmt = select(func.min(RawMemory.created_at)).where(RawMemory.user_id == user_id)
+        first_dt = self.db.execute(stmt).scalar_one_or_none()
+        if first_dt is None:
+            return None
+        return first_dt.date()
+
     def raw_summary(self, user_id: str, week_start: date, week_end: date) -> dict:
         start_dt = datetime.combine(week_start, datetime.min.time())
         end_dt = datetime.combine(week_end + timedelta(days=1), datetime.min.time())

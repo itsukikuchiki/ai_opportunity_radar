@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from uuid import uuid4
 from sqlalchemy.orm import Session
 from app.models import Pattern, Friction, Desire, Opportunity
@@ -149,6 +149,20 @@ class MemoryService:
         return row
 
     def get_memory_summary(self, user_id: str) -> dict:
+        today = date.today()
+        first_signal_date = self.repo.get_first_signal_date(user_id)
+        journey_started = first_signal_date is not None and today >= (first_signal_date + timedelta(days=1))
+
+        if not journey_started:
+            return {
+                'patterns': [],
+                'frictions': [],
+                'desires': [],
+                'experiments': [],
+                'journey_started': False,
+                'first_signal_date': first_signal_date.isoformat() if first_signal_date else None,
+            }
+
         patterns = self.repo.list_patterns(user_id, limit=10)
         frictions = self.repo.list_frictions(user_id, limit=10)
         desires = self.repo.list_desires(user_id, limit=10)
@@ -157,4 +171,6 @@ class MemoryService:
             'frictions': [{'id': f.id, 'name': f.name, 'status': f.status, 'summary': f.description or ''} for f in frictions],
             'desires': [{'id': d.id, 'name': d.name, 'summary': d.description or d.name} for d in desires],
             'experiments': [],
+            'journey_started': True,
+            'first_signal_date': first_signal_date.isoformat() if first_signal_date else None,
         }

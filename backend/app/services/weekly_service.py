@@ -15,7 +15,19 @@ class WeeklyService:
 
     def get_current_weekly(self, user_id: str) -> dict:
         today = date.today()
-        week_start = today - timedelta(days=today.weekday())
+        first_signal_date = self.memory_repo.get_first_signal_date(user_id)
+        weekly_started = first_signal_date is not None and today >= (first_signal_date + timedelta(days=1))
+        if not weekly_started:
+            week_start = today - timedelta(days=6)
+            return {
+                'week_start': week_start.isoformat(),
+                'week_end': today.isoformat(),
+                'status': 'not_started',
+                'message': 'Weekly 将从首条记录后的第 2 天开始展示。',
+                'first_signal_date': first_signal_date.isoformat() if first_signal_date else None,
+            }
+
+        week_start = today - timedelta(days=6)
         return self.get_weekly_by_start(user_id, week_start)
 
     def get_weekly_by_start(self, user_id: str, week_start: date) -> dict:

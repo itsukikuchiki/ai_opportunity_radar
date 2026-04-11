@@ -27,7 +27,7 @@ class WeeklyViewModel extends ChangeNotifier {
 
     try {
       weeklyInsight = await repository.fetchCurrentWeekly();
-      loadState = weeklyInsight?.status == 'insufficient_data'
+      loadState = (weeklyInsight?.status == 'insufficient_data' || weeklyInsight?.status == 'not_started')
           ? LoadState.empty
           : LoadState.ready;
     } catch (e) {
