@@ -24,25 +24,10 @@ class MePage extends StatelessWidget {
             ja: 'Me',
           ),
         ),
-        actions: [
-          IconButton(
-            tooltip: AppLocaleText.tr(
-              context,
-              en: 'Refresh',
-              zhHans: '刷新',
-              zhHant: '重新整理',
-              ja: '更新',
-            ),
-            onPressed: vm.loading || vm.saving ? null : vm.reload,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
       ),
-      body: RefreshIndicator(
-        onRefresh: vm.reload,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: [
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
             Text(
               AppLocaleText.tr(
                 context,
@@ -163,7 +148,6 @@ class MePage extends StatelessWidget {
               ),
             ],
           ],
-        ),
       ),
     );
   }
