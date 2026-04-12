@@ -1,4 +1,6 @@
+import '../../models/memory_models.dart';
 import '../../models/today_models.dart';
+import '../../models/weekly_models.dart';
 import '../api_client.dart';
 
 class AiRepository {
@@ -24,10 +26,14 @@ class AiRepository {
       final data = (res['data'] as Map<String, dynamic>?) ?? res;
 
       return AiCaptureReplyResult(
-        acknowledgement: (data['acknowledgement'] as String?) ?? _fallbackAcknowledgement(content),
+        acknowledgement:
+            (data['acknowledgement'] as String?) ??
+            _fallbackAcknowledgement(content),
         followup: data['followup'] == null
             ? null
-            : FollowupQuestionModel.fromJson(data['followup'] as Map<String, dynamic>),
+            : FollowupQuestionModel.fromJson(
+                data['followup'] as Map<String, dynamic>,
+              ),
       );
     } catch (_) {
       return AiCaptureReplyResult(
@@ -64,13 +70,80 @@ class AiRepository {
       final data = (res['data'] as Map<String, dynamic>?) ?? res;
 
       return AiTodaySummaryResult(
-        observation: (data['observation'] as String?) ?? _fallbackObservation(entries),
-        suggestion: (data['suggestion'] as String?) ?? _fallbackSuggestion(entries),
+        observation:
+            (data['observation'] as String?) ?? _fallbackObservation(entries),
+        suggestion:
+            (data['suggestion'] as String?) ?? _fallbackSuggestion(entries),
       );
     } catch (_) {
       return AiTodaySummaryResult(
         observation: _fallbackObservation(entries),
         suggestion: _fallbackSuggestion(entries),
+      );
+    }
+  }
+
+  Future<WeeklyInsightModel> generateWeeklySummary({
+    required String weekStart,
+    required String weekEnd,
+    required List<Map<String, dynamic>> entries,
+    required Map<String, int> dayCounts,
+    required List<String> topTokens,
+    String? focusArea,
+  }) async {
+    try {
+      final res = await apiClient.postJson(
+        '/api/v1/ai/weekly-generate',
+        {
+          'week_start': weekStart,
+          'week_end': weekEnd,
+          'entry_count': entries.length,
+          'entries': entries,
+          'day_counts': dayCounts,
+          'top_tokens': topTokens,
+          'focus_area': focusArea,
+        },
+      );
+
+      final data = (res['data'] as Map<String, dynamic>?) ?? res;
+      return WeeklyInsightModel.fromJson(data);
+    } catch (_) {
+      return _fallbackWeeklyInsight(
+        weekStart: weekStart,
+        weekEnd: weekEnd,
+        entries: entries,
+        dayCounts: dayCounts,
+        topTokens: topTokens,
+      );
+    }
+  }
+
+  Future<MemorySummaryModel> generateJourneySummary({
+    required String snapshotDate,
+    required List<Map<String, dynamic>> entries,
+    required List<String> topTokens,
+    required int totalDays,
+    String? focusArea,
+  }) async {
+    try {
+      final res = await apiClient.postJson(
+        '/api/v1/ai/journey-generate',
+        {
+          'snapshot_date': snapshotDate,
+          'entry_count': entries.length,
+          'entries': entries,
+          'top_tokens': topTokens,
+          'total_days': totalDays,
+          'focus_area': focusArea,
+        },
+      );
+
+      final data = (res['data'] as Map<String, dynamic>?) ?? res;
+      return MemorySummaryModel.fromJson(data);
+    } catch (_) {
+      return _fallbackJourneySummary(
+        topTokens: topTokens,
+        totalDays: totalDays,
       );
     }
   }
@@ -106,5 +179,100 @@ class AiRepository {
       return '如果同类事情今天再出现一次，再补记一条就可以。';
     }
     return '接下来先留意：今天有没有哪类事情已经不是第一次这样发生。';
+  }
+
+  WeeklyInsightModel _fallbackWeeklyInsight({
+    required String weekStart,
+    required String weekEnd,
+    required List<Map<String, dynamic>> entries,
+    required Map<String, int> dayCounts,
+    required List<String> topTokens,
+  }) {
+    if (entries.isEmpty) {
+      return WeeklyInsightModel(
+        weekStart: weekStart,
+        weekEnd: weekEnd,
+        status: 'insufficient_data',
+        keyInsight: null,
+        patterns: const [],
+        frictions: const [],
+        bestAction: null,
+        opportunitySnapshot: null,
+        feedbackSubmitted: false,
+      );
+    }
+
+    final topTokenText = topTokens.isEmpty ? '本周记录' : topTokens.first;
+    final peakDay = _resolvePeakDay(dayCounts);
+
+    return WeeklyInsightModel(
+      weekStart: weekStart,
+      weekEnd: weekEnd,
+      status: 'ready',
+      keyInsight: '这周的记录开始围绕“$topTokenText”聚集，$peakDay 的信号更密集。',
+      patterns: [
+        {
+          'name': '重复出现的主题',
+          'summary': '这周有一些内容在反复出现，说明它已经不只是一次性的瞬间。',
+        },
+        {
+          'name': '高频关键词：$topTokenText',
+          'summary': '从本地统计看，这个主题在这周尤其明显。',
+        },
+      ],
+      frictions: [
+        {
+          'name': '本周的主要消耗',
+          'summary': '当前最大的摩擦，更像是同类事情反复回来，而不是单次事件。',
+        },
+      ],
+      bestAction: '这周先试一步：下次再出现同类情况时，用一句话补记它发生在什么场景。',
+      opportunitySnapshot: const {
+        'name': '把重复信号固定下来',
+        'summary': '如果某类事情总是回来，它可能值得先被结构化记录。',
+      },
+      feedbackSubmitted: false,
+    );
+  }
+
+  MemorySummaryModel _fallbackJourneySummary({
+    required List<String> topTokens,
+    required int totalDays,
+  }) {
+    final topToken = topTokens.isEmpty ? '最近的记录' : topTokens.first;
+
+    return MemorySummaryModel(
+      patterns: [
+        {
+          'name': '反复出现的主题',
+          'summary': '一路看下来，“$topToken”开始不止一次地出现。',
+        },
+      ],
+      frictions: [
+        {
+          'name': '持续性的摩擦',
+          'summary': '这段时间里，某些同类问题不是一次性，而是在慢慢累积。',
+        },
+      ],
+      desires: [
+        {
+          'name': '还在浮现的方向',
+          'summary': '记录已经跨越 $totalDays 天，一些真正长期在意的方向正在慢慢浮现。',
+        },
+      ],
+      experiments: [
+        {
+          'name': '开始有帮助的东西',
+          'summary': '继续记录下去，会更容易看见什么正在慢慢对你起作用。',
+        },
+      ],
+    );
+  }
+
+  String _resolvePeakDay(Map<String, int> dayCounts) {
+    if (dayCounts.isEmpty) return '这周';
+    final entries = dayCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return entries.first.key;
   }
 }

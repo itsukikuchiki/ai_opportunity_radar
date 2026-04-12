@@ -22,7 +22,7 @@ class MemoryViewModel extends ChangeNotifier {
 
     try {
       summary = await repository.fetchMemorySummary();
-      loadState = LoadState.ready;
+      loadState = summary == null ? LoadState.empty : LoadState.ready;
     } catch (e) {
       errorMessage = e.toString();
       loadState = LoadState.error;

@@ -10,6 +10,8 @@ import '../api/repositories/weekly_repository.dart';
 import '../local/local_capture_repository.dart';
 import '../local/local_daily_snapshot_repository.dart';
 import '../local/local_database.dart';
+import '../local/local_journey_snapshot_repository.dart';
+import '../local/local_weekly_snapshot_repository.dart';
 
 class AppDependencies {
   final ApiClient apiClient;
@@ -21,6 +23,8 @@ class AppDependencies {
   final LocalDatabase localDatabase;
   final LocalCaptureRepository localCaptureRepository;
   final LocalDailySnapshotRepository localDailySnapshotRepository;
+  final LocalWeeklySnapshotRepository localWeeklySnapshotRepository;
+  final LocalJourneySnapshotRepository localJourneySnapshotRepository;
 
   AppDependencies({
     required this.apiClient,
@@ -32,6 +36,8 @@ class AppDependencies {
     required this.localDatabase,
     required this.localCaptureRepository,
     required this.localDailySnapshotRepository,
+    required this.localWeeklySnapshotRepository,
+    required this.localJourneySnapshotRepository,
   });
 
   static Future<AppDependencies> create() async {
@@ -51,6 +57,11 @@ class AppDependencies {
     final localCaptureRepository = LocalCaptureRepository(localDatabase);
     final localDailySnapshotRepository =
         LocalDailySnapshotRepository(localDatabase);
+    final localWeeklySnapshotRepository =
+        LocalWeeklySnapshotRepository(localDatabase);
+    final localJourneySnapshotRepository =
+        LocalJourneySnapshotRepository(localDatabase);
+
     final aiRepository = AiRepository(apiClient);
 
     return AppDependencies(
@@ -59,13 +70,23 @@ class AppDependencies {
       localDatabase: localDatabase,
       localCaptureRepository: localCaptureRepository,
       localDailySnapshotRepository: localDailySnapshotRepository,
+      localWeeklySnapshotRepository: localWeeklySnapshotRepository,
+      localJourneySnapshotRepository: localJourneySnapshotRepository,
       todayRepository: TodayRepository(
         localCaptureRepository: localCaptureRepository,
         localDailySnapshotRepository: localDailySnapshotRepository,
         aiRepository: aiRepository,
       ),
-      weeklyRepository: WeeklyRepository(apiClient),
-      memoryRepository: MemoryRepository(apiClient),
+      weeklyRepository: WeeklyRepository(
+        localCaptureRepository: localCaptureRepository,
+        localWeeklySnapshotRepository: localWeeklySnapshotRepository,
+        aiRepository: aiRepository,
+      ),
+      memoryRepository: MemoryRepository(
+        localCaptureRepository: localCaptureRepository,
+        localJourneySnapshotRepository: localJourneySnapshotRepository,
+        aiRepository: aiRepository,
+      ),
       opportunityRepository: OpportunityRepository(apiClient),
     );
   }
