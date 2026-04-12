@@ -1,39 +1,50 @@
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../local/local_capture_repository.dart';
+import '../../local/local_daily_snapshot_repository.dart';
 import '../../models/today_models.dart';
-import '../api_client.dart';
+import 'ai_repository.dart';
+
+typedef FocusAreaLoader = Future<String?> Function();
 
 class TodayRepository {
-  final ApiClient apiClient;
+  final LocalCaptureRepository localCaptureRepository;
+  final LocalDailySnapshotRepository localDailySnapshotRepository;
+  final AiRepository aiRepository;
+  final FocusAreaLoader? focusAreaLoader;
 
-  TodayRepository(this.apiClient);
+  TodayRepository({
+    required this.localCaptureRepository,
+    required this.localDailySnapshotRepository,
+    required this.aiRepository,
+    this.focusAreaLoader,
+  });
 
   Future<Map<String, dynamic>> fetchToday() async {
-    final weeklyRes = await apiClient.getJson('/api/v1/weekly/current');
-    final memoryRes = await apiClient.getJson('/api/v1/memory/summary');
-    Map<String, dynamic>? captureRes;
-    try {
-      captureRes = await apiClient.getJson('/api/v1/captures/recent');
-    } catch (_) {
-      captureRes = null;
+    final todaySignals = await localCaptureRepository.listTodaySignals();
+    final snapshot = await localDailySnapshotRepository.getByDate(DateTime.now());
+
+    final sourceHash = localDailySnapshotRepository.buildSourceHash(todaySignals);
+
+    if (todaySignals.isNotEmpty &&
+        (snapshot == null || snapshot.sourceHash != sourceHash)) {
+      await _regenerateTodaySummary(todaySignals);
     }
 
-    final weekly = weeklyRes['data'] as Map<String, dynamic>;
-    final memory = memoryRes['data'] as Map<String, dynamic>;
-    final captureData = (captureRes?['data'] as Map<String, dynamic>?) ?? const {};
-
-    final recentSignals = _extractRecentSignals(
-      memory: memory,
-      captureData: captureData,
-    );
+    final latestSnapshot =
+        await localDailySnapshotRepository.getByDate(DateTime.now());
 
     return {
-      'insight': weekly['key_insight'] == null
-          ? TodayInsightModel(text: '先留下几句生活信号，我会开始看出模式。')
-          : TodayInsightModel(text: weekly['key_insight'] as String),
+      'insight': TodayInsightModel(
+        text: latestSnapshot?.observationText ??
+            _defaultObservation(todaySignals.length),
+      ),
       'pendingQuestion': null,
-      'bestAction': weekly['best_action'] == null
-          ? DailyBestActionModel(text: '今天只要记录一个让你觉得“又来了”的瞬间。')
-          : DailyBestActionModel(text: weekly['best_action'] as String),
-      'recentSignals': recentSignals,
+      'bestAction': DailyBestActionModel(
+        text: latestSnapshot?.suggestionText ??
+            _defaultSuggestion(todaySignals.length),
+      ),
+      'recentSignals': todaySignals,
     };
   }
 
@@ -41,30 +52,52 @@ class TodayRepository {
     required String content,
     String? tagHint,
   }) async {
-    final res = await apiClient.postJson('/api/v1/captures', {
-      'content': content,
-      'input_mode': 'quick_capture',
-      'tag_hint': tagHint,
-    });
+    final inserted = await localCaptureRepository.insertCapture(
+      content: content,
+      tagHint: tagHint,
+    );
 
-    final data = res['data'] as Map<String, dynamic>;
+    final focusArea = await _readFocusArea();
+    final recentAssistantTexts =
+        await localCaptureRepository.listRecentAcknowledgements(limit: 10);
 
-    final updatedRecentSignals = ((data['recent_signals'] as List?) ?? [])
-        .map((e) => RecentSignalModel.fromJson(e as Map<String, dynamic>))
-        .toList();
+    String acknowledgement;
+    FollowupQuestionModel? followup;
+
+    try {
+      final aiReply = await aiRepository.generateCaptureReply(
+        content: content,
+        recentAssistantTexts: recentAssistantTexts,
+        focusArea: focusArea,
+      );
+      acknowledgement = aiReply.acknowledgement;
+      followup = aiReply.followup;
+    } catch (_) {
+      acknowledgement = _defaultAcknowledgement(content);
+      followup = null;
+    }
+
+    if (inserted.id != null) {
+      await localCaptureRepository.updateAcknowledgement(
+        captureId: inserted.id!,
+        acknowledgement: acknowledgement,
+      );
+    }
+
+    final refreshedTodaySignals =
+        await localCaptureRepository.listTodaySignals();
+
+    await _regenerateTodaySummary(refreshedTodaySignals);
 
     return {
-      'acknowledgement': data['acknowledgement'] as String?,
-      'followup': data['followup'] == null
-          ? null
-          : FollowupQuestionModel.fromJson(
-              data['followup'] as Map<String, dynamic>,
-            ),
-      'updatedRecentSignals': updatedRecentSignals,
+      'acknowledgement': acknowledgement,
+      'followup': followup,
+      'updatedRecentSignals': refreshedTodaySignals,
       'localSignal': RecentSignalModel(
-        content: content,
-        createdAt: DateTime.now(),
-        acknowledgement: data['acknowledgement'] as String?,
+        id: inserted.id,
+        content: inserted.content,
+        createdAt: inserted.createdAt,
+        acknowledgement: acknowledgement,
       ),
     };
   }
@@ -73,67 +106,75 @@ class TodayRepository {
     required String followupId,
     required String answerValue,
   }) async {
-    await apiClient.postJson(
-      '/api/v1/followups/$followupId/submit',
-      {
-        'answer_value': answerValue,
-      },
+    // Phase 1 先不做后续问题回写；保留接口，避免页面层大改。
+  }
+
+  Future<void> _regenerateTodaySummary(List<RecentSignalModel> todaySignals) async {
+    final focusArea = await _readFocusArea();
+
+    String observationText;
+    String suggestionText;
+
+    try {
+      final result = await aiRepository.generateTodaySummary(
+        date: DateTime.now(),
+        entries: todaySignals,
+        focusArea: focusArea,
+      );
+      observationText = result.observation;
+      suggestionText = result.suggestion;
+    } catch (_) {
+      observationText = _defaultObservation(todaySignals.length);
+      suggestionText = _defaultSuggestion(todaySignals.length);
+    }
+
+    final sourceHash =
+        localDailySnapshotRepository.buildSourceHash(todaySignals);
+
+    await localDailySnapshotRepository.upsert(
+      date: DateTime.now(),
+      entryCount: todaySignals.length,
+      observationText: observationText,
+      suggestionText: suggestionText,
+      sourceHash: sourceHash,
     );
   }
 
-  List<RecentSignalModel> _extractRecentSignals({
-    required Map<String, dynamic> memory,
-    required Map<String, dynamic> captureData,
-  }) {
-    final recentCaptureRaw = captureData['recent_signals'];
-    if (recentCaptureRaw is List && recentCaptureRaw.isNotEmpty) {
-      return recentCaptureRaw
-          .map((e) => RecentSignalModel.fromJson(e as Map<String, dynamic>))
-          .toList()
-        ..sort(_compareByCreatedAtDesc);
+  Future<String?> _readFocusArea() async {
+    if (focusAreaLoader != null) {
+      return focusAreaLoader!();
     }
 
-    final recentRaw = memory['recent_signals'];
-    if (recentRaw is List && recentRaw.isNotEmpty) {
-      return recentRaw
-          .map((e) => RecentSignalModel.fromJson(e as Map<String, dynamic>))
-          .toList()
-        ..sort(_compareByCreatedAtDesc);
-    }
-
-    final fallback = <RecentSignalModel>[];
-
-    for (final key in ['patterns', 'frictions', 'desires']) {
-      final raw = memory[key];
-      if (raw is List) {
-        fallback.addAll(
-          raw.map(
-            (e) => RecentSignalModel.fromJson(e as Map<String, dynamic>),
-          ),
-        );
-      }
-    }
-
-    return _dedupeSignals(fallback)..sort(_compareByCreatedAtDesc);
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('repeat_area_preference') ??
+        prefs.getString('selected_repeat_area');
   }
 
-  List<RecentSignalModel> _dedupeSignals(List<RecentSignalModel> signals) {
-    final seen = <String>{};
-    final result = <RecentSignalModel>[];
-
-    for (final signal in signals) {
-      final key = signal.dedupeKey();
-      if (seen.add(key)) {
-        result.add(signal);
-      }
+  String _defaultAcknowledgement(String content) {
+    final trimmed = content.trim();
+    if (trimmed.isEmpty) {
+      return '先把这一条留在这里。';
     }
-
-    return result;
+    return '我看到了这条记录：$trimmed。先把它放在今天里。';
   }
 
-  int _compareByCreatedAtDesc(RecentSignalModel a, RecentSignalModel b) {
-    final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-    final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-    return bTime.compareTo(aTime);
+  String _defaultObservation(int count) {
+    if (count <= 0) {
+      return '今天还没有记录，先留下一件真实发生的小事就好。';
+    }
+    if (count == 1) {
+      return '今天记录了 1 条。你已经开始把今天里真实发生的事留了下来。';
+    }
+    return '今天记录了 $count 条。今天的线索已经开始慢慢聚起来了。';
+  }
+
+  String _defaultSuggestion(int count) {
+    if (count <= 0) {
+      return '今天先记下一件让你停顿了一下的小事就好。';
+    }
+    if (count == 1) {
+      return '如果同类事情今天再出现一次，再补记一条就可以。';
+    }
+    return '接下来先留意：今天有没有哪类事情已经不是第一次这样发生。';
   }
 }

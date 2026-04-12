@@ -18,18 +18,6 @@ class TodayPage extends StatefulWidget {
   State<TodayPage> createState() => _TodayPageState();
 }
 
-class _TodayInsightResult {
-  final String observation;
-  final String nextStep;
-  final String topCategory;
-
-  const _TodayInsightResult({
-    required this.observation,
-    required this.nextStep,
-    required this.topCategory,
-  });
-}
-
 class _TodayPageState extends State<TodayPage> {
   late final TextEditingController _controller;
   int _lastCaptureSuccessTick = 0;
@@ -152,11 +140,11 @@ class _TodayPageState extends State<TodayPage> {
           if (!state.isInitialLoading) ...[
             const SizedBox(height: 20),
             _DailyObservationCard(
-                summary: _buildDailyObservation(context, todaySignals),
-              ),
+              summary: state.insight?.text ?? _fallbackObservation(context, todaySignals),
+            ),
             const SizedBox(height: 16),
             _TryNextCard(
-              summary: _buildTryNext(context, todaySignals),
+              summary: state.bestAction?.text ?? _fallbackSuggestion(context, todaySignals),
             ),
           ],
         ],
@@ -331,97 +319,47 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  String _buildDailyObservation(
-    BuildContext context,
-    List<RecentSignalModel> signals,
-  ) {
-    final observation = _buildTodayInsight(context, signals).observation;
-    final count = signals.length;
-    final countPrefix = AppLocaleText.tr(
-      context,
-      en: 'Today has $count entr${count == 1 ? 'y' : 'ies'}.',
-      zhHans: '今天记录了 $count 条。',
-      zhHant: '今天記錄了 $count 條。',
-      ja: '今日は $count 件記録しました。',
-    );
-    return '$countPrefix $observation';
-  }
-
-  String _buildTryNext(
-    BuildContext context,
-    List<RecentSignalModel> signals,
-  ) {
-    final insight = _buildTodayInsight(context, signals);
-    return AppLocaleText.tr(
-      context,
-      en: 'Based on today’s observation: ${insight.observation} ${insight.nextStep}',
-      zhHans: '根据今天的小观察：${insight.observation} ${insight.nextStep}',
-      zhHant: '根據今天的小觀察：${insight.observation} ${insight.nextStep}',
-      ja: '今日の小さな観察にもとづいて：${insight.observation} ${insight.nextStep}',
-    );
-  }
-
-  _TodayInsightResult _buildTodayInsight(
+  String _fallbackObservation(
     BuildContext context,
     List<RecentSignalModel> signals,
   ) {
     if (signals.isEmpty) {
-      return _TodayInsightResult(
-        topCategory: 'empty',
-        observation: AppLocaleText.tr(
-          context,
-          en: 'Today is still blank. One small real moment is enough to start.',
-          zhHans: '今天还是空白的，先留下一件真实发生的小事就够了。',
-          zhHant: '今天還是空白的，先留下一件真實發生的小事就夠了。',
-          ja: '今日はまだ空白です。まずは本当に起きた小さなことを一つ残せば十分です。',
-        ),
-        nextStep: AppLocaleText.tr(
-          context,
-          en: 'Today, just note one small moment that made you stop, repeat, or feel something.',
-          zhHans: '今天只要先记下一件让你停顿了一下、重复了一下，或者让你有感觉的小事就好。',
-          zhHant: '今天只要先記下一件讓你停頓了一下、重複了一下，或者讓你有感覺的小事就好。',
-          ja: '今日はまず、少し立ち止まったこと、繰り返したこと、何か感じたことを一つ残してみてください。',
-        ),
+      return AppLocaleText.tr(
+        context,
+        en: 'Today is still blank. One small real moment is enough to start.',
+        zhHans: '今天还是空白的，先留下一件真实发生的小事就够了。',
+        zhHant: '今天還是空白的，先留下一件真實發生的小事就夠了。',
+        ja: '今日はまだ空白です。まずは本当に起きた小さなことを一つ残せば十分です。',
       );
     }
+    return AppLocaleText.tr(
+      context,
+      en: 'You recorded ${signals.length} entr${signals.length == 1 ? 'y' : 'ies'} today.',
+      zhHans: '今天记录了 ${signals.length} 条。',
+      zhHant: '今天記錄了 ${signals.length} 條。',
+      ja: '今日は ${signals.length} 件記録しました。',
+    );
+  }
 
-    if (signals.length == 1) {
-      final latest = signals.first.content;
-      return _TodayInsightResult(
-        topCategory: 'single',
-        observation: AppLocaleText.tr(
-          context,
-          en: 'Today’s first clue is “$latest.” You do not need to explain it yet.',
-          zhHans: '今天的第一条线索是“$latest”。先不用急着解释它。',
-          zhHant: '今天的第一條線索是「$latest」。先不用急著解釋它。',
-          ja: '今日の最初の手がかりは「$latest」です。まだ説明しなくて大丈夫です。',
-        ),
-        nextStep: AppLocaleText.tr(
-          context,
-          en: 'If something similar happens again before the day ends, just note it one more time.',
-          zhHans: '如果今天结束前它又出现一次，再顺手记下来就好。',
-          zhHant: '如果今天結束前它又出現一次，再順手記下來就好。',
-          ja: '今日が終わる前に似たことがもう一度起きたら、その時また軽く残しておけば十分です。',
-        ),
+  String _fallbackSuggestion(
+    BuildContext context,
+    List<RecentSignalModel> signals,
+  ) {
+    if (signals.isEmpty) {
+      return AppLocaleText.tr(
+        context,
+        en: 'Today, just note one small moment that made you pause.',
+        zhHans: '今天先记下一件让你停顿了一下的小事就好。',
+        zhHant: '今天先記下一件讓你停頓了一下的小事就好。',
+        ja: '今日はまず、少し立ち止まったことを一つ残してみてください。',
       );
     }
-
-    return _TodayInsightResult(
-      topCategory: 'general',
-      observation: AppLocaleText.tr(
-        context,
-        en: 'Today’s records are already starting to gather around a similar kind of issue.',
-        zhHans: '今天的记录已经开始慢慢聚到同一类问题周围了。',
-        zhHant: '今天的記錄已經開始慢慢聚到同一類問題周圍了。',
-        ja: '今日の記録は、少しずつ同じ種類の問題のまわりに集まり始めています。',
-      ),
-      nextStep: AppLocaleText.tr(
-        context,
-        en: 'Before today ends, just notice whether anything happened in the same way more than once.',
-        zhHans: '在今天结束前，先留意一下有没有哪件事已经不是第一次这样发生了。',
-        zhHant: '在今天結束前，先留意一下有沒有哪件事已經不是第一次這樣發生了。',
-        ja: '今日が終わる前に、同じ形で二度以上起きたことがあったかどうかだけ見てみてください。',
-      ),
+    return AppLocaleText.tr(
+      context,
+      en: 'If a similar thing happens again today, add one more note.',
+      zhHans: '如果同类事情今天再出现一次，再补记一条就可以。',
+      zhHant: '如果同類事情今天再出現一次，再補記一條就可以。',
+      ja: '似たことが今日もう一度起きたら、もう一件だけ足してみてください。',
     );
   }
 
@@ -749,9 +687,7 @@ class _AiResponseBubble extends StatelessWidget {
 class _DailyObservationCard extends StatelessWidget {
   final String summary;
 
-  const _DailyObservationCard({
-    required this.summary,
-  });
+  const _DailyObservationCard({required this.summary});
 
   @override
   Widget build(BuildContext context) {

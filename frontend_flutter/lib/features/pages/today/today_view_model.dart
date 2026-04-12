@@ -30,9 +30,9 @@ class TodayViewModel extends ChangeNotifier {
 
       _state = _state.copyWith(
         loadState: LoadState.ready,
-        insight: data['insight'],
-        pendingQuestion: data['pendingQuestion'],
-        bestAction: data['bestAction'],
+        insight: data['insight'] as TodayInsightModel?,
+        pendingQuestion: data['pendingQuestion'] as FollowupQuestionModel?,
+        bestAction: data['bestAction'] as DailyBestActionModel?,
         recentSignals: fetchedSignals,
         clearErrorMessage: true,
       );
@@ -88,15 +88,19 @@ class TodayViewModel extends ChangeNotifier {
         tagHint: tagHint,
       );
 
-      final backendSignals =
+      final updatedSignals =
           (result['updatedRecentSignals'] as List<RecentSignalModel>? ?? const []);
+
+      final refreshed = await repository.fetchToday();
 
       _state = _state.copyWith(
         captureSubmitState: SubmitState.success,
         inputText: '',
         acknowledgement: result['acknowledgement'] as String?,
-        pendingQuestion: result['followup'],
-        recentSignals: backendSignals,
+        pendingQuestion: result['followup'] as FollowupQuestionModel?,
+        insight: refreshed['insight'] as TodayInsightModel?,
+        bestAction: refreshed['bestAction'] as DailyBestActionModel?,
+        recentSignals: updatedSignals,
         captureSuccessTick: _state.captureSuccessTick + 1,
         clearErrorMessage: true,
       );
@@ -133,15 +137,13 @@ class TodayViewModel extends ChangeNotifier {
         followupSuccessTick: _state.followupSuccessTick + 1,
         clearErrorMessage: true,
       );
-      notifyListeners();
-
-      await load();
     } catch (e) {
       _state = _state.copyWith(
         followupSubmitState: SubmitState.failure,
         errorMessage: e.toString(),
       );
-      notifyListeners();
     }
+
+    notifyListeners();
   }
 }

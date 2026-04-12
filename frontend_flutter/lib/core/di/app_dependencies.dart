@@ -2,58 +2,71 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../api/api_client.dart';
+import '../api/repositories/ai_repository.dart';
 import '../api/repositories/memory_repository.dart';
 import '../api/repositories/opportunity_repository.dart';
 import '../api/repositories/today_repository.dart';
 import '../api/repositories/weekly_repository.dart';
+import '../local/local_capture_repository.dart';
+import '../local/local_daily_snapshot_repository.dart';
+import '../local/local_database.dart';
 
 class AppDependencies {
-  static const String _userIdKey = 'app_user_id';
-  static const Uuid _uuid = Uuid();
-
-  final String userId;
   final ApiClient apiClient;
+  final AiRepository aiRepository;
   final TodayRepository todayRepository;
   final WeeklyRepository weeklyRepository;
-  final OpportunityRepository opportunityRepository;
   final MemoryRepository memoryRepository;
+  final OpportunityRepository opportunityRepository;
+  final LocalDatabase localDatabase;
+  final LocalCaptureRepository localCaptureRepository;
+  final LocalDailySnapshotRepository localDailySnapshotRepository;
 
-  AppDependencies._({
-    required this.userId,
+  AppDependencies({
     required this.apiClient,
+    required this.aiRepository,
     required this.todayRepository,
     required this.weeklyRepository,
-    required this.opportunityRepository,
     required this.memoryRepository,
+    required this.opportunityRepository,
+    required this.localDatabase,
+    required this.localCaptureRepository,
+    required this.localDailySnapshotRepository,
   });
 
   static Future<AppDependencies> create() async {
     final prefs = await SharedPreferences.getInstance();
-    final userId = await _loadOrCreateUserId(prefs);
 
-    final apiClient = ApiClient(userId: userId);
+    var localUserId = prefs.getString('local_user_id');
+    if (localUserId == null || localUserId.trim().isEmpty) {
+      localUserId = const Uuid().v4();
+      await prefs.setString('local_user_id', localUserId);
+    }
 
-    return AppDependencies._(
-      userId: userId,
+    final apiClient = ApiClient(userId: localUserId);
+
+    final localDatabase = LocalDatabase();
+    await localDatabase.init();
+
+    final localCaptureRepository = LocalCaptureRepository(localDatabase);
+    final localDailySnapshotRepository =
+        LocalDailySnapshotRepository(localDatabase);
+    final aiRepository = AiRepository(apiClient);
+
+    return AppDependencies(
       apiClient: apiClient,
-      todayRepository: TodayRepository(apiClient),
+      aiRepository: aiRepository,
+      localDatabase: localDatabase,
+      localCaptureRepository: localCaptureRepository,
+      localDailySnapshotRepository: localDailySnapshotRepository,
+      todayRepository: TodayRepository(
+        localCaptureRepository: localCaptureRepository,
+        localDailySnapshotRepository: localDailySnapshotRepository,
+        aiRepository: aiRepository,
+      ),
       weeklyRepository: WeeklyRepository(apiClient),
-      opportunityRepository: OpportunityRepository(apiClient),
       memoryRepository: MemoryRepository(apiClient),
+      opportunityRepository: OpportunityRepository(apiClient),
     );
-  }
-
-  static Future<String> _loadOrCreateUserId(SharedPreferences prefs) async {
-    final existing = prefs.getString(_userIdKey)?.trim();
-    if (existing != null && existing.isNotEmpty) {
-      return existing;
-    }
-
-    final newUserId = _uuid.v4();
-    final saved = await prefs.setString(_userIdKey, newUserId);
-    if (!saved) {
-      throw StateError('Failed to persist app user id.');
-    }
-    return newUserId;
   }
 }
