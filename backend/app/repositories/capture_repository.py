@@ -69,11 +69,80 @@ class CaptureRepository:
             "acknowledgement": acknowledgement,
         }
 
+    def backfill_missing_raw_memories(
+        self,
+        user_id: str,
+        commit: bool = True,
+    ) -> int:
+        """
+        将旧版本只存在于 Capture、但还没有对应 RawMemory 的数据补齐。
+        """
+        ensure_demo_user(self.db, user_id)
+
+        capture_stmt = (
+            select(Capture)
+            .where(Capture.user_id == user_id)
+            .order_by(Capture.created_at.asc())
+        )
+        captures = list(self.db.scalars(capture_stmt))
+
+        raw_stmt = select(RawMemory.capture_id).where(
+            RawMemory.user_id == user_id,
+            RawMemory.capture_id.is_not(None),
+        )
+        existing_capture_ids = {
+            capture_id
+            for capture_id in self.db.scalars(raw_stmt)
+            if capture_id
+        }
+
+        created_count = 0
+
+        for capture in captures:
+            if capture.id in existing_capture_ids:
+                continue
+
+            raw_memory = RawMemory(
+                id=f"raw_{uuid4().hex[:12]}",
+                user_id=user_id,
+                capture_id=capture.id,
+                source="capture",
+                content=capture.content or "",
+                signal_type=None,
+                scene_type=None,
+                friction_type=None,
+                emotion_strength=None,
+                repetition_flag=False,
+                desire_flag=False,
+                related_pattern_id=None,
+                related_friction_id=None,
+                metadata_json={},
+                created_at=capture.created_at,
+            )
+            self.db.add(raw_memory)
+            created_count += 1
+
+        if created_count > 0:
+            self.db.flush()
+            if commit:
+                self.db.commit()
+        elif commit:
+            # 保持调用方逻辑简单
+            self.db.rollback()
+
+        return created_count
+
     def list_recent_raw_memories(
         self,
         user_id: str,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
+        """
+        读取 recent signals 前，先把旧 Capture 回填到 RawMemory，
+        这样旧版本数据也能被 Today 正常读到。
+        """
+        self.backfill_missing_raw_memories(user_id=user_id, commit=True)
+
         stmt = (
             select(RawMemory)
             .where(RawMemory.user_id == user_id)
