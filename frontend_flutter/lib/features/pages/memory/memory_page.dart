@@ -52,6 +52,46 @@ class MemoryPage extends StatelessWidget {
               ),
             ],
           ),
+        LoadState.empty => ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              EmptyStateBlock(
+                icon: vm.showFirstDayGate
+                    ? Icons.route_outlined
+                    : Icons.timeline_outlined,
+                title: vm.showFirstDayGate
+                    ? AppLocaleText.tr(
+                        context,
+                        en: 'Journey starts on day 2',
+                        zhHans: 'Journey 第 2 天开始展示',
+                        zhHant: 'Journey 第 2 天開始展示',
+                        ja: 'Journey は 2 日目から表示されます',
+                      )
+                    : AppLocaleText.tr(
+                        context,
+                        en: 'No long-term clues yet',
+                        zhHans: '还没有形成长期线索',
+                        zhHant: '還沒有形成長期線索',
+                        ja: 'まだ長期的な手がかりはありません',
+                      ),
+                subtitle: vm.showFirstDayGate
+                    ? AppLocaleText.tr(
+                        context,
+                        en: 'If you already have local entries today, Journey can still start showing right away. Otherwise, it will begin from day 2.',
+                        zhHans: '如果你今天已经留下本地记录，Journey 也可以立即开始展示；如果今天还没有记录，就会从第 2 天开始出现。',
+                        zhHant: '如果你今天已經留下本地記錄，Journey 也可以立即開始展示；如果今天還沒有記錄，就會從第 2 天開始出現。',
+                        ja: '今日すでにローカル記録があれば Journey はすぐ表示できます。まだ記録がなければ、2 日目から始まります。',
+                      )
+                    : AppLocaleText.tr(
+                        context,
+                        en: 'As more records accumulate, this page will start showing recurring patterns, stable frictions, what is helping, and what is still emerging.',
+                        zhHans: '等记录慢慢积累后，这里会出现那些反复出现的模式、持续摩擦、开始有效的方法，以及还在浮现中的变化。',
+                        zhHant: '等記錄慢慢累積後，這裡會出現那些反覆出現的模式、持續摩擦、開始有效的方法，以及還在浮現中的變化。',
+                        ja: '記録が少しずつたまってくると、ここに繰り返し現れるパターンや摩擦、助けになり始めていること、まだ浮かびつつある変化が見えてきます。',
+                      ),
+              ),
+            ],
+          ),
         _ => _JourneyReadyBody(vm: vm),
       },
     );
@@ -74,13 +114,13 @@ class _JourneyReadyBody extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           EmptyStateBlock(
-            icon: Icons.route_outlined,
+            icon: Icons.timeline_outlined,
             title: AppLocaleText.tr(
               context,
-              en: 'Your journey is just beginning',
-              zhHans: '你的旅程才刚开始',
-              zhHant: '你的旅程才剛開始',
-              ja: 'あなたの旅はまだ始まったばかりです',
+              en: 'No long-term clues yet',
+              zhHans: '还没有形成长期线索',
+              zhHant: '還沒有形成長期線索',
+              ja: 'まだ長期的な手がかりはありません',
             ),
             subtitle: AppLocaleText.tr(
               context,
@@ -112,9 +152,9 @@ class _JourneyReadyBody extends StatelessWidget {
           summary: AppLocaleText.tr(
             context,
             en: '$totalCount long-term clues are starting to settle',
-            zhHans: totalCount == 0 ? '第 1 天暂不展示 Journey（从第 2 天开始）' : '目前已经沉淀了 $totalCount 条长期线索',
-            zhHant: totalCount == 0 ? '第 1 天暫不展示 Journey（從第 2 天開始）' : '目前已經沉澱了 $totalCount 條長期線索',
-            ja: totalCount == 0 ? '初日は Journey を表示しません（2日目から開始）' : 'ここまでに $totalCount 件の長期的な手がかりが少しずつ積み上がっています',
+            zhHans: '目前已经沉淀了 $totalCount 条长期线索',
+            zhHant: '目前已經沉澱了 $totalCount 條長期線索',
+            ja: 'ここまでに $totalCount 件の長期的な手がかりが少しずつ積み上がっています',
           ),
         ),
         const SizedBox(height: 14),

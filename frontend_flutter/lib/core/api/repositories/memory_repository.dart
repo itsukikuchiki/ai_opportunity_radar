@@ -7,23 +7,45 @@ import '../../models/today_models.dart';
 import 'ai_repository.dart';
 
 typedef MemoryFocusAreaLoader = Future<String?> Function();
+typedef JourneyInstallationDateLoader = Future<DateTime> Function();
+
+class MemoryFetchResult {
+  final MemorySummaryModel? summary;
+  final bool isFirstDayGate;
+
+  const MemoryFetchResult({
+    required this.summary,
+    required this.isFirstDayGate,
+  });
+}
 
 class MemoryRepository {
   final LocalCaptureRepository localCaptureRepository;
   final LocalJourneySnapshotRepository localJourneySnapshotRepository;
   final AiRepository aiRepository;
   final MemoryFocusAreaLoader? focusAreaLoader;
+  final JourneyInstallationDateLoader? installationDateLoader;
 
   MemoryRepository({
     required this.localCaptureRepository,
     required this.localJourneySnapshotRepository,
     required this.aiRepository,
     this.focusAreaLoader,
+    this.installationDateLoader,
   });
 
-  Future<MemorySummaryModel?> fetchMemorySummary() async {
+  Future<MemoryFetchResult> fetchMemorySummaryResult() async {
+    final installationDate = await _readOrCreateInstallationDate();
+    final today = _dateOnly(DateTime.now());
+    final isFirstDay = _sameDay(installationDate, today);
+
     final signals = await localCaptureRepository.listRecentSignals(limit: 2000);
-    if (signals.isEmpty) return null;
+    if (signals.isEmpty) {
+      return MemoryFetchResult(
+        summary: null,
+        isFirstDayGate: isFirstDay,
+      );
+    }
 
     final sortedSignals = [...signals]
       ..sort((a, b) {
@@ -32,19 +54,8 @@ class MemoryRepository {
         return aTime.compareTo(bTime);
       });
 
-    final firstSignal = sortedSignals.first.createdAt?.toLocal();
-    if (firstSignal == null) return null;
-
-    final today = DateTime.now();
-    final firstDay = DateTime(firstSignal.year, firstSignal.month, firstSignal.day);
-    final todayDay = DateTime(today.year, today.month, today.day);
-
-    if (!firstDay.isBefore(todayDay)) {
-      return null;
-    }
-
     final stats = _buildJourneyStats(sortedSignals);
-    final snapshotDate = _dateKey(todayDay);
+    final snapshotDate = _dateKey(today);
     final sourceHash = localJourneySnapshotRepository.buildSourceHash(
       entries: stats.entries,
       topTokens: stats.topTokens,
@@ -56,7 +67,10 @@ class MemoryRepository {
         await localJourneySnapshotRepository.getSourceHash(snapshotDate);
 
     if (cached != null && cachedHash == sourceHash) {
-      return cached;
+      return MemoryFetchResult(
+        summary: cached,
+        isFirstDayGate: false,
+      );
     }
 
     final focusArea = await _readFocusArea();
@@ -80,7 +94,15 @@ class MemoryRepository {
       sourceHash: sourceHash,
     );
 
-    return generated;
+    return MemoryFetchResult(
+      summary: generated,
+      isFirstDayGate: false,
+    );
+  }
+
+  Future<MemorySummaryModel?> fetchMemorySummary() async {
+    final result = await fetchMemorySummaryResult();
+    return result.summary;
   }
 
   _JourneyStats _buildJourneyStats(List<RecentSignalModel> signals) {
@@ -206,6 +228,36 @@ class MemoryRepository {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('repeat_area_preference') ??
         prefs.getString('selected_repeat_area');
+  }
+
+  Future<DateTime> _readOrCreateInstallationDate() async {
+    if (installationDateLoader != null) {
+      return _dateOnly(await installationDateLoader!());
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getString('local_app_started_date');
+    if (existing != null && existing.trim().isNotEmpty) {
+      final parsed = DateTime.tryParse(existing);
+      if (parsed != null) {
+        return _dateOnly(parsed);
+      }
+    }
+
+    final today = _dateOnly(DateTime.now());
+    await prefs.setString('local_app_started_date', today.toIso8601String());
+    return today;
+  }
+
+  DateTime _dateOnly(DateTime date) {
+    final local = date.toLocal();
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  bool _sameDay(DateTime a, DateTime b) {
+    final aa = _dateOnly(a);
+    final bb = _dateOnly(b);
+    return aa.year == bb.year && aa.month == bb.month && aa.day == bb.day;
   }
 
   String _dateKey(DateTime date) {

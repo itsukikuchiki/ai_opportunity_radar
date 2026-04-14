@@ -77,23 +77,41 @@ class WeeklyPage extends StatelessWidget {
                       ja: 'しばらくしてから、もう一度試してください。',
                     ),
               ),
-            LoadState.empty => EmptyStateBlock(
-                icon: Icons.stacked_line_chart_outlined,
-                title: AppLocaleText.tr(
-                  context,
-                  en: 'Not enough signals yet this week',
-                  zhHans: '这周的记录还不够多',
-                  zhHant: '這週的記錄還不夠多',
-                  ja: '今週はまだ記録が足りません',
-                ),
-                subtitle: AppLocaleText.tr(
-                  context,
-                  en: 'After a few more entries, this page will start showing what repeats, what drains you, and what may be worth trying next.',
-                  zhHans: '等你再记几条之后，这里会慢慢开始看见哪些情况在重复，哪些地方最耗你，以及接下来最值得试的一步。',
-                  zhHant: '等你再記幾條之後，這裡會慢慢開始看見哪些情況在重複，哪些地方最耗你，以及接下來最值得試的一步。',
-                  ja: 'もう少し記録がたまると、何が繰り返されているのか、どこがいちばん消耗を生んでいるのか、次に何を試すとよさそうかが少しずつ見えてきます。',
-                ),
-              ),
+            LoadState.empty => vm.showFirstDayGate
+                ? EmptyStateBlock(
+                    icon: Icons.stacked_line_chart_outlined,
+                    title: AppLocaleText.tr(
+                      context,
+                      en: 'Weekly starts on day 2',
+                      zhHans: 'Weekly 第 2 天开始展示',
+                      zhHant: 'Weekly 第 2 天開始展示',
+                      ja: 'Weekly は 2 日目から表示されます',
+                    ),
+                    subtitle: AppLocaleText.tr(
+                      context,
+                      en: 'If you add local entries today, Weekly can still start showing right away. Otherwise, it will begin from day 2.',
+                      zhHans: '如果你今天已经留下本地记录，Weekly 也可以立即开始展示；如果今天还没有记录，就会从第 2 天开始出现。',
+                      zhHant: '如果你今天已經留下本地記錄，Weekly 也可以立即開始展示；如果今天還沒有記錄，就會從第 2 天開始出現。',
+                      ja: '今日すでにローカル記録があれば Weekly はすぐ表示できます。まだ記録がなければ、2 日目から始まります。',
+                    ),
+                  )
+                : EmptyStateBlock(
+                    icon: Icons.stacked_line_chart_outlined,
+                    title: AppLocaleText.tr(
+                      context,
+                      en: 'Not enough signals yet this week',
+                      zhHans: '这周的记录还不够多',
+                      zhHant: '這週的記錄還不夠多',
+                      ja: '今週はまだ記録が足りません',
+                    ),
+                    subtitle: AppLocaleText.tr(
+                      context,
+                      en: 'After a few more entries, this page will start showing what repeats, what drains you, and what may be worth trying next.',
+                      zhHans: '等你再记几条之后，这里会慢慢开始看见哪些情况在重复，哪些地方最耗你，以及接下来最值得试的一步。',
+                      zhHant: '等你再記幾條之後，這裡會慢慢開始看見哪些情況在重複，哪些地方最耗你，以及接下來最值得試的一步。',
+                      ja: 'もう少し記録がたまると、何が繰り返されているのか、どこがいちばん消耗を生んでいるのか、次に何を試すとよさそうかが少しずつ見えてきます。',
+                    ),
+                  ),
             _ => _WeeklyReadyBody(vm: vm),
           },
         ],
@@ -136,6 +154,16 @@ class WeeklyPage extends StatelessWidget {
         zhHans: '正在整理这一周的线索',
         zhHant: '正在整理這一週的線索',
         ja: '今週の手がかりを整理しています',
+      );
+    }
+
+    if (vm.showFirstDayGate) {
+      return AppLocaleText.tr(
+        context,
+        en: 'On day 1, Weekly appears once local records start to exist. Otherwise it begins from day 2.',
+        zhHans: '第 1 天如果已经有本地记录，Weekly 可以直接展示；如果还没有记录，就会从第 2 天开始出现。',
+        zhHant: '第 1 天如果已經有本地記錄，Weekly 可以直接展示；如果還沒有記錄，就會從第 2 天開始出現。',
+        ja: '1 日目でもローカル記録があれば Weekly は表示されます。まだ記録がなければ 2 日目から始まります。',
       );
     }
 

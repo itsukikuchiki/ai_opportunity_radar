@@ -33,153 +33,27 @@ void main() {
     }
   });
 
-  group('MemoryRepository local-first behavior', () {
-    test('1) Journey 不再因为 Railway 空数据库而直接空掉', () async {
+  group('MemoryRepository first-day and local-first behavior', () {
+    test('1) 第 1 天且没有本地记录时，Journey 返回 firstDayGate', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeJourneyAiRepository(),
+        installationDate: DateTime.now(),
       );
 
-      await harness.seedCapture(
-        content: '第一天：上班很烦',
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      );
-      await harness.seedCapture(
-        content: '第二天：还是很烦',
-        createdAt: DateTime.now().subtract(const Duration(days: 1)),
-      );
+      final result = await harness.repository.fetchMemorySummaryResult();
 
-      final summary = await harness.repository.fetchMemorySummary();
-
-      expect(summary, isNotNull);
-      expect(summary!.patterns, isNotEmpty);
+      expect(result.isFirstDayGate, true);
+      expect(result.summary, isNull);
 
       await harness.close();
     });
 
-    test('2) 从第 2 天开始，只要本地有历史记录，Journey 就能生成', () async {
-      final harness = await _createHarness(
-        dbPath: dbPath,
-        aiRepository: FakeJourneyAiRepository(
-          builder: ({
-            required String snapshotDate,
-            required List<Map<String, dynamic>> entries,
-            required List<String> topTokens,
-            required int totalDays,
-          }) {
-            return MemorySummaryModel(
-              patterns: [
-                {
-                  'name': '长期重复的主题',
-                  'summary': '已经跨越 $totalDays 天，长期线索开始形成。',
-                },
-              ],
-              frictions: const [
-                {
-                  'name': '持续摩擦',
-                  'summary': '有一些内容不是一次性，而是在积累。',
-                },
-              ],
-              desires: const [
-                {
-                  'name': '还在浮现的方向',
-                  'summary': '真正长期在意的东西开始浮出来。',
-                },
-              ],
-              experiments: const [
-                {
-                  'name': '开始有帮助的东西',
-                  'summary': '某些做法已经不像随机波动，而开始显得有帮助。',
-                },
-              ],
-            );
-          },
-        ),
-      );
-
-      await harness.seedCapture(
-        content: '两天前：有点烦',
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      );
-      await harness.seedCapture(
-        content: '今天：还是烦',
-        createdAt: DateTime.now(),
-      );
-
-      final summary = await harness.repository.fetchMemorySummary();
-
-      expect(summary, isNotNull);
-      expect(summary!.patterns, isNotEmpty);
-      expect(summary.frictions, isNotEmpty);
-
-      await harness.close();
-    });
-
-    test('3) 再次进入 Journey 时，结果能从本地缓存读取', () async {
-      final countingAi = CountingJourneyAiRepository();
-
-      final harness1 = await _createHarness(
-        dbPath: dbPath,
-        aiRepository: countingAi,
-      );
-
-      await harness1.seedCapture(
-        content: '前天：工作很烦',
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      );
-      await harness1.seedCapture(
-        content: '今天：又烦了',
-        createdAt: DateTime.now(),
-      );
-
-      final summary1 = await harness1.repository.fetchMemorySummary();
-      expect(summary1, isNotNull);
-      expect(countingAi.callCount, 1);
-
-      await harness1.close();
-
-      final harness2 = await _createHarness(
-        dbPath: dbPath,
-        aiRepository: countingAi,
-      );
-
-      final summary2 = await harness2.repository.fetchMemorySummary();
-      expect(summary2, isNotNull);
-      expect(countingAi.callCount, 1, reason: '第二次应直接命中 Journey 本地缓存');
-
-      await harness2.close();
-    });
-
-    test('4) 在线生成失败时，Journey 仍然能显示 fallback 结果', () async {
-      final harness = await _createHarness(
-        dbPath: dbPath,
-        aiRepository: FailingJourneyAiRepository(),
-      );
-
-      await harness.seedCapture(
-        content: '前天：开会很烦',
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      );
-      await harness.seedCapture(
-        content: '今天：还是被打断',
-        createdAt: DateTime.now(),
-      );
-
-      final summary = await harness.repository.fetchMemorySummary();
-
-      expect(summary, isNotNull);
-      expect(summary!.patterns, isNotEmpty);
-      expect(summary.frictions, isNotEmpty);
-      expect(summary.desires, isNotEmpty);
-      expect(summary.experiments, isNotEmpty);
-
-      await harness.close();
-    });
-
-    test('5) 第 1 天不展示 Journey（返回 null）', () async {
+    test('2) 第 1 天只要有本地记录，Journey 就正常展示', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeJourneyAiRepository(),
+        installationDate: DateTime.now(),
       );
 
       await harness.seedCapture(
@@ -187,8 +61,111 @@ void main() {
         createdAt: DateTime.now(),
       );
 
-      final summary = await harness.repository.fetchMemorySummary();
-      expect(summary, isNull);
+      final result = await harness.repository.fetchMemorySummaryResult();
+
+      expect(result.isFirstDayGate, false);
+      expect(result.summary, isNotNull);
+      expect(result.summary!.patterns, isNotEmpty);
+
+      await harness.close();
+    });
+
+    test('3) 第 2 天以后没有本地记录时，Journey 返回普通空态', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepository(),
+        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+      );
+
+      final result = await harness.repository.fetchMemorySummaryResult();
+
+      expect(result.isFirstDayGate, false);
+      expect(result.summary, isNull);
+
+      await harness.close();
+    });
+
+    test('4) 第 2 天以后只要有本地记录，Journey 就正常展示', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepository(),
+        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+      );
+
+      await harness.seedCapture(
+        content: '昨天：有点烦',
+        createdAt: DateTime.now().subtract(const Duration(days: 1)),
+      );
+      await harness.seedCapture(
+        content: '今天：还是烦',
+        createdAt: DateTime.now(),
+      );
+
+      final result = await harness.repository.fetchMemorySummaryResult();
+
+      expect(result.isFirstDayGate, false);
+      expect(result.summary, isNotNull);
+      expect(result.summary!.frictions, isNotEmpty);
+
+      await harness.close();
+    });
+
+    test('5) 再次进入 Journey 时，结果能从本地缓存读取', () async {
+      final countingAi = CountingJourneyAiRepository();
+
+      final harness1 = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: countingAi,
+        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+      );
+
+      await harness1.seedCapture(
+        content: '前天：工作很烦',
+        createdAt: DateTime.now().subtract(const Duration(days: 1)),
+      );
+      await harness1.seedCapture(
+        content: '今天：又烦了',
+        createdAt: DateTime.now(),
+      );
+
+      final result1 = await harness1.repository.fetchMemorySummaryResult();
+      expect(result1.summary, isNotNull);
+      expect(countingAi.callCount, 1);
+
+      await harness1.close();
+
+      final harness2 = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: countingAi,
+        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+      );
+
+      final result2 = await harness2.repository.fetchMemorySummaryResult();
+      expect(result2.summary, isNotNull);
+      expect(countingAi.callCount, 1);
+
+      await harness2.close();
+    });
+
+    test('6) 在线生成失败时，Journey 仍然返回 fallback 结果', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FailingJourneyAiRepository(),
+        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+      );
+
+      await harness.seedCapture(
+        content: '今天：被打断了',
+        createdAt: DateTime.now(),
+      );
+
+      final result = await harness.repository.fetchMemorySummaryResult();
+
+      expect(result.summary, isNotNull);
+      expect(result.summary!.patterns, isNotEmpty);
+      expect(result.summary!.frictions, isNotEmpty);
+      expect(result.summary!.desires, isNotEmpty);
+      expect(result.summary!.experiments, isNotEmpty);
 
       await harness.close();
     });
@@ -236,6 +213,7 @@ class _Harness {
 Future<_Harness> _createHarness({
   required String dbPath,
   required AiRepository aiRepository,
+  required DateTime installationDate,
 }) async {
   final localDatabase = LocalDatabase(
     dbPathOverride: dbPath,
@@ -252,6 +230,7 @@ Future<_Harness> _createHarness({
     localJourneySnapshotRepository: localJourneySnapshotRepository,
     aiRepository: aiRepository,
     focusAreaLoader: () async => null,
+    installationDateLoader: () async => installationDate,
   );
 
   return _Harness(
@@ -260,20 +239,9 @@ Future<_Harness> _createHarness({
   );
 }
 
-typedef JourneyBuilder =
-    MemorySummaryModel Function({
-      required String snapshotDate,
-      required List<Map<String, dynamic>> entries,
-      required List<String> topTokens,
-      required int totalDays,
-    });
-
 class FakeJourneyAiRepository extends AiRepository {
-  final JourneyBuilder? builder;
-
-  FakeJourneyAiRepository({
-    this.builder,
-  }) : super(
+  FakeJourneyAiRepository()
+      : super(
           ApiClient(
             baseUrl: 'https://example.invalid',
             userId: 'test-user',
@@ -288,15 +256,6 @@ class FakeJourneyAiRepository extends AiRepository {
     required int totalDays,
     String? focusArea,
   }) async {
-    if (builder != null) {
-      return builder!(
-        snapshotDate: snapshotDate,
-        entries: entries,
-        topTokens: topTokens,
-        totalDays: totalDays,
-      );
-    }
-
     return MemorySummaryModel(
       patterns: const [
         {

@@ -11,27 +11,31 @@ class WeeklyViewModel extends ChangeNotifier {
   SubmitState feedbackSubmitState = SubmitState.idle;
   WeeklyInsightModel? weeklyInsight;
   String? errorMessage;
-
-  bool usingMockData = false;
+  bool showFirstDayGate = false;
 
   WeeklyViewModel(this.repository) {
     load();
   }
 
   Future<void> load() async {
-    usingMockData = false;
     loadState = LoadState.loading;
     errorMessage = null;
     feedbackSubmitState = SubmitState.idle;
+    showFirstDayGate = false;
     notifyListeners();
 
     try {
       weeklyInsight = await repository.fetchCurrentWeekly();
-      loadState =
-          (weeklyInsight?.status == 'insufficient_data' ||
-              weeklyInsight?.status == 'not_started')
-          ? LoadState.empty
-          : LoadState.ready;
+
+      if (weeklyInsight?.status == 'first_day_gate') {
+        showFirstDayGate = true;
+        loadState = LoadState.empty;
+      } else if (weeklyInsight?.status == 'insufficient_data' ||
+          weeklyInsight?.status == 'not_started') {
+        loadState = LoadState.empty;
+      } else {
+        loadState = LoadState.ready;
+      }
     } catch (e) {
       errorMessage = e.toString();
       loadState = LoadState.error;

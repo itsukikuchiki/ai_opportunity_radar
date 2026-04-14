@@ -7,26 +7,47 @@ import '../../models/weekly_models.dart';
 import 'ai_repository.dart';
 
 typedef WeeklyFocusAreaLoader = Future<String?> Function();
+typedef InstallationDateLoader = Future<DateTime> Function();
 
 class WeeklyRepository {
   final LocalCaptureRepository localCaptureRepository;
   final LocalWeeklySnapshotRepository localWeeklySnapshotRepository;
   final AiRepository aiRepository;
   final WeeklyFocusAreaLoader? focusAreaLoader;
+  final InstallationDateLoader? installationDateLoader;
 
   WeeklyRepository({
     required this.localCaptureRepository,
     required this.localWeeklySnapshotRepository,
     required this.aiRepository,
     this.focusAreaLoader,
+    this.installationDateLoader,
   });
 
   Future<WeeklyInsightModel> fetchCurrentWeekly() async {
-    final range = _currentWeekRange();
+    final installationDate = await _readOrCreateInstallationDate();
+    final today = _dateOnly(DateTime.now());
+    final isFirstDay = _sameDay(installationDate, today);
+
     final recentSignals = await localCaptureRepository.listRecentSignals(
       limit: 500,
     );
 
+    if (isFirstDay && recentSignals.isEmpty) {
+      return WeeklyInsightModel(
+        weekStart: _dateKey(today.subtract(const Duration(days: 6))),
+        weekEnd: _dateKey(today),
+        status: 'first_day_gate',
+        keyInsight: null,
+        patterns: const [],
+        frictions: const [],
+        bestAction: null,
+        opportunitySnapshot: null,
+        feedbackSubmitted: false,
+      );
+    }
+
+    final range = _currentWeekRange();
     final weekSignals = _filterSignalsForRange(
       recentSignals,
       range.start,
@@ -207,11 +228,41 @@ class WeeklyRepository {
         prefs.getString('selected_repeat_area');
   }
 
+  Future<DateTime> _readOrCreateInstallationDate() async {
+    if (installationDateLoader != null) {
+      return _dateOnly(await installationDateLoader!());
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getString('local_app_started_date');
+    if (existing != null && existing.trim().isNotEmpty) {
+      final parsed = DateTime.tryParse(existing);
+      if (parsed != null) {
+        return _dateOnly(parsed);
+      }
+    }
+
+    final today = _dateOnly(DateTime.now());
+    await prefs.setString('local_app_started_date', today.toIso8601String());
+    return today;
+  }
+
   _WeekRange _currentWeekRange() {
     final now = DateTime.now();
     final end = DateTime(now.year, now.month, now.day);
     final start = end.subtract(const Duration(days: 6));
     return _WeekRange(start: start, end: end);
+  }
+
+  DateTime _dateOnly(DateTime date) {
+    final local = date.toLocal();
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  bool _sameDay(DateTime a, DateTime b) {
+    final aa = _dateOnly(a);
+    final bb = _dateOnly(b);
+    return aa.year == bb.year && aa.month == bb.month && aa.day == bb.day;
   }
 
   String _dateKey(DateTime date) {

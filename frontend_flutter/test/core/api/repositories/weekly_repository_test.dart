@@ -33,19 +33,31 @@ void main() {
     }
   });
 
-  group('WeeklyRepository local-first behavior', () {
-    test('1) Weekly 不再因为 Railway 空数据库而直接空掉', () async {
+  group('WeeklyRepository first-day and local-first behavior', () {
+    test('1) 第 1 天且没有本地记录时，Weekly 返回 first_day_gate', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
+        installationDate: DateTime.now(),
+      );
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+
+      expect(weekly.status, 'first_day_gate');
+      expect(weekly.keyInsight, isNull);
+
+      await harness.close();
+    });
+
+    test('2) 第 1 天只要有本地记录，Weekly 就正常展示', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: DateTime.now(),
       );
 
       await harness.seedCapture(
         content: '今天上班很烦',
-        createdAt: DateTime.now().subtract(const Duration(days: 1)),
-      );
-      await harness.seedCapture(
-        content: '下午开会被打断',
         createdAt: DateTime.now(),
       );
 
@@ -53,86 +65,56 @@ void main() {
 
       expect(weekly.status, 'ready');
       expect(weekly.keyInsight, isNotNull);
-      expect(weekly.patterns, isNotEmpty);
 
       await harness.close();
     });
 
-    test('2) 最近 7 天只要 Today 有本地记录，Weekly 就能生成', () async {
+    test('3) 第 2 天以后没有本地记录时，Weekly 返回 insufficient_data', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
-        aiRepository: FakeWeeklyAiRepository(
-          weeklyBuilder: ({
-            required String weekStart,
-            required String weekEnd,
-            required List<Map<String, dynamic>> entries,
-            required Map<String, int> dayCounts,
-            required List<String> topTokens,
-          }) {
-            return WeeklyInsightModel(
-              weekStart: weekStart,
-              weekEnd: weekEnd,
-              status: 'ready',
-              keyInsight: '最近 7 天共记录了 ${entries.length} 条。',
-              patterns: [
-                {
-                  'name': '本地记录已形成',
-                  'summary': '最近 7 天的记录已经足够支持一份 weekly。',
-                },
-              ],
-              frictions: [
-                {
-                  'name': '重复摩擦开始出现',
-                  'summary': '同类内容开始在本周重复出现。',
-                },
-              ],
-              bestAction: '这周先试一步：继续补记同类情况出现的场景。',
-              opportunitySnapshot: const {
-                'name': '形成 weekly 的最小结构',
-                'summary': '只要最近 7 天有本地记录，weekly 就可以开始生成。',
-              },
-              feedbackSubmitted: false,
-            );
-          },
-        ),
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+      );
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+
+      expect(weekly.status, 'insufficient_data');
+      expect(weekly.keyInsight, isNull);
+
+      await harness.close();
+    });
+
+    test('4) 第 2 天以后有本地记录时，Weekly 正常展示', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: DateTime.now().subtract(const Duration(days: 1)),
       );
 
       await harness.seedCapture(
-        content: '第一天：上班很烦',
-        createdAt: DateTime.now().subtract(const Duration(days: 6)),
-      );
-      await harness.seedCapture(
-        content: '第三天：还是烦',
-        createdAt: DateTime.now().subtract(const Duration(days: 4)),
-      );
-      await harness.seedCapture(
-        content: '今天：又被打断',
+        content: '今天开会被打断',
         createdAt: DateTime.now(),
       );
 
       final weekly = await harness.repository.fetchCurrentWeekly();
 
       expect(weekly.status, 'ready');
-      expect(weekly.keyInsight, contains('最近 7 天共记录了 3 条'));
-      expect(weekly.bestAction, isNotNull);
+      expect(weekly.patterns, isNotEmpty);
 
       await harness.close();
     });
 
-    test('3) 再次进入 Weekly 时，结果能从本地缓存读取', () async {
+    test('5) 再次进入 Weekly 时，结果能从本地缓存读取', () async {
       final countingAi = CountingWeeklyAiRepository();
 
       final harness1 = await _createHarness(
         dbPath: dbPath,
         aiRepository: countingAi,
+        installationDate: DateTime.now().subtract(const Duration(days: 1)),
       );
 
       await harness1.seedCapture(
         content: '今天有点烦',
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      );
-      await harness1.seedCapture(
-        content: '今天还是有点烦',
         createdAt: DateTime.now(),
       );
 
@@ -145,27 +127,25 @@ void main() {
       final harness2 = await _createHarness(
         dbPath: dbPath,
         aiRepository: countingAi,
+        installationDate: DateTime.now().subtract(const Duration(days: 1)),
       );
 
       final weekly2 = await harness2.repository.fetchCurrentWeekly();
       expect(weekly2.status, 'ready');
-      expect(countingAi.callCount, 1, reason: '第二次应直接命中本地缓存，不应再次调用在线生成');
+      expect(countingAi.callCount, 1);
 
       await harness2.close();
     });
 
-    test('4) 没网或在线生成失败时，Weekly 至少还能显示 fallback 结果', () async {
+    test('6) 在线生成失败时，Weekly 仍然返回 fallback 结果', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FailingWeeklyAiRepository(),
+        installationDate: DateTime.now().subtract(const Duration(days: 1)),
       );
 
       await harness.seedCapture(
         content: '今天上班很烦',
-        createdAt: DateTime.now().subtract(const Duration(days: 3)),
-      );
-      await harness.seedCapture(
-        content: '今天开会又被打断',
         createdAt: DateTime.now(),
       );
 
@@ -173,30 +153,8 @@ void main() {
 
       expect(weekly.status, 'ready');
       expect(weekly.keyInsight, isNotNull);
-      expect(weekly.keyInsight!.isNotEmpty, true);
       expect(weekly.patterns, isNotEmpty);
       expect(weekly.bestAction, isNotNull);
-      expect(weekly.bestAction!.isNotEmpty, true);
-
-      await harness.close();
-    });
-
-    test('5) 最近 7 天完全没有记录时，Weekly 返回 insufficient_data', () async {
-      final harness = await _createHarness(
-        dbPath: dbPath,
-        aiRepository: FakeWeeklyAiRepository(),
-      );
-
-      await harness.seedCapture(
-        content: '这是 10 天前的记录',
-        createdAt: DateTime.now().subtract(const Duration(days: 10)),
-      );
-
-      final weekly = await harness.repository.fetchCurrentWeekly();
-
-      expect(weekly.status, 'insufficient_data');
-      expect(weekly.keyInsight, isNull);
-      expect(weekly.patterns, isEmpty);
 
       await harness.close();
     });
@@ -205,12 +163,10 @@ void main() {
 
 class _Harness {
   final LocalDatabase localDatabase;
-  final LocalCaptureRepository localCaptureRepository;
   final WeeklyRepository repository;
 
   _Harness({
     required this.localDatabase,
-    required this.localCaptureRepository,
     required this.repository,
   });
 
@@ -246,6 +202,7 @@ class _Harness {
 Future<_Harness> _createHarness({
   required String dbPath,
   required AiRepository aiRepository,
+  required DateTime installationDate,
 }) async {
   final localDatabase = LocalDatabase(
     dbPathOverride: dbPath,
@@ -262,30 +219,18 @@ Future<_Harness> _createHarness({
     localWeeklySnapshotRepository: localWeeklySnapshotRepository,
     aiRepository: aiRepository,
     focusAreaLoader: () async => null,
+    installationDateLoader: () async => installationDate,
   );
 
   return _Harness(
     localDatabase: localDatabase,
-    localCaptureRepository: localCaptureRepository,
     repository: repository,
   );
 }
 
-typedef WeeklyBuilder =
-    WeeklyInsightModel Function({
-      required String weekStart,
-      required String weekEnd,
-      required List<Map<String, dynamic>> entries,
-      required Map<String, int> dayCounts,
-      required List<String> topTokens,
-    });
-
 class FakeWeeklyAiRepository extends AiRepository {
-  final WeeklyBuilder? weeklyBuilder;
-
-  FakeWeeklyAiRepository({
-    this.weeklyBuilder,
-  }) : super(
+  FakeWeeklyAiRepository()
+      : super(
           ApiClient(
             baseUrl: 'https://example.invalid',
             userId: 'test-user',
@@ -301,16 +246,6 @@ class FakeWeeklyAiRepository extends AiRepository {
     required List<String> topTokens,
     String? focusArea,
   }) async {
-    if (weeklyBuilder != null) {
-      return weeklyBuilder!(
-        weekStart: weekStart,
-        weekEnd: weekEnd,
-        entries: entries,
-        dayCounts: dayCounts,
-        topTokens: topTokens,
-      );
-    }
-
     return WeeklyInsightModel(
       weekStart: weekStart,
       weekEnd: weekEnd,

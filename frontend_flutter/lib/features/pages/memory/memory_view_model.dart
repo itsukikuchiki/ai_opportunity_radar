@@ -10,6 +10,7 @@ class MemoryViewModel extends ChangeNotifier {
   LoadState loadState = LoadState.initial;
   MemorySummaryModel? summary;
   String? errorMessage;
+  bool showFirstDayGate = false;
 
   MemoryViewModel(this.repository) {
     load();
@@ -18,11 +19,21 @@ class MemoryViewModel extends ChangeNotifier {
   Future<void> load() async {
     loadState = LoadState.loading;
     errorMessage = null;
+    showFirstDayGate = false;
     notifyListeners();
 
     try {
-      summary = await repository.fetchMemorySummary();
-      loadState = summary == null ? LoadState.empty : LoadState.ready;
+      final result = await repository.fetchMemorySummaryResult();
+      summary = result.summary;
+      showFirstDayGate = result.isFirstDayGate;
+
+      if (showFirstDayGate) {
+        loadState = LoadState.empty;
+      } else if (summary == null) {
+        loadState = LoadState.empty;
+      } else {
+        loadState = LoadState.ready;
+      }
     } catch (e) {
       errorMessage = e.toString();
       loadState = LoadState.error;
