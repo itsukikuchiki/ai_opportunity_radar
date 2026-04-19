@@ -34,7 +34,6 @@ def _patch_demo_user(monkeypatch):
 def test_capture_persists_and_recent_returns_acknowledgement(client, monkeypatch):
     _patch_demo_user(monkeypatch)
 
-    # 1. 提交一条 capture
     resp = client.post(
         "/api/v1/captures",
         headers=_headers(),
@@ -52,7 +51,6 @@ def test_capture_persists_and_recent_returns_acknowledgement(client, monkeypatch
     assert isinstance(data.get("acknowledgement"), str)
     assert data["acknowledgement"].strip() != ""
 
-    # 2. recent 能读回
     recent_resp = client.get(
         "/api/v1/captures/recent",
         headers=_headers(),
@@ -67,10 +65,72 @@ def test_capture_persists_and_recent_returns_acknowledgement(client, monkeypatch
     assert recent_signals[0]["acknowledgement"].strip() != ""
 
 
+def test_capture_reply_returns_observation_and_try_next(client):
+    resp = client.post(
+        "/api/v1/ai/capture-reply",
+        headers=_headers(),
+        json={
+            "content": "今天上班很烦，一直被打断",
+            "recent_assistant_texts": [],
+            "focus_area": "emotion_stress",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+
+    assert isinstance(data["acknowledgement"], str)
+    assert data["acknowledgement"].strip() != ""
+    assert isinstance(data["observation"], str)
+    assert data["observation"].strip() != ""
+    assert isinstance(data["try_next"], str)
+    assert data["try_next"].strip() != ""
+    assert data["emotion"] in {"positive", "negative", "mixed", "neutral"}
+    assert data["intensity"] in {"low", "medium", "high"}
+
+
+def test_capture_reply_detects_mixed_emotion(client):
+    resp = client.post(
+        "/api/v1/ai/capture-reply",
+        headers=_headers(),
+        json={
+            "content": "今天上班很烦，但晚上吃到好吃的又缓回来一点",
+            "recent_assistant_texts": [],
+            "focus_area": "emotion_stress",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+
+    assert data["emotion"] == "mixed"
+    assert isinstance(data["scene_tags"], list)
+    assert len(data["scene_tags"]) >= 1
+
+
+def test_capture_reply_positive_input_not_empty(client):
+    resp = client.post(
+        "/api/v1/ai/capture-reply",
+        headers=_headers(),
+        json={
+            "content": "今天把拖了很久的东西做完了，心里轻松很多",
+            "recent_assistant_texts": [],
+            "focus_area": "emotion_stress",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+
+    assert data["emotion"] in {"positive", "mixed"}
+    assert isinstance(data["acknowledgement"], str)
+    assert data["acknowledgement"].strip() != ""
+    assert isinstance(data["observation"], str)
+    assert data["observation"].strip() != ""
+    assert isinstance(data["try_next"], str)
+    assert data["try_next"].strip() != ""
+
+
 def test_today_summary_chain_from_saved_capture(client, monkeypatch):
     _patch_demo_user(monkeypatch)
 
-    # 先存两条 capture
     resp1 = client.post(
         "/api/v1/captures",
         headers=_headers(),
@@ -96,6 +156,51 @@ def test_today_summary_chain_from_saved_capture(client, monkeypatch):
             "date": "2026-04-14",
             "entry_count": len(recent_signals),
             "entries": recent_signals,
+            "focus_area": "emotion_stress",
+        },
+    )
+    assert summary_resp.status_code == 200, summary_resp.text
+    data = summary_resp.json()["data"]
+
+    assert isinstance(data["observation"], str)
+    assert data["observation"].strip() != ""
+    assert isinstance(data["suggestion"], str)
+    assert data["suggestion"].strip() != ""
+
+
+def test_today_summary_still_works_with_v2_entries(client):
+    summary_resp = client.post(
+        "/api/v1/ai/today-summary",
+        headers=_headers(),
+        json={
+            "date": "2026-04-14",
+            "entry_count": 2,
+            "entries": [
+                {
+                    "id": "1",
+                    "content": "今天上班很烦",
+                    "created_at": "2026-04-14T01:00:00Z",
+                    "acknowledgement": "先把这一条放在这里。",
+                    "observation": "工作里的打断在磨你。",
+                    "try_next": "先记住最卡的那个瞬间。",
+                    "emotion": "negative",
+                    "intensity": "medium",
+                    "scene_tags": ["work"],
+                    "intent_tags": ["vent"],
+                },
+                {
+                    "id": "2",
+                    "content": "晚上吃到好吃的又缓回来一点",
+                    "created_at": "2026-04-14T12:00:00Z",
+                    "acknowledgement": "后面有一点被接住了。",
+                    "observation": "具体的小好事会把你拉回来。",
+                    "try_next": "记住什么让你缓回来。",
+                    "emotion": "positive",
+                    "intensity": "low",
+                    "scene_tags": ["daily_life"],
+                    "intent_tags": ["celebrate"],
+                },
+            ],
             "focus_area": "emotion_stress",
         },
     )

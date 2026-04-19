@@ -44,6 +44,10 @@ class WeeklyRepository {
         bestAction: null,
         opportunitySnapshot: null,
         feedbackSubmitted: false,
+        chartData: _buildChartDataForEmptyRange(
+          start: today.subtract(const Duration(days: 6)),
+          end: today,
+        ),
       );
     }
 
@@ -65,6 +69,10 @@ class WeeklyRepository {
         bestAction: null,
         opportunitySnapshot: null,
         feedbackSubmitted: false,
+        chartData: _buildChartDataForEmptyRange(
+          start: range.start,
+          end: range.end,
+        ),
       );
     }
 
@@ -88,6 +96,7 @@ class WeeklyRepository {
     }
 
     final focusArea = await _readFocusArea();
+    final isLightWeekly = _isLightWeekly(stats);
 
     WeeklyInsightModel generated;
     try {
@@ -99,11 +108,17 @@ class WeeklyRepository {
         topTokens: stats.topTokens,
         focusArea: focusArea,
       );
+      generated = _normalizeGeneratedWeekly(
+        generated: generated,
+        stats: stats,
+        isLightWeekly: isLightWeekly,
+      );
     } catch (_) {
       generated = _buildFallbackWeeklyInsight(
         weekStart: weekStartKey,
         weekEnd: _dateKey(range.end),
         stats: stats,
+        isLightWeekly: isLightWeekly,
       );
     }
 
@@ -145,6 +160,7 @@ class WeeklyRepository {
     final entries = <Map<String, dynamic>>[];
     final dayCounts = <String, int>{};
     final tokenCounts = <String, int>{};
+    final chartDataMap = <String, _ChartAccumulator>{};
 
     for (final signal in signals) {
       final createdAt = signal.createdAt?.toLocal();
@@ -158,20 +174,48 @@ class WeeklyRepository {
         'content': signal.content,
         'created_at': createdAt.toUtc().toIso8601String(),
         'acknowledgement': signal.acknowledgement,
+        'observation': signal.observation,
+        'try_next': signal.tryNext,
+        'emotion': signal.emotion,
+        'intensity': signal.intensity,
+        'scene_tags': signal.sceneTags,
+        'intent_tags': signal.intentTags,
       });
 
       for (final token in _tokenize(signal.content)) {
         tokenCounts[token] = (tokenCounts[token] ?? 0) + 1;
+      }
+
+      final bucket = chartDataMap.putIfAbsent(dayKey, () => _ChartAccumulator());
+      bucket.signalCount += 1;
+      bucket.moodScore += _emotionToMoodScore(signal.emotion);
+      bucket.frictionScore += _emotionToFrictionScore(signal.emotion);
+      if ((signal.emotion ?? '') == 'positive' || (signal.emotion ?? '') == 'mixed') {
+        bucket.hasPositiveSignal = true;
       }
     }
 
     final sortedTokens = tokenCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
+    final chartData = chartDataMap.entries.map((entry) {
+      final bucket = entry.value;
+      final count = bucket.signalCount == 0 ? 1 : bucket.signalCount;
+      return WeeklyChartPointModel(
+        date: entry.key,
+        signalCount: bucket.signalCount,
+        moodScore: double.parse((bucket.moodScore / count).toStringAsFixed(3)),
+        frictionScore: double.parse((bucket.frictionScore / count).toStringAsFixed(3)),
+        hasPositiveSignal: bucket.hasPositiveSignal,
+      );
+    }).toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+
     return _WeeklyStats(
       entries: entries,
       dayCounts: dayCounts,
       topTokens: sortedTokens.take(8).map((e) => e.key).toList(),
+      chartData: chartData,
     );
   }
 
@@ -216,6 +260,61 @@ class WeeklyRepository {
         .where((e) => e.runes.length >= 2)
         .where((e) => !stopWords.contains(e))
         .toList();
+  }
+
+  bool _isLightWeekly(_WeeklyStats stats) {
+    final signalCount = stats.entries.length;
+    final activeDays = stats.dayCounts.keys.length;
+    return signalCount > 0 && (signalCount < 4 || activeDays < 2);
+  }
+
+  WeeklyInsightModel _normalizeGeneratedWeekly({
+    required WeeklyInsightModel generated,
+    required _WeeklyStats stats,
+    required bool isLightWeekly,
+  }) {
+    if (!isLightWeekly) {
+      return WeeklyInsightModel(
+        weekStart: generated.weekStart,
+        weekEnd: generated.weekEnd,
+        status: 'ready',
+        keyInsight: generated.keyInsight,
+        patterns: generated.patterns,
+        frictions: generated.frictions,
+        bestAction: generated.bestAction,
+        opportunitySnapshot: generated.opportunitySnapshot,
+        feedbackSubmitted: generated.feedbackSubmitted,
+        chartData: generated.chartData.isNotEmpty ? generated.chartData : stats.chartData,
+      );
+    }
+
+    return WeeklyInsightModel(
+      weekStart: generated.weekStart,
+      weekEnd: generated.weekEnd,
+      status: 'light_ready',
+      keyInsight: _lightenKeyInsight(
+        generated.keyInsight,
+        topToken: stats.topTokens.isEmpty ? null : stats.topTokens.first,
+      ),
+      patterns: _lightenItems(
+        generated.patterns,
+        fallbackName: '这周先冒头的线索',
+      ),
+      frictions: _lightenItems(
+        generated.frictions,
+        fallbackName: '这周先看到的消耗点',
+      ),
+      bestAction: generated.bestAction?.trim().isNotEmpty == true
+          ? generated.bestAction
+          : '这周先别急着总结完整，只要继续记下重复出现的场景就可以。',
+      opportunitySnapshot: generated.opportunitySnapshot ??
+          const {
+            'name': '先把线索留住',
+            'summary': '现在更适合先继续收集线索，等轮廓再清楚一点，再判断值不值得进一步整理。',
+          },
+      feedbackSubmitted: generated.feedbackSubmitted,
+      chartData: generated.chartData.isNotEmpty ? generated.chartData : stats.chartData,
+    );
   }
 
   Future<String?> _readFocusArea() async {
@@ -276,10 +375,38 @@ class WeeklyRepository {
     required String weekStart,
     required String weekEnd,
     required _WeeklyStats stats,
+    required bool isLightWeekly,
   }) {
-    final topToken =
-        stats.topTokens.isEmpty ? '本周记录' : stats.topTokens.first;
+    final topToken = stats.topTokens.isEmpty ? '本周记录' : stats.topTokens.first;
     final peakDay = _resolvePeakDay(stats.dayCounts);
+
+    if (isLightWeekly) {
+      return WeeklyInsightModel(
+        weekStart: weekStart,
+        weekEnd: weekEnd,
+        status: 'light_ready',
+        keyInsight: '这周已经开始有线索冒出来了，目前最明显的是“$topToken”。',
+        patterns: [
+          {
+            'name': '这周先冒头的线索',
+            'summary': '记录还不多，但已经能看见一个开始重复的方向。',
+          },
+        ],
+        frictions: [
+          {
+            'name': '这周先看到的消耗点',
+            'summary': '现在更适合先轻轻看着，还不急着下太重的判断。',
+          },
+        ],
+        bestAction: '这周先别急着总结完整，只要继续记下重复出现的场景就可以。',
+        opportunitySnapshot: const {
+          'name': '先把线索留住',
+          'summary': '现在更适合先继续收集线索，等轮廓再清楚一点，再判断值不值得进一步整理。',
+        },
+        feedbackSubmitted: false,
+        chartData: stats.chartData,
+      );
+    }
 
     return WeeklyInsightModel(
       weekStart: weekStart,
@@ -308,7 +435,50 @@ class WeeklyRepository {
         'summary': '如果某类事情总是回来，它可能值得先被结构化记录。',
       },
       feedbackSubmitted: false,
+      chartData: stats.chartData,
     );
+  }
+
+  String _lightenKeyInsight(String? input, {String? topToken}) {
+    if (input != null && input.trim().isNotEmpty) {
+      return input;
+    }
+    if (topToken != null && topToken.trim().isNotEmpty) {
+      return '这周已经开始有线索冒出来了，目前最明显的是“$topToken”。';
+    }
+    return '这周已经开始有线索冒出来了，不过现在更适合先轻轻看着。';
+  }
+
+  List<dynamic> _lightenItems(List<dynamic> items, {required String fallbackName}) {
+    if (items.isEmpty) {
+      return [
+        {
+          'name': fallbackName,
+          'summary': '记录还不多，但已经能看见一个开始重复的方向。',
+        },
+      ];
+    }
+
+    return items.take(2).map((item) {
+      if (item is Map<String, dynamic>) {
+        return {
+          'name': (item['name'] as String?) ?? fallbackName,
+          'summary': (item['summary'] as String?) ??
+              '线索已经出现了，但还不适合下太重的判断。',
+        };
+      }
+      if (item is Map) {
+        return {
+          'name': (item['name']?.toString()) ?? fallbackName,
+          'summary': (item['summary']?.toString()) ??
+              '线索已经出现了，但还不适合下太重的判断。',
+        };
+      }
+      return {
+        'name': fallbackName,
+        'summary': '线索已经出现了，但还不适合下太重的判断。',
+      };
+    }).toList();
   }
 
   String _resolvePeakDay(Map<String, int> dayCounts) {
@@ -317,6 +487,67 @@ class WeeklyRepository {
       ..sort((a, b) => b.value.compareTo(a.value));
     return entries.first.key;
   }
+
+  double _emotionToMoodScore(String? emotion) {
+    switch (emotion) {
+      case 'positive':
+        return 1.0;
+      case 'mixed':
+        return 0.2;
+      case 'negative':
+        return -1.0;
+      default:
+        return 0.0;
+    }
+  }
+
+  double _emotionToFrictionScore(String? emotion) {
+    switch (emotion) {
+      case 'negative':
+        return 1.0;
+      case 'mixed':
+        return 0.6;
+      case 'positive':
+        return 0.0;
+      default:
+        return 0.2;
+    }
+  }
+
+  List<WeeklyChartPointModel> _buildChartDataForEmptyRange({
+    required DateTime start,
+    required DateTime end,
+  }) {
+    final result = <WeeklyChartPointModel>[];
+    var cursor = start;
+    while (!cursor.isAfter(end)) {
+      result.add(
+        WeeklyChartPointModel(
+          date: _dateKey(cursor),
+          signalCount: 0,
+          moodScore: 0,
+          frictionScore: 0,
+          hasPositiveSignal: false,
+        ),
+      );
+      cursor = cursor.add(const Duration(days: 1));
+    }
+    return result;
+  }
+}
+
+class _WeeklyStats {
+  final List<Map<String, dynamic>> entries;
+  final Map<String, int> dayCounts;
+  final List<String> topTokens;
+  final List<WeeklyChartPointModel> chartData;
+
+  _WeeklyStats({
+    required this.entries,
+    required this.dayCounts,
+    required this.topTokens,
+    required this.chartData,
+  });
 }
 
 class _WeekRange {
@@ -329,14 +560,9 @@ class _WeekRange {
   });
 }
 
-class _WeeklyStats {
-  final List<Map<String, dynamic>> entries;
-  final Map<String, int> dayCounts;
-  final List<String> topTokens;
-
-  _WeeklyStats({
-    required this.entries,
-    required this.dayCounts,
-    required this.topTokens,
-  });
+class _ChartAccumulator {
+  int signalCount = 0;
+  double moodScore = 0;
+  double frictionScore = 0;
+  bool hasPositiveSignal = false;
 }

@@ -63,7 +63,7 @@ void main() {
 
       final weekly = await harness.repository.fetchCurrentWeekly();
 
-      expect(weekly.status, 'ready');
+      expect(weekly.status, 'light_ready');
       expect(weekly.keyInsight, isNotNull);
 
       await harness.close();
@@ -84,7 +84,7 @@ void main() {
       await harness.close();
     });
 
-    test('4) 第 2 天以后有本地记录时，Weekly 正常展示', () async {
+    test('4) 第 2 天以后只有 1 条本地记录时，Weekly 返回 light_ready', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
@@ -98,13 +98,46 @@ void main() {
 
       final weekly = await harness.repository.fetchCurrentWeekly();
 
+      expect(weekly.status, 'light_ready');
+      expect(weekly.patterns, isNotEmpty);
+
+      await harness.close();
+    });
+
+    test('5) 第 2 天以后达到较完整数据时，Weekly 返回 ready', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+      );
+
+      final now = DateTime.now();
+      await harness.seedCapture(
+        content: '今天上班很烦',
+        createdAt: now,
+      );
+      await harness.seedCapture(
+        content: '下午又被打断',
+        createdAt: now.subtract(const Duration(hours: 1)),
+      );
+      await harness.seedCapture(
+        content: '昨天还是烦',
+        createdAt: now.subtract(const Duration(days: 1)),
+      );
+      await harness.seedCapture(
+        content: '昨天开会也很累',
+        createdAt: now.subtract(const Duration(days: 1, hours: 2)),
+      );
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+
       expect(weekly.status, 'ready');
       expect(weekly.patterns, isNotEmpty);
 
       await harness.close();
     });
 
-    test('5) 再次进入 Weekly 时，结果能从本地缓存读取', () async {
+    test('6) 再次进入 Weekly 时，结果能从本地缓存读取', () async {
       final countingAi = CountingWeeklyAiRepository();
 
       final harness1 = await _createHarness(
@@ -119,7 +152,7 @@ void main() {
       );
 
       final weekly1 = await harness1.repository.fetchCurrentWeekly();
-      expect(weekly1.status, 'ready');
+      expect(weekly1.status, 'light_ready');
       expect(countingAi.callCount, 1);
 
       await harness1.close();
@@ -131,13 +164,13 @@ void main() {
       );
 
       final weekly2 = await harness2.repository.fetchCurrentWeekly();
-      expect(weekly2.status, 'ready');
+      expect(weekly2.status, 'light_ready');
       expect(countingAi.callCount, 1);
 
       await harness2.close();
     });
 
-    test('6) 在线生成失败时，Weekly 仍然返回 fallback 结果', () async {
+    test('7) 在线生成失败时，Weekly 仍然返回 fallback 结果', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FailingWeeklyAiRepository(),
@@ -151,7 +184,7 @@ void main() {
 
       final weekly = await harness.repository.fetchCurrentWeekly();
 
-      expect(weekly.status, 'ready');
+      expect(weekly.status, 'light_ready');
       expect(weekly.keyInsight, isNotNull);
       expect(weekly.patterns, isNotEmpty);
       expect(weekly.bestAction, isNotNull);
@@ -186,6 +219,12 @@ class _Harness {
         'input_mode': 'quick_capture',
         'tag_hint': null,
         'ai_acknowledgement': null,
+        'ai_observation': null,
+        'ai_try_next': null,
+        'ai_emotion': null,
+        'ai_intensity': null,
+        'ai_scene_tags_json': null,
+        'ai_intent_tags_json': null,
         'ai_status': 'done',
         'followup_question_json': null,
         'followup_answer': null,
@@ -259,30 +298,22 @@ class FakeWeeklyAiRepository extends AiRepository {
       ],
       frictions: [
         {
-          'name': '重复信号开始形成',
-          'summary': '同类内容在本周开始重复出现。',
+          'name': '轻量摩擦',
+          'summary': '当前只是轻量判断，不会太早下结论。',
         },
       ],
-      bestAction: '这周先补记一次重复出现的场景。',
+      bestAction: '先继续记录重复出现的场景。',
       opportunitySnapshot: const {
-        'name': '把重复信号结构化',
-        'summary': 'Weekly 已经能基于本地记录生成最小建议。',
+        'name': '保留线索',
+        'summary': '当前先把线索留住就够了。',
       },
       feedbackSubmitted: false,
     );
   }
 }
 
-class CountingWeeklyAiRepository extends AiRepository {
+class CountingWeeklyAiRepository extends FakeWeeklyAiRepository {
   int callCount = 0;
-
-  CountingWeeklyAiRepository()
-      : super(
-          ApiClient(
-            baseUrl: 'https://example.invalid',
-            userId: 'test-user',
-          ),
-        );
 
   @override
   Future<WeeklyInsightModel> generateWeeklySummary({
@@ -294,30 +325,13 @@ class CountingWeeklyAiRepository extends AiRepository {
     String? focusArea,
   }) async {
     callCount += 1;
-
-    return WeeklyInsightModel(
+    return super.generateWeeklySummary(
       weekStart: weekStart,
       weekEnd: weekEnd,
-      status: 'ready',
-      keyInsight: '缓存测试：本周 ${entries.length} 条记录。',
-      patterns: [
-        {
-          'name': '缓存测试 pattern',
-          'summary': '第一次生成后，第二次应直接读取本地缓存。',
-        },
-      ],
-      frictions: [
-        {
-          'name': '缓存测试 friction',
-          'summary': '这个结果应被缓存下来。',
-        },
-      ],
-      bestAction: '缓存命中后不再重新生成。',
-      opportunitySnapshot: const {
-        'name': '缓存命中',
-        'summary': '第二次进入 Weekly 不需要再调在线生成。',
-      },
-      feedbackSubmitted: false,
+      entries: entries,
+      dayCounts: dayCounts,
+      topTokens: topTokens,
+      focusArea: focusArea,
     );
   }
 }
@@ -340,6 +354,6 @@ class FailingWeeklyAiRepository extends AiRepository {
     required List<String> topTokens,
     String? focusArea,
   }) async {
-    throw Exception('Simulated weekly remote failure');
+    throw Exception('network failed');
   }
 }

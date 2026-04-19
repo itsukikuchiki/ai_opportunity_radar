@@ -5,10 +5,11 @@ import 'package:provider/provider.dart';
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/today_models.dart';
-import '../me/me_view_model.dart';
 import '../../../shared/widgets/app_header.dart';
 import '../../../shared/widgets/empty_state_block.dart';
 import '../../../shared/widgets/section_header.dart';
+import '../me/me_view_model.dart';
+import 'today_state.dart';
 import 'today_view_model.dart';
 
 class TodayPage extends StatefulWidget {
@@ -45,7 +46,6 @@ class _TodayPageState extends State<TodayPage> {
     final vm = context.watch<TodayViewModel>();
     final meVm = context.watch<MeViewModel>();
     final state = vm.state;
-    final theme = Theme.of(context);
     final todaySignals = _todayOnlySignals(state.recentSignals);
 
     if (_controller.text != state.inputText) {
@@ -69,13 +69,16 @@ class _TodayPageState extends State<TodayPage> {
       }
     });
 
+    final observationText = _resolveObservationText(context, state, todaySignals);
+    final tryNextText = _resolveTryNextText(context, state, todaySignals);
+
     return Scaffold(
       appBar: AppBar(
         title: Text(_todayTitle(context)),
         centerTitle: false,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         children: [
           AppHeader(
             title: _todayTitle(context),
@@ -88,7 +91,7 @@ class _TodayPageState extends State<TodayPage> {
             preferenceText: _preferenceText(context, meVm.selectedRepeatArea),
             onTapPreference: _openMePage,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           _CaptureInputCard(
             controller: _controller,
             isSubmitting: state.isCaptureSubmitting,
@@ -97,17 +100,10 @@ class _TodayPageState extends State<TodayPage> {
           ),
           if (state.hasError) ...[
             const SizedBox(height: 16),
-            Card(
-              color: theme.colorScheme.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  _displayErrorText(context, state.errorMessage),
-                  style: TextStyle(
-                    color: theme.colorScheme.onErrorContainer,
-                  ),
-                ),
-              ),
+            _InlineStatusCard(
+              icon: Icons.error_outline,
+              text: _displayErrorText(context, state.errorMessage),
+              isError: true,
             ),
           ],
           if (state.pendingQuestion != null) ...[
@@ -118,7 +114,7 @@ class _TodayPageState extends State<TodayPage> {
               onSubmit: vm.submitFollowup,
             ),
           ],
-          const SizedBox(height: 20),
+          const SizedBox(height: 22),
           if (todaySignals.isEmpty && !state.isInitialLoading) ...[
             EmptyStateBlock(
               icon: Icons.timeline_rounded,
@@ -130,7 +126,7 @@ class _TodayPageState extends State<TodayPage> {
               title: _todayRecordsTitle(context),
               subtitle: _todayRecordsSubtitle(context),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             _TimelineList(signals: todaySignals),
           ],
           if (state.isInitialLoading) ...[
@@ -138,14 +134,10 @@ class _TodayPageState extends State<TodayPage> {
             const Center(child: CircularProgressIndicator()),
           ],
           if (!state.isInitialLoading) ...[
-            const SizedBox(height: 20),
-            _DailyObservationCard(
-              summary: state.insight?.text ?? _fallbackObservation(context, todaySignals),
-            ),
+            const SizedBox(height: 22),
+            _DailyObservationCard(summary: observationText),
             const SizedBox(height: 16),
-            _TryNextCard(
-              summary: state.bestAction?.text ?? _fallbackSuggestion(context, todaySignals),
-            ),
+            _TryNextCard(summary: tryNextText),
           ],
         ],
       ),
@@ -167,6 +159,52 @@ class _TodayPageState extends State<TodayPage> {
         final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         return bTime.compareTo(aTime);
       });
+  }
+
+  String _resolveObservationText(
+    BuildContext context,
+    TodayState state,
+    List<RecentSignalModel> todaySignals,
+  ) {
+    if (todaySignals.length == 1) {
+      final single = todaySignals.first;
+      if (_hasText(single.observation)) return single.observation!;
+      if (_hasText(state.insight?.text)) return state.insight!.text;
+      return _fallbackObservation(context, todaySignals);
+    }
+
+    if (_hasText(state.insight?.text)) return state.insight!.text;
+
+    for (final signal in todaySignals) {
+      if (_hasText(signal.observation)) return signal.observation!;
+    }
+
+    return _fallbackObservation(context, todaySignals);
+  }
+
+  String _resolveTryNextText(
+    BuildContext context,
+    TodayState state,
+    List<RecentSignalModel> todaySignals,
+  ) {
+    if (todaySignals.length == 1) {
+      final single = todaySignals.first;
+      if (_hasText(single.tryNext)) return single.tryNext!;
+      if (_hasText(state.bestAction?.text)) return state.bestAction!.text;
+      return _fallbackSuggestion(context, todaySignals);
+    }
+
+    if (_hasText(state.bestAction?.text)) return state.bestAction!.text;
+
+    for (final signal in todaySignals) {
+      if (_hasText(signal.tryNext)) return signal.tryNext!;
+    }
+
+    return _fallbackSuggestion(context, todaySignals);
+  }
+
+  bool _hasText(String? value) {
+    return value != null && value.trim().isNotEmpty;
   }
 
   String _todayTitle(BuildContext context) {
@@ -255,221 +293,269 @@ class _TodayPageState extends State<TodayPage> {
 
   String _todayDateText(BuildContext context) {
     final now = DateTime.now();
-    final language = AppLocaleText.resolve(context);
+    final languageCode = Localizations.localeOf(context).languageCode.toLowerCase();
 
-    switch (language) {
-      case AppLanguage.simplifiedChinese:
-        const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-        return '${weekdays[now.weekday - 1]} · ${now.month}月${now.day}日';
-      case AppLanguage.traditionalChinese:
-        const weekdays = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
-        return '${weekdays[now.weekday - 1]} · ${now.month}月${now.day}日';
-      case AppLanguage.japanese:
-        const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
-        return '${weekdays[now.weekday - 1]}曜日 · ${now.month}月${now.day}日';
-      case AppLanguage.english:
-        const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        return '${weekdays[now.weekday - 1]} · ${months[now.month - 1]} ${now.day}';
+    switch (languageCode) {
+      case 'ja':
+      case 'zh':
+        return '${now.year}年${now.month}月${now.day}日';
+      default:
+        return '${_monthShort(now.month)} ${now.day}, ${now.year}';
     }
+  }
+
+  String _monthShort(int month) {
+    const months = [
+      '',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return months[month.clamp(1, 12)];
   }
 
   String _buildTodaySummary(
     BuildContext context,
-    List<RecentSignalModel> todaySignals,
-    bool isLoading,
-  ) {
-    if (isLoading) {
-      return AppLocaleText.tr(
-        context,
-        en: 'Gathering today’s signals...',
-        zhHans: '正在整理今天的线索',
-        zhHant: '正在整理今天的線索',
-        ja: '今日の手がかりを整理しています',
-      );
-    }
-
-    if (todaySignals.isEmpty) {
-      return AppLocaleText.tr(
-        context,
-        en: 'No entries yet today',
-        zhHans: '今天还没有记录',
-        zhHant: '今天還沒有記錄',
-        ja: '今日はまだ記録がありません',
-      );
-    }
-
-    if (todaySignals.length == 1) {
-      return AppLocaleText.tr(
-        context,
-        en: '1 entry today',
-        zhHans: '今天已记录 1 条',
-        zhHant: '今天已記錄 1 條',
-        ja: '今日は 1 件記録済み',
-      );
-    }
-
-    final count = todaySignals.length;
-    return AppLocaleText.tr(
-      context,
-      en: '$count entries today',
-      zhHans: '今天已记录 $count 条',
-      zhHant: '今天已記錄 $count 條',
-      ja: '今日は $count 件記録済み',
-    );
-  }
-
-  String _fallbackObservation(
-    BuildContext context,
     List<RecentSignalModel> signals,
+    bool isInitialLoading,
   ) {
+    if (isInitialLoading) {
+      return AppLocaleText.tr(
+        context,
+        en: 'Looking through today’s entries...',
+        zhHans: '正在整理今天的记录……',
+        zhHant: '正在整理今天的記錄……',
+        ja: '今日の記録を整理しています……',
+      );
+    }
+
     if (signals.isEmpty) {
       return AppLocaleText.tr(
         context,
-        en: 'Today is still blank. One small real moment is enough to start.',
-        zhHans: '今天还是空白的，先留下一件真实发生的小事就够了。',
-        zhHant: '今天還是空白的，先留下一件真實發生的小事就夠了。',
-        ja: '今日はまだ空白です。まずは本当に起きた小さなことを一つ残せば十分です。',
+        en: 'Leave one real thing from today first.',
+        zhHans: '先留下一件今天真实发生的小事。',
+        zhHant: '先留下一件今天真實發生的小事。',
+        ja: 'まずは今日、本当にあった小さなことを一つ残してみて。',
+      );
+    }
+
+    if (signals.length == 1) {
+      return AppLocaleText.tr(
+        context,
+        en: '1 entry today. The first signal from today is starting to show.',
+        zhHans: '今天记录了 1 条，今天的第一条线索已经开始出现。',
+        zhHant: '今天記錄了 1 條，今天的第一條線索已經開始出現。',
+        ja: '今日は 1 件記録しました。今日の最初の手がかりが少し見え始めています。',
+      );
+    }
+
+    return AppLocaleText.tr(
+      context,
+      en: '${signals.length} entries today. Today’s signals are starting to gather into a small shape.',
+      zhHans: '今天记录了 ${signals.length} 条，今天的几条线索已经开始慢慢聚成一点轮廓。',
+      zhHant: '今天記錄了 ${signals.length} 條，今天的幾條線索已經開始慢慢聚成一點輪廓。',
+      ja: '今日は ${signals.length} 件記録しました。今日の手がかりが少しずつ小さな輪郭を持ち始めています。',
+    );
+  }
+
+  String _fallbackObservation(BuildContext context, List<RecentSignalModel> signals) {
+    if (signals.isEmpty) {
+      return AppLocaleText.tr(
+        context,
+        en: 'No entries yet today. Start with one small real thing.',
+        zhHans: '今天还没有记录，先留下一件真实发生的小事就好。',
+        zhHant: '今天還沒有記錄，先留下一件真實發生的小事就好。',
+        ja: '今日はまだ記録がありません。まずは本当にあった小さなことを一つ残してみて。',
+      );
+    }
+    if (signals.length == 1) {
+      return AppLocaleText.tr(
+        context,
+        en: 'You’ve started to leave a real trace from today.',
+        zhHans: '你已经开始把今天里真实发生的事留了下来。',
+        zhHant: '你已經開始把今天裡真實發生的事留了下來。',
+        ja: '今日の中で実際に起きたことを、ちゃんと残し始めています。',
       );
     }
     return AppLocaleText.tr(
       context,
-      en: 'You recorded ${signals.length} entr${signals.length == 1 ? 'y' : 'ies'} today.',
-      zhHans: '今天记录了 ${signals.length} 条。',
-      zhHant: '今天記錄了 ${signals.length} 條。',
-      ja: '今日は ${signals.length} 件記録しました。',
+      en: 'Today’s signals are starting to gather into a small shape.',
+      zhHans: '今天的线索已经开始慢慢聚成一点轮廓。',
+      zhHant: '今天的線索已經開始慢慢聚成一點輪廓。',
+      ja: '今日の手がかりが少しずつ小さな輪郭を持ち始めています。',
     );
   }
 
-  String _fallbackSuggestion(
-    BuildContext context,
-    List<RecentSignalModel> signals,
-  ) {
+  String _fallbackSuggestion(BuildContext context, List<RecentSignalModel> signals) {
     if (signals.isEmpty) {
       return AppLocaleText.tr(
         context,
-        en: 'Today, just note one small moment that made you pause.',
+        en: 'Just note one moment that made you pause today.',
         zhHans: '今天先记下一件让你停顿了一下的小事就好。',
         zhHant: '今天先記下一件讓你停頓了一下的小事就好。',
-        ja: '今日はまず、少し立ち止まったことを一つ残してみてください。',
+        ja: '今日は、少し立ち止まった瞬間を一つだけ残してみて。',
+      );
+    }
+    if (signals.length == 1) {
+      return AppLocaleText.tr(
+        context,
+        en: 'If something similar happens again today, add one more line.',
+        zhHans: '如果同类事情今天再出现一次，再补记一条就可以。',
+        zhHant: '如果同類事情今天再出現一次，再補記一條就可以。',
+        ja: '同じようなことが今日もう一度起きたら、一行だけ追記してみて。',
       );
     }
     return AppLocaleText.tr(
       context,
-      en: 'If a similar thing happens again today, add one more note.',
-      zhHans: '如果同类事情今天再出现一次，再补记一条就可以。',
-      zhHant: '如果同類事情今天再出現一次，再補記一條就可以。',
-      ja: '似たことが今日もう一度起きたら、もう一件だけ足してみてください。',
+      en: 'Notice whether any kind of moment has already repeated today.',
+      zhHans: '接下来先留意：今天有没有哪类事情已经不是第一次这样发生。',
+      zhHant: '接下來先留意：今天有沒有哪類事情已經不是第一次這樣發生。',
+      ja: 'これからは、今日の中でもう繰り返していることがないかだけ見てみて。',
     );
   }
 
-  String _displayErrorText(BuildContext context, String? raw) {
-    if (raw == 'empty_input') {
+  String _displayErrorText(BuildContext context, String? errorMessage) {
+    if (errorMessage == null || errorMessage.trim().isEmpty) {
       return AppLocaleText.tr(
         context,
-        en: 'Please enter today’s observation before submitting.',
-        zhHans: '请先输入今天的观察，再提交。',
-        zhHant: '請先輸入今天的觀察，再提交。',
-        ja: '送信する前に、今日の観察を入力してください。',
+        en: 'Something went wrong.',
+        zhHans: '发生了一点问题。',
+        zhHant: '發生了一點問題。',
+        ja: '少し問題が発生しました。',
       );
     }
-    return raw ?? '';
+
+    if (errorMessage == 'empty_input') {
+      return AppLocaleText.tr(
+        context,
+        en: 'Write one small thing first.',
+        zhHans: '先写下一件小事。',
+        zhHant: '先寫下一件小事。',
+        ja: 'まずは小さなことを一つ書いてみて。',
+      );
+    }
+
+    return errorMessage;
   }
 }
 
 class _CaptureInputCard extends StatelessWidget {
   final TextEditingController controller;
+  final bool isSubmitting;
   final ValueChanged<String> onChanged;
   final VoidCallback onSubmit;
-  final bool isSubmitting;
 
   const _CaptureInputCard({
     required this.controller,
+    required this.isSubmitting,
     required this.onChanged,
     required this.onSubmit,
-    required this.isSubmitting,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    return _UnifiedCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Write down one small thing from today',
+              zhHans: '记下一件今天的小事',
+              zhHant: '記下一件今天的小事',
+              ja: '今日の小さなことを一つ記してみて',
+            ),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: controller,
+            minLines: 3,
+            maxLines: 6,
+            onChanged: onChanged,
+            textInputAction: TextInputAction.newline,
+            decoration: InputDecoration(
+              hintText: AppLocaleText.tr(
+                context,
+                en: 'For example: I felt irritated during a meeting, but dinner helped me settle a bit.',
+                zhHans: '例如：开会时很烦，但晚上吃饭后又缓回来一点。',
+                zhHant: '例如：開會時很煩，但晚上吃飯後又緩回來一點。',
+                ja: 'たとえば：会議中はかなりしんどかったけれど、夜ごはんで少し戻れた。',
+              ),
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              onPressed: isSubmitting ? null : onSubmit,
+              child: Text(
+                isSubmitting
+                    ? AppLocaleText.tr(
+                        context,
+                        en: 'Saving...',
+                        zhHans: '保存中…',
+                        zhHant: '保存中…',
+                        ja: '保存中…',
+                      )
+                    : AppLocaleText.tr(
+                        context,
+                        en: 'Save',
+                        zhHans: '保存',
+                        zhHant: '保存',
+                        ja: '保存',
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
+class _InlineStatusCard extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final bool isError;
+
+  const _InlineStatusCard({
+    required this.icon,
+    required this.text,
+    this.isError = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Card(
+      color: isError ? scheme.errorContainer : scheme.surfaceContainerHighest,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-        child: Column(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              AppLocaleText.tr(
-                context,
-                en: 'Write it down',
-                zhHans: '记一下',
-                zhHant: '記一下',
-                ja: '書き留める',
-              ),
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+            Icon(
+              icon,
+              color: isError ? scheme.onErrorContainer : scheme.primary,
             ),
-            const SizedBox(height: 6),
-            Text(
-              AppLocaleText.tr(
-                context,
-                en: 'Just write down what happened today',
-                zhHans: '刚刚发生了什么，记下来就好',
-                zhHant: '剛剛發生了什麼，記下來就好',
-                ja: 'さっき起きたことを、そのまま残してみて',
-              ),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              onChanged: onChanged,
-              minLines: 3,
-              maxLines: 6,
-              decoration: InputDecoration(
-                hintText: AppLocaleText.tr(
-                  context,
-                  en: 'What small thing stood out to you today?',
-                  zhHans: '今天有什么让你在意的小事？',
-                  zhHant: '今天有什麼讓你在意的小事？',
-                  ja: '今日はどんな小さなことが気になった？',
-                ),
-                border: const OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                onPressed: isSubmitting ? null : onSubmit,
-                icon: isSubmitting
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.edit_outlined),
-                label: Text(
-                  isSubmitting
-                      ? AppLocaleText.tr(
-                          context,
-                          en: 'Saving...',
-                          zhHans: '记录中...',
-                          zhHant: '記錄中...',
-                          ja: '記録中...',
-                        )
-                      : AppLocaleText.tr(
-                          context,
-                          en: 'Save',
-                          zhHans: '记一下',
-                          zhHant: '記一下',
-                          ja: '記録する',
-                        ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(
+                  color: isError ? scheme.onErrorContainer : null,
                 ),
               ),
             ),
@@ -493,47 +579,28 @@ class _FollowupQuestionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              AppLocaleText.tr(
-                context,
-                en: 'One small follow-up',
-                zhHans: '补充一个小问题',
-                zhHant: '補充一個小問題',
-                ja: '小さな補足質問',
-              ),
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(question.question),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: question.options
-                  .map(
-                    (o) => OutlinedButton(
-                      onPressed: isSubmitting ? null : () => onSubmit(o.value),
-                      child: Text(o.label),
-                    ),
-                  )
-                  .toList(),
-            ),
-            if (isSubmitting) ...[
-              const SizedBox(height: 12),
-              const LinearProgressIndicator(),
-            ],
-          ],
-        ),
+    return _UnifiedCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            question.question,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: question.options
+                .map(
+                  (option) => OutlinedButton(
+                    onPressed: isSubmitting ? null : () => onSubmit(option.value),
+                    child: Text(option.label),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
       ),
     );
   }
@@ -549,186 +616,109 @@ class _TimelineList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      children: [
-        for (int i = 0; i < signals.length; i++) ...[
-          _TimelineItem(
-            signal: signals[i],
-            aiText: signals[i].acknowledgement ??
-                AppLocaleText.tr(
-                  context,
-                  en: 'Let’s leave this here for now.',
-                  zhHans: '先把这个点放在这里。',
-                  zhHant: '先把這個點放在這裡。',
-                  ja: 'ひとまず、この点をここに置いておこう。',
-                ),
-          ),
-          if (i != signals.length - 1) const SizedBox(height: 12),
-        ],
-      ],
+      children: signals
+          .map(
+            (signal) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _SignalCard(signal: signal),
+            ),
+          )
+          .toList(),
     );
   }
 }
 
-class _TimelineItem extends StatelessWidget {
+class _SignalCard extends StatelessWidget {
   final RecentSignalModel signal;
-  final String aiText;
 
-  const _TimelineItem({
+  const _SignalCard({
     required this.signal,
-    required this.aiText,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final timeText = _buildTimeText(signal.createdAt);
+    final metaTags = <String>[
+      if ((signal.emotion ?? '').isNotEmpty) signal.emotion!,
+      if ((signal.intensity ?? '').isNotEmpty) signal.intensity!,
+      ...signal.sceneTags.take(2),
+    ];
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 52,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              timeText,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            children: [
-              _UserEntryBubble(text: signal.content),
-              const SizedBox(height: 8),
-              _AiResponseBubble(text: aiText),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _buildTimeText(DateTime? time) {
-    if (time == null) return '--:--';
-    final local = time.toLocal();
-    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
-  }
-}
-
-class _UserEntryBubble extends StatelessWidget {
-  final String text;
-
-  const _UserEntryBubble({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            text,
-            style: theme.textTheme.bodyLarge,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AiResponseBubble extends StatelessWidget {
-  final String text;
-
-  const _AiResponseBubble({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.32),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
+    return _UnifiedCard(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.auto_awesome_outlined,
-            size: 18,
-            color: theme.colorScheme.primary,
+          if (signal.createdAt != null)
+            Text(
+              _formatTime(signal.createdAt!.toLocal()),
+              style: theme.textTheme.labelMedium,
+            ),
+          if (signal.createdAt != null) const SizedBox(height: 8),
+          Text(
+            signal.content,
+            style: theme.textTheme.bodyLarge,
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface,
-                height: 1.5,
+          if ((signal.acknowledgement ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withAlpha(140),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                signal.acknowledgement!,
+                style: theme.textTheme.bodyMedium,
               ),
             ),
-          ),
+          ],
+          if (metaTags.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: metaTags.map((tag) => _MetaChip(label: tag)).toList(),
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  String _formatTime(DateTime time) {
+    final hh = time.hour.toString().padLeft(2, '0');
+    final mm = time.minute.toString().padLeft(2, '0');
+    return '$hh:$mm';
   }
 }
 
 class _DailyObservationCard extends StatelessWidget {
   final String summary;
 
-  const _DailyObservationCard({required this.summary});
+  const _DailyObservationCard({
+    required this.summary,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
-      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.visibility_outlined,
-              size: 20,
-              color: theme.colorScheme.primary,
+    return _UnifiedCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'A small signal from today',
+              zhHans: '今天的一条小线索',
+              zhHant: '今天的一條小線索',
+              ja: '今日の小さな手がかり',
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'A small observation from today',
-                      zhHans: '今天的小观察',
-                      zhHant: '今天的小觀察',
-                      ja: '今日の小さな観察',
-                    ),
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(summary),
-                ],
-              ),
-            ),
-          ],
-        ),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 10),
+          Text(summary),
+        ],
       ),
     );
   }
@@ -737,48 +727,74 @@ class _DailyObservationCard extends StatelessWidget {
 class _TryNextCard extends StatelessWidget {
   final String summary;
 
-  const _TryNextCard({required this.summary});
+  const _TryNextCard({
+    required this.summary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _UnifiedCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'You can try this today',
+              zhHans: '今天可以先试试',
+              zhHant: '今天可以先試試',
+              ja: '今日ひとつ試してみるなら',
+            ),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 10),
+          Text(summary),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  final String label;
+
+  const _MetaChip({
+    required this.label,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    return Card(
-      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.30),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.track_changes_outlined,
-              size: 20,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'Something to try next',
-                      zhHans: '今天可以先试试',
-                      zhHant: '今天可以先試試',
-                      ja: '今日、先に試してみること',
-                    ),
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(summary),
-                ],
-              ),
-            ),
-          ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.onSecondaryContainer,
         ),
+      ),
+    );
+  }
+}
+
+class _UnifiedCard extends StatelessWidget {
+  final Widget child;
+
+  const _UnifiedCard({
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+        child: child,
       ),
     );
   }

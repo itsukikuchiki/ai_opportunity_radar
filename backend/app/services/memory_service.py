@@ -1,6 +1,8 @@
 from datetime import datetime, date, timedelta
 from uuid import uuid4
+
 from sqlalchemy.orm import Session
+
 from app.models import Pattern, Friction, Desire, Opportunity
 from app.repositories.memory_repository import MemoryRepository
 from app.rules.scoring_rules import calculate_opportunity_score, map_maturity
@@ -50,10 +52,19 @@ class MemoryService:
         row = self.repo.find_pattern(user_id, scene)
         if not row:
             row = self.repo.create_pattern(Pattern(
-                id=f"pattern_{uuid4().hex[:8]}", user_id=user_id, name=PATTERN_NAMES.get(scene, '重复模式'),
-                description=content, scene_type=scene, frequency_7d=1, frequency_30d=1,
-                stability_score=0.3, confidence_score=0.4, first_seen_at=now, last_seen_at=now,
-                status='observing', summary_json={'last_content': content}
+                id=f"pattern_{uuid4().hex[:8]}",
+                user_id=user_id,
+                name=PATTERN_NAMES.get(scene, '重复模式'),
+                description=content,
+                scene_type=scene,
+                frequency_7d=1,
+                frequency_30d=1,
+                stability_score=0.3,
+                confidence_score=0.4,
+                first_seen_at=now,
+                last_seen_at=now,
+                status='observing',
+                summary_json={'last_content': content},
             ))
         else:
             row.frequency_7d += 1
@@ -73,11 +84,20 @@ class MemoryService:
         row = self.repo.find_friction(user_id, friction_type)
         if not row:
             row = self.repo.create_friction(Friction(
-                id=f"friction_{uuid4().hex[:8]}", user_id=user_id, name=FRICTION_NAMES.get(friction_type, '主要摩擦'),
-                friction_type=friction_type, description=content, severity_score=0.5,
-                frequency_7d=1, frequency_30d=1, confidence_score=0.4,
-                related_pattern_ids=[pattern_id] if pattern_id else [], representative_quotes=[content],
-                first_seen_at=now, last_seen_at=now, status='observing'
+                id=f"friction_{uuid4().hex[:8]}",
+                user_id=user_id,
+                name=FRICTION_NAMES.get(friction_type, '主要摩擦'),
+                friction_type=friction_type,
+                description=content,
+                severity_score=0.5,
+                frequency_7d=1,
+                frequency_30d=1,
+                confidence_score=0.4,
+                related_pattern_ids=[pattern_id] if pattern_id else [],
+                representative_quotes=[content],
+                first_seen_at=now,
+                last_seen_at=now,
+                status='observing',
             ))
         else:
             row.frequency_7d += 1
@@ -101,9 +121,15 @@ class MemoryService:
         row = self.repo.find_desire(user_id, DESIRE_NAME)
         if not row:
             row = self.repo.create_desire(Desire(
-                id=f"desire_{uuid4().hex[:8]}", user_id=user_id, name=DESIRE_NAME, mention_count=1,
-                priority_score=0.6, related_pattern_ids=[pattern_id] if pattern_id else [],
-                related_friction_ids=[friction_id] if friction_id else [], first_seen_at=now, last_seen_at=now
+                id=f"desire_{uuid4().hex[:8]}",
+                user_id=user_id,
+                name=DESIRE_NAME,
+                mention_count=1,
+                priority_score=0.6,
+                related_pattern_ids=[pattern_id] if pattern_id else [],
+                related_friction_ids=[friction_id] if friction_id else [],
+                first_seen_at=now,
+                last_seen_at=now,
             ))
         else:
             row.mention_count += 1
@@ -126,18 +152,29 @@ class MemoryService:
         row = self.repo.find_opportunity(user_id, OPPORTUNITY_NAME)
         if not row:
             row = self.repo.create_opportunity(Opportunity(
-                id=f"opp_{uuid4().hex[:8]}", user_id=user_id, name=OPPORTUNITY_NAME,
+                id=f"opp_{uuid4().hex[:8]}",
+                user_id=user_id,
+                name=OPPORTUNITY_NAME,
                 description='在开始任务前，先帮助用户聚合上下文和资料。',
-                related_pattern_ids=[pattern.id], related_friction_ids=[friction.id],
-                related_desire_ids=[desire.id] if desire else [], opportunity_type='copilot', maturity=maturity,
-                score_total=score['total'], score_repeatability=score['repeatability'], score_pain=score['pain'],
-                score_clarity=score['clarity'], score_desire=score['desire'], score_ai_fit=score['ai_fit'],
-                expected_value='减少启动前的资料整理时间', recommendation='先做一个预整理助手', status='open'
+                related_pattern_ids=[pattern.id],
+                related_friction_ids=[friction.id],
+                related_desire_ids=[desire.id] if desire else [],
+                opportunity_type='copilot',
+                maturity=maturity,
+                score_total=score['total'],
+                score_repeatability=score['repeatability'],
+                score_pain=score['pain'],
+                score_clarity=score['clarity'],
+                score_desire=score['desire'],
+                score_ai_fit=score['ai_fit'],
+                expected_value='减少启动前的资料整理时间',
+                recommendation='先做一个预整理助手',
+                status='open',
             ))
         else:
             row.related_pattern_ids = list({*(row.related_pattern_ids or []), pattern.id})
             row.related_friction_ids = list({*(row.related_friction_ids or []), friction.id})
-            row.related_desire_ids = list({*(row.related_desire_ids or []), *( [desire.id] if desire else [])})
+            row.related_desire_ids = list({*(row.related_desire_ids or []), *([desire.id] if desire else [])})
             row.maturity = maturity
             row.score_total = score['total']
             row.score_repeatability = score['repeatability']
@@ -166,11 +203,59 @@ class MemoryService:
         patterns = self.repo.list_patterns(user_id, limit=10)
         frictions = self.repo.list_frictions(user_id, limit=10)
         desires = self.repo.list_desires(user_id, limit=10)
+
         return {
-            'patterns': [{'id': p.id, 'name': p.name, 'status': p.status, 'summary': p.description or ''} for p in patterns],
-            'frictions': [{'id': f.id, 'name': f.name, 'status': f.status, 'summary': f.description or ''} for f in frictions],
-            'desires': [{'id': d.id, 'name': d.name, 'summary': d.description or d.name} for d in desires],
+            'patterns': [
+                {
+                    'id': p.id,
+                    'name': p.name,
+                    'status': p.status,
+                    'summary': p.description or '',
+                    'signal_level': self._pattern_signal_level(p),
+                }
+                for p in patterns
+            ],
+            'frictions': [
+                {
+                    'id': f.id,
+                    'name': f.name,
+                    'status': f.status,
+                    'summary': f.description or '',
+                    'signal_level': self._friction_signal_level(f),
+                }
+                for f in frictions
+            ],
+            'desires': [
+                {
+                    'id': d.id,
+                    'name': d.name,
+                    'summary': d.description or d.name,
+                    'signal_level': self._desire_signal_level(d),
+                }
+                for d in desires
+            ],
             'experiments': [],
             'journey_started': True,
             'first_signal_date': first_signal_date.isoformat() if first_signal_date else None,
         }
+
+    def _pattern_signal_level(self, pattern) -> str:
+        if int(pattern.frequency_7d or 0) >= 4 and float(pattern.stability_score or 0) >= 0.6:
+            return 'stable_mode'
+        if int(pattern.frequency_7d or 0) >= 2:
+            return 'repeated_pattern'
+        return 'weak_signal'
+
+    def _friction_signal_level(self, friction) -> str:
+        if int(friction.frequency_7d or 0) >= 4 and float(friction.severity_score or 0) >= 0.6:
+            return 'stable_mode'
+        if int(friction.frequency_7d or 0) >= 2:
+            return 'repeated_pattern'
+        return 'weak_signal'
+
+    def _desire_signal_level(self, desire) -> str:
+        if int(desire.mention_count or 0) >= 4 and float(desire.priority_score or 0) >= 0.7:
+            return 'stable_mode'
+        if int(desire.mention_count or 0) >= 2:
+            return 'repeated_pattern'
+        return 'weak_signal'

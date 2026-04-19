@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
@@ -28,6 +30,12 @@ class LocalCaptureRepository {
         'input_mode': inputMode,
         'tag_hint': tagHint,
         'ai_acknowledgement': null,
+        'ai_observation': null,
+        'ai_try_next': null,
+        'ai_emotion': null,
+        'ai_intensity': null,
+        'ai_scene_tags_json': null,
+        'ai_intent_tags_json': null,
         'ai_status': 'pending',
         'followup_question_json': null,
         'followup_answer': null,
@@ -41,6 +49,41 @@ class LocalCaptureRepository {
       content: content,
       createdAt: now.toLocal(),
       acknowledgement: null,
+      observation: null,
+      tryNext: null,
+      emotion: null,
+      intensity: null,
+      sceneTags: const [],
+      intentTags: const [],
+    );
+  }
+
+  Future<void> updateAiReply({
+    required String captureId,
+    required String? acknowledgement,
+    required String? observation,
+    required String? tryNext,
+    required String? emotion,
+    required String? intensity,
+    required List<String> sceneTags,
+    required List<String> intentTags,
+  }) async {
+    final db = await localDatabase.database;
+    await db.update(
+      'captures',
+      {
+        'ai_acknowledgement': acknowledgement,
+        'ai_observation': observation,
+        'ai_try_next': tryNext,
+        'ai_emotion': emotion,
+        'ai_intensity': intensity,
+        'ai_scene_tags_json': jsonEncode(sceneTags),
+        'ai_intent_tags_json': jsonEncode(intentTags),
+        'ai_status': acknowledgement == null ? 'failed' : 'done',
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [captureId],
     );
   }
 
@@ -118,6 +161,42 @@ class LocalCaptureRepository {
       content: (row['content'] as String?) ?? '',
       createdAt: DateTime.tryParse((row['created_at'] as String?) ?? '')?.toLocal(),
       acknowledgement: row['ai_acknowledgement'] as String?,
+      observation: row['ai_observation'] as String?,
+      tryNext: row['ai_try_next'] as String?,
+      emotion: row['ai_emotion'] as String?,
+      intensity: row['ai_intensity'] as String?,
+      sceneTags: _decodeJsonStringList(row['ai_scene_tags_json']),
+      intentTags: _decodeJsonStringList(row['ai_intent_tags_json']),
     );
+  }
+
+  List<String> _decodeJsonStringList(Object? raw) {
+    if (raw == null) return const [];
+    if (raw is List) {
+      return raw
+          .map((e) => e?.toString().trim() ?? '')
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    if (raw is String) {
+      final trimmed = raw.trim();
+      if (trimmed.isEmpty) return const [];
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is List) {
+          return decoded
+              .map((e) => e?.toString().trim() ?? '')
+              .where((e) => e.isNotEmpty)
+              .toList();
+        }
+      } catch (_) {
+        return trimmed
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+      }
+    }
+    return const [];
   }
 }

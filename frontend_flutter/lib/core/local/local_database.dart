@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 class LocalDatabase {
   static const _databaseName = 'ai_opportunity_radar_local.db';
-  static const _databaseVersion = 3;
+  static const _databaseVersion = 5;
 
   final String? dbPathOverride;
   final DatabaseFactory? databaseFactoryOverride;
@@ -66,6 +66,19 @@ class LocalDatabase {
               )
             ''');
           }
+
+          if (oldVersion < 4) {
+            await _addColumnIfNeeded(db, 'captures', 'ai_observation TEXT');
+            await _addColumnIfNeeded(db, 'captures', 'ai_try_next TEXT');
+            await _addColumnIfNeeded(db, 'captures', 'ai_emotion TEXT');
+            await _addColumnIfNeeded(db, 'captures', 'ai_intensity TEXT');
+            await _addColumnIfNeeded(db, 'captures', 'ai_scene_tags_json TEXT');
+            await _addColumnIfNeeded(db, 'captures', 'ai_intent_tags_json TEXT');
+          }
+
+          if (oldVersion < 5) {
+            await _addColumnIfNeeded(db, 'weekly_snapshots', 'chart_data_json TEXT');
+          }
         },
       ),
     );
@@ -90,6 +103,12 @@ class LocalDatabase {
         input_mode TEXT,
         tag_hint TEXT,
         ai_acknowledgement TEXT,
+        ai_observation TEXT,
+        ai_try_next TEXT,
+        ai_emotion TEXT,
+        ai_intensity TEXT,
+        ai_scene_tags_json TEXT,
+        ai_intent_tags_json TEXT,
         ai_status TEXT,
         followup_question_json TEXT,
         followup_answer TEXT,
@@ -118,6 +137,7 @@ class LocalDatabase {
         frictions_json TEXT,
         best_action TEXT,
         opportunity_snapshot_json TEXT,
+        chart_data_json TEXT,
         feedback_submitted INTEGER NOT NULL DEFAULT 0,
         source_hash TEXT,
         generated_at TEXT NOT NULL
@@ -139,6 +159,20 @@ class LocalDatabase {
     await db.execute(
       'CREATE INDEX idx_captures_created_at ON captures(created_at DESC)',
     );
+  }
+
+  Future<void> _addColumnIfNeeded(
+    Database db,
+    String tableName,
+    String columnDefinition,
+  ) async {
+    try {
+      await db.execute(
+        'ALTER TABLE $tableName ADD COLUMN $columnDefinition',
+      );
+    } catch (_) {
+      // 列已存在时忽略
+    }
   }
 
   Future<String> _resolveDbPath() async {

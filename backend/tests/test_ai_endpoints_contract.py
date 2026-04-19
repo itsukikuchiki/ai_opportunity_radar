@@ -18,10 +18,28 @@ def test_capture_reply_contract(client):
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
 
-    assert "acknowledgement" in data
+    expected_keys = {
+        "acknowledgement",
+        "observation",
+        "try_next",
+        "emotion",
+        "intensity",
+        "scene_tags",
+        "intent_tags",
+        "followup",
+    }
+    assert expected_keys.issubset(data.keys())
+
     assert isinstance(data["acknowledgement"], str)
     assert data["acknowledgement"].strip() != ""
-    assert "followup" in data
+    assert isinstance(data["observation"], str)
+    assert data["observation"].strip() != ""
+    assert isinstance(data["try_next"], str)
+    assert data["try_next"].strip() != ""
+    assert data["emotion"] in {"positive", "negative", "mixed", "neutral"}
+    assert data["intensity"] in {"low", "medium", "high"}
+    assert isinstance(data["scene_tags"], list)
+    assert isinstance(data["intent_tags"], list)
 
 
 def test_today_summary_contract(client):
@@ -37,6 +55,12 @@ def test_today_summary_contract(client):
                     "content": "今天上班很烦",
                     "created_at": "2026-04-14T01:00:00Z",
                     "acknowledgement": "先放在这里。",
+                    "observation": "今天更明显的是工作场景在消耗你。",
+                    "try_next": "先记住最卡的那个瞬间。",
+                    "emotion": "negative",
+                    "intensity": "medium",
+                    "scene_tags": ["work"],
+                    "intent_tags": ["vent"],
                 }
             ],
             "focus_area": "emotion_stress",
@@ -46,6 +70,10 @@ def test_today_summary_contract(client):
     data = resp.json()["data"]
 
     assert set(data.keys()) >= {"observation", "suggestion"}
+    assert isinstance(data["observation"], str)
+    assert data["observation"].strip() != ""
+    assert isinstance(data["suggestion"], str)
+    assert data["suggestion"].strip() != ""
 
 
 def test_weekly_generate_contract(client):

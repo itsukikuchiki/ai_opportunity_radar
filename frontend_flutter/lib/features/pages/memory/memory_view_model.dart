@@ -16,6 +16,11 @@ class MemoryViewModel extends ChangeNotifier {
     load();
   }
 
+  bool get hasSummary => summary != null && summary!.hasAnySignals;
+  int get weakSignalCount => summary?.weakSignals.length ?? 0;
+  int get repeatedPatternCount => summary?.repeatedPatterns.length ?? 0;
+  int get stableModeCount => summary?.stableModes.length ?? 0;
+
   Future<void> load() async {
     loadState = LoadState.loading;
     errorMessage = null;
@@ -29,7 +34,7 @@ class MemoryViewModel extends ChangeNotifier {
 
       if (showFirstDayGate) {
         loadState = LoadState.empty;
-      } else if (summary == null) {
+      } else if (summary == null || !summary!.hasAnySignals) {
         loadState = LoadState.empty;
       } else {
         loadState = LoadState.ready;

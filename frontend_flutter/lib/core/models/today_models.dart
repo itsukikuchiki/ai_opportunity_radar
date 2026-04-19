@@ -54,12 +54,24 @@ class RecentSignalModel {
   final String content;
   final DateTime? createdAt;
   final String? acknowledgement;
+  final String? observation;
+  final String? tryNext;
+  final String? emotion;
+  final String? intensity;
+  final List<String> sceneTags;
+  final List<String> intentTags;
 
   RecentSignalModel({
     this.id,
     required this.content,
     this.createdAt,
     this.acknowledgement,
+    this.observation,
+    this.tryNext,
+    this.emotion,
+    this.intensity,
+    this.sceneTags = const [],
+    this.intentTags = const [],
   });
 
   factory RecentSignalModel.fromJson(Map<String, dynamic> json) {
@@ -77,6 +89,23 @@ class RecentSignalModel {
       acknowledgement: (json['acknowledgement'] as String?) ??
           (json['ai_acknowledgement'] as String?) ??
           (json['response'] as String?),
+      observation: (json['observation'] as String?) ??
+          (json['observation_text'] as String?) ??
+          (json['ai_observation'] as String?),
+      tryNext: (json['try_next'] as String?) ??
+          (json['tryNext'] as String?) ??
+          (json['try_text'] as String?) ??
+          (json['ai_try_next'] as String?),
+      emotion: (json['emotion'] as String?) ??
+          (json['ai_emotion'] as String?),
+      intensity: (json['intensity'] as String?) ??
+          (json['ai_intensity'] as String?),
+      sceneTags: _parseStringList(
+        json['scene_tags'] ?? json['ai_scene_tags_json'],
+      ),
+      intentTags: _parseStringList(
+        json['intent_tags'] ?? json['ai_intent_tags_json'],
+      ),
     );
   }
 
@@ -87,6 +116,38 @@ class RecentSignalModel {
       return DateTime.tryParse(raw);
     }
     return null;
+  }
+
+  static List<String> _parseStringList(dynamic raw) {
+    if (raw == null) return const [];
+    if (raw is List) {
+      return raw
+          .map((e) => e?.toString().trim() ?? '')
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    if (raw is String) {
+      final trimmed = raw.trim();
+      if (trimmed.isEmpty) return const [];
+
+      if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) {
+        return trimmed
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+      }
+
+      final body = trimmed.substring(1, trimmed.length - 1).trim();
+      if (body.isEmpty) return const [];
+
+      return body
+          .split(',')
+          .map((e) => e.replaceAll('"', '').replaceAll("'", '').trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    return const [];
   }
 
   String dedupeKey() {
@@ -125,10 +186,22 @@ class DailySnapshotModel {
 
 class AiCaptureReplyResult {
   final String acknowledgement;
+  final String observation;
+  final String tryNext;
+  final String emotion;
+  final String intensity;
+  final List<String> sceneTags;
+  final List<String> intentTags;
   final FollowupQuestionModel? followup;
 
   AiCaptureReplyResult({
     required this.acknowledgement,
+    this.observation = '',
+    this.tryNext = '',
+    this.emotion = 'neutral',
+    this.intensity = 'low',
+    this.sceneTags = const [],
+    this.intentTags = const [],
     required this.followup,
   });
 }

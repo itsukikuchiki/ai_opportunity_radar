@@ -84,6 +84,10 @@ class MemoryRepository {
         totalDays: stats.totalDays,
         focusArea: focusArea,
       );
+      generated = _normalizeJourneySummary(
+        generated: generated,
+        stats: stats,
+      );
     } catch (_) {
       generated = _buildFallbackJourneySummary(stats);
     }
@@ -108,20 +112,36 @@ class MemoryRepository {
   _JourneyStats _buildJourneyStats(List<RecentSignalModel> signals) {
     final entries = <Map<String, dynamic>>[];
     final tokenCounts = <String, int>{};
+    final dayKeys = <String>{};
 
     for (final signal in signals) {
       final createdAt = signal.createdAt?.toLocal();
       if (createdAt == null) continue;
+
+      final dayKey = _dateKey(createdAt);
+      dayKeys.add(dayKey);
 
       entries.add({
         'id': signal.id,
         'content': signal.content,
         'created_at': createdAt.toUtc().toIso8601String(),
         'acknowledgement': signal.acknowledgement,
+        'observation': signal.observation,
+        'try_next': signal.tryNext,
+        'emotion': signal.emotion,
+        'intensity': signal.intensity,
+        'scene_tags': signal.sceneTags,
+        'intent_tags': signal.intentTags,
       });
 
       for (final token in _tokenize(signal.content)) {
         tokenCounts[token] = (tokenCounts[token] ?? 0) + 1;
+      }
+      for (final tag in signal.sceneTags) {
+        final normalized = tag.trim();
+        if (normalized.isNotEmpty) {
+          tokenCounts[normalized] = (tokenCounts[normalized] ?? 0) + 1;
+        }
       }
     }
 
@@ -141,6 +161,8 @@ class MemoryRepository {
       entries: entries,
       topTokens: sortedTokens.take(10).map((e) => e.key).toList(),
       totalDays: totalDays,
+      activeDays: dayKeys.length,
+      entryCount: entries.length,
     );
   }
 
@@ -165,7 +187,6 @@ class MemoryRepository {
       'today',
       'then',
       '又',
-      '还是',
       '今天',
       '就是',
       '一个',
@@ -173,6 +194,8 @@ class MemoryRepository {
       '然后',
       '最近',
       '一直',
+      'また',
+      'もう',
       'して',
       'いる',
       'こと',
@@ -189,33 +212,165 @@ class MemoryRepository {
         .toList();
   }
 
+  MemorySummaryModel _normalizeJourneySummary({
+    required MemorySummaryModel generated,
+    required _JourneyStats stats,
+  }) {
+    return MemorySummaryModel(
+      patterns: _normalizeSignalItems(
+        items: generated.patterns,
+        fallbackLabel: '反复出现的主题',
+        stats: stats,
+        preferStable: true,
+      ),
+      frictions: _normalizeSignalItems(
+        items: generated.frictions,
+        fallbackLabel: '持续性的摩擦',
+        stats: stats,
+        preferStable: false,
+      ),
+      desires: _normalizeSignalItems(
+        items: generated.desires,
+        fallbackLabel: '还在浮现的方向',
+        stats: stats,
+        preferStable: false,
+      ),
+      experiments: _normalizeSignalItems(
+        items: generated.experiments,
+        fallbackLabel: '开始有帮助的东西',
+        stats: stats,
+        preferStable: false,
+      ),
+    );
+  }
+
+  List<JourneySignalItemModel> _normalizeSignalItems({
+    required List<JourneySignalItemModel> items,
+    required String fallbackLabel,
+    required _JourneyStats stats,
+    required bool preferStable,
+  }) {
+    if (items.isEmpty) {
+      return [
+        JourneySignalItemModel(
+          name: fallbackLabel,
+          summary: _defaultSignalSummary(
+            fallbackLabel: fallbackLabel,
+            stats: stats,
+          ),
+          signalLevel: _resolveSignalLevel(
+            entryCount: stats.entryCount,
+            activeDays: stats.activeDays,
+            preferStable: preferStable,
+          ),
+        ),
+      ];
+    }
+
+    return items.map((item) {
+      final signalLevel = item.signalLevel.trim().isEmpty
+          ? _resolveSignalLevel(
+              entryCount: stats.entryCount,
+              activeDays: stats.activeDays,
+              preferStable: preferStable,
+            )
+          : item.signalLevel;
+
+      return JourneySignalItemModel(
+        name: item.name.trim().isEmpty ? fallbackLabel : item.name,
+        summary: item.summary.trim().isEmpty
+            ? _defaultSignalSummary(
+                fallbackLabel: fallbackLabel,
+                stats: stats,
+              )
+            : item.summary,
+        signalLevel: signalLevel,
+      );
+    }).toList();
+  }
+
+  String _resolveSignalLevel({
+    required int entryCount,
+    required int activeDays,
+    required bool preferStable,
+  }) {
+    if (entryCount >= 4 && activeDays >= 3 && preferStable) {
+      return 'stable_mode';
+    }
+    if (entryCount >= 3 || activeDays >= 2) {
+      return 'repeated_pattern';
+    }
+    return 'weak_signal';
+  }
+
+  String _defaultSignalSummary({
+    required String fallbackLabel,
+    required _JourneyStats stats,
+  }) {
+    final topToken = stats.topTokens.isEmpty ? '最近的记录' : stats.topTokens.first;
+
+    if (stats.entryCount <= 1) {
+      return '现在还只是一个刚刚冒头的线索，先继续看看它会不会再出现。';
+    }
+    if (stats.entryCount < 4 || stats.activeDays < 2) {
+      return '这个方向已经不止一次出现了，开始值得继续留意。';
+    }
+    return '一路看下来，“$topToken”已经不只是偶然，而开始形成更稳定的节奏。';
+  }
+
   MemorySummaryModel _buildFallbackJourneySummary(_JourneyStats stats) {
     final topToken = stats.topTokens.isEmpty ? '最近的记录' : stats.topTokens.first;
+    final weakOrRepeated = _resolveSignalLevel(
+      entryCount: stats.entryCount,
+      activeDays: stats.activeDays,
+      preferStable: false,
+    );
+    final stableOrRepeated = _resolveSignalLevel(
+      entryCount: stats.entryCount,
+      activeDays: stats.activeDays,
+      preferStable: true,
+    );
 
     return MemorySummaryModel(
       patterns: [
-        {
-          'name': '反复出现的主题',
-          'summary': '一路看下来，“$topToken”开始不止一次地出现。',
-        },
+        JourneySignalItemModel(
+          name: '反复出现的主题',
+          summary: stats.entryCount <= 1
+              ? '“$topToken”刚刚出现一次，先把它作为一个值得继续留意的线索放着。'
+              : stats.entryCount < 4 || stats.activeDays < 2
+                  ? '一路看下来，“$topToken”已经不止一次出现，开始像一个重复主题了。'
+                  : '一路看下来，“$topToken”已经不止一次地出现，正在慢慢形成稳定模式。',
+          signalLevel: stableOrRepeated,
+        ),
       ],
       frictions: [
-        {
-          'name': '持续性的摩擦',
-          'summary': '这段时间里，某些同类问题不是一次性，而是在慢慢累积。',
-        },
+        JourneySignalItemModel(
+          name: '持续性的摩擦',
+          summary: stats.entryCount <= 1
+              ? '现在还只是一个初步摩擦点，先继续看它会不会在别的场景里再出现。'
+              : stats.entryCount < 4 || stats.activeDays < 2
+                  ? '这段时间里，有些消耗已经不是一次性的，而是在开始重复回来。'
+                  : '这段时间里，某些同类问题已经不是一次性，而是在慢慢累积成稳定摩擦。',
+          signalLevel: weakOrRepeated,
+        ),
       ],
       desires: [
-        {
-          'name': '还在浮现的方向',
-          'summary': '记录已经跨越 ${stats.totalDays} 天，一些真正长期在意的方向正在慢慢浮现。',
-        },
+        JourneySignalItemModel(
+          name: '还在浮现的方向',
+          summary: stats.totalDays <= 1
+              ? '现在还只是一个很轻的方向感，继续记录会更清楚。'
+              : '记录已经跨越 ${stats.totalDays} 天，一些真正长期在意的方向正在慢慢浮现。',
+          signalLevel: weakOrRepeated,
+        ),
       ],
       experiments: [
-        {
-          'name': '开始有帮助的东西',
-          'summary': '继续记录下去，会更容易看见什么正在慢慢对你起作用。',
-        },
+        JourneySignalItemModel(
+          name: '开始有帮助的东西',
+          summary: stats.entryCount <= 1
+              ? '现在还太早，不过之后会更容易看见什么正在慢慢对你起作用。'
+              : '继续记录下去，会更容易看见什么做法不是偶然有效，而是在慢慢变得有帮助。',
+          signalLevel: weakOrRepeated,
+        ),
       ],
     );
   }
@@ -272,10 +427,14 @@ class _JourneyStats {
   final List<Map<String, dynamic>> entries;
   final List<String> topTokens;
   final int totalDays;
+  final int activeDays;
+  final int entryCount;
 
   _JourneyStats({
     required this.entries,
     required this.topTokens,
     required this.totalDays,
+    required this.activeDays,
+    required this.entryCount,
   });
 }

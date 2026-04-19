@@ -42,6 +42,9 @@ class LocalWeeklySnapshotRepository {
         'opportunity_snapshot_json': weekly.opportunitySnapshot == null
             ? null
             : jsonEncode(weekly.opportunitySnapshot),
+        'chart_data_json': jsonEncode(
+          weekly.chartData.map((e) => e.toJson()).toList(),
+        ),
         'feedback_submitted': weekly.feedbackSubmitted ? 1 : 0,
         'source_hash': sourceHash,
         'generated_at': DateTime.now().toUtc().toIso8601String(),
@@ -117,6 +120,7 @@ class LocalWeeklySnapshotRepository {
         row['opportunity_snapshot_json'] as String?,
       ),
       feedbackSubmitted: (row['feedback_submitted'] as int? ?? 0) == 1,
+      chartData: _decodeChartData(row['chart_data_json'] as String?),
     );
   }
 
@@ -135,5 +139,15 @@ class LocalWeeklySnapshotRepository {
       return decoded.map((key, value) => MapEntry('$key', value));
     }
     return null;
+  }
+
+  List<WeeklyChartPointModel> _decodeChartData(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return const [];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return const [];
+    return decoded
+        .whereType<Map>()
+        .map((e) => WeeklyChartPointModel.fromJson(e.cast<String, dynamic>()))
+        .toList();
   }
 }

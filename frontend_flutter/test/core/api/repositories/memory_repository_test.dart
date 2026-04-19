@@ -110,7 +110,40 @@ void main() {
       await harness.close();
     });
 
-    test('5) 再次进入 Journey 时，结果能从本地缓存读取', () async {
+    test('5) Journey 会把线索分成 weak / repeated / stable 三层', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepositoryWithoutSignalLevels(),
+        installationDate: DateTime.now().subtract(const Duration(days: 2)),
+      );
+
+      await harness.seedCapture(
+        content: '前天：工作很烦',
+        createdAt: DateTime.now().subtract(const Duration(days: 2)),
+      );
+      await harness.seedCapture(
+        content: '昨天：开会又被打断',
+        createdAt: DateTime.now().subtract(const Duration(days: 1)),
+      );
+      await harness.seedCapture(
+        content: '今天：还是被打断',
+        createdAt: DateTime.now(),
+      );
+      await harness.seedCapture(
+        content: '今天：下午也很烦',
+        createdAt: DateTime.now().subtract(const Duration(hours: 2)),
+      );
+
+      final result = await harness.repository.fetchMemorySummaryResult();
+
+      expect(result.summary, isNotNull);
+      expect(result.summary!.patterns.first.signalLevel, 'stable_mode');
+      expect(result.summary!.frictions.first.signalLevel, 'repeated_pattern');
+
+      await harness.close();
+    });
+
+    test('6) 再次进入 Journey 时，结果能从本地缓存读取', () async {
       final countingAi = CountingJourneyAiRepository();
 
       final harness1 = await _createHarness(
@@ -147,7 +180,7 @@ void main() {
       await harness2.close();
     });
 
-    test('6) 在线生成失败时，Journey 仍然返回 fallback 结果', () async {
+    test('7) 在线生成失败时，Journey 仍然返回 fallback 结果', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FailingJourneyAiRepository(),
@@ -166,6 +199,11 @@ void main() {
       expect(result.summary!.frictions, isNotEmpty);
       expect(result.summary!.desires, isNotEmpty);
       expect(result.summary!.experiments, isNotEmpty);
+      expect(
+        {'weak_signal', 'repeated_pattern', 'stable_mode'}
+            .contains(result.summary!.patterns.first.signalLevel),
+        isTrue,
+      );
 
       await harness.close();
     });
@@ -197,6 +235,12 @@ class _Harness {
         'input_mode': 'quick_capture',
         'tag_hint': null,
         'ai_acknowledgement': null,
+        'ai_observation': null,
+        'ai_try_next': null,
+        'ai_emotion': null,
+        'ai_intensity': null,
+        'ai_scene_tags_json': null,
+        'ai_intent_tags_json': null,
         'ai_status': 'done',
         'followup_question_json': null,
         'followup_answer': null,
@@ -258,28 +302,82 @@ class FakeJourneyAiRepository extends AiRepository {
   }) async {
     return MemorySummaryModel(
       patterns: const [
-        {
-          'name': '长期重复主题',
-          'summary': 'Journey 已经能从本地历史记录里看到重复线索。',
-        },
+        JourneySignalItemModel(
+          name: '长期重复主题',
+          summary: 'Journey 已经能从本地历史记录里看到重复线索。',
+          signalLevel: 'repeated_pattern',
+        ),
       ],
       frictions: const [
-        {
-          'name': '持续摩擦',
-          'summary': '有些消耗已经不是一次性的，而在慢慢累积。',
-        },
+        JourneySignalItemModel(
+          name: '持续摩擦',
+          summary: '有些消耗已经不是一次性的，而在慢慢累积。',
+          signalLevel: 'repeated_pattern',
+        ),
       ],
       desires: const [
-        {
-          'name': '还在浮现的方向',
-          'summary': '更长期真正重要的东西，开始慢慢浮出来。',
-        },
+        JourneySignalItemModel(
+          name: '还在浮现的方向',
+          summary: '更长期真正重要的东西，开始慢慢浮出来。',
+          signalLevel: 'weak_signal',
+        ),
       ],
       experiments: const [
-        {
-          'name': '开始有帮助的东西',
-          'summary': 'Journey 已经可以看到某些做法慢慢变得有帮助。',
-        },
+        JourneySignalItemModel(
+          name: '开始有帮助的东西',
+          summary: 'Journey 已经可以看到某些做法慢慢变得有帮助。',
+          signalLevel: 'weak_signal',
+        ),
+      ],
+    );
+  }
+}
+
+class FakeJourneyAiRepositoryWithoutSignalLevels extends AiRepository {
+  FakeJourneyAiRepositoryWithoutSignalLevels()
+      : super(
+          ApiClient(
+            baseUrl: 'https://example.invalid',
+            userId: 'test-user',
+          ),
+        );
+
+  @override
+  Future<MemorySummaryModel> generateJourneySummary({
+    required String snapshotDate,
+    required List<Map<String, dynamic>> entries,
+    required List<String> topTokens,
+    required int totalDays,
+    String? focusArea,
+  }) async {
+    return MemorySummaryModel(
+      patterns: const [
+        JourneySignalItemModel(
+          name: '长期重复主题',
+          summary: '已经开始出现重复线索。',
+          signalLevel: '',
+        ),
+      ],
+      frictions: const [
+        JourneySignalItemModel(
+          name: '持续摩擦',
+          summary: '一些问题在慢慢累积。',
+          signalLevel: '',
+        ),
+      ],
+      desires: const [
+        JourneySignalItemModel(
+          name: '还在浮现的方向',
+          summary: '慢慢浮出来了。',
+          signalLevel: '',
+        ),
+      ],
+      experiments: const [
+        JourneySignalItemModel(
+          name: '开始有帮助的东西',
+          summary: '开始起作用。',
+          signalLevel: '',
+        ),
       ],
     );
   }
@@ -308,28 +406,32 @@ class CountingJourneyAiRepository extends AiRepository {
 
     return MemorySummaryModel(
       patterns: const [
-        {
-          'name': '缓存命中 pattern',
-          'summary': '第一次生成后，第二次进入应直接读取本地缓存。',
-        },
+        JourneySignalItemModel(
+          name: '缓存命中 pattern',
+          summary: '第一次生成后，第二次进入应直接读取本地缓存。',
+          signalLevel: 'repeated_pattern',
+        ),
       ],
       frictions: const [
-        {
-          'name': '缓存命中 friction',
-          'summary': 'Journey 结果会被本地缓存。',
-        },
+        JourneySignalItemModel(
+          name: '缓存命中 friction',
+          summary: 'Journey 结果会被本地缓存。',
+          signalLevel: 'repeated_pattern',
+        ),
       ],
       desires: const [
-        {
-          'name': '缓存命中 desire',
-          'summary': '这里也来自第一次生成后的本地缓存。',
-        },
+        JourneySignalItemModel(
+          name: '缓存命中 desire',
+          summary: '这里也来自第一次生成后的本地缓存。',
+          signalLevel: 'weak_signal',
+        ),
       ],
       experiments: const [
-        {
-          'name': '缓存命中 experiment',
-          'summary': '第二次进入不应再次调用在线生成。',
-        },
+        JourneySignalItemModel(
+          name: '缓存命中 experiment',
+          summary: '第二次进入不应再次调用在线生成。',
+          signalLevel: 'weak_signal',
+        ),
       ],
     );
   }

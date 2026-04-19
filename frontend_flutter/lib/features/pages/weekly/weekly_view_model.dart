@@ -17,6 +17,9 @@ class WeeklyViewModel extends ChangeNotifier {
     load();
   }
 
+  bool get isLightReady => weeklyInsight?.status == 'light_ready';
+  bool get isReady => weeklyInsight?.status == 'ready';
+
   Future<void> load() async {
     loadState = LoadState.loading;
     errorMessage = null;

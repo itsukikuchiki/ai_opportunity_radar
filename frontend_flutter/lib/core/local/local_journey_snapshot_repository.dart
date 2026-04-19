@@ -29,14 +29,23 @@ class LocalJourneySnapshotRepository {
     required String sourceHash,
   }) async {
     final db = await localDatabase.database;
+
     await db.insert(
       'journey_snapshots',
       {
         'snapshot_date': snapshotDate,
-        'patterns_json': jsonEncode(summary.patterns),
-        'frictions_json': jsonEncode(summary.frictions),
-        'desires_json': jsonEncode(summary.desires),
-        'experiments_json': jsonEncode(summary.experiments),
+        'patterns_json': jsonEncode(
+          summary.patterns.map((e) => e.toJson()).toList(),
+        ),
+        'frictions_json': jsonEncode(
+          summary.frictions.map((e) => e.toJson()).toList(),
+        ),
+        'desires_json': jsonEncode(
+          summary.desires.map((e) => e.toJson()).toList(),
+        ),
+        'experiments_json': jsonEncode(
+          summary.experiments.map((e) => e.toJson()).toList(),
+        ),
         'source_hash': sourceHash,
         'generated_at': DateTime.now().toUtc().toIso8601String(),
       },
@@ -85,17 +94,20 @@ class LocalJourneySnapshotRepository {
 
   MemorySummaryModel _mapRow(Map<String, Object?> row) {
     return MemorySummaryModel(
-      patterns: _decodeList(row['patterns_json'] as String?),
-      frictions: _decodeList(row['frictions_json'] as String?),
-      desires: _decodeList(row['desires_json'] as String?),
-      experiments: _decodeList(row['experiments_json'] as String?),
+      patterns: _decodeSignalItemList(row['patterns_json'] as String?),
+      frictions: _decodeSignalItemList(row['frictions_json'] as String?),
+      desires: _decodeSignalItemList(row['desires_json'] as String?),
+      experiments: _decodeSignalItemList(row['experiments_json'] as String?),
     );
   }
 
-  List<dynamic> _decodeList(String? raw) {
+  List<JourneySignalItemModel> _decodeSignalItemList(String? raw) {
     if (raw == null || raw.trim().isEmpty) return const [];
     final decoded = jsonDecode(raw);
-    if (decoded is List) return decoded;
-    return const [];
+    if (decoded is! List) return const [];
+    return decoded
+        .whereType<Map>()
+        .map((e) => JourneySignalItemModel.fromJson(e.cast<String, dynamic>()))
+        .toList();
   }
 }
