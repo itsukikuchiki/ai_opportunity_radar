@@ -136,3 +136,43 @@ class FollowupGenerateResponse(BaseModel):
     question_type: str
     question_text: str
     options: list[FollowupOptionSchema] = Field(default_factory=list)
+
+
+class LightDialogTurnSchema(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+
+
+class LightDialogRequest(BaseModel):
+    capture_content: str
+    capture_acknowledgement: Optional[str] = None
+    capture_observation: Optional[str] = None
+    capture_try_next: Optional[str] = None
+    history: list[LightDialogTurnSchema] = Field(default_factory=list)
+    user_message: str
+    focus_area: Optional[str] = None
+
+
+class LightDialogResponse(BaseModel):
+    reply: str
+    suggested_prompts: list[str] = Field(default_factory=list)
+
+
+class DeepWeeklyRequest(BaseModel):
+    week_start: str
+    week_end: str
+    key_insight: Optional[str] = None
+    patterns: list[dict[str, Any]] = Field(default_factory=list)
+    frictions: list[dict[str, Any]] = Field(default_factory=list)
+    best_action: Optional[str] = None
+    chart_data: list[dict[str, Any]] = Field(default_factory=list)
+    focus_area: Optional[str] = None
+
+
+class DeepWeeklyResponse(BaseModel):
+    summary: str
+    root_tension: str
+    hidden_pattern: str
+    next_focus: str
+    risk_note: str
+    key_nodes: list[str] = Field(default_factory=list)

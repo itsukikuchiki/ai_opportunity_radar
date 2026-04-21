@@ -175,6 +175,74 @@ class AiRepository {
     }
   }
 
+
+  Future<LightDialogResponseModel> generateLightDialog({
+    required RecentSignalModel signal,
+    required List<LightDialogTurnModel> history,
+    required String userMessage,
+    String? focusArea,
+  }) async {
+    try {
+      final res = await apiClient.postJson(
+        '/api/v1/ai/light-dialog',
+        {
+          'capture_content': signal.content,
+          'capture_acknowledgement': signal.acknowledgement,
+          'capture_observation': signal.observation,
+          'capture_try_next': signal.tryNext,
+          'history': history.map((e) => e.toJson()).toList(),
+          'user_message': userMessage,
+          'focus_area': focusArea,
+        },
+      );
+
+      final data = (res['data'] as Map<String, dynamic>?) ?? res;
+      return LightDialogResponseModel.fromJson(data);
+    } catch (_) {
+      return const LightDialogResponseModel(
+        reply: '我先顺着这条陪你多看一点。先别急着解释完整，只要把最卡住你的那个瞬间说得更具体一点，就已经很有用了。',
+        suggestedPrompts: [
+          '我最卡住的是哪一个瞬间？',
+          '这件事让我最在意的是什么？',
+          '下次再遇到时我想先做什么？',
+        ],
+      );
+    }
+  }
+
+  Future<DeepWeeklyModel> generateDeepWeekly({
+    required WeeklyInsightModel weekly,
+    String? focusArea,
+  }) async {
+    try {
+      final res = await apiClient.postJson(
+        '/api/v1/ai/deep-weekly',
+        {
+          'week_start': weekly.weekStart,
+          'week_end': weekly.weekEnd,
+          'key_insight': weekly.keyInsight,
+          'patterns': weekly.patterns,
+          'frictions': weekly.frictions,
+          'best_action': weekly.bestAction,
+          'chart_data': weekly.chartData.map((e) => e.toJson()).toList(),
+          'focus_area': focusArea,
+        },
+      );
+      final data = (res['data'] as Map<String, dynamic>?) ?? res;
+      return DeepWeeklyModel.fromJson(data);
+    } catch (_) {
+      final topic = weekly.deriveTopicFocus();
+      return DeepWeeklyModel(
+        summary: '${topic.reason} 这一周更像是同一种拉扯在不同场景里回来，而不是几件彼此无关的事。',
+        rootTension: '更深一层的 tension 往往不是单个事件，而是你想推进的方向和反复回来的摩擦点互相顶住。',
+        hiddenPattern: '把图和文字放在一起看，重点不是哪一天最糟，而是线索一密集时，同类问题也会一起浮上来。',
+        nextFocus: topic.nextWatch,
+        riskNote: '这份 deep weekly 适合帮你收窄观察面，不适合一次性下结论。',
+        keyNodes: [topic.headline],
+      );
+    }
+  }
+
   String _dateKey(DateTime date) {
     final local = date.toLocal();
     final mm = local.month.toString().padLeft(2, '0');

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/memory_models.dart';
 import '../../../shared/states/load_state.dart';
@@ -160,6 +162,23 @@ class _JourneyReadyBody extends StatelessWidget {
             zhHans: '目前已经沉淀了 $totalCount 条长期线索，并开始分层成形',
             zhHant: '目前已經沉澱了 $totalCount 條長期線索，並開始分層成形',
             ja: 'ここまでに $totalCount 件の長期的な手がかりが積み上がり、層として見え始めています',
+          ),
+        ),
+        const SizedBox(height: 14),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: () => context.go(AppRoutes.journal),
+            icon: const Icon(Icons.menu_book_outlined),
+            label: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Open journal view',
+                zhHans: '打开手帐视图',
+                zhHant: '打開手帳視圖',
+                ja: '手帳ビューを開く',
+              ),
+            ),
           ),
         ),
         const SizedBox(height: 14),
@@ -359,6 +378,23 @@ class _JourneyOverviewCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: () => context.go(AppRoutes.journal),
+            icon: const Icon(Icons.menu_book_outlined),
+            label: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Open journal view',
+                zhHans: '打开手帐视图',
+                zhHant: '打開手帳視圖',
+                ja: '手帳ビューを開く',
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
           Wrap(
             spacing: 10,
             runSpacing: 10,

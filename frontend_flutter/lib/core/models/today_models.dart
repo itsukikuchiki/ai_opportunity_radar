@@ -215,3 +215,39 @@ class AiTodaySummaryResult {
     required this.suggestion,
   });
 }
+
+
+class LightDialogTurnModel {
+  final String role;
+  final String text;
+
+  const LightDialogTurnModel({
+    required this.role,
+    required this.text,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'role': role,
+        'text': text,
+      };
+}
+
+class LightDialogResponseModel {
+  final String reply;
+  final List<String> suggestedPrompts;
+
+  const LightDialogResponseModel({
+    required this.reply,
+    this.suggestedPrompts = const [],
+  });
+
+  factory LightDialogResponseModel.fromJson(Map<String, dynamic> json) {
+    return LightDialogResponseModel(
+      reply: (json['reply'] as String?) ?? '',
+      suggestedPrompts: ((json['suggested_prompts'] as List?) ?? const [])
+          .map((e) => e?.toString() ?? '')
+          .where((e) => e.trim().isNotEmpty)
+          .toList(),
+    );
+  }
+}

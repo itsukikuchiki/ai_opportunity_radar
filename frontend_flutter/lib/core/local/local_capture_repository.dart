@@ -104,6 +104,20 @@ class LocalCaptureRepository {
     );
   }
 
+
+  Future<RecentSignalModel?> getCaptureById(String captureId) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'captures',
+      where: 'id = ?',
+      whereArgs: [captureId],
+      limit: 1,
+    );
+
+    if (rows.isEmpty) return null;
+    return _mapRowToSignal(rows.first);
+  }
+
   Future<List<RecentSignalModel>> listTodaySignals() async {
     final db = await localDatabase.database;
 

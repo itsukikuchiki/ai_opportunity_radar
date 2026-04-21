@@ -48,6 +48,25 @@ class TodayRepository {
     };
   }
 
+
+  Future<RecentSignalModel?> getCaptureById(String captureId) {
+    return localCaptureRepository.getCaptureById(captureId);
+  }
+
+  Future<LightDialogResponseModel> continueLightDialog({
+    required RecentSignalModel signal,
+    required List<LightDialogTurnModel> history,
+    required String userMessage,
+  }) async {
+    final focusArea = await _readFocusArea();
+    return aiRepository.generateLightDialog(
+      signal: signal,
+      history: history,
+      userMessage: userMessage,
+      focusArea: focusArea,
+    );
+  }
+
   Future<Map<String, dynamic>> submitCapture({
     required String content,
     String? tagHint,

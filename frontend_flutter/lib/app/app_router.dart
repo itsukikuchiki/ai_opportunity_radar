@@ -5,8 +5,11 @@ import '../features/onboarding/onboarding_page.dart';
 import '../features/pages/me/me_page.dart';
 import '../features/pages/memory/memory_page.dart';
 import '../features/pages/opportunities/opportunity_detail_page.dart';
+import '../features/pages/today/today_dialog_page.dart';
 import '../features/pages/today/today_page.dart';
+import '../features/pages/weekly/deep_weekly_page.dart';
 import '../features/pages/weekly/weekly_page.dart';
+import '../features/pages/memory/journal_page.dart';
 import '../features/shell/home_shell_page.dart';
 
 class AppRoutes {
@@ -16,6 +19,9 @@ class AppRoutes {
   static const opportunity = '/opportunity';
   static const memory = '/memory';
   static const me = '/me';
+  static const todayDialog = '/today/dialog';
+  static const deepWeekly = '/weekly/deep';
+  static const journal = '/memory/journal';
 }
 
 GoRouter createAppRouter(AppBootstrapState bootstrap) {
@@ -48,6 +54,21 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
             builder: (_, __) => const MePage(),
           ),
         ],
+      ),
+
+      GoRoute(
+        path: '${AppRoutes.todayDialog}/:captureId',
+        builder: (_, state) => TodayDialogPage(
+          captureId: state.pathParameters['captureId']!,
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.deepWeekly,
+        builder: (_, __) => const DeepWeeklyPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.journal,
+        builder: (_, __) => const JournalPage(),
       ),
       GoRoute(
         path: '${AppRoutes.opportunity}/:id',

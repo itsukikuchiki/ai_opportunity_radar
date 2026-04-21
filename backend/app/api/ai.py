@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.deps import get_user_id
 from app.schemas.ai_schema import (
     CaptureReplyRequest,
+    DeepWeeklyRequest,
     FollowupGenerateRequest,
     JourneyGenerateRequest,
+    LightDialogRequest,
     OpportunityExplanationRequest,
     TodaySummaryRequest,
     WeeklyGenerateRequest,
@@ -81,6 +83,32 @@ def generate_opportunity_explanation(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+
+
+@router.post("/light-dialog")
+def generate_light_dialog(
+    payload: LightDialogRequest,
+    user_id: str = Depends(get_user_id),
+) -> dict:
+    try:
+        service = AiGenerationService()
+        result = service.generate_light_dialog(payload)
+        return {"data": result.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/deep-weekly")
+def generate_deep_weekly(
+    payload: DeepWeeklyRequest,
+    user_id: str = Depends(get_user_id),
+) -> dict:
+    try:
+        service = AiGenerationService()
+        result = service.generate_deep_weekly(payload)
+        return {"data": result.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 @router.post("/followup-question")
 def generate_followup_question(
     payload: FollowupGenerateRequest,

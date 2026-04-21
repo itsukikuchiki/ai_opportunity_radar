@@ -5,8 +5,11 @@ from typing import Any
 
 from app.schemas.ai_schema import (
     CaptureReplyResponse,
+    DeepWeeklyRequest,
+    DeepWeeklyResponse,
     JourneyGenerateRequest,
     JourneyGenerateResponse,
+    LightDialogResponse,
     OpportunityExplanationResponse,
     OpportunitySnapshotSchema,
     TodaySummaryRequest,
@@ -163,6 +166,91 @@ class AiGenerationService:
             opportunity_snapshot=opportunity_snapshot,
             feedback_submitted=False,
         )
+
+    def generate_light_dialog(self, request) -> LightDialogResponse:
+        capture_content = request.capture_content.strip()
+        user_message = request.user_message.strip()
+        if not capture_content or not user_message:
+            raise ValueError("capture_content and user_message are required")
+
+        analysis = self._analyze_capture(capture_content)
+        scene = analysis["scene_tags"][0] if analysis["scene_tags"] else "daily_life"
+        emotion = analysis["emotion"]
+        history_len = len(request.history)
+
+        if history_len <= 1:
+            prefix = {
+                "negative": "我先顺着这条和你往里看一点。",
+                "mixed": "这条里本来就有拉扯感，我们先不急着下结论。",
+                "positive": "这条里有值得留下来的东西，我们把它说清一点。",
+            }.get(emotion, "我们先围着这条多看一点。")
+        else:
+            prefix = "我继续顺着你刚才那句往下接。"
+
+        scene_line = {
+            "work": "它看起来不像单次心情，更像是工作场景里的节奏、打断或控制感在影响你。",
+            "relationships": "它更像是互动里的分寸感和被理解感在牵动你。",
+            "body": "它可能不只是想法问题，身体状态也在放大这件事。",
+            "daily_life": "它像是日常里一个会反复勾到你的点。",
+        }.get(scene, "这条背后像是一个会重复出现的具体场景。")
+
+        if any(token in user_message for token in ["为什么", "為什麼", "why"]):
+            answer = f"{prefix}{scene_line} 与其说你是在问原因，不如说你已经碰到那个最容易卡住你的部位了。先别急着解释全部，只要先分清：你更难受的是事情本身，还是事情带来的失控感。"
+        elif any(token in user_message for token in ["怎么办", "怎麼辦", "怎么办啊", "what should", "怎么办呢"]):
+            answer = f"{prefix}{scene_line} 这一步先不要追求解决整件事，只做一个更小的动作：下次再碰到它时，补一句最先冒出来的念头，或者当时最卡的环节。这样下一轮就会清楚很多。"
+        elif any(token in user_message for token in ["其实", "其實", "其实是", "actually"]):
+            answer = f"{prefix}你这句“{user_message[:18]}”本身就在把重点往外推。{scene_line} 现在更值得看的，是哪一部分让你最不甘心，或者最舍不得轻轻带过。"
+        else:
+            answer = f"{prefix}{scene_line} 你刚才补的这句说明，这件事真正勾到你的不只是表面那一下。现在先把它收成一句更具体的话：当时最让你停住的，到底是哪一个瞬间？"
+
+        prompts = [
+            "我最卡住的是哪一个瞬间？",
+            "这件事让我不舒服的核心是什么？",
+            "下次再遇到时我想先做什么？",
+        ]
+        return LightDialogResponse(reply=answer, suggested_prompts=prompts)
+
+    def generate_deep_weekly(self, request: DeepWeeklyRequest) -> DeepWeeklyResponse:
+        pattern_name = self._pick_name(request.patterns, fallback="这周反复回来的主题")
+        friction_name = self._pick_name(request.frictions, fallback="这周最稳定的消耗点")
+        key_insight = (request.key_insight or "").strip() or f"这周的记录在“{pattern_name}”附近逐渐聚起来。"
+
+        peak_day = "这周中段"
+        chart_data = request.chart_data or []
+        if chart_data:
+            peak = max(chart_data, key=lambda item: item.get("signal_count", 0))
+            peak_day = str(peak.get("date") or peak_day)
+            if len(peak_day) >= 10 and "-" in peak_day:
+                peak_day = peak_day[5:]
+
+        summary = f"{key_insight} 真正需要放在一起看的，是“{pattern_name}”怎么和“{friction_name}”互相咬住：你不是单纯遇到几件散点事件，而是在同一种拉扯里来回消耗。"
+        root_tension = f"这周更深的一层 tension，不只是事情多，而是你一边想把“{pattern_name}”往前推，一边又持续被“{friction_name}”拖住，所以感受上会像总差一点。"
+        hidden_pattern = f"从图和记录放在一起看，{peak_day} 附近像是一个关键节点：线索密度上来时，问题不只是在变多，而是同一类压力更集中地冒头。"
+        next_focus = f"下周先不要扩大观察面，只盯一个问题：当“{friction_name}”再次出现时，它最常打断的是不是刚好就是“{pattern_name}”相关的事情。"
+        risk_note = "这份 deep weekly 更适合拿来收窄注意力，不适合一次解释完整个自己；如果这一周本来就很早期，它只能给方向，不能当结论。"
+        key_nodes = [
+            f"重复主题：{pattern_name}",
+            f"主要摩擦：{friction_name}",
+            f"关键节点：{peak_day}",
+        ]
+        return DeepWeeklyResponse(
+            summary=summary,
+            root_tension=root_tension,
+            hidden_pattern=hidden_pattern,
+            next_focus=next_focus,
+            risk_note=risk_note,
+            key_nodes=key_nodes,
+        )
+
+    def _pick_name(self, items, fallback: str) -> str:
+        if not items:
+            return fallback
+        first = items[0]
+        if isinstance(first, dict):
+            name = str(first.get("name") or "").strip()
+            return name or fallback
+        name = getattr(first, "name", "")
+        return name.strip() or fallback
 
     def generate_journey_summary(
         self,

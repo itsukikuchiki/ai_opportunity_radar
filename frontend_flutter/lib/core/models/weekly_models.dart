@@ -174,3 +174,36 @@ extension _NullableStringFallback on String {
     return trim().isEmpty ? fallback : this;
   }
 }
+
+
+class DeepWeeklyModel {
+  final String summary;
+  final String rootTension;
+  final String hiddenPattern;
+  final String nextFocus;
+  final String riskNote;
+  final List<String> keyNodes;
+
+  const DeepWeeklyModel({
+    required this.summary,
+    required this.rootTension,
+    required this.hiddenPattern,
+    required this.nextFocus,
+    required this.riskNote,
+    this.keyNodes = const [],
+  });
+
+  factory DeepWeeklyModel.fromJson(Map<String, dynamic> json) {
+    return DeepWeeklyModel(
+      summary: (json['summary'] as String?) ?? '',
+      rootTension: (json['root_tension'] as String?) ?? '',
+      hiddenPattern: (json['hidden_pattern'] as String?) ?? '',
+      nextFocus: (json['next_focus'] as String?) ?? '',
+      riskNote: (json['risk_note'] as String?) ?? '',
+      keyNodes: ((json['key_nodes'] as List?) ?? const [])
+          .map((e) => e?.toString() ?? '')
+          .where((e) => e.trim().isNotEmpty)
+          .toList(),
+    );
+  }
+}

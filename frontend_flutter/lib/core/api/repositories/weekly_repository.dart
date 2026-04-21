@@ -130,6 +130,16 @@ class WeeklyRepository {
     return generated;
   }
 
+
+  Future<DeepWeeklyModel> fetchDeepWeekly() async {
+    final weekly = await fetchCurrentWeekly();
+    final focusArea = await _readFocusArea();
+    return aiRepository.generateDeepWeekly(
+      weekly: weekly,
+      focusArea: focusArea,
+    );
+  }
+
   Future<void> submitWeeklyFeedback({
     required String weekStart,
     required String feedbackValue,

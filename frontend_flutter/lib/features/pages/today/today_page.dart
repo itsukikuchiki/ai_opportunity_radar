@@ -127,7 +127,12 @@ class _TodayPageState extends State<TodayPage> {
               subtitle: _todayRecordsSubtitle(context),
             ),
             const SizedBox(height: 10),
-            _TimelineList(signals: todaySignals),
+            _TimelineList(
+              signals: todaySignals,
+              onOpenDialog: (signal) => context.go(
+                '${AppRoutes.todayDialog}/${signal.id}',
+              ),
+            ),
           ],
           if (state.isInitialLoading) ...[
             const SizedBox(height: 24),
@@ -608,9 +613,11 @@ class _FollowupQuestionCard extends StatelessWidget {
 
 class _TimelineList extends StatelessWidget {
   final List<RecentSignalModel> signals;
+  final void Function(RecentSignalModel signal) onOpenDialog;
 
   const _TimelineList({
     required this.signals,
+    required this.onOpenDialog,
   });
 
   @override
@@ -620,7 +627,10 @@ class _TimelineList extends StatelessWidget {
           .map(
             (signal) => Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: _SignalCard(signal: signal),
+              child: _SignalCard(
+                signal: signal,
+                onOpenDialog: () => onOpenDialog(signal),
+              ),
             ),
           )
           .toList(),
@@ -630,9 +640,11 @@ class _TimelineList extends StatelessWidget {
 
 class _SignalCard extends StatelessWidget {
   final RecentSignalModel signal;
+  final VoidCallback onOpenDialog;
 
   const _SignalCard({
     required this.signal,
+    required this.onOpenDialog,
   });
 
   @override
@@ -681,6 +693,23 @@ class _SignalCard extends StatelessWidget {
               children: metaTags.map((tag) => _MetaChip(label: tag)).toList(),
             ),
           ],
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: signal.id == null ? null : onOpenDialog,
+              icon: const Icon(Icons.chat_bubble_outline_rounded),
+              label: Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'Talk through this',
+                  zhHans: '围绕这条继续想',
+                  zhHant: '圍繞這條繼續想',
+                  ja: 'この記録をもう少し整理する',
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

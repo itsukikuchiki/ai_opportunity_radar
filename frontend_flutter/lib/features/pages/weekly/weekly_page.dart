@@ -354,6 +354,8 @@ class _WeeklyReadyBody extends StatelessWidget {
           points: chartData,
           isLightReady: isLightReady,
         ),
+        const SizedBox(height: 12),
+        _ChartInsightCard(points: chartData),
         const SizedBox(height: 22),
         if (isLightReady) ...[
           SectionHeader(
@@ -456,6 +458,23 @@ class _WeeklyReadyBody extends StatelessWidget {
             body: bestAction,
           ),
         ],
+        const SizedBox(height: 18),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.tonalIcon(
+            onPressed: () => context.go(AppRoutes.deepWeekly),
+            icon: const Icon(Icons.auto_graph_outlined),
+            label: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Open Deep Weekly',
+                zhHans: '打开 Deep Weekly',
+                zhHant: '打開 Deep Weekly',
+                ja: 'Deep Weekly を開く',
+              ),
+            ),
+          ),
+        ),
         if (weekly.opportunitySnapshot != null) ...[
           const SizedBox(height: 18),
           _OpportunityCard(
@@ -1132,6 +1151,63 @@ class _OpportunityCard extends StatelessWidget {
   }
 }
 
+
+
+class _ChartInsightCard extends StatelessWidget {
+  final List<WeeklyChartPointModel> points;
+
+  const _ChartInsightCard({required this.points});
+
+  @override
+  Widget build(BuildContext context) {
+    final safePoints = points.isEmpty
+        ? const <WeeklyChartPointModel>[]
+        : [...points]..sort((a, b) => a.date.compareTo(b.date));
+
+    String densityText;
+    String trendText;
+    String reboundText;
+
+    if (safePoints.isEmpty) {
+      densityText = '这一周还没有足够图表线索。';
+      trendText = '等记录再多一点，这里会开始指出哪一天最集中、走势什么时候往下或往上。';
+      reboundText = '目前先继续记下重复出现的场景就好。';
+    } else {
+      final peak = safePoints.reduce((a, b) => a.signalCount >= b.signalCount ? a : b);
+      final low = safePoints.reduce((a, b) => a.moodScore <= b.moodScore ? a : b);
+      final rebound = safePoints.last;
+      densityText = '线索最密的一天是 ${peak.date.length >= 10 ? peak.date.substring(5) : peak.date}，更像是同类事情在那一天集中冒头。';
+      trendText = '走势最低点更接近 ${low.date.length >= 10 ? low.date.substring(5) : low.date}，说明那附近的状态更容易被往下拉。';
+      reboundText = rebound.moodScore > low.moodScore
+          ? '从后半段看，状态有一点往回收，说明并不是整周都在持续往下掉。'
+          : '从后半段看，状态还没有明显回弹，下周更适合继续缩小观察范围。';
+    }
+
+    return _UnifiedCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'What this chart is pointing at',
+              zhHans: '这张图在提示什么',
+              zhHant: '這張圖在提示什麼',
+              ja: 'この図が示していること',
+            ),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 10),
+          Text('• $densityText'),
+          const SizedBox(height: 8),
+          Text('• $trendText'),
+          const SizedBox(height: 8),
+          Text('• $reboundText'),
+        ],
+      ),
+    );
+  }
+}
 class _FeedbackCard extends StatelessWidget {
   final bool isSubmitted;
   final SubmitState submitState;
