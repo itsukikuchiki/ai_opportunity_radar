@@ -8,6 +8,7 @@ import '../core/di/app_dependencies.dart';
 import '../core/state/app_bootstrap_state.dart';
 import '../features/onboarding/onboarding_view_model.dart';
 import '../features/pages/me/me_view_model.dart';
+import '../features/pages/monthly/monthly_view_model.dart';
 import '../features/pages/memory/memory_view_model.dart';
 import '../features/pages/opportunities/opportunity_detail_view_model.dart';
 import '../features/pages/today/today_view_model.dart';
@@ -34,6 +35,7 @@ class _RadarAppState extends State<RadarApp> {
   WeeklyViewModel? _weeklyViewModel;
   OpportunityDetailViewModel? _opportunityDetailViewModel;
   MemoryViewModel? _memoryViewModel;
+  MonthlyViewModel? _monthlyViewModel;
   MeViewModel? _meViewModel;
 
   @override
@@ -56,6 +58,7 @@ class _RadarAppState extends State<RadarApp> {
     _opportunityDetailViewModel =
         OpportunityDetailViewModel(dependencies.opportunityRepository);
     _memoryViewModel = MemoryViewModel(dependencies.memoryRepository);
+    _monthlyViewModel = MonthlyViewModel(dependencies.monthlyRepository);
     _meViewModel = MeViewModel();
   }
 
@@ -66,6 +69,7 @@ class _RadarAppState extends State<RadarApp> {
     _weeklyViewModel?.dispose();
     _opportunityDetailViewModel?.dispose();
     _memoryViewModel?.dispose();
+    _monthlyViewModel?.dispose();
     _meViewModel?.dispose();
     _router.dispose();
     super.dispose();
@@ -94,6 +98,7 @@ class _RadarAppState extends State<RadarApp> {
         final weeklyViewModel = _weeklyViewModel!;
         final opportunityDetailViewModel = _opportunityDetailViewModel!;
         final memoryViewModel = _memoryViewModel!;
+        final monthlyViewModel = _monthlyViewModel!;
         final meViewModel = _meViewModel!;
 
         return MultiProvider(
@@ -114,6 +119,9 @@ class _RadarAppState extends State<RadarApp> {
             ),
             ChangeNotifierProvider<MemoryViewModel>.value(
               value: memoryViewModel,
+            ),
+            ChangeNotifierProvider<MonthlyViewModel>.value(
+              value: monthlyViewModel,
             ),
             ChangeNotifierProvider<MeViewModel>.value(
               value: meViewModel,

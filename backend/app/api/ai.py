@@ -9,6 +9,7 @@ from app.schemas.ai_schema import (
     FollowupGenerateRequest,
     JourneyGenerateRequest,
     LightDialogRequest,
+    MonthlyGenerateRequest,
     OpportunityExplanationRequest,
     TodaySummaryRequest,
     WeeklyGenerateRequest,
@@ -118,5 +119,18 @@ def generate_followup_question(
         service = AiGenerationService()
         result = service.generate_followup_question(payload.model_dump())
         return {"data": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/monthly-generate")
+def generate_monthly_summary(
+    payload: MonthlyGenerateRequest,
+    user_id: str = Depends(get_user_id),
+) -> dict:
+    try:
+        service = AiGenerationService()
+        result = service.generate_monthly_summary(payload)
+        return {"data": result.model_dump()}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -6,13 +6,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_opportunity_radar/core/api/api_client.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/ai_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/memory_repository.dart';
+import 'package:ai_opportunity_radar/core/api/repositories/monthly_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/today_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/weekly_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_daily_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_journey_snapshot_repository.dart';
+import 'package:ai_opportunity_radar/core/local/local_monthly_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_weekly_snapshot_repository.dart';
+import 'package:ai_opportunity_radar/core/models/monthly_models.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
 import 'package:ai_opportunity_radar/features/pages/me/me_view_model.dart';
 
@@ -138,4 +141,25 @@ Future<MeViewModel> buildMeViewModel({String? repeatArea = 'emotion_stress'}) as
   final vm = MeViewModel();
   await vm.load();
   return vm;
+}
+
+
+class StubMonthlyRepository extends MonthlyRepository {
+  final MonthlyReviewModel monthly;
+  int fetchCallCount = 0;
+
+  StubMonthlyRepository({required this.monthly})
+      : super(
+          localCaptureRepository: LocalCaptureRepository(createDummyDatabase()),
+          localMonthlySnapshotRepository: LocalMonthlySnapshotRepository(
+            createDummyDatabase(),
+          ),
+          aiRepository: DummyAiRepository(),
+        );
+
+  @override
+  Future<MonthlyReviewModel> fetchCurrentMonthly() async {
+    fetchCallCount += 1;
+    return monthly;
+  }
 }

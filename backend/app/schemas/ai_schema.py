@@ -176,3 +176,30 @@ class DeepWeeklyResponse(BaseModel):
     next_focus: str
     risk_note: str
     key_nodes: list[str] = Field(default_factory=list)
+
+
+class MonthlyGenerateRequest(BaseModel):
+    month_start: str
+    month_end: str
+    entry_count: int = 0
+    entries: list[AiTimelineEntry] = Field(default_factory=list)
+    week_counts: dict[str, int] = Field(default_factory=dict)
+    top_tokens: list[str] = Field(default_factory=list)
+    focus_area: Optional[str] = None
+
+
+class MonthlyBridgeWeekSchema(BaseModel):
+    label: str
+    summary: str
+
+
+class MonthlyGenerateResponse(BaseModel):
+    month_start: str
+    month_end: str
+    status: str
+    monthly_summary: Optional[str] = None
+    repeated_themes: list[str] = Field(default_factory=list)
+    improving_signals: list[str] = Field(default_factory=list)
+    unresolved_points: list[str] = Field(default_factory=list)
+    next_month_watch: Optional[str] = None
+    weekly_bridges: list[MonthlyBridgeWeekSchema] = Field(default_factory=list)

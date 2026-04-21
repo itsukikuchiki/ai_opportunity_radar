@@ -10,6 +10,9 @@ from app.schemas.ai_schema import (
     JourneyGenerateRequest,
     JourneyGenerateResponse,
     LightDialogResponse,
+    MonthlyBridgeWeekSchema,
+    MonthlyGenerateRequest,
+    MonthlyGenerateResponse,
     OpportunityExplanationResponse,
     OpportunitySnapshotSchema,
     TodaySummaryRequest,
@@ -165,6 +168,50 @@ class AiGenerationService:
             best_action=best_action,
             opportunity_snapshot=opportunity_snapshot,
             feedback_submitted=False,
+        )
+
+
+    def generate_monthly_summary(
+        self,
+        request: MonthlyGenerateRequest,
+    ) -> MonthlyGenerateResponse:
+        if request.entry_count <= 0 or not request.entries:
+            return MonthlyGenerateResponse(
+                month_start=request.month_start,
+                month_end=request.month_end,
+                status="insufficient_data",
+            )
+
+        top_token = self._safe_top_token(request.top_tokens)
+        busiest_week = "Week 1"
+        if request.week_counts:
+            busiest_week = max(request.week_counts.items(), key=lambda item: item[1])[0]
+
+        entry_count = max(request.entry_count, len(request.entries))
+        status = "light_ready" if entry_count < 4 or len(request.week_counts) < 2 else "ready"
+
+        return MonthlyGenerateResponse(
+            month_start=request.month_start,
+            month_end=request.month_end,
+            status=status,
+            monthly_summary=f"这个月的记录没有散开，而是开始围绕“{top_token}”反复回来；同时，一些恢复性的线索也在慢慢冒头。",
+            repeated_themes=[
+                f"“{top_token}”已经不只是单次瞬间，而开始成为这个月最稳定的重复主题。"
+            ],
+            improving_signals=[
+                "月内并不只有消耗，某些让你缓回来的小动作已经开始被反复记到。"
+            ],
+            unresolved_points=[
+                f"到目前为止，{busiest_week} 附近聚集出来的摩擦还没有真正松开。"
+            ],
+            next_month_watch=f"下个月先继续盯一个问题：当“{top_token}”再次出现时，它最常发生在哪种场景里？",
+            weekly_bridges=[
+                MonthlyBridgeWeekSchema(
+                    label=label,
+                    summary=f"这一周段里记录了 {count} 条，说明月度变化并不是平均发生的。",
+                )
+                for label, count in sorted(request.week_counts.items())
+            ],
         )
 
     def generate_light_dialog(self, request) -> LightDialogResponse:

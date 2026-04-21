@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 class LocalDatabase {
   static const _databaseName = 'ai_opportunity_radar_local.db';
-  static const _databaseVersion = 5;
+  static const _databaseVersion = 6;
 
   final String? dbPathOverride;
   final DatabaseFactory? databaseFactoryOverride;
@@ -79,6 +79,24 @@ class LocalDatabase {
           if (oldVersion < 5) {
             await _addColumnIfNeeded(db, 'weekly_snapshots', 'chart_data_json TEXT');
           }
+
+          if (oldVersion < 6) {
+            await db.execute('''
+              CREATE TABLE IF NOT EXISTS monthly_snapshots (
+                month_start TEXT PRIMARY KEY,
+                month_end TEXT NOT NULL,
+                status TEXT NOT NULL,
+                monthly_summary TEXT,
+                repeated_themes_json TEXT,
+                improving_signals_json TEXT,
+                unresolved_points_json TEXT,
+                next_month_watch TEXT,
+                weekly_bridges_json TEXT,
+                source_hash TEXT,
+                generated_at TEXT NOT NULL
+              )
+            ''');
+          }
         },
       ),
     );
@@ -151,6 +169,23 @@ class LocalDatabase {
         frictions_json TEXT,
         desires_json TEXT,
         experiments_json TEXT,
+        source_hash TEXT,
+        generated_at TEXT NOT NULL
+      )
+    ''');
+
+
+    await db.execute('''
+      CREATE TABLE monthly_snapshots (
+        month_start TEXT PRIMARY KEY,
+        month_end TEXT NOT NULL,
+        status TEXT NOT NULL,
+        monthly_summary TEXT,
+        repeated_themes_json TEXT,
+        improving_signals_json TEXT,
+        unresolved_points_json TEXT,
+        next_month_watch TEXT,
+        weekly_bridges_json TEXT,
         source_hash TEXT,
         generated_at TEXT NOT NULL
       )

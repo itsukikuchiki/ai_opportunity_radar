@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../core/state/app_bootstrap_state.dart';
 import '../features/onboarding/onboarding_page.dart';
 import '../features/pages/me/me_page.dart';
+import '../features/pages/monthly/monthly_page.dart';
 import '../features/pages/memory/memory_page.dart';
 import '../features/pages/opportunities/opportunity_detail_page.dart';
 import '../features/pages/today/today_dialog_page.dart';
@@ -19,6 +20,7 @@ class AppRoutes {
   static const opportunity = '/opportunity';
   static const memory = '/memory';
   static const me = '/me';
+  static const monthly = '/monthly';
   static const todayDialog = '/today/dialog';
   static const deepWeekly = '/weekly/deep';
   static const journal = '/memory/journal';
@@ -69,6 +71,10 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       GoRoute(
         path: AppRoutes.journal,
         builder: (_, __) => const JournalPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.monthly,
+        builder: (_, __) => const MonthlyPage(),
       ),
       GoRoute(
         path: '${AppRoutes.opportunity}/:id',

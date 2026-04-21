@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../shared/widgets/section_header.dart';
 import 'me_view_model.dart';
@@ -132,6 +134,64 @@ class MePage extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(height: 24),
+          SectionHeader(
+            title: AppLocaleText.tr(
+              context,
+              en: 'Longer reviews',
+              zhHans: '更长周期的回看',
+              zhHant: '更長週期的回看',
+              ja: 'もう少し長い振り返り',
+            ),
+            subtitle: AppLocaleText.tr(
+              context,
+              en: 'Open a slower review once enough signals have accumulated.',
+              zhHans: '当线索慢慢累积后，可以打开更慢一点的回看。',
+              zhHant: '當線索慢慢累積後，可以打開更慢一點的回看。',
+              ja: '手がかりが少したまったら、もう少しゆっくりした振り返りを開けます。',
+            ),
+          ),
+          const SizedBox(height: 10),
+          _EditablePreferenceCard(
+            icon: Icons.calendar_month_outlined,
+            title: AppLocaleText.tr(
+              context,
+              en: 'Monthly review',
+              zhHans: 'Monthly 月度回看',
+              zhHant: 'Monthly 月度回看',
+              ja: 'Monthly 月次レビュー',
+            ),
+            subtitle: AppLocaleText.tr(
+              context,
+              en: 'See the month as one longer curve instead of isolated weeks.',
+              zhHans: '把这个月当作一条更长的曲线来看，而不是几周分开看。',
+              zhHant: '把這個月當作一條更長的曲線來看，而不是幾週分開看。',
+              ja: '週ごとではなく、一か月を一本の流れとして見ます。',
+            ),
+            value: AppLocaleText.tr(
+              context,
+              en: 'Open',
+              zhHans: '打开',
+              zhHant: '打開',
+              ja: '開く',
+            ),
+            helper: AppLocaleText.tr(
+              context,
+              en: 'Monthly is a slower layer above Weekly, focused on repeated themes, improving signals, and what is still unresolved.',
+              zhHans: 'Monthly 是在 Weekly 之上的更慢一层，主要看反复主题、改善中的线索，以及还没解开的点。',
+              zhHant: 'Monthly 是在 Weekly 之上的更慢一層，主要看反覆主題、改善中的線索，以及還沒解開的點。',
+              ja: 'Monthly は Weekly より少し遅い層で、繰り返すテーマ、良くなりつつある手がかり、まだ残っている点を見ます。',
+            ),
+            actionLabel: AppLocaleText.tr(
+              context,
+              en: 'Open',
+              zhHans: '打开',
+              zhHant: '打開',
+              ja: '開く',
+            ),
+            onTap: () => context.go(AppRoutes.monthly),
+            isBusy: false,
+          ),
           if (vm.errorMessage != null && vm.errorMessage!.trim().isNotEmpty) ...[
             const SizedBox(height: 16),
             Card(

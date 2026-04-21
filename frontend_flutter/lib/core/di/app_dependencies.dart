@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../api/api_client.dart';
 import '../api/repositories/ai_repository.dart';
 import '../api/repositories/memory_repository.dart';
+import '../api/repositories/monthly_repository.dart';
 import '../api/repositories/opportunity_repository.dart';
 import '../api/repositories/today_repository.dart';
 import '../api/repositories/weekly_repository.dart';
@@ -11,6 +12,7 @@ import '../local/local_capture_repository.dart';
 import '../local/local_daily_snapshot_repository.dart';
 import '../local/local_database.dart';
 import '../local/local_journey_snapshot_repository.dart';
+import '../local/local_monthly_snapshot_repository.dart';
 import '../local/local_weekly_snapshot_repository.dart';
 
 class AppDependencies {
@@ -19,12 +21,14 @@ class AppDependencies {
   final TodayRepository todayRepository;
   final WeeklyRepository weeklyRepository;
   final MemoryRepository memoryRepository;
+  final MonthlyRepository monthlyRepository;
   final OpportunityRepository opportunityRepository;
   final LocalDatabase localDatabase;
   final LocalCaptureRepository localCaptureRepository;
   final LocalDailySnapshotRepository localDailySnapshotRepository;
   final LocalWeeklySnapshotRepository localWeeklySnapshotRepository;
   final LocalJourneySnapshotRepository localJourneySnapshotRepository;
+  final LocalMonthlySnapshotRepository localMonthlySnapshotRepository;
 
   AppDependencies({
     required this.apiClient,
@@ -32,12 +36,14 @@ class AppDependencies {
     required this.todayRepository,
     required this.weeklyRepository,
     required this.memoryRepository,
+    required this.monthlyRepository,
     required this.opportunityRepository,
     required this.localDatabase,
     required this.localCaptureRepository,
     required this.localDailySnapshotRepository,
     required this.localWeeklySnapshotRepository,
     required this.localJourneySnapshotRepository,
+    required this.localMonthlySnapshotRepository,
   });
 
   static Future<AppDependencies> create() async {
@@ -61,6 +67,8 @@ class AppDependencies {
         LocalWeeklySnapshotRepository(localDatabase);
     final localJourneySnapshotRepository =
         LocalJourneySnapshotRepository(localDatabase);
+    final localMonthlySnapshotRepository =
+        LocalMonthlySnapshotRepository(localDatabase);
 
     final aiRepository = AiRepository(apiClient);
 
@@ -72,6 +80,7 @@ class AppDependencies {
       localDailySnapshotRepository: localDailySnapshotRepository,
       localWeeklySnapshotRepository: localWeeklySnapshotRepository,
       localJourneySnapshotRepository: localJourneySnapshotRepository,
+      localMonthlySnapshotRepository: localMonthlySnapshotRepository,
       todayRepository: TodayRepository(
         localCaptureRepository: localCaptureRepository,
         localDailySnapshotRepository: localDailySnapshotRepository,
@@ -85,6 +94,11 @@ class AppDependencies {
       memoryRepository: MemoryRepository(
         localCaptureRepository: localCaptureRepository,
         localJourneySnapshotRepository: localJourneySnapshotRepository,
+        aiRepository: aiRepository,
+      ),
+      monthlyRepository: MonthlyRepository(
+        localCaptureRepository: localCaptureRepository,
+        localMonthlySnapshotRepository: localMonthlySnapshotRepository,
         aiRepository: aiRepository,
       ),
       opportunityRepository: OpportunityRepository(apiClient),

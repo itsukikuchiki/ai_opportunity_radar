@@ -1,4 +1,5 @@
 import '../../models/memory_models.dart';
+import '../../models/monthly_models.dart';
 import '../../models/today_models.dart';
 import '../../models/weekly_models.dart';
 import '../api_client.dart';
@@ -175,6 +176,48 @@ class AiRepository {
     }
   }
 
+
+
+  Future<MonthlyReviewModel> generateMonthlyReview({
+    required String monthStart,
+    required String monthEnd,
+    required List<Map<String, dynamic>> entries,
+    required Map<String, int> weekCounts,
+    required List<String> topTokens,
+    String? focusArea,
+  }) async {
+    try {
+      final res = await apiClient.postJson(
+        '/api/v1/ai/monthly-generate',
+        {
+          'month_start': monthStart,
+          'month_end': monthEnd,
+          'entry_count': entries.length,
+          'entries': entries,
+          'week_counts': weekCounts,
+          'top_tokens': topTokens,
+          'focus_area': focusArea,
+        },
+      );
+      final data = (res['data'] as Map<String, dynamic>?) ?? res;
+      return MonthlyReviewModel.fromJson(data);
+    } catch (_) {
+      final token = topTokens.isEmpty ? 'a repeated theme' : topTokens.first;
+      return MonthlyReviewModel(
+        monthStart: monthStart,
+        monthEnd: monthEnd,
+        status: entries.length < 4 ? 'light_ready' : 'ready',
+        monthlySummary: 'Across this month, entries keep circling back to $token.',
+        repeatedThemes: ['Entries keep clustering around $token.'],
+        improvingSignals: const ['Some smaller recovery moments are beginning to show up.'],
+        unresolvedPoints: const ['One repeated friction still has not fully loosened.'],
+        nextMonthWatch: 'Next month, keep watching which scene most often brings that theme back.',
+        weeklyBridges: weekCounts.entries
+            .map((e) => MonthlyBridgeWeekModel(label: e.key, summary: '${e.value} entries landed in this week band.'))
+            .toList(),
+      );
+    }
+  }
 
   Future<LightDialogResponseModel> generateLightDialog({
     required RecentSignalModel signal,

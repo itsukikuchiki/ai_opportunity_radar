@@ -191,3 +191,40 @@ def test_deep_weekly_contract(client):
         "risk_note",
         "key_nodes",
     }
+
+
+
+def test_monthly_generate_contract(client):
+    resp = client.post(
+        "/api/v1/ai/monthly-generate",
+        headers=_headers(),
+        json={
+            "month_start": "2026-04-01",
+            "month_end": "2026-04-30",
+            "entry_count": 3,
+            "entries": [
+                {
+                    "id": "1",
+                    "content": "今天上班很烦",
+                    "created_at": "2026-04-14T01:00:00Z",
+                    "acknowledgement": "先放在这里。",
+                }
+            ],
+            "week_counts": {"Week 1": 1, "Week 2": 2},
+            "top_tokens": ["烦"],
+            "focus_area": "emotion_stress",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert set(data.keys()) >= {
+        "month_start",
+        "month_end",
+        "status",
+        "monthly_summary",
+        "repeated_themes",
+        "improving_signals",
+        "unresolved_points",
+        "next_month_watch",
+        "weekly_bridges",
+    }
