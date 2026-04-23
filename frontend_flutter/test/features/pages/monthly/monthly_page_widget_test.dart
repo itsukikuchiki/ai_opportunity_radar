@@ -13,7 +13,7 @@ void main() {
 
   testWidgets('Monthly 页面能加载并触发一次数据获取', (tester) async {
     final repo = StubMonthlyRepository(
-      monthly: MonthlyReviewModel(
+      monthly: const MonthlyReviewModel(
         monthStart: '2026-04-01',
         monthEnd: '2026-04-30',
         status: 'ready',

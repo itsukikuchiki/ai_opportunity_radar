@@ -6,6 +6,7 @@ import '../api/repositories/ai_repository.dart';
 import '../api/repositories/memory_repository.dart';
 import '../api/repositories/monthly_repository.dart';
 import '../api/repositories/opportunity_repository.dart';
+import '../api/repositories/self_review_repository.dart';
 import '../api/repositories/today_repository.dart';
 import '../api/repositories/weekly_repository.dart';
 import '../local/local_capture_repository.dart';
@@ -22,6 +23,7 @@ class AppDependencies {
   final WeeklyRepository weeklyRepository;
   final MemoryRepository memoryRepository;
   final MonthlyRepository monthlyRepository;
+  final SelfReviewRepository selfReviewRepository;
   final OpportunityRepository opportunityRepository;
   final LocalDatabase localDatabase;
   final LocalCaptureRepository localCaptureRepository;
@@ -37,6 +39,7 @@ class AppDependencies {
     required this.weeklyRepository,
     required this.memoryRepository,
     required this.monthlyRepository,
+    required this.selfReviewRepository,
     required this.opportunityRepository,
     required this.localDatabase,
     required this.localCaptureRepository,
@@ -61,14 +64,10 @@ class AppDependencies {
     await localDatabase.init();
 
     final localCaptureRepository = LocalCaptureRepository(localDatabase);
-    final localDailySnapshotRepository =
-        LocalDailySnapshotRepository(localDatabase);
-    final localWeeklySnapshotRepository =
-        LocalWeeklySnapshotRepository(localDatabase);
-    final localJourneySnapshotRepository =
-        LocalJourneySnapshotRepository(localDatabase);
-    final localMonthlySnapshotRepository =
-        LocalMonthlySnapshotRepository(localDatabase);
+    final localDailySnapshotRepository = LocalDailySnapshotRepository(localDatabase);
+    final localWeeklySnapshotRepository = LocalWeeklySnapshotRepository(localDatabase);
+    final localJourneySnapshotRepository = LocalJourneySnapshotRepository(localDatabase);
+    final localMonthlySnapshotRepository = LocalMonthlySnapshotRepository(localDatabase);
 
     final aiRepository = AiRepository(apiClient);
 
@@ -100,6 +99,10 @@ class AppDependencies {
         localCaptureRepository: localCaptureRepository,
         localMonthlySnapshotRepository: localMonthlySnapshotRepository,
         aiRepository: aiRepository,
+      ),
+      selfReviewRepository: SelfReviewRepository(
+        localCaptureRepository: localCaptureRepository,
+        apiClient: apiClient,
       ),
       opportunityRepository: OpportunityRepository(apiClient),
     );

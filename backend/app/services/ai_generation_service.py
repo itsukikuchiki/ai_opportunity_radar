@@ -10,9 +10,6 @@ from app.schemas.ai_schema import (
     JourneyGenerateRequest,
     JourneyGenerateResponse,
     LightDialogResponse,
-    MonthlyBridgeWeekSchema,
-    MonthlyGenerateRequest,
-    MonthlyGenerateResponse,
     OpportunityExplanationResponse,
     OpportunitySnapshotSchema,
     TodaySummaryRequest,
@@ -36,6 +33,7 @@ class AiGenerationService:
             raise ValueError("content is required")
 
         analysis = self._analyze_capture(content)
+        response_style = payload.get('response_style') or 'gentle'
         reply_bundle = self._build_reply_bundle(
             content=content,
             emotion=analysis["emotion"],
@@ -43,6 +41,7 @@ class AiGenerationService:
             scene_tags=analysis["scene_tags"],
             intent_tags=analysis["intent_tags"],
             recent_assistant_texts=recent_assistant_texts,
+            response_style=response_style,
         )
 
         return CaptureReplyResponse(
@@ -62,6 +61,7 @@ class AiGenerationService:
     ) -> TodaySummaryResponse:
         entries = request.entries
         count = request.entry_count or len(entries)
+        response_style = request.response_style or 'gentle'
 
         if count <= 0 or not entries:
             return TodaySummaryResponse(
@@ -109,8 +109,8 @@ class AiGenerationService:
                 suggestion = "先不用整理完整，只要继续把重复出现的那类瞬间记下来。"
 
         return TodaySummaryResponse(
-            observation=observation,
-            suggestion=suggestion,
+            observation=self._style_text(observation, response_style, kind='observation').strip(),
+            suggestion=self._style_text(suggestion, response_style, kind='suggestion').strip(),
         )
 
     def generate_weekly_summary(
@@ -170,50 +170,6 @@ class AiGenerationService:
             feedback_submitted=False,
         )
 
-
-    def generate_monthly_summary(
-        self,
-        request: MonthlyGenerateRequest,
-    ) -> MonthlyGenerateResponse:
-        if request.entry_count <= 0 or not request.entries:
-            return MonthlyGenerateResponse(
-                month_start=request.month_start,
-                month_end=request.month_end,
-                status="insufficient_data",
-            )
-
-        top_token = self._safe_top_token(request.top_tokens)
-        busiest_week = "Week 1"
-        if request.week_counts:
-            busiest_week = max(request.week_counts.items(), key=lambda item: item[1])[0]
-
-        entry_count = max(request.entry_count, len(request.entries))
-        status = "light_ready" if entry_count < 4 or len(request.week_counts) < 2 else "ready"
-
-        return MonthlyGenerateResponse(
-            month_start=request.month_start,
-            month_end=request.month_end,
-            status=status,
-            monthly_summary=f"这个月的记录没有散开，而是开始围绕“{top_token}”反复回来；同时，一些恢复性的线索也在慢慢冒头。",
-            repeated_themes=[
-                f"“{top_token}”已经不只是单次瞬间，而开始成为这个月最稳定的重复主题。"
-            ],
-            improving_signals=[
-                "月内并不只有消耗，某些让你缓回来的小动作已经开始被反复记到。"
-            ],
-            unresolved_points=[
-                f"到目前为止，{busiest_week} 附近聚集出来的摩擦还没有真正松开。"
-            ],
-            next_month_watch=f"下个月先继续盯一个问题：当“{top_token}”再次出现时，它最常发生在哪种场景里？",
-            weekly_bridges=[
-                MonthlyBridgeWeekSchema(
-                    label=label,
-                    summary=f"这一周段里记录了 {count} 条，说明月度变化并不是平均发生的。",
-                )
-                for label, count in sorted(request.week_counts.items())
-            ],
-        )
-
     def generate_light_dialog(self, request) -> LightDialogResponse:
         capture_content = request.capture_content.strip()
         user_message = request.user_message.strip()
@@ -223,6 +179,7 @@ class AiGenerationService:
         analysis = self._analyze_capture(capture_content)
         scene = analysis["scene_tags"][0] if analysis["scene_tags"] else "daily_life"
         emotion = analysis["emotion"]
+        response_style = request.response_style or 'gentle'
         history_len = len(request.history)
 
         if history_len <= 1:
@@ -255,7 +212,7 @@ class AiGenerationService:
             "这件事让我不舒服的核心是什么？",
             "下次再遇到时我想先做什么？",
         ]
-        return LightDialogResponse(reply=answer, suggested_prompts=prompts)
+        return LightDialogResponse(reply=self._style_text(answer, response_style, kind='reply'), suggested_prompts=prompts)
 
     def generate_deep_weekly(self, request: DeepWeeklyRequest) -> DeepWeeklyResponse:
         pattern_name = self._pick_name(request.patterns, fallback="这周反复回来的主题")
@@ -468,6 +425,7 @@ class AiGenerationService:
         scene_tags: list[str],
         intent_tags: list[str],
         recent_assistant_texts: list[str] | None = None,
+        response_style: str = 'gentle',
     ) -> dict[str, str]:
         recent_assistant_texts = recent_assistant_texts or []
 
@@ -499,10 +457,36 @@ class AiGenerationService:
         )
 
         return {
-            "acknowledgement": acknowledgement.strip(),
-            "observation": observation.strip(),
-            "try_next": try_next.strip(),
+            "acknowledgement": self._style_text(acknowledgement.strip(), response_style, kind='acknowledgement'),
+            "observation": self._style_text(observation.strip(), response_style, kind='observation'),
+            "try_next": self._style_text(try_next.strip(), response_style, kind='suggestion'),
         }
+
+
+    def _style_text(self, text: str, response_style: str, kind: str = 'reply') -> str:
+        text = (text or '').strip()
+        if not text:
+            return text
+
+        if response_style == 'direct':
+            if kind == 'acknowledgement':
+                direct_prefix = '先说重点：'
+            elif kind == 'suggestion':
+                direct_prefix = '下一步：'
+            else:
+                direct_prefix = '重点是：'
+            return f"{direct_prefix}{text}" if not text.startswith(direct_prefix) else text
+
+        if response_style == 'clear':
+            if kind == 'suggestion':
+                clear_prefix = '更清楚地说，'
+            elif kind == 'acknowledgement':
+                clear_prefix = '换句话说，'
+            else:
+                clear_prefix = '更具体一点，'
+            return f"{clear_prefix}{text}" if not text.startswith(clear_prefix) else text
+
+        return text
 
     def _fallback_acknowledgement(
         self,

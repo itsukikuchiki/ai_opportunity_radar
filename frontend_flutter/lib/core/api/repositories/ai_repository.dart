@@ -13,7 +13,10 @@ class AiRepository {
     required String content,
     required List<String> recentAssistantTexts,
     String? focusArea,
+    String? responseStyle,
   }) async {
+    final style = _normalizeResponseStyle(responseStyle);
+
     try {
       final res = await apiClient.postJson(
         '/api/v1/ai/capture-reply',
@@ -21,6 +24,7 @@ class AiRepository {
           'content': content,
           'recent_assistant_texts': recentAssistantTexts,
           'focus_area': focusArea,
+          'response_style': style,
         },
       );
 
@@ -29,13 +33,13 @@ class AiRepository {
       return AiCaptureReplyResult(
         acknowledgement:
             (data['acknowledgement'] as String?) ??
-            _fallbackAcknowledgement(content),
+            _styleText(_fallbackAcknowledgement(content), style),
         observation:
             (data['observation'] as String?) ??
-            _fallbackSingleObservation(content),
+            _styleText(_fallbackSingleObservation(content), style),
         tryNext:
             (data['try_next'] as String?) ??
-            _fallbackSingleTryNext(content),
+            _styleText(_fallbackSingleTryNext(content), style),
         emotion:
             (data['emotion'] as String?) ??
             _fallbackEmotion(content),
@@ -52,9 +56,9 @@ class AiRepository {
       );
     } catch (_) {
       return AiCaptureReplyResult(
-        acknowledgement: _fallbackAcknowledgement(content),
-        observation: _fallbackSingleObservation(content),
-        tryNext: _fallbackSingleTryNext(content),
+        acknowledgement: _styleText(_fallbackAcknowledgement(content), style),
+        observation: _styleText(_fallbackSingleObservation(content), style),
+        tryNext: _styleText(_fallbackSingleTryNext(content), style),
         emotion: _fallbackEmotion(content),
         intensity: _fallbackIntensity(content),
         sceneTags: _fallbackSceneTags(content),
@@ -68,7 +72,10 @@ class AiRepository {
     required DateTime date,
     required List<RecentSignalModel> entries,
     String? focusArea,
+    String? responseStyle,
   }) async {
+    final style = _normalizeResponseStyle(responseStyle);
+
     try {
       final res = await apiClient.postJson(
         '/api/v1/ai/today-summary',
@@ -92,21 +99,22 @@ class AiRepository {
               )
               .toList(),
           'focus_area': focusArea,
+          'response_style': style,
         },
       );
 
       final data = (res['data'] as Map<String, dynamic>?) ?? res;
 
       return AiTodaySummaryResult(
-        observation:
-            (data['observation'] as String?) ?? _fallbackObservation(entries),
-        suggestion:
-            (data['suggestion'] as String?) ?? _fallbackSuggestion(entries),
+        observation: (data['observation'] as String?) ??
+            _styleText(_fallbackObservation(entries), style),
+        suggestion: (data['suggestion'] as String?) ??
+            _styleText(_fallbackSuggestion(entries), style),
       );
     } catch (_) {
       return AiTodaySummaryResult(
-        observation: _fallbackObservation(entries),
-        suggestion: _fallbackSuggestion(entries),
+        observation: _styleText(_fallbackObservation(entries), style),
+        suggestion: _styleText(_fallbackSuggestion(entries), style),
       );
     }
   }
@@ -176,14 +184,12 @@ class AiRepository {
     }
   }
 
-
-
   Future<MonthlyReviewModel> generateMonthlyReview({
     required String monthStart,
     required String monthEnd,
     required List<Map<String, dynamic>> entries,
-    required Map<String, int> weekCounts,
     required List<String> topTokens,
+    required int totalDays,
     String? focusArea,
   }) async {
     try {
@@ -194,27 +200,21 @@ class AiRepository {
           'month_end': monthEnd,
           'entry_count': entries.length,
           'entries': entries,
-          'week_counts': weekCounts,
           'top_tokens': topTokens,
+          'total_days': totalDays,
           'focus_area': focusArea,
         },
       );
+
       final data = (res['data'] as Map<String, dynamic>?) ?? res;
       return MonthlyReviewModel.fromJson(data);
     } catch (_) {
-      final token = topTokens.isEmpty ? 'a repeated theme' : topTokens.first;
-      return MonthlyReviewModel(
+      return _fallbackMonthlyReview(
         monthStart: monthStart,
         monthEnd: monthEnd,
-        status: entries.length < 4 ? 'light_ready' : 'ready',
-        monthlySummary: 'Across this month, entries keep circling back to $token.',
-        repeatedThemes: ['Entries keep clustering around $token.'],
-        improvingSignals: const ['Some smaller recovery moments are beginning to show up.'],
-        unresolvedPoints: const ['One repeated friction still has not fully loosened.'],
-        nextMonthWatch: 'Next month, keep watching which scene most often brings that theme back.',
-        weeklyBridges: weekCounts.entries
-            .map((e) => MonthlyBridgeWeekModel(label: e.key, summary: '${e.value} entries landed in this week band.'))
-            .toList(),
+        entries: entries,
+        topTokens: topTokens,
+        totalDays: totalDays,
       );
     }
   }
@@ -224,7 +224,10 @@ class AiRepository {
     required List<LightDialogTurnModel> history,
     required String userMessage,
     String? focusArea,
+    String? responseStyle,
   }) async {
+    final style = _normalizeResponseStyle(responseStyle);
+
     try {
       final res = await apiClient.postJson(
         '/api/v1/ai/light-dialog',
@@ -236,15 +239,19 @@ class AiRepository {
           'history': history.map((e) => e.toJson()).toList(),
           'user_message': userMessage,
           'focus_area': focusArea,
+          'response_style': style,
         },
       );
 
       final data = (res['data'] as Map<String, dynamic>?) ?? res;
       return LightDialogResponseModel.fromJson(data);
     } catch (_) {
-      return const LightDialogResponseModel(
-        reply: '我先顺着这条陪你多看一点。先别急着解释完整，只要把最卡住你的那个瞬间说得更具体一点，就已经很有用了。',
-        suggestedPrompts: [
+      return LightDialogResponseModel(
+        reply: _styleText(
+          '我先顺着这条陪你多看一点。先别急着解释完整，只要把最卡住你的那个瞬间说得更具体一点，就已经很有用了。',
+          style,
+        ),
+        suggestedPrompts: const [
           '我最卡住的是哪一个瞬间？',
           '这件事让我最在意的是什么？',
           '下次再遇到时我想先做什么？',
@@ -283,6 +290,36 @@ class AiRepository {
         riskNote: '这份 deep weekly 适合帮你收窄观察面，不适合一次性下结论。',
         keyNodes: [topic.headline],
       );
+    }
+  }
+
+  String _normalizeResponseStyle(String? value) {
+    switch (value) {
+      case 'clear':
+      case 'direct':
+      case 'gentle':
+        return value!;
+      default:
+        return 'gentle';
+    }
+  }
+
+  String _styleText(String text, String style) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return trimmed;
+
+    switch (style) {
+      case 'direct':
+        return trimmed
+            .replaceAll('先把', '把')
+            .replaceAll('就好', '')
+            .replaceAll('先不用', '不用')
+            .trim();
+      case 'clear':
+        return trimmed;
+      case 'gentle':
+      default:
+        return trimmed;
     }
   }
 
@@ -674,6 +711,41 @@ class AiRepository {
           name: '开始有帮助的东西',
           summary: '继续记录下去，会更容易看见什么做法不是偶然有效，而是在慢慢变得有帮助。',
           signalLevel: totalDays >= 2 ? 'repeated_pattern' : 'weak_signal',
+        ),
+      ],
+    );
+  }
+
+  MonthlyReviewModel _fallbackMonthlyReview({
+    required String monthStart,
+    required String monthEnd,
+    required List<Map<String, dynamic>> entries,
+    required List<String> topTokens,
+    required int totalDays,
+  }) {
+    final topToken = topTokens.isEmpty ? '这个月的记录' : topTokens.first;
+    final repeated = topTokens.take(3).toList();
+    final week1Count = entries.isEmpty ? 0 : entries.length;
+
+    return MonthlyReviewModel(
+      monthStart: monthStart,
+      monthEnd: monthEnd,
+      status: entries.isEmpty ? 'insufficient_data' : 'ready',
+      monthlySummary: '这个月的记录反复围绕“$topToken”回来，说明它已经不是偶发的小波动。',
+      repeatedThemes: repeated.isEmpty
+          ? const ['这个月已经开始出现重复主题。']
+          : repeated.map((e) => '“$e” 反复出现。').toList(),
+      improvingSignals: const [
+        '有些恢复方式正在慢慢变得更稳定。',
+      ],
+      unresolvedPoints: const [
+        '高消耗场景还没有真正被拆开看清。',
+      ],
+      nextMonthWatch: '下个月先继续看，哪一类场景最容易触发第一下消耗。',
+      weeklyBridges: [
+        MonthlyBridgeWeekModel(
+          label: 'Week 1',
+          summary: '$week1Count 条记录落在这个月的主要观察里。',
         ),
       ],
     );

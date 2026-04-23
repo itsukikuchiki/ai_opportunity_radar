@@ -33,12 +33,18 @@ LocalDatabase createDummyDatabase() {
   return LocalDatabase(dbPathOverride: 'widget_test_dummy.db');
 }
 
-Future<void> seedMockPrefs({String? repeatArea = 'emotion_stress'}) async {
-  SharedPreferences.setMockInitialValues(
-    repeatArea == null
-        ? <String, Object>{}
-        : <String, Object>{'repeat_area_preference': repeatArea},
-  );
+Future<void> seedMockPrefs({
+  String? repeatArea = 'emotion_stress',
+  String? responseStyle = 'gentle',
+}) async {
+  final values = <String, Object>{};
+  if (repeatArea != null) {
+    values['repeat_area_preference'] = repeatArea;
+  }
+  if (responseStyle != null) {
+    values['response_style_preference'] = responseStyle;
+  }
+  SharedPreferences.setMockInitialValues(values);
 }
 
 Widget buildTestApp({
@@ -53,7 +59,6 @@ Widget buildTestApp({
     ),
   );
 }
-
 
 class StubTodayRepository extends TodayRepository {
   final Map<String, dynamic> fetchTodayResult;
@@ -136,14 +141,6 @@ class StubWeeklyRepository extends WeeklyRepository {
   }
 }
 
-Future<MeViewModel> buildMeViewModel({String? repeatArea = 'emotion_stress'}) async {
-  await seedMockPrefs(repeatArea: repeatArea);
-  final vm = MeViewModel();
-  await vm.load();
-  return vm;
-}
-
-
 class StubMonthlyRepository extends MonthlyRepository {
   final MonthlyReviewModel monthly;
   int fetchCallCount = 0;
@@ -162,4 +159,17 @@ class StubMonthlyRepository extends MonthlyRepository {
     fetchCallCount += 1;
     return monthly;
   }
+}
+
+Future<MeViewModel> buildMeViewModel({
+  String? repeatArea = 'emotion_stress',
+  String? responseStyle = 'gentle',
+}) async {
+  await seedMockPrefs(
+    repeatArea: repeatArea,
+    responseStyle: responseStyle,
+  );
+  final vm = MeViewModel();
+  await vm.load();
+  return vm;
 }

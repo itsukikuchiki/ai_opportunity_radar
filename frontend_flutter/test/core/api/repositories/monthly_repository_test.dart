@@ -42,51 +42,63 @@ void main() {
       );
 
       final monthly = await harness.repository.fetchCurrentMonthly();
+
       expect(monthly.status, 'first_month_gate');
+      expect(monthly.monthlySummary, isNull);
+
       await harness.close();
     });
 
-    test('2) 有本地记录时，Monthly 至少返回 light_ready', () async {
+    test('2) 第一个月只要有本地记录，Monthly 就正常展示', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeMonthlyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 2)),
+        installationDate: DateTime.now(),
       );
 
       await harness.seedCapture(
-        content: '今天开会被打断很多次',
+        content: '今天开会被打断',
         createdAt: DateTime.now(),
       );
 
       final monthly = await harness.repository.fetchCurrentMonthly();
-      expect(monthly.status, anyOf('light_ready', 'ready'));
+
+      expect(monthly.status, 'ready');
       expect(monthly.monthlySummary, isNotNull);
+
       await harness.close();
     });
 
     test('3) 再次进入 Monthly 时，结果能从本地缓存读取', () async {
       final countingAi = CountingMonthlyAiRepository();
-      final installationDate = DateTime.now().subtract(const Duration(days: 10));
 
       final harness1 = await _createHarness(
         dbPath: dbPath,
         aiRepository: countingAi,
-        installationDate: installationDate,
+        installationDate: DateTime.now().subtract(const Duration(days: 35)),
       );
-      await harness1.seedCapture(content: '今天上班很烦', createdAt: DateTime.now());
+
+      await harness1.seedCapture(
+        content: '这个月开会很密',
+        createdAt: DateTime.now(),
+      );
+
       final monthly1 = await harness1.repository.fetchCurrentMonthly();
-      expect(monthly1.monthlySummary, isNotNull);
+      expect(monthly1.status, 'ready');
       expect(countingAi.callCount, 1);
+
       await harness1.close();
 
       final harness2 = await _createHarness(
         dbPath: dbPath,
         aiRepository: countingAi,
-        installationDate: installationDate,
+        installationDate: DateTime.now().subtract(const Duration(days: 35)),
       );
+
       final monthly2 = await harness2.repository.fetchCurrentMonthly();
-      expect(monthly2.monthlySummary, isNotNull);
+      expect(monthly2.status, 'ready');
       expect(countingAi.callCount, 1);
+
       await harness2.close();
     });
 
@@ -94,13 +106,20 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FailingMonthlyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 10)),
+        installationDate: DateTime.now().subtract(const Duration(days: 35)),
       );
 
-      await harness.seedCapture(content: '今天上班很烦', createdAt: DateTime.now());
+      await harness.seedCapture(
+        content: '今天上班一直被打断',
+        createdAt: DateTime.now(),
+      );
+
       final monthly = await harness.repository.fetchCurrentMonthly();
+
+      expect(monthly.status, 'ready');
       expect(monthly.monthlySummary, isNotNull);
       expect(monthly.repeatedThemes, isNotEmpty);
+
       await harness.close();
     });
   });
@@ -110,32 +129,44 @@ class _Harness {
   final LocalDatabase localDatabase;
   final MonthlyRepository repository;
 
-  _Harness({required this.localDatabase, required this.repository});
+  _Harness({
+    required this.localDatabase,
+    required this.repository,
+  });
 
-  Future<void> seedCapture({required String content, required DateTime createdAt}) async {
+  Future<void> seedCapture({
+    required String content,
+    required DateTime createdAt,
+  }) async {
     final db = await localDatabase.database;
     final id = 'seed_${createdAt.microsecondsSinceEpoch}_${content.hashCode}';
-    await db.insert('captures', {
-      'id': id,
-      'content': content,
-      'created_at': createdAt.toUtc().toIso8601String(),
-      'input_mode': 'quick_capture',
-      'tag_hint': null,
-      'ai_acknowledgement': null,
-      'ai_observation': null,
-      'ai_try_next': null,
-      'ai_emotion': null,
-      'ai_intensity': null,
-      'ai_scene_tags_json': null,
-      'ai_intent_tags_json': null,
-      'ai_status': 'done',
-      'followup_question_json': null,
-      'followup_answer': null,
-      'updated_at': createdAt.toUtc().toIso8601String(),
-    });
+
+    await db.insert(
+      'captures',
+      {
+        'id': id,
+        'content': content,
+        'created_at': createdAt.toUtc().toIso8601String(),
+        'input_mode': 'quick_capture',
+        'tag_hint': null,
+        'ai_acknowledgement': null,
+        'ai_observation': null,
+        'ai_try_next': null,
+        'ai_emotion': null,
+        'ai_intensity': null,
+        'ai_scene_tags_json': null,
+        'ai_intent_tags_json': null,
+        'ai_status': 'done',
+        'followup_question_json': null,
+        'followup_answer': null,
+        'updated_at': createdAt.toUtc().toIso8601String(),
+      },
+    );
   }
 
-  Future<void> close() async => localDatabase.close();
+  Future<void> close() async {
+    await localDatabase.close();
+  }
 }
 
 Future<_Harness> _createHarness({
@@ -148,40 +179,54 @@ Future<_Harness> _createHarness({
     databaseFactoryOverride: databaseFactoryFfi,
   );
   await localDatabase.init();
-  final localCaptureRepository = LocalCaptureRepository(localDatabase);
-  final localMonthlySnapshotRepository = LocalMonthlySnapshotRepository(localDatabase);
+
   final repository = MonthlyRepository(
-    localCaptureRepository: localCaptureRepository,
-    localMonthlySnapshotRepository: localMonthlySnapshotRepository,
+    localCaptureRepository: LocalCaptureRepository(localDatabase),
+    localMonthlySnapshotRepository: LocalMonthlySnapshotRepository(localDatabase),
     aiRepository: aiRepository,
     focusAreaLoader: () async => null,
     installationDateLoader: () async => installationDate,
   );
-  return _Harness(localDatabase: localDatabase, repository: repository);
+
+  return _Harness(
+    localDatabase: localDatabase,
+    repository: repository,
+  );
 }
 
 class FakeMonthlyAiRepository extends AiRepository {
-  FakeMonthlyAiRepository() : super(ApiClient(baseUrl: 'https://example.invalid', userId: 'test-user'));
+  FakeMonthlyAiRepository()
+      : super(
+          ApiClient(
+            baseUrl: 'https://example.invalid',
+            userId: 'test-user',
+          ),
+        );
 
   @override
   Future<MonthlyReviewModel> generateMonthlyReview({
     required String monthStart,
     required String monthEnd,
     required List<Map<String, dynamic>> entries,
-    required Map<String, int> weekCounts,
     required List<String> topTokens,
     String? focusArea,
+    required int totalDays,
   }) async {
     return MonthlyReviewModel(
       monthStart: monthStart,
       monthEnd: monthEnd,
-      status: entries.length < 4 ? 'light_ready' : 'ready',
-      monthlySummary: 'Monthly summary from fake AI.',
-      repeatedThemes: const ['Repeated theme'],
-      improvingSignals: const ['Improving signal'],
-      unresolvedPoints: const ['Unresolved point'],
-      nextMonthWatch: 'Next watch',
-      weeklyBridges: weekCounts.entries.map((e) => MonthlyBridgeWeekModel(label: e.key, summary: '${e.value} entries')).toList(),
+      status: 'ready',
+      monthlySummary: 'This month keeps circling around work interruptions.',
+      repeatedThemes: const ['Work interruptions keep returning.'],
+      improvingSignals: const ['Short recovery walks are helping a little more often.'],
+      unresolvedPoints: const ['Meeting-heavy days still drain energy quickly.'],
+      nextMonthWatch: 'Watch which situation triggers the first drop in energy.',
+      weeklyBridges: const [
+        MonthlyBridgeWeekModel(
+          label: 'Week 1',
+          summary: '3 entries landed here.',
+        ),
+      ],
     );
   }
 }
@@ -194,34 +239,40 @@ class CountingMonthlyAiRepository extends FakeMonthlyAiRepository {
     required String monthStart,
     required String monthEnd,
     required List<Map<String, dynamic>> entries,
-    required Map<String, int> weekCounts,
     required List<String> topTokens,
     String? focusArea,
+    required int totalDays,
   }) async {
     callCount += 1;
     return super.generateMonthlyReview(
       monthStart: monthStart,
       monthEnd: monthEnd,
       entries: entries,
-      weekCounts: weekCounts,
       topTokens: topTokens,
       focusArea: focusArea,
+      totalDays: totalDays,
     );
   }
 }
 
 class FailingMonthlyAiRepository extends AiRepository {
-  FailingMonthlyAiRepository() : super(ApiClient(baseUrl: 'https://example.invalid', userId: 'test-user'));
+  FailingMonthlyAiRepository()
+      : super(
+          ApiClient(
+            baseUrl: 'https://example.invalid',
+            userId: 'test-user',
+          ),
+        );
 
   @override
   Future<MonthlyReviewModel> generateMonthlyReview({
     required String monthStart,
     required String monthEnd,
     required List<Map<String, dynamic>> entries,
-    required Map<String, int> weekCounts,
     required List<String> topTokens,
     String? focusArea,
+    required int totalDays,
   }) async {
-    throw Exception('network failed');
+    throw Exception('monthly failed');
   }
 }

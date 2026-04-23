@@ -8,6 +8,7 @@ from app.api.weekly import router as weekly_router
 from app.api.opportunities import router as opportunities_router
 from app.api.memory import router as memory_router
 from app.api.onboarding import router as onboarding_router
+from app.api.self_review import router as self_review_router
 from app.core.db import Base, engine
 import app.models  # noqa: F401
 
@@ -37,6 +38,7 @@ app.include_router(weekly_router, prefix="/api/v1/weekly", tags=["weekly"])
 app.include_router(opportunities_router, prefix="/api/v1/opportunities", tags=["opportunities"])
 app.include_router(memory_router, prefix="/api/v1/memory", tags=["memory"])
 app.include_router(ai_router, prefix="/api/v1/ai", tags=["ai"])
+app.include_router(self_review_router, prefix="/api/v1/ai", tags=["self_review"])
 
 
 @app.get("/health")

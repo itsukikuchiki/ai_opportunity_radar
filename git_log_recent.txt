@@ -1,0 +1,20 @@
+51764ef feat: complete Phase 2A experience upgrade
+a8dc26e feat: complete Phase 2A experience upgrade
+edd7d6a test: add end-to-end coverage for local-first and AI generation flow
+d34e21f test: add end-to-end coverage for local-first and AI generation flow
+171d850 feat: local-first app flow with AI generation endpoints
+4279962 feat: local-first app flow with AI generation endpoints
+b62ca42 feat: add AI generation endpoints for local-first frontend
+4ddb049 feat: make today local-first with cached AI responses
+9abd1bc fix: backfill legacy captures into raw memories
+7bdea2e fix: restore legacy today capture loading
+a6db74c fix: update today capture and display logic
+8d6154a Enforce day-2 gating for weekly and journey views
+df2027f chore: prepare release 1.0.2
+9350111 fix(ui): repair today entry count and day-1 messaging
+bc5d8de fix(ui): repair today entry count and day-1 messaging
+182d971 fix(frontend): pin intl to 0.19.0 for Flutter SDK compatibility
+3984e60 feat: apply updates 1-4 (today/weekly/journey/me and today logic)
+f4c8d60 chore: bump version to 1.0.1
+d070a1d fix: avoid white screen during app bootstrap
+212231f fix: persist app user id and complete release wiring

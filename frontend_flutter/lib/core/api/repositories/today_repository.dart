@@ -6,18 +6,21 @@ import '../../models/today_models.dart';
 import 'ai_repository.dart';
 
 typedef FocusAreaLoader = Future<String?> Function();
+typedef ResponseStyleLoader = Future<String?> Function();
 
 class TodayRepository {
   final LocalCaptureRepository localCaptureRepository;
   final LocalDailySnapshotRepository localDailySnapshotRepository;
   final AiRepository aiRepository;
   final FocusAreaLoader? focusAreaLoader;
+  final ResponseStyleLoader? responseStyleLoader;
 
   TodayRepository({
     required this.localCaptureRepository,
     required this.localDailySnapshotRepository,
     required this.aiRepository,
     this.focusAreaLoader,
+    this.responseStyleLoader,
   });
 
   Future<Map<String, dynamic>> fetchToday() async {
@@ -59,11 +62,13 @@ class TodayRepository {
     required String userMessage,
   }) async {
     final focusArea = await _readFocusArea();
+    final responseStyle = await _readResponseStyle();
     return aiRepository.generateLightDialog(
       signal: signal,
       history: history,
       userMessage: userMessage,
       focusArea: focusArea,
+      responseStyle: responseStyle,
     );
   }
 
@@ -77,6 +82,7 @@ class TodayRepository {
     );
 
     final focusArea = await _readFocusArea();
+    final responseStyle = await _readResponseStyle();
     final recentAssistantTexts =
         await localCaptureRepository.listRecentAcknowledgements(limit: 10);
 
@@ -87,6 +93,7 @@ class TodayRepository {
         content: content,
         recentAssistantTexts: recentAssistantTexts,
         focusArea: focusArea,
+        responseStyle: responseStyle,
       );
     } catch (_) {
       aiReply = AiCaptureReplyResult(
@@ -147,6 +154,7 @@ class TodayRepository {
 
   Future<void> _regenerateTodaySummary(List<RecentSignalModel> todaySignals) async {
     final focusArea = await _readFocusArea();
+    final responseStyle = await _readResponseStyle();
 
     String observationText;
     String suggestionText;
@@ -156,6 +164,7 @@ class TodayRepository {
         date: DateTime.now(),
         entries: todaySignals,
         focusArea: focusArea,
+        responseStyle: responseStyle,
       );
       observationText = result.observation;
       suggestionText = result.suggestion;
@@ -174,6 +183,19 @@ class TodayRepository {
       suggestionText: suggestionText,
       sourceHash: sourceHash,
     );
+  }
+
+  Future<String?> _readResponseStyle() async {
+    if (responseStyleLoader != null) {
+      return responseStyleLoader!();
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString('response_style_preference') ?? 'gentle';
+    } catch (_) {
+      return 'gentle';
+    }
   }
 
   Future<String?> _readFocusArea() async {

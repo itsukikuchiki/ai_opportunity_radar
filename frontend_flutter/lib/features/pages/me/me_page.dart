@@ -108,6 +108,35 @@ class MePage extends StatelessWidget {
               isBusy: vm.saving,
             ),
             const SizedBox(height: 12),
+            _EditablePreferenceCard(
+              icon: Icons.auto_awesome_rounded,
+              title: AppLocaleText.tr(
+                context,
+                en: 'AI response style',
+                zhHans: 'AI 回应风格',
+                zhHant: 'AI 回應風格',
+                ja: 'AI の返答スタイル',
+              ),
+              subtitle: AppLocaleText.tr(
+                context,
+                en: 'How you want Today to sound when it responds',
+                zhHans: '你希望 Today 回应你时更偏什么感觉',
+                zhHant: '你希望 Today 回應你時更偏什麼感覺',
+                ja: 'Today の返答をどんな調子に寄せたいか',
+              ),
+              value: _responseStyleLabel(context, vm.selectedResponseStyle),
+              helper: _responseStyleBody(context, vm.selectedResponseStyle),
+              actionLabel: AppLocaleText.tr(
+                context,
+                en: 'Change',
+                zhHans: '修改',
+                zhHant: '修改',
+                ja: '変更',
+              ),
+              onTap: vm.saving ? null : () => _showResponseStyleSheet(context, vm),
+              isBusy: vm.saving,
+            ),
+            const SizedBox(height: 12),
             _ReadonlyPreferenceCard(
               icon: Icons.language_rounded,
               title: AppLocaleText.tr(
@@ -134,6 +163,7 @@ class MePage extends StatelessWidget {
               ),
             ),
           ],
+
           const SizedBox(height: 24),
           SectionHeader(
             title: AppLocaleText.tr(
@@ -168,13 +198,7 @@ class MePage extends StatelessWidget {
               zhHant: '把這個月當作一條更長的曲線來看，而不是幾週分開看。',
               ja: '週ごとではなく、一か月を一本の流れとして見ます。',
             ),
-            value: AppLocaleText.tr(
-              context,
-              en: 'Open',
-              zhHans: '打开',
-              zhHant: '打開',
-              ja: '開く',
-            ),
+            value: AppLocaleText.tr(context, en: 'Open', zhHans: '打开', zhHant: '打開', ja: '開く'),
             helper: AppLocaleText.tr(
               context,
               en: 'Monthly is a slower layer above Weekly, focused on repeated themes, improving signals, and what is still unresolved.',
@@ -182,16 +206,40 @@ class MePage extends StatelessWidget {
               zhHant: 'Monthly 是在 Weekly 之上的更慢一層，主要看反覆主題、改善中的線索，以及還沒解開的點。',
               ja: 'Monthly は Weekly より少し遅い層で、繰り返すテーマ、良くなりつつある手がかり、まだ残っている点を見ます。',
             ),
-            actionLabel: AppLocaleText.tr(
-              context,
-              en: 'Open',
-              zhHans: '打开',
-              zhHant: '打開',
-              ja: '開く',
-            ),
+            actionLabel: AppLocaleText.tr(context, en: 'Open', zhHans: '打开', zhHant: '打開', ja: '開く'),
             onTap: () => context.go(AppRoutes.monthly),
             isBusy: false,
           ),
+          const SizedBox(height: 12),
+          _EditablePreferenceCard(
+            icon: Icons.psychology_alt_outlined,
+            title: AppLocaleText.tr(
+              context,
+              en: 'Structured self-review',
+              zhHans: '专题式自我梳理',
+              zhHant: '專題式自我梳理',
+              ja: 'Structured Self-Review',
+            ),
+            subtitle: AppLocaleText.tr(
+              context,
+              en: 'Gather your recent signals into three sharper questions.',
+              zhHans: '把最近的线索收成三个更利于判断的问题。',
+              zhHant: '把最近的線索收成三個更利於判斷的問題。',
+              ja: '最近の手がかりを、少し絞った三つの問いとして見直します。',
+            ),
+            value: AppLocaleText.tr(context, en: 'Open', zhHans: '打开', zhHant: '打開', ja: '開く'),
+            helper: AppLocaleText.tr(
+              context,
+              en: 'This review focuses on what keeps blocking you, what drains you most, and what is starting to help.',
+              zhHans: '这份梳理主要看：最近反复卡住你的、最近最消耗你的、以及最近开始有效的方式。',
+              zhHant: '這份梳理主要看：最近反覆卡住你的、最近最消耗你的、以及最近開始有效的方式。',
+              ja: '最近くり返し詰まりやすいもの、いちばん消耗しやすいもの、少し効き始めているものに絞って見ます。',
+            ),
+            actionLabel: AppLocaleText.tr(context, en: 'Open', zhHans: '打开', zhHant: '打開', ja: '開く'),
+            onTap: () => context.go(AppRoutes.selfReview),
+            isBusy: false,
+          ),
+
           if (vm.errorMessage != null && vm.errorMessage!.trim().isNotEmpty) ...[
             const SizedBox(height: 16),
             Card(
@@ -250,6 +298,84 @@ class MePage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+
+  Future<void> _showResponseStyleSheet(BuildContext context, MeViewModel vm) async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => _ResponseStylePickerSheet(currentValue: vm.selectedResponseStyle),
+    );
+
+    if (selected == null || selected == vm.selectedResponseStyle) return;
+
+    final success = await vm.updateResponseStyle(selected);
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          success
+              ? AppLocaleText.tr(
+                  context,
+                  en: 'AI response style updated.',
+                  zhHans: 'AI 回应风格已更新。',
+                  zhHant: 'AI 回應風格已更新。',
+                  ja: 'AI の返答スタイルを更新しました。',
+                )
+              : AppLocaleText.tr(
+                  context,
+                  en: 'Failed to update AI response style.',
+                  zhHans: '更新 AI 回应风格失败。',
+                  zhHant: '更新 AI 回應風格失敗。',
+                  ja: 'AI の返答スタイル更新に失敗しました。',
+                ),
+        ),
+      ),
+    );
+  }
+
+  String _responseStyleLabel(BuildContext context, String? value) {
+    switch (value) {
+      case 'clear':
+        return AppLocaleText.tr(context, en: 'Clear', zhHans: '清晰', zhHant: '清晰', ja: 'クリア');
+      case 'direct':
+        return AppLocaleText.tr(context, en: 'Direct', zhHans: '直接', zhHant: '直接', ja: '率直');
+      case 'gentle':
+      default:
+        return AppLocaleText.tr(context, en: 'Gentle', zhHans: '温和', zhHant: '溫和', ja: 'やわらかめ');
+    }
+  }
+
+  String _responseStyleBody(BuildContext context, String? value) {
+    switch (value) {
+      case 'clear':
+        return AppLocaleText.tr(
+          context,
+          en: 'Less cushioning, more structure. Better when you want the point faster.',
+          zhHans: '少一点缓冲，多一点结构。适合想更快抓住重点的时候。',
+          zhHant: '少一點緩衝，多一點結構。適合想更快抓住重點的時候。',
+          ja: 'やわらかさを少し抑えて、要点をはっきり返します。',
+        );
+      case 'direct':
+        return AppLocaleText.tr(
+          context,
+          en: 'Sharper and shorter. Better when you want it to name the core quickly.',
+          zhHans: '更短、更锋利。适合想让它更快点出核心的时候。',
+          zhHant: '更短、更銳利。適合想讓它更快點出核心的時候。',
+          ja: '短く率直に、核心を早めに言い切ります。',
+        );
+      case 'gentle':
+      default:
+        return AppLocaleText.tr(
+          context,
+          en: 'Softer and more companion-like. Better when you want to be gently held first.',
+          zhHans: '更柔和、更像陪伴。适合想先被接住一点的时候。',
+          zhHant: '更柔和、更像陪伴。適合想先被接住一點的時候。',
+          ja: 'やわらかく受け止める寄り。まず少し支えられたい時向けです。',
+        );
+    }
   }
 
   String _focusAreaLabel(BuildContext context, String? value) {
@@ -683,6 +809,68 @@ class _FocusAreaOption {
   final String subtitle;
 
   const _FocusAreaOption({
+    required this.value,
+    required this.title,
+    required this.subtitle,
+  });
+}
+
+
+class _ResponseStylePickerSheet extends StatelessWidget {
+  final String? currentValue;
+
+  const _ResponseStylePickerSheet({
+    required this.currentValue,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final options = <_ResponseStyleOption>[
+      _ResponseStyleOption(
+        value: 'gentle',
+        title: AppLocaleText.tr(context, en: 'Gentle', zhHans: '温和', zhHant: '溫和', ja: 'やわらかめ'),
+        subtitle: AppLocaleText.tr(context, en: 'Softer and more companion-like', zhHans: '更柔和、更像陪伴', zhHant: '更柔和、更像陪伴', ja: 'やわらかく寄り添う感じ'),
+      ),
+      _ResponseStyleOption(
+        value: 'clear',
+        title: AppLocaleText.tr(context, en: 'Clear', zhHans: '清晰', zhHant: '清晰', ja: 'クリア'),
+        subtitle: AppLocaleText.tr(context, en: 'More structured and to the point', zhHans: '更有结构，更快到重点', zhHant: '更有結構，更快到重點', ja: '整理されていて要点が早い'),
+      ),
+      _ResponseStyleOption(
+        value: 'direct',
+        title: AppLocaleText.tr(context, en: 'Direct', zhHans: '直接', zhHant: '直接', ja: '率直'),
+        subtitle: AppLocaleText.tr(context, en: 'Shorter and sharper', zhHans: '更短，更直接', zhHant: '更短，更直接', ja: '短く率直'),
+      ),
+    ];
+
+    return SafeArea(
+      child: ListView.separated(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+        itemBuilder: (context, index) {
+          final option = options[index];
+          final selected = option.value == currentValue;
+          return ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            title: Text(option.title),
+            subtitle: Text(option.subtitle),
+            trailing: selected ? const Icon(Icons.check_circle) : null,
+            onTap: () => Navigator.of(context).pop(option.value),
+          );
+        },
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemCount: options.length,
+      ),
+    );
+  }
+}
+
+class _ResponseStyleOption {
+  final String value;
+  final String title;
+  final String subtitle;
+
+  const _ResponseStyleOption({
     required this.value,
     required this.title,
     required this.subtitle,

@@ -135,6 +135,23 @@ void main() {
 
       await harness.close();
     });
+
+    test('5) 会把 response style 传给 AI repository', () async {
+      final ai = TrackingAiRepository();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: ai,
+        responseStyleLoader: () async => 'direct',
+      );
+
+      await harness.repository.submitCapture(content: '今天上班很烦');
+      await harness.repository.fetchToday();
+
+      expect(ai.captureReplyStyles, ['direct']);
+      expect(ai.todaySummaryStyles, ['direct']);
+
+      await harness.close();
+    });
   });
 }
 
@@ -155,6 +172,7 @@ class _Harness {
 Future<_Harness> _createHarness({
   required String dbPath,
   required AiRepository aiRepository,
+  ResponseStyleLoader? responseStyleLoader,
 }) async {
   final localDatabase = LocalDatabase(
     dbPathOverride: dbPath,
@@ -171,6 +189,7 @@ Future<_Harness> _createHarness({
     localDailySnapshotRepository: localDailySnapshotRepository,
     aiRepository: aiRepository,
     focusAreaLoader: () async => null,
+    responseStyleLoader: responseStyleLoader,
   );
 
   return _Harness(
@@ -200,6 +219,7 @@ class FakeAiRepository extends AiRepository {
     required String content,
     required List<String> recentAssistantTexts,
     String? focusArea,
+    String? responseStyle,
   }) async {
     return AiCaptureReplyResult(
       acknowledgement: captureReply,
@@ -212,6 +232,7 @@ class FakeAiRepository extends AiRepository {
     required DateTime date,
     required List<RecentSignalModel> entries,
     String? focusArea,
+    String? responseStyle,
   }) async {
     final payload = entries
         .map(
@@ -233,6 +254,44 @@ class FakeAiRepository extends AiRepository {
   }
 }
 
+
+class TrackingAiRepository extends FakeAiRepository {
+  final List<String?> captureReplyStyles = [];
+  final List<String?> todaySummaryStyles = [];
+
+  @override
+  Future<AiCaptureReplyResult> generateCaptureReply({
+    required String content,
+    required List<String> recentAssistantTexts,
+    String? focusArea,
+    String? responseStyle,
+  }) async {
+    captureReplyStyles.add(responseStyle);
+    return super.generateCaptureReply(
+      content: content,
+      recentAssistantTexts: recentAssistantTexts,
+      focusArea: focusArea,
+      responseStyle: responseStyle,
+    );
+  }
+
+  @override
+  Future<AiTodaySummaryResult> generateTodaySummary({
+    required DateTime date,
+    required List<RecentSignalModel> entries,
+    String? focusArea,
+    String? responseStyle,
+  }) async {
+    todaySummaryStyles.add(responseStyle);
+    return super.generateTodaySummary(
+      date: date,
+      entries: entries,
+      focusArea: focusArea,
+      responseStyle: responseStyle,
+    );
+  }
+}
+
 class FailingAiRepository extends AiRepository {
   FailingAiRepository()
       : super(
@@ -247,6 +306,7 @@ class FailingAiRepository extends AiRepository {
     required String content,
     required List<String> recentAssistantTexts,
     String? focusArea,
+    String? responseStyle,
   }) async {
     throw Exception('Simulated remote failure');
   }
@@ -256,6 +316,7 @@ class FailingAiRepository extends AiRepository {
     required DateTime date,
     required List<RecentSignalModel> entries,
     String? focusArea,
+    String? responseStyle,
   }) async {
     throw Exception('Simulated remote failure');
   }

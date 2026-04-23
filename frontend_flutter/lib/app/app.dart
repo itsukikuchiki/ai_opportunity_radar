@@ -11,6 +11,7 @@ import '../features/pages/me/me_view_model.dart';
 import '../features/pages/monthly/monthly_view_model.dart';
 import '../features/pages/memory/memory_view_model.dart';
 import '../features/pages/opportunities/opportunity_detail_view_model.dart';
+import '../features/pages/self_review/self_review_view_model.dart';
 import '../features/pages/today/today_view_model.dart';
 import '../features/pages/weekly/weekly_view_model.dart';
 
@@ -36,6 +37,7 @@ class _RadarAppState extends State<RadarApp> {
   OpportunityDetailViewModel? _opportunityDetailViewModel;
   MemoryViewModel? _memoryViewModel;
   MonthlyViewModel? _monthlyViewModel;
+  SelfReviewViewModel? _selfReviewViewModel;
   MeViewModel? _meViewModel;
 
   @override
@@ -45,20 +47,17 @@ class _RadarAppState extends State<RadarApp> {
   }
 
   void _ensureAppObjectsInitialized() {
-    if (_dependencies != null) {
-      return;
-    }
+    if (_dependencies != null) return;
 
     final dependencies = widget.bootstrapState.dependencies;
-
     _dependencies = dependencies;
     _onboardingViewModel = OnboardingViewModel(dependencies.apiClient);
     _todayViewModel = TodayViewModel(dependencies.todayRepository);
     _weeklyViewModel = WeeklyViewModel(dependencies.weeklyRepository);
-    _opportunityDetailViewModel =
-        OpportunityDetailViewModel(dependencies.opportunityRepository);
+    _opportunityDetailViewModel = OpportunityDetailViewModel(dependencies.opportunityRepository);
     _memoryViewModel = MemoryViewModel(dependencies.memoryRepository);
     _monthlyViewModel = MonthlyViewModel(dependencies.monthlyRepository);
+    _selfReviewViewModel = SelfReviewViewModel(dependencies.selfReviewRepository);
     _meViewModel = MeViewModel();
   }
 
@@ -70,6 +69,7 @@ class _RadarAppState extends State<RadarApp> {
     _opportunityDetailViewModel?.dispose();
     _memoryViewModel?.dispose();
     _monthlyViewModel?.dispose();
+    _selfReviewViewModel?.dispose();
     _meViewModel?.dispose();
     _router.dispose();
     super.dispose();
@@ -82,50 +82,24 @@ class _RadarAppState extends State<RadarApp> {
       builder: (context, _) {
         final bootstrap = widget.bootstrapState;
 
-        if (!bootstrap.initialized) {
-          return _buildLoadingApp();
-        }
-
-        if (bootstrap.hasError) {
-          return _buildErrorApp(bootstrap.initError);
-        }
+        if (!bootstrap.initialized) return _buildLoadingApp();
+        if (bootstrap.hasError) return _buildErrorApp(bootstrap.initError);
 
         _ensureAppObjectsInitialized();
 
         final dependencies = _dependencies!;
-        final onboardingViewModel = _onboardingViewModel!;
-        final todayViewModel = _todayViewModel!;
-        final weeklyViewModel = _weeklyViewModel!;
-        final opportunityDetailViewModel = _opportunityDetailViewModel!;
-        final memoryViewModel = _memoryViewModel!;
-        final monthlyViewModel = _monthlyViewModel!;
-        final meViewModel = _meViewModel!;
-
         return MultiProvider(
           providers: [
             Provider<AppDependencies>.value(value: dependencies),
             ChangeNotifierProvider<AppBootstrapState>.value(value: bootstrap),
-            ChangeNotifierProvider<OnboardingViewModel>.value(
-              value: onboardingViewModel,
-            ),
-            ChangeNotifierProvider<TodayViewModel>.value(
-              value: todayViewModel,
-            ),
-            ChangeNotifierProvider<WeeklyViewModel>.value(
-              value: weeklyViewModel,
-            ),
-            ChangeNotifierProvider<OpportunityDetailViewModel>.value(
-              value: opportunityDetailViewModel,
-            ),
-            ChangeNotifierProvider<MemoryViewModel>.value(
-              value: memoryViewModel,
-            ),
-            ChangeNotifierProvider<MonthlyViewModel>.value(
-              value: monthlyViewModel,
-            ),
-            ChangeNotifierProvider<MeViewModel>.value(
-              value: meViewModel,
-            ),
+            ChangeNotifierProvider<OnboardingViewModel>.value(value: _onboardingViewModel!),
+            ChangeNotifierProvider<TodayViewModel>.value(value: _todayViewModel!),
+            ChangeNotifierProvider<WeeklyViewModel>.value(value: _weeklyViewModel!),
+            ChangeNotifierProvider<OpportunityDetailViewModel>.value(value: _opportunityDetailViewModel!),
+            ChangeNotifierProvider<MemoryViewModel>.value(value: _memoryViewModel!),
+            ChangeNotifierProvider<MonthlyViewModel>.value(value: _monthlyViewModel!),
+            ChangeNotifierProvider<SelfReviewViewModel>.value(value: _selfReviewViewModel!),
+            ChangeNotifierProvider<MeViewModel>.value(value: _meViewModel!),
           ],
           child: _buildRouterApp(_router),
         );
@@ -138,11 +112,7 @@ class _RadarAppState extends State<RadarApp> {
       debugShowCheckedModeBanner: false,
       title: 'Signal Path：AI手帳',
       theme: _buildTheme(),
-      home: const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      ),
+      home: const Scaffold(body: Center(child: CircularProgressIndicator())),
     );
   }
 
@@ -155,10 +125,7 @@ class _RadarAppState extends State<RadarApp> {
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text(
-              'App failed to initialize.\n$error',
-              textAlign: TextAlign.center,
-            ),
+            child: Text('App failed to initialize.\n$error', textAlign: TextAlign.center),
           ),
         ),
       ),
@@ -181,35 +148,17 @@ class _RadarAppState extends State<RadarApp> {
         Locale('ja'),
       ],
       localeResolutionCallback: (locale, supportedLocales) {
-        if (locale == null) {
-          return const Locale('en');
-        }
-
+        if (locale == null) return const Locale('en');
         final languageCode = locale.languageCode.toLowerCase();
         final scriptCode = locale.scriptCode?.toLowerCase();
         final countryCode = locale.countryCode?.toUpperCase();
-
-        if (languageCode == 'ja') {
-          return const Locale('ja');
-        }
-
+        if (languageCode == 'ja') return const Locale('ja');
         if (languageCode == 'zh') {
-          final isTraditional = scriptCode == 'hant' ||
-              countryCode == 'TW' ||
-              countryCode == 'HK' ||
-              countryCode == 'MO';
-
+          final isTraditional = scriptCode == 'hant' || countryCode == 'TW' || countryCode == 'HK' || countryCode == 'MO';
           return isTraditional
-              ? const Locale.fromSubtags(
-                  languageCode: 'zh',
-                  scriptCode: 'Hant',
-                )
-              : const Locale.fromSubtags(
-                  languageCode: 'zh',
-                  scriptCode: 'Hans',
-                );
+              ? const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
+              : const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans');
         }
-
         return const Locale('en');
       },
       theme: _buildTheme(),
@@ -222,67 +171,13 @@ class _RadarAppState extends State<RadarApp> {
       useMaterial3: true,
       colorSchemeSeed: const Color(0xFF6B7A90),
       scaffoldBackgroundColor: const Color(0xFFF7F8FB),
-      cardTheme: const CardThemeData(
-        elevation: 0,
-        margin: EdgeInsets.zero,
-      ),
+      cardTheme: const CardThemeData(elevation: 0, margin: EdgeInsets.zero),
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0xFFF7F8FB),
         foregroundColor: Color(0xFF1F2430),
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: Colors.white,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFD9DEE7)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFD9DEE7)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(
-            color: Color(0xFF6B7A90),
-            width: 1.4,
-          ),
-        ),
-      ),
-      textTheme: const TextTheme(
-        headlineSmall: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF1F2430),
-        ),
-        titleMedium: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF1F2430),
-        ),
-        titleSmall: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF1F2430),
-        ),
-        bodyLarge: TextStyle(
-          fontSize: 16,
-          height: 1.6,
-          color: Color(0xFF2F3441),
-        ),
-        bodyMedium: TextStyle(
-          fontSize: 14,
-          height: 1.55,
-          color: Color(0xFF4A5260),
-        ),
-        bodySmall: TextStyle(
-          fontSize: 12,
-          height: 1.45,
-          color: Color(0xFF6F7784),
-        ),
       ),
     );
   }

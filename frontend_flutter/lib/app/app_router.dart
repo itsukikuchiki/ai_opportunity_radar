@@ -6,6 +6,7 @@ import '../features/pages/me/me_page.dart';
 import '../features/pages/monthly/monthly_page.dart';
 import '../features/pages/memory/memory_page.dart';
 import '../features/pages/opportunities/opportunity_detail_page.dart';
+import '../features/pages/self_review/self_review_page.dart';
 import '../features/pages/today/today_dialog_page.dart';
 import '../features/pages/today/today_page.dart';
 import '../features/pages/weekly/deep_weekly_page.dart';
@@ -21,6 +22,7 @@ class AppRoutes {
   static const memory = '/memory';
   static const me = '/me';
   static const monthly = '/monthly';
+  static const selfReview = '/self-review';
   static const todayDialog = '/today/dialog';
   static const deepWeekly = '/weekly/deep';
   static const journal = '/memory/journal';
@@ -57,7 +59,6 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
           ),
         ],
       ),
-
       GoRoute(
         path: '${AppRoutes.todayDialog}/:captureId',
         builder: (_, state) => TodayDialogPage(
@@ -75,6 +76,10 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       GoRoute(
         path: AppRoutes.monthly,
         builder: (_, __) => const MonthlyPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.selfReview,
+        builder: (_, __) => const SelfReviewPage(),
       ),
       GoRoute(
         path: '${AppRoutes.opportunity}/:id',

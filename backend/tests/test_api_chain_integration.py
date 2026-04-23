@@ -350,51 +350,22 @@ def test_deep_weekly_chain(client):
     assert isinstance(data["key_nodes"], list)
 
 
-
-def test_monthly_generate_chain_with_local_style_payload(client):
-    payload = {
-        "month_start": "2026-04-01",
-        "month_end": "2026-04-30",
-        "entry_count": 4,
-        "entries": [
-            {
-                "id": "1",
-                "content": "今天上班很烦",
-                "created_at": "2026-04-12T01:00:00Z",
-                "acknowledgement": "先把这一条放在这里。",
-            },
-            {
-                "id": "2",
-                "content": "下午又被打断",
-                "created_at": "2026-04-13T01:00:00Z",
-                "acknowledgement": "这种一直被切断的感觉很消耗。",
-            },
-            {
-                "id": "3",
-                "content": "昨天还是烦",
-                "created_at": "2026-04-20T01:00:00Z",
-                "acknowledgement": "重复本身就很磨人。",
-            },
-            {
-                "id": "4",
-                "content": "晚上散步后缓回来一点",
-                "created_at": "2026-04-24T01:00:00Z",
-                "acknowledgement": "后面有一点被接住了。",
-            },
-        ],
-        "week_counts": {"Week 2": 2, "Week 3": 1, "Week 4": 1},
-        "top_tokens": ["烦", "打断"],
-        "focus_area": "emotion_stress",
-    }
-
-    resp = client.post(
-        "/api/v1/ai/monthly-generate",
+def test_today_summary_chain_respects_response_style(client):
+    summary_resp = client.post(
+        "/api/v1/ai/today-summary",
         headers=_headers(),
-        json=payload,
+        json={
+            "date": "2026-04-14",
+            "entry_count": 2,
+            "entries": [
+                {"id": "1", "content": "今天上班很烦", "created_at": "2026-04-14T01:00:00Z"},
+                {"id": "2", "content": "下午又被打断", "created_at": "2026-04-14T12:00:00Z"},
+            ],
+            "focus_area": "emotion_stress",
+            "response_style": "direct",
+        },
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()["data"]
-    assert data["status"] in {"light_ready", "ready"}
-    assert isinstance(data["monthly_summary"], str) and data["monthly_summary"].strip() != ""
-    assert isinstance(data["repeated_themes"], list) and len(data["repeated_themes"]) > 0
-    assert isinstance(data["weekly_bridges"], list) and len(data["weekly_bridges"]) > 0
+    assert summary_resp.status_code == 200, summary_resp.text
+    data = summary_resp.json()["data"]
+    assert data["observation"].startswith("重点是：")
+    assert data["suggestion"].startswith("下一步：")
