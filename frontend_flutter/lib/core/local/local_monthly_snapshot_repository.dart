@@ -93,10 +93,13 @@ class LocalMonthlySnapshotRepository {
       status: (row['status'] as String?) ?? 'ready',
       monthlySummary: row['monthly_summary'] as String?,
       repeatedThemes: _decodeStringList(row['repeated_themes_json'] as String?),
-      improvingSignals: _decodeStringList(row['improving_signals_json'] as String?),
-      unresolvedPoints: _decodeStringList(row['unresolved_points_json'] as String?),
+      improvingSignals:
+          _decodeStringList(row['improving_signals_json'] as String?),
+      unresolvedPoints:
+          _decodeStringList(row['unresolved_points_json'] as String?),
       nextMonthWatch: row['next_month_watch'] as String?,
-      weeklyBridges: _decodeWeeklyBridges(row['weekly_bridges_json'] as String?),
+      weeklyBridges:
+          _decodeWeeklyBridges(row['weekly_bridges_json'] as String?),
     );
   }
 

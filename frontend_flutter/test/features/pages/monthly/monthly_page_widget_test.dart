@@ -18,12 +18,16 @@ void main() {
         monthEnd: '2026-04-30',
         status: 'ready',
         monthlySummary: 'This month keeps circling around work interruptions.',
-        repeatedThemes: const ['Work interruptions keep returning.'],
-        improvingSignals: const ['Short recovery walks are helping a little more often.'],
-        unresolvedPoints: const ['Meeting-heavy days still drain energy quickly.'],
-        nextMonthWatch: 'Watch which situation triggers the first drop in energy.',
-        weeklyBridges: const [
-          MonthlyBridgeWeekModel(label: 'Week 1', summary: '3 entries landed here.'),
+        repeatedThemes: ['Work interruptions keep returning.'],
+        improvingSignals: [
+          'Short recovery walks are helping a little more often.'
+        ],
+        unresolvedPoints: ['Meeting-heavy days still drain energy quickly.'],
+        nextMonthWatch:
+            'Watch which situation triggers the first drop in energy.',
+        weeklyBridges: [
+          MonthlyBridgeWeekModel(
+              label: 'Week 1', summary: '3 entries landed here.'),
         ],
       ),
     );
@@ -34,7 +38,8 @@ void main() {
       buildTestApp(
         child: const MonthlyPage(),
         providers: [
-          ChangeNotifierProvider<MonthlyViewModel>(create: (_) => MonthlyViewModel(repo)),
+          ChangeNotifierProvider<MonthlyViewModel>(
+              create: (_) => MonthlyViewModel(repo)),
           ChangeNotifierProvider<MeViewModel>.value(value: meVm),
         ],
       ),
@@ -62,7 +67,8 @@ void main() {
       buildTestApp(
         child: const MonthlyPage(),
         providers: [
-          ChangeNotifierProvider<MonthlyViewModel>(create: (_) => MonthlyViewModel(repo)),
+          ChangeNotifierProvider<MonthlyViewModel>(
+              create: (_) => MonthlyViewModel(repo)),
           ChangeNotifierProvider<MeViewModel>.value(value: meVm),
         ],
       ),
@@ -70,6 +76,7 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Monthly starts after your first month has begun'), findsOneWidget);
+    expect(find.text('Monthly starts after your first month has begun'),
+        findsOneWidget);
   });
 }

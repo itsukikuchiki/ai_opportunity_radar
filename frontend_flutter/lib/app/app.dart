@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import 'app_router.dart';
 import '../core/di/app_dependencies.dart';
+import '../core/purchases/purchase_controller.dart';
 import '../core/state/app_bootstrap_state.dart';
 import '../features/onboarding/onboarding_view_model.dart';
 import '../features/pages/me/me_view_model.dart';
@@ -39,6 +40,7 @@ class _RadarAppState extends State<RadarApp> {
   MonthlyViewModel? _monthlyViewModel;
   SelfReviewViewModel? _selfReviewViewModel;
   MeViewModel? _meViewModel;
+  PurchaseController? _purchaseController;
 
   @override
   void initState() {
@@ -54,11 +56,14 @@ class _RadarAppState extends State<RadarApp> {
     _onboardingViewModel = OnboardingViewModel(dependencies.apiClient);
     _todayViewModel = TodayViewModel(dependencies.todayRepository);
     _weeklyViewModel = WeeklyViewModel(dependencies.weeklyRepository);
-    _opportunityDetailViewModel = OpportunityDetailViewModel(dependencies.opportunityRepository);
+    _opportunityDetailViewModel =
+        OpportunityDetailViewModel(dependencies.opportunityRepository);
     _memoryViewModel = MemoryViewModel(dependencies.memoryRepository);
     _monthlyViewModel = MonthlyViewModel(dependencies.monthlyRepository);
-    _selfReviewViewModel = SelfReviewViewModel(dependencies.selfReviewRepository);
+    _selfReviewViewModel =
+        SelfReviewViewModel(dependencies.selfReviewRepository);
     _meViewModel = MeViewModel();
+    _purchaseController = PurchaseController(apiClient: dependencies.apiClient);
   }
 
   @override
@@ -71,6 +76,7 @@ class _RadarAppState extends State<RadarApp> {
     _monthlyViewModel?.dispose();
     _selfReviewViewModel?.dispose();
     _meViewModel?.dispose();
+    _purchaseController?.dispose();
     _router.dispose();
     super.dispose();
   }
@@ -92,14 +98,23 @@ class _RadarAppState extends State<RadarApp> {
           providers: [
             Provider<AppDependencies>.value(value: dependencies),
             ChangeNotifierProvider<AppBootstrapState>.value(value: bootstrap),
-            ChangeNotifierProvider<OnboardingViewModel>.value(value: _onboardingViewModel!),
-            ChangeNotifierProvider<TodayViewModel>.value(value: _todayViewModel!),
-            ChangeNotifierProvider<WeeklyViewModel>.value(value: _weeklyViewModel!),
-            ChangeNotifierProvider<OpportunityDetailViewModel>.value(value: _opportunityDetailViewModel!),
-            ChangeNotifierProvider<MemoryViewModel>.value(value: _memoryViewModel!),
-            ChangeNotifierProvider<MonthlyViewModel>.value(value: _monthlyViewModel!),
-            ChangeNotifierProvider<SelfReviewViewModel>.value(value: _selfReviewViewModel!),
+            ChangeNotifierProvider<OnboardingViewModel>.value(
+                value: _onboardingViewModel!),
+            ChangeNotifierProvider<TodayViewModel>.value(
+                value: _todayViewModel!),
+            ChangeNotifierProvider<WeeklyViewModel>.value(
+                value: _weeklyViewModel!),
+            ChangeNotifierProvider<OpportunityDetailViewModel>.value(
+                value: _opportunityDetailViewModel!),
+            ChangeNotifierProvider<MemoryViewModel>.value(
+                value: _memoryViewModel!),
+            ChangeNotifierProvider<MonthlyViewModel>.value(
+                value: _monthlyViewModel!),
+            ChangeNotifierProvider<SelfReviewViewModel>.value(
+                value: _selfReviewViewModel!),
             ChangeNotifierProvider<MeViewModel>.value(value: _meViewModel!),
+            ChangeNotifierProvider<PurchaseController?>.value(
+                value: _purchaseController!),
           ],
           child: _buildRouterApp(_router),
         );
@@ -125,7 +140,8 @@ class _RadarAppState extends State<RadarApp> {
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text('App failed to initialize.\n$error', textAlign: TextAlign.center),
+            child: Text('App failed to initialize.\n$error',
+                textAlign: TextAlign.center),
           ),
         ),
       ),
@@ -154,10 +170,14 @@ class _RadarAppState extends State<RadarApp> {
         final countryCode = locale.countryCode?.toUpperCase();
         if (languageCode == 'ja') return const Locale('ja');
         if (languageCode == 'zh') {
-          final isTraditional = scriptCode == 'hant' || countryCode == 'TW' || countryCode == 'HK' || countryCode == 'MO';
+          final isTraditional = scriptCode == 'hant' ||
+              countryCode == 'TW' ||
+              countryCode == 'HK' ||
+              countryCode == 'MO';
           return isTraditional
               ? const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
-              : const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans');
+              : const Locale.fromSubtags(
+                  languageCode: 'zh', scriptCode: 'Hans');
         }
         return const Locale('en');
       },

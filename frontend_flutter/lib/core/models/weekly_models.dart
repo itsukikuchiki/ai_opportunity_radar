@@ -80,7 +80,8 @@ class WeeklyInsightModel {
       patterns: (json['patterns'] as List?) ?? [],
       frictions: (json['frictions'] as List?) ?? [],
       bestAction: json['best_action'] as String?,
-      opportunitySnapshot: json['opportunity_snapshot'] as Map<String, dynamic>?,
+      opportunitySnapshot:
+          json['opportunity_snapshot'] as Map<String, dynamic>?,
       feedbackSubmitted: (json['feedback_submitted'] as bool?) ?? false,
       chartData: ((json['chart_data'] as List?) ?? const [])
           .whereType<Map>()
@@ -174,7 +175,6 @@ extension _NullableStringFallback on String {
     return trim().isEmpty ? fallback : this;
   }
 }
-
 
 class DeepWeeklyModel {
   final String summary;

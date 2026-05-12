@@ -47,8 +47,7 @@ class MemoryRepository {
       );
     }
 
-    final sortedSignals = [...signals]
-      ..sort((a, b) {
+    final sortedSignals = [...signals]..sort((a, b) {
         final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         return aTime.compareTo(bTime);

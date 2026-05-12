@@ -89,7 +89,8 @@ class TodayViewModel extends ChangeNotifier {
       );
 
       final updatedSignals =
-          (result['updatedRecentSignals'] as List<RecentSignalModel>? ?? const []);
+          (result['updatedRecentSignals'] as List<RecentSignalModel>? ??
+              const []);
 
       final refreshed = await repository.fetchToday();
 

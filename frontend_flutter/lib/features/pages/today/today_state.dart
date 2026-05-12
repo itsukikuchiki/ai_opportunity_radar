@@ -50,7 +50,8 @@ class TodayState {
 
   bool get isCaptureSubmitting => captureSubmitState == SubmitState.submitting;
 
-  bool get isFollowupSubmitting => followupSubmitState == SubmitState.submitting;
+  bool get isFollowupSubmitting =>
+      followupSubmitState == SubmitState.submitting;
 
   bool get hasError => errorMessage != null && errorMessage!.trim().isNotEmpty;
 
@@ -78,14 +79,17 @@ class TodayState {
       captureSubmitState: captureSubmitState ?? this.captureSubmitState,
       followupSubmitState: followupSubmitState ?? this.followupSubmitState,
       inputText: inputText ?? this.inputText,
-      acknowledgement:
-          clearAcknowledgement ? null : (acknowledgement ?? this.acknowledgement),
+      acknowledgement: clearAcknowledgement
+          ? null
+          : (acknowledgement ?? this.acknowledgement),
       insight: insight ?? this.insight,
-      pendingQuestion:
-          clearPendingQuestion ? null : (pendingQuestion ?? this.pendingQuestion),
+      pendingQuestion: clearPendingQuestion
+          ? null
+          : (pendingQuestion ?? this.pendingQuestion),
       bestAction: bestAction ?? this.bestAction,
       recentSignals: recentSignals ?? this.recentSignals,
-      errorMessage: clearErrorMessage ? null : (errorMessage ?? this.errorMessage),
+      errorMessage:
+          clearErrorMessage ? null : (errorMessage ?? this.errorMessage),
       captureSuccessTick: captureSuccessTick ?? this.captureSuccessTick,
       followupSuccessTick: followupSuccessTick ?? this.followupSuccessTick,
     );

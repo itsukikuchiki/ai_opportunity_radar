@@ -64,7 +64,8 @@ class MonthlyReviewModel {
       nextMonthWatch: json['next_month_watch'] as String?,
       weeklyBridges: ((json['weekly_bridges'] as List?) ?? const [])
           .whereType<Map>()
-          .map((e) => MonthlyBridgeWeekModel.fromJson(e.cast<String, dynamic>()))
+          .map(
+              (e) => MonthlyBridgeWeekModel.fromJson(e.cast<String, dynamic>()))
           .toList(),
     );
   }

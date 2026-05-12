@@ -47,19 +47,23 @@ class MemorySummaryModel {
     return MemorySummaryModel(
       patterns: ((json['patterns'] as List?) ?? const [])
           .whereType<Map>()
-          .map((e) => JourneySignalItemModel.fromJson(e.cast<String, dynamic>()))
+          .map(
+              (e) => JourneySignalItemModel.fromJson(e.cast<String, dynamic>()))
           .toList(),
       frictions: ((json['frictions'] as List?) ?? const [])
           .whereType<Map>()
-          .map((e) => JourneySignalItemModel.fromJson(e.cast<String, dynamic>()))
+          .map(
+              (e) => JourneySignalItemModel.fromJson(e.cast<String, dynamic>()))
           .toList(),
       desires: ((json['desires'] as List?) ?? const [])
           .whereType<Map>()
-          .map((e) => JourneySignalItemModel.fromJson(e.cast<String, dynamic>()))
+          .map(
+              (e) => JourneySignalItemModel.fromJson(e.cast<String, dynamic>()))
           .toList(),
       experiments: ((json['experiments'] as List?) ?? const [])
           .whereType<Map>()
-          .map((e) => JourneySignalItemModel.fromJson(e.cast<String, dynamic>()))
+          .map(
+              (e) => JourneySignalItemModel.fromJson(e.cast<String, dynamic>()))
           .toList(),
     );
   }

@@ -24,8 +24,7 @@ class AppLocaleText {
     }
 
     if (languageCode == 'zh') {
-      final isTraditional =
-          scriptCode == 'hant' ||
+      final isTraditional = scriptCode == 'hant' ||
           countryCode == 'TW' ||
           countryCode == 'HK' ||
           countryCode == 'MO';

@@ -7,10 +7,12 @@ import 'package:provider/provider.dart';
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/weekly_models.dart';
+import '../../../core/purchases/purchase_controller.dart';
 import '../../../shared/states/load_state.dart';
 import '../../../shared/widgets/app_header.dart';
 import '../../../shared/widgets/empty_state_block.dart';
 import '../../../shared/widgets/section_header.dart';
+import '../../paywall/paywall_sheet.dart';
 import '../me/me_view_model.dart';
 import 'weekly_view_model.dart';
 
@@ -91,8 +93,10 @@ class WeeklyPage extends StatelessWidget {
                     subtitle: AppLocaleText.tr(
                       context,
                       en: 'If you add local entries today, Weekly can still start showing right away. Otherwise, it will begin from day 2.',
-                      zhHans: '如果你今天已经留下本地记录，Weekly 也可以立即开始展示；如果今天还没有记录，就会从第 2 天开始出现。',
-                      zhHant: '如果你今天已經留下本地記錄，Weekly 也可以立即開始展示；如果今天還沒有記錄，就會從第 2 天開始出現。',
+                      zhHans:
+                          '如果你今天已经留下本地记录，Weekly 也可以立即开始展示；如果今天还没有记录，就会从第 2 天开始出现。',
+                      zhHant:
+                          '如果你今天已經留下本地記錄，Weekly 也可以立即開始展示；如果今天還沒有記錄，就會從第 2 天開始出現。',
                       ja: '今日すでにローカル記録があれば Weekly はすぐ表示できます。まだ記録がなければ、2 日目から始まります。',
                     ),
                   )
@@ -201,23 +205,56 @@ class WeeklyPage extends StatelessWidget {
   String _focusAreaLabel(BuildContext context, String? value) {
     switch (value) {
       case 'work_tasks':
-        return AppLocaleText.tr(context, en: 'work and tasks', zhHans: '工作与任务', zhHant: '工作與任務', ja: '仕事とタスク');
+        return AppLocaleText.tr(context,
+            en: 'work and tasks',
+            zhHans: '工作与任务',
+            zhHant: '工作與任務',
+            ja: '仕事とタスク');
       case 'emotion_stress':
-        return AppLocaleText.tr(context, en: 'emotions and stress', zhHans: '情绪与压力', zhHant: '情緒與壓力', ja: '感情とストレス');
+        return AppLocaleText.tr(context,
+            en: 'emotions and stress',
+            zhHans: '情绪与压力',
+            zhHant: '情緒與壓力',
+            ja: '感情とストレス');
       case 'relationships':
-        return AppLocaleText.tr(context, en: 'relationships and interaction', zhHans: '关系与相处', zhHant: '關係與相處', ja: '人間関係と付き合い方');
+        return AppLocaleText.tr(context,
+            en: 'relationships and interaction',
+            zhHans: '关系与相处',
+            zhHant: '關係與相處',
+            ja: '人間関係と付き合い方');
       case 'time_rhythm':
-        return AppLocaleText.tr(context, en: 'time and daily rhythm', zhHans: '时间与生活节奏', zhHant: '時間與生活節奏', ja: '時間と生活リズム');
+        return AppLocaleText.tr(context,
+            en: 'time and daily rhythm',
+            zhHans: '时间与生活节奏',
+            zhHant: '時間與生活節奏',
+            ja: '時間と生活リズム');
       case 'health_body':
-        return AppLocaleText.tr(context, en: 'health and physical state', zhHans: '健康与身体状态', zhHant: '健康與身體狀態', ja: '健康と身体の状態');
+        return AppLocaleText.tr(context,
+            en: 'health and physical state',
+            zhHans: '健康与身体状态',
+            zhHant: '健康與身體狀態',
+            ja: '健康と身体の状態');
       case 'money_spending':
-        return AppLocaleText.tr(context, en: 'money and spending', zhHans: '金钱与消费', zhHant: '金錢與消費', ja: 'お金と消費');
+        return AppLocaleText.tr(context,
+            en: 'money and spending',
+            zhHans: '金钱与消费',
+            zhHant: '金錢與消費',
+            ja: 'お金と消費');
       case 'learning_growth_expression':
-        return AppLocaleText.tr(context, en: 'learning, growth, and expression', zhHans: '学习、成长与表达', zhHant: '學習、成長與表達', ja: '学び・成長・表現');
+        return AppLocaleText.tr(context,
+            en: 'learning, growth, and expression',
+            zhHans: '学习、成长与表达',
+            zhHant: '學習、成長與表達',
+            ja: '学び・成長・表現');
       case 'open':
-        return AppLocaleText.tr(context, en: 'whatever comes up', zhHans: '想到什么记什么', zhHant: '想到什麼記什麼', ja: '思いついたことから記録する');
+        return AppLocaleText.tr(context,
+            en: 'whatever comes up',
+            zhHans: '想到什么记什么',
+            zhHant: '想到什麼記什麼',
+            ja: '思いついたことから記録する');
       default:
-        return AppLocaleText.tr(context, en: 'not set yet', zhHans: '暂未设置', zhHant: '暫未設定', ja: '未設定');
+        return AppLocaleText.tr(context,
+            en: 'not set yet', zhHans: '暂未设置', zhHant: '暫未設定', ja: '未設定');
     }
   }
 }
@@ -258,6 +295,7 @@ class _WeeklyReadyBody extends StatelessWidget {
     final patterns = weekly.patterns;
     final frictions = weekly.frictions;
     final chartData = weekly.chartData;
+    final purchase = context.watch<PurchaseController?>();
     final topic = weekly.deriveTopicFocus();
 
     return Column(
@@ -355,7 +393,10 @@ class _WeeklyReadyBody extends StatelessWidget {
           isLightReady: isLightReady,
         ),
         const SizedBox(height: 12),
-        _ChartInsightCard(points: chartData),
+        if (purchase?.isPremium ?? false)
+          _ChartInsightCard(points: chartData)
+        else
+          const _PremiumChartInsightCard(),
         const SizedBox(height: 22),
         if (isLightReady) ...[
           SectionHeader(
@@ -462,15 +503,33 @@ class _WeeklyReadyBody extends StatelessWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: FilledButton.tonalIcon(
-            onPressed: () => context.go(AppRoutes.deepWeekly),
-            icon: const Icon(Icons.auto_graph_outlined),
+            onPressed: () {
+              if (purchase?.isPremium ?? false) {
+                context.go(AppRoutes.deepWeekly);
+              } else {
+                showPremiumPaywall(context, source: 'Deep Weekly');
+              }
+            },
+            icon: Icon(
+              purchase?.isPremium ?? false
+                  ? Icons.auto_graph_outlined
+                  : Icons.lock_outline,
+            ),
             label: Text(
               AppLocaleText.tr(
                 context,
-                en: 'Open Deep Weekly',
-                zhHans: '打开 Deep Weekly',
-                zhHant: '打開 Deep Weekly',
-                ja: 'Deep Weekly を開く',
+                en: (purchase?.isPremium ?? false)
+                    ? 'Open Deep Weekly'
+                    : 'Unlock Deep Weekly',
+                zhHans: (purchase?.isPremium ?? false)
+                    ? '打开 Deep Weekly'
+                    : '解锁 Deep Weekly',
+                zhHant: (purchase?.isPremium ?? false)
+                    ? '打開 Deep Weekly'
+                    : '解鎖 Deep Weekly',
+                ja: (purchase?.isPremium ?? false)
+                    ? 'Deep Weekly を開く'
+                    : 'Deep Weekly を開く',
               ),
             ),
           ),
@@ -691,7 +750,8 @@ class _CompositeChartCard extends StatelessWidget {
     );
     final avgMood = points.isEmpty
         ? 0.0
-        : points.map((e) => e.moodScore).reduce((a, b) => a + b) / points.length;
+        : points.map((e) => e.moodScore).reduce((a, b) => a + b) /
+            points.length;
 
     final peakDay = _dayLabel(context, peak.date);
 
@@ -708,8 +768,10 @@ class _CompositeChartCard extends StatelessWidget {
       return AppLocaleText.tr(
         context,
         en: 'For now, the densest day is $peakDay, and the weekly trend is ${avgMood >= 0 ? 'not clearly falling' : 'a little pulled downward'}.',
-        zhHans: '目前线索最集中的一天是$peakDay，这一周的走势${avgMood >= 0 ? '没有明显往下掉' : '有一点被往下拉'}。',
-        zhHant: '目前線索最集中的一天是$peakDay，這一週的走勢${avgMood >= 0 ? '沒有明顯往下掉' : '有一點被往下拉'}。',
+        zhHans:
+            '目前线索最集中的一天是$peakDay，这一周的走势${avgMood >= 0 ? '没有明显往下掉' : '有一点被往下拉'}。',
+        zhHant:
+            '目前線索最集中的一天是$peakDay，這一週的走勢${avgMood >= 0 ? '沒有明顯往下掉' : '有一點被往下拉'}。',
         ja: '今のところ、手がかりがいちばん集まっているのは$peakDayで、今週の流れは${avgMood >= 0 ? '大きく下がってはいません' : '少し下に引かれています'}。',
       );
     }
@@ -880,7 +942,8 @@ class _CompositeWeeklyChartPainter extends CustomPainter {
     return date;
   }
 
-  void _drawBottomLabel(Canvas canvas, {required String text, required Offset center}) {
+  void _drawBottomLabel(Canvas canvas,
+      {required String text, required Offset center}) {
     final span = TextSpan(
       text: text,
       style: TextStyle(
@@ -1075,7 +1138,9 @@ class _InsightBlockList extends StatelessWidget {
           ...displayItems.map((item) {
             final map = item is Map<String, dynamic>
                 ? item
-                : (item is Map ? item.cast<String, dynamic>() : <String, dynamic>{});
+                : (item is Map
+                    ? item.cast<String, dynamic>()
+                    : <String, dynamic>{});
             final name = (map['name'] as String?) ?? '';
             final summary = (map['summary'] as String?) ?? '';
             return Padding(
@@ -1151,7 +1216,71 @@ class _OpportunityCard extends StatelessWidget {
   }
 }
 
+class _PremiumChartInsightCard extends StatelessWidget {
+  const _PremiumChartInsightCard();
 
+  @override
+  Widget build(BuildContext context) {
+    return _UnifiedCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.lock_outline,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Pro chart reading',
+                    zhHans: 'Pro 图表解读',
+                    zhHant: 'Pro 圖表解讀',
+                    ja: 'Pro の図表読み',
+                  ),
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Unlock the key density day, low point, rebound signal, and what this week’s curve is asking you to watch next.',
+              zhHans: '解锁线索最密的一天、走势低点、回升信号，以及这条曲线提示你下周该看什么。',
+              zhHant: '解鎖線索最密的一天、走勢低點、回升訊號，以及這條曲線提示你下週該看什麼。',
+              ja: '手がかりが最も濃い日、低い点、戻りの兆し、来週見るべきポイントを開きます。',
+            ),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.tonalIcon(
+              onPressed: () => showPremiumPaywall(
+                context,
+                source: 'Weekly chart reading',
+              ),
+              icon: const Icon(Icons.workspace_premium_outlined),
+              label: Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'Unlock reading',
+                  zhHans: '解锁解读',
+                  zhHant: '解鎖解讀',
+                  ja: '読みを開く',
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _ChartInsightCard extends StatelessWidget {
   final List<WeeklyChartPointModel> points;
@@ -1160,9 +1289,9 @@ class _ChartInsightCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final safePoints = points.isEmpty
-        ? const <WeeklyChartPointModel>[]
-        : [...points]..sort((a, b) => a.date.compareTo(b.date));
+    final safePoints =
+        points.isEmpty ? const <WeeklyChartPointModel>[] : [...points]
+          ..sort((a, b) => a.date.compareTo(b.date));
 
     String densityText;
     String trendText;
@@ -1173,11 +1302,15 @@ class _ChartInsightCard extends StatelessWidget {
       trendText = '等记录再多一点，这里会开始指出哪一天最集中、走势什么时候往下或往上。';
       reboundText = '目前先继续记下重复出现的场景就好。';
     } else {
-      final peak = safePoints.reduce((a, b) => a.signalCount >= b.signalCount ? a : b);
-      final low = safePoints.reduce((a, b) => a.moodScore <= b.moodScore ? a : b);
+      final peak =
+          safePoints.reduce((a, b) => a.signalCount >= b.signalCount ? a : b);
+      final low =
+          safePoints.reduce((a, b) => a.moodScore <= b.moodScore ? a : b);
       final rebound = safePoints.last;
-      densityText = '线索最密的一天是 ${peak.date.length >= 10 ? peak.date.substring(5) : peak.date}，更像是同类事情在那一天集中冒头。';
-      trendText = '走势最低点更接近 ${low.date.length >= 10 ? low.date.substring(5) : low.date}，说明那附近的状态更容易被往下拉。';
+      densityText =
+          '线索最密的一天是 ${peak.date.length >= 10 ? peak.date.substring(5) : peak.date}，更像是同类事情在那一天集中冒头。';
+      trendText =
+          '走势最低点更接近 ${low.date.length >= 10 ? low.date.substring(5) : low.date}，说明那附近的状态更容易被往下拉。';
       reboundText = rebound.moodScore > low.moodScore
           ? '从后半段看，状态有一点往回收，说明并不是整周都在持续往下掉。'
           : '从后半段看，状态还没有明显回弹，下周更适合继续缩小观察范围。';
@@ -1208,6 +1341,7 @@ class _ChartInsightCard extends StatelessWidget {
     );
   }
 }
+
 class _FeedbackCard extends StatelessWidget {
   final bool isSubmitted;
   final SubmitState submitState;

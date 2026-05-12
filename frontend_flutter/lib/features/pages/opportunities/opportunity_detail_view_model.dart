@@ -31,7 +31,8 @@ class OpportunityDetailViewModel extends ChangeNotifier {
     submitState = SubmitState.submitting;
     notifyListeners();
     try {
-      await repository.submitOpportunityFeedback(opportunityId: id, feedbackValue: value);
+      await repository.submitOpportunityFeedback(
+          opportunityId: id, feedbackValue: value);
       submitState = SubmitState.success;
     } catch (e) {
       errorMessage = e.toString();

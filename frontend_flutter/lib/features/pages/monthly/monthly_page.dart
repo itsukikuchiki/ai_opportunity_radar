@@ -42,8 +42,9 @@ class MonthlyPage extends StatelessWidget {
               zhHant: 'Monthly',
               ja: 'Monthly',
             ),
-            subtitle:
-                monthly == null ? null : '${monthly.monthStart} → ${monthly.monthEnd}',
+            subtitle: monthly == null
+                ? null
+                : '${monthly.monthStart} → ${monthly.monthEnd}',
             summary: monthly?.monthlySummary ??
                 AppLocaleText.tr(
                   context,

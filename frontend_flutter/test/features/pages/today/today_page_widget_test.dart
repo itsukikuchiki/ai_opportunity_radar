@@ -27,7 +27,8 @@ void main() {
             content: 'The meeting kept getting interrupted and I felt drained.',
             createdAt: DateTime.now(),
             acknowledgement: 'That sounds genuinely draining.',
-            observation: 'Work interruptions are taking up more space than they seem.',
+            observation:
+                'Work interruptions are taking up more space than they seem.',
             tryNext: 'Write down the first interruption next time.',
             emotion: 'negative',
             intensity: 'medium',

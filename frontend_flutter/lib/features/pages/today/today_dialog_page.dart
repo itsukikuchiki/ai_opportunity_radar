@@ -71,7 +71,10 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
     });
 
     try {
-      final result = await context.read<AppDependencies>().todayRepository.continueLightDialog(
+      final result = await context
+          .read<AppDependencies>()
+          .todayRepository
+          .continueLightDialog(
             signal: signal,
             history: List<LightDialogTurnModel>.from(_turns),
             userMessage: text,
@@ -147,7 +150,9 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                               ),
                               const SizedBox(height: 8),
                               Text(signal.content),
-                              if ((signal.observation ?? '').trim().isNotEmpty) ...[
+                              if ((signal.observation ?? '')
+                                  .trim()
+                                  .isNotEmpty) ...[
                                 const SizedBox(height: 10),
                                 Text(
                                   signal.observation!,
@@ -190,8 +195,12 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
                                 color: isAssistant
-                                    ? Theme.of(context).colorScheme.surfaceContainerHighest
-                                    : Theme.of(context).colorScheme.primaryContainer,
+                                    ? Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest
+                                    : Theme.of(context)
+                                        .colorScheme
+                                        .primaryContainer,
                                 borderRadius: BorderRadius.circular(14),
                               ),
                               child: Text(turn.text),
@@ -210,7 +219,8 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                             final prompt = _suggestedPrompts[index];
                             return ActionChip(
                               label: Text(prompt),
-                              onPressed: _isSending ? null : () => _send(prompt),
+                              onPressed:
+                                  _isSending ? null : () => _send(prompt),
                             );
                           },
                           separatorBuilder: (_, __) => const SizedBox(width: 8),
@@ -246,7 +256,8 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                                   ? const SizedBox(
                                       height: 18,
                                       width: 18,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
                                     )
                                   : Text(
                                       AppLocaleText.tr(

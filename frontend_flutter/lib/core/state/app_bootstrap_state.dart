@@ -26,8 +26,7 @@ class AppBootstrapState extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      _onboardingCompleted =
-          prefs.getBool('onboarding_completed') ??
+      _onboardingCompleted = prefs.getBool('onboarding_completed') ??
           prefs.getBool('onboardingCompleted') ??
           false;
 

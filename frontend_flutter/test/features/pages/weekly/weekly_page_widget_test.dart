@@ -17,7 +17,8 @@ void main() {
         weekStart: '2026-04-15',
         weekEnd: '2026-04-21',
         status: 'ready',
-        keyInsight: 'Interruptions and recovery are both clearly visible this week.',
+        keyInsight:
+            'Interruptions and recovery are both clearly visible this week.',
         patterns: const [
           {
             'name': 'Interruptions during focused work',

@@ -27,7 +27,8 @@ void main() {
           frictions: const [
             JourneySignalItemModel(
               name: 'Interruptions during focused work',
-              summary: 'This has already repeated enough to count as a pattern.',
+              summary:
+                  'This has already repeated enough to count as a pattern.',
               signalLevel: 'repeated_pattern',
             ),
           ],

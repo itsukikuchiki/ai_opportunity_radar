@@ -104,7 +104,6 @@ class LocalCaptureRepository {
     );
   }
 
-
   Future<RecentSignalModel?> getCaptureById(String captureId) async {
     final db = await localDatabase.database;
     final rows = await db.query(
@@ -173,7 +172,8 @@ class LocalCaptureRepository {
     return RecentSignalModel(
       id: row['id'] as String?,
       content: (row['content'] as String?) ?? '',
-      createdAt: DateTime.tryParse((row['created_at'] as String?) ?? '')?.toLocal(),
+      createdAt:
+          DateTime.tryParse((row['created_at'] as String?) ?? '')?.toLocal(),
       acknowledgement: row['ai_acknowledgement'] as String?,
       observation: row['ai_observation'] as String?,
       tryNext: row['ai_try_next'] as String?,

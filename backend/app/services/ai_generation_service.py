@@ -220,22 +220,47 @@ class AiGenerationService:
         key_insight = (request.key_insight or "").strip() or f"这周的记录在“{pattern_name}”附近逐渐聚起来。"
 
         peak_day = "这周中段"
+        low_day = "这周某个低点"
+        rebound_phrase = "后半段还没有足够证据说明已经回弹"
         chart_data = request.chart_data or []
         if chart_data:
             peak = max(chart_data, key=lambda item: item.get("signal_count", 0))
+            low = min(chart_data, key=lambda item: item.get("mood_score", 0))
+            last = chart_data[-1]
             peak_day = str(peak.get("date") or peak_day)
+            low_day = str(low.get("date") or low_day)
             if len(peak_day) >= 10 and "-" in peak_day:
                 peak_day = peak_day[5:]
+            if len(low_day) >= 10 and "-" in low_day:
+                low_day = low_day[5:]
+            if last.get("mood_score", 0) > low.get("mood_score", 0):
+                rebound_phrase = "后半段有一点回收，说明这一周不是一路往下掉，而是有被拉回来一点"
 
-        summary = f"{key_insight} 真正需要放在一起看的，是“{pattern_name}”怎么和“{friction_name}”互相咬住：你不是单纯遇到几件散点事件，而是在同一种拉扯里来回消耗。"
-        root_tension = f"这周更深的一层 tension，不只是事情多，而是你一边想把“{pattern_name}”往前推，一边又持续被“{friction_name}”拖住，所以感受上会像总差一点。"
-        hidden_pattern = f"从图和记录放在一起看，{peak_day} 附近像是一个关键节点：线索密度上来时，问题不只是在变多，而是同一类压力更集中地冒头。"
-        next_focus = f"下周先不要扩大观察面，只盯一个问题：当“{friction_name}”再次出现时，它最常打断的是不是刚好就是“{pattern_name}”相关的事情。"
+        summary = (
+            f"{key_insight} 免费版能看见主题，Deep Weekly 要看的更像是结构："
+            f"“{pattern_name}”并不是孤立出现，它和“{friction_name}”在同一周里互相牵住，"
+            "让你反复在想推进和被消耗之间切换。"
+        )
+        root_tension = (
+            f"表层事件是几条不同记录；底层 tension 是你想让“{pattern_name}”更顺一点，"
+            f"但每次靠近时，“{friction_name}”又把注意力拉走。所以真正累的不是某一天，"
+            "而是不断重启判断、不断重新找回节奏。"
+        )
+        hidden_pattern = (
+            f"把图和文字放在一起看，{peak_day} 是线索密度更高的节点，{low_day} 更像状态低点。"
+            f"{rebound_phrase}。这说明本周的重点不是简单问“哪天最糟”，而是看压力聚集后，"
+            "你有没有机会把自己重新带回比较可判断的位置。"
+        )
+        next_focus = (
+            f"下周先不要扩大观察面，只盯一个小问题：当“{friction_name}”再次出现时，"
+            f"它是在打断“{pattern_name}”的开始、推进中段，还是收尾阶段。这个位置比事件本身更值得记。"
+        )
         risk_note = "这份 deep weekly 更适合拿来收窄注意力，不适合一次解释完整个自己；如果这一周本来就很早期，它只能给方向，不能当结论。"
         key_nodes = [
             f"重复主题：{pattern_name}",
             f"主要摩擦：{friction_name}",
-            f"关键节点：{peak_day}",
+            f"线索密集点：{peak_day}",
+            f"走势低点：{low_day}",
         ]
         return DeepWeeklyResponse(
             summary=summary,

@@ -92,7 +92,8 @@ void main() {
         dbPath: dbPath,
         aiRepository: FakeAiRepository(
           captureReply: '先记下来了。',
-          todayObservationBuilder: (entries) => '今天记录了 ${entries.length} 条，烦躁主要集中在工作里。',
+          todayObservationBuilder: (entries) =>
+              '今天记录了 ${entries.length} 条，烦躁主要集中在工作里。',
           todaySuggestionBuilder: (entries) => '今天先试试：再出现一次同类情绪时补记一条。',
         ),
       );
@@ -100,14 +101,18 @@ void main() {
       await harness.repository.submitCapture(content: '第一条：有点烦');
       var data = await harness.repository.fetchToday();
 
-      expect((data['insight'] as TodayInsightModel).text, contains('今天记录了 1 条'));
-      expect((data['bestAction'] as DailyBestActionModel).text, contains('今天先试试'));
+      expect(
+          (data['insight'] as TodayInsightModel).text, contains('今天记录了 1 条'));
+      expect(
+          (data['bestAction'] as DailyBestActionModel).text, contains('今天先试试'));
 
       await harness.repository.submitCapture(content: '第二条：还是烦');
       data = await harness.repository.fetchToday();
 
-      expect((data['insight'] as TodayInsightModel).text, contains('今天记录了 2 条'));
-      expect((data['bestAction'] as DailyBestActionModel).text, contains('补记一条'));
+      expect(
+          (data['insight'] as TodayInsightModel).text, contains('今天记录了 2 条'));
+      expect(
+          (data['bestAction'] as DailyBestActionModel).text, contains('补记一条'));
 
       await harness.close();
     });
@@ -200,8 +205,10 @@ Future<_Harness> _createHarness({
 
 class FakeAiRepository extends AiRepository {
   final String captureReply;
-  final String Function(List<Map<String, dynamic>> entries)? todayObservationBuilder;
-  final String Function(List<Map<String, dynamic>> entries)? todaySuggestionBuilder;
+  final String Function(List<Map<String, dynamic>> entries)?
+      todayObservationBuilder;
+  final String Function(List<Map<String, dynamic>> entries)?
+      todaySuggestionBuilder;
 
   FakeAiRepository({
     this.captureReply = '默认 AI 回复：我先陪你把这条放在这里。',
@@ -248,12 +255,11 @@ class FakeAiRepository extends AiRepository {
     return AiTodaySummaryResult(
       observation: todayObservationBuilder?.call(payload) ??
           '今天记录了 ${entries.length} 条，已经开始形成线索。',
-      suggestion: todaySuggestionBuilder?.call(payload) ??
-          '今天先试试：再出现一次同类情况时补记一条。',
+      suggestion:
+          todaySuggestionBuilder?.call(payload) ?? '今天先试试：再出现一次同类情况时补记一条。',
     );
   }
 }
-
 
 class TrackingAiRepository extends FakeAiRepository {
   final List<String?> captureReplyStyles = [];

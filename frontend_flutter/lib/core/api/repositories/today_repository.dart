@@ -25,9 +25,11 @@ class TodayRepository {
 
   Future<Map<String, dynamic>> fetchToday() async {
     final todaySignals = await localCaptureRepository.listTodaySignals();
-    final snapshot = await localDailySnapshotRepository.getByDate(DateTime.now());
+    final snapshot =
+        await localDailySnapshotRepository.getByDate(DateTime.now());
 
-    final sourceHash = localDailySnapshotRepository.buildSourceHash(todaySignals);
+    final sourceHash =
+        localDailySnapshotRepository.buildSourceHash(todaySignals);
 
     if (todaySignals.isNotEmpty &&
         (snapshot == null || snapshot.sourceHash != sourceHash)) {
@@ -44,13 +46,12 @@ class TodayRepository {
       ),
       'pendingQuestion': null,
       'bestAction': DailyBestActionModel(
-        text: latestSnapshot?.suggestionText ??
-            _defaultSuggestion(todaySignals),
+        text:
+            latestSnapshot?.suggestionText ?? _defaultSuggestion(todaySignals),
       ),
       'recentSignals': todaySignals,
     };
   }
-
 
   Future<RecentSignalModel?> getCaptureById(String captureId) {
     return localCaptureRepository.getCaptureById(captureId);
@@ -152,7 +153,8 @@ class TodayRepository {
     // Phase 1 先不做后续问题回写；保留接口，避免页面层大改。
   }
 
-  Future<void> _regenerateTodaySummary(List<RecentSignalModel> todaySignals) async {
+  Future<void> _regenerateTodaySummary(
+      List<RecentSignalModel> todaySignals) async {
     final focusArea = await _readFocusArea();
     final responseStyle = await _readResponseStyle();
 
@@ -284,8 +286,7 @@ class TodayRepository {
       return '今天还没有记录，先留下一件真实发生的小事就好。';
     }
     if (entries.length == 1) {
-      return entries.first.observation ??
-          '今天记录了 1 条。你已经开始把今天里真实发生的事留了下来。';
+      return entries.first.observation ?? '今天记录了 1 条。你已经开始把今天里真实发生的事留了下来。';
     }
 
     final mixedCount = entries.where((e) => e.emotion == 'mixed').length;
@@ -309,8 +310,7 @@ class TodayRepository {
       return '今天先记下一件让你停顿了一下的小事就好。';
     }
     if (entries.length == 1) {
-      return entries.first.tryNext ??
-          '如果同类事情今天再出现一次，再补记一条就可以。';
+      return entries.first.tryNext ?? '如果同类事情今天再出现一次，再补记一条就可以。';
     }
 
     final workHeavy = entries.where((e) => e.sceneTags.contains('work')).length;
@@ -329,28 +329,89 @@ class TodayRepository {
     final text = content.toLowerCase();
 
     final positiveKeywords = [
-      '开心', '高兴', '喜欢', '顺利', '放松', '舒服', '满足', '期待', '有成就感',
-      '轻松', '好吃', '快乐', '愉快', '安心', '踏实',
-      '嬉しい', '楽しい', 'よかった', '満足', '安心',
-      'happy', 'glad', 'good', 'great', 'relieved', 'nice',
+      '开心',
+      '高兴',
+      '喜欢',
+      '顺利',
+      '放松',
+      '舒服',
+      '满足',
+      '期待',
+      '有成就感',
+      '轻松',
+      '好吃',
+      '快乐',
+      '愉快',
+      '安心',
+      '踏实',
+      '嬉しい',
+      '楽しい',
+      'よかった',
+      '満足',
+      '安心',
+      'happy',
+      'glad',
+      'good',
+      'great',
+      'relieved',
+      'nice',
     ];
     final negativeKeywords = [
-      '烦', '累', '崩', '难受', '焦虑', '生气', '压力', '不想', '麻烦', '受不了',
-      '被打断', '烦躁', '委屈', '失控', '糟糕', '痛苦', '压抑',
-      'しんどい', 'つらい', '疲れた', 'イライラ', '不安', '最悪',
-      'annoyed', 'tired', 'upset', 'angry', 'anxious', 'stressed', 'frustrated',
+      '烦',
+      '累',
+      '崩',
+      '难受',
+      '焦虑',
+      '生气',
+      '压力',
+      '不想',
+      '麻烦',
+      '受不了',
+      '被打断',
+      '烦躁',
+      '委屈',
+      '失控',
+      '糟糕',
+      '痛苦',
+      '压抑',
+      'しんどい',
+      'つらい',
+      '疲れた',
+      'イライラ',
+      '不安',
+      '最悪',
+      'annoyed',
+      'tired',
+      'upset',
+      'angry',
+      'anxious',
+      'stressed',
+      'frustrated',
     ];
     final mixedMarkers = [
-      '但是', '但', '不过', '后来', '虽然', '又', '缓回来', '好了一点',
-      'けど', 'でも', 'そのあと',
-      'but', 'however', 'though', 'later',
+      '但是',
+      '但',
+      '不过',
+      '后来',
+      '虽然',
+      '又',
+      '缓回来',
+      '好了一点',
+      'けど',
+      'でも',
+      'そのあと',
+      'but',
+      'however',
+      'though',
+      'later',
     ];
 
     final hasPositive = positiveKeywords.any(text.contains);
     final hasNegative = negativeKeywords.any(text.contains);
     final hasMixedMarker = mixedMarkers.any(text.contains);
 
-    if ((hasPositive && hasNegative) || (hasMixedMarker && (hasPositive || hasNegative))) {
+    if ((hasPositive && hasNegative) ||
+        (hasMixedMarker && (hasPositive || hasNegative))) {
       return 'mixed';
     }
     if (hasNegative) return 'negative';
@@ -362,20 +423,44 @@ class TodayRepository {
     final text = content.toLowerCase();
 
     final strongMarkers = [
-      '一直', '总是', '反复', '受不了', '崩了', '特别', '非常', '真的', '很烦', '很累',
-      'ずっと', 'かなり', '本当に', 'めちゃくちゃ',
-      'very', 'really', 'extremely',
+      '一直',
+      '总是',
+      '反复',
+      '受不了',
+      '崩了',
+      '特别',
+      '非常',
+      '真的',
+      '很烦',
+      '很累',
+      'ずっと',
+      'かなり',
+      '本当に',
+      'めちゃくちゃ',
+      'very',
+      'really',
+      'extremely',
     ];
     final mediumMarkers = [
-      '有点', '有一些', '有一点', '有些', '稍微',
-      'ちょっと', '少し',
-      'a bit', 'kind of', 'somewhat',
+      '有点',
+      '有一些',
+      '有一点',
+      '有些',
+      '稍微',
+      'ちょっと',
+      '少し',
+      'a bit',
+      'kind of',
+      'somewhat',
     ];
 
-    if (strongMarkers.any(text.contains) || content.contains('!') || content.contains('！')) {
+    if (strongMarkers.any(text.contains) ||
+        content.contains('!') ||
+        content.contains('！')) {
       return 'high';
     }
-    if (mediumMarkers.any(text.contains) || _defaultEmotion(content) != 'neutral') {
+    if (mediumMarkers.any(text.contains) ||
+        _defaultEmotion(content) != 'neutral') {
       return 'medium';
     }
     return 'low';
@@ -387,40 +472,129 @@ class TodayRepository {
 
     bool hit(List<String> keywords) => keywords.any(text.contains);
 
-    if (hit(['上班', '开会', '同事', '老板', '需求', '任务', '公司', '工作', '邮件', '会议', '職場', '仕事', '会議', 'task', 'work', 'meeting', 'manager'])) {
+    if (hit([
+      '上班',
+      '开会',
+      '同事',
+      '老板',
+      '需求',
+      '任务',
+      '公司',
+      '工作',
+      '邮件',
+      '会议',
+      '職場',
+      '仕事',
+      '会議',
+      'task',
+      'work',
+      'meeting',
+      'manager'
+    ])) {
       scenes.add('work');
     }
-    if (hit(['通勤', '地铁', '电车', '路上', '回家路上', '出门', '満員電車', 'commute', 'train'])) {
+    if (hit(
+        ['通勤', '地铁', '电车', '路上', '回家路上', '出门', '満員電車', 'commute', 'train'])) {
       scenes.add('commute');
     }
-    if (hit(['朋友', '家人', '恋人', '关系', '聊天', '人間関係', 'family', 'friend', 'partner'])) {
+    if (hit([
+      '朋友',
+      '家人',
+      '恋人',
+      '关系',
+      '聊天',
+      '人間関係',
+      'family',
+      'friend',
+      'partner'
+    ])) {
       scenes.add('relationship');
     }
-    if (hit(['头疼', '困', '睡', '累', '身体', '胃', '不舒服', '健康', '体調', '眠い', 'body', 'health'])) {
+    if (hit([
+      '头疼',
+      '困',
+      '睡',
+      '累',
+      '身体',
+      '胃',
+      '不舒服',
+      '健康',
+      '体調',
+      '眠い',
+      'body',
+      'health'
+    ])) {
       scenes.add('body');
     }
-    if (hit(['花钱', '工资', '金钱', '消费', '买', '预算', 'お金', '支出', 'money', 'budget', 'spent'])) {
+    if (hit([
+      '花钱',
+      '工资',
+      '金钱',
+      '消费',
+      '买',
+      '预算',
+      'お金',
+      '支出',
+      'money',
+      'budget',
+      'spent'
+    ])) {
       scenes.add('money');
     }
-    if (hit(['休息', '放松', '睡觉', '午休', '恢复', '发呆', '散步', '休憩', 'rest', 'relax'])) {
+    if (hit(
+        ['休息', '放松', '睡觉', '午休', '恢复', '发呆', '散步', '休憩', 'rest', 'relax'])) {
       scenes.add('rest');
     }
-    if (hit(['完成', '做完', '推进', '成果', '达成', '有进展', '進んだ', '達成', 'finished', 'done'])) {
+    if (hit([
+      '完成',
+      '做完',
+      '推进',
+      '成果',
+      '达成',
+      '有进展',
+      '進んだ',
+      '達成',
+      'finished',
+      'done'
+    ])) {
       scenes.add('achievement');
     }
     if (hit(['怀疑自己', '自我否定', '不够好', '没做好', '担心自己', '自信がない', 'self doubt'])) {
       scenes.add('self_doubt');
     }
-    if (hit(['被打断', '重复', '麻烦', '卡住', '拖延', '琐事', '不顺', 'interrupted', 'blocked', 'friction'])) {
+    if (hit([
+      '被打断',
+      '重复',
+      '麻烦',
+      '卡住',
+      '拖延',
+      '琐事',
+      '不顺',
+      'interrupted',
+      'blocked',
+      'friction'
+    ])) {
       scenes.add('daily_friction');
     }
     if (hit(['在家', '回家', '房间', '家里', '家务', '家', '家で', 'home'])) {
       scenes.add('home');
     }
-    if (hit(['学习', '看书', '复习', '考试', '输出', '写作', '勉強', 'study', 'reading', 'writing'])) {
+    if (hit([
+      '学习',
+      '看书',
+      '复习',
+      '考试',
+      '输出',
+      '写作',
+      '勉強',
+      'study',
+      'reading',
+      'writing'
+    ])) {
       scenes.add('study');
     }
-    if (hit(['吃饭', '好吃', '逛', '买东西', '天气', '散步', '咖啡', '食べた', 'lunch', 'coffee'])) {
+    if (hit(
+        ['吃饭', '好吃', '逛', '买东西', '天气', '散步', '咖啡', '食べた', 'lunch', 'coffee'])) {
       scenes.add('daily_life');
     }
 
@@ -445,16 +619,13 @@ class TodayRepository {
     }
     if (intents.isEmpty) intents.add('record');
 
-    if ([
-      '为什么', '是不是', '感觉', '好像', '也许', 'maybe', 'wonder', '気がする'
-    ].any(text.contains) &&
+    if (['为什么', '是不是', '感觉', '好像', '也许', 'maybe', 'wonder', '気がする']
+            .any(text.contains) &&
         !intents.contains('reflection')) {
       intents.add('reflection');
     }
 
-    if ([
-      '要不要', '决定', '算了', 'whether', 'decide', '決める'
-    ].any(text.contains) &&
+    if (['要不要', '决定', '算了', 'whether', 'decide', '決める'].any(text.contains) &&
         !intents.contains('decision')) {
       intents.add('decision');
     }

@@ -8,7 +8,8 @@ class OpportunityRepository {
   Future<List<OpportunityListItemModel>> fetchOpportunities() async {
     final res = await apiClient.getJson('/api/v1/opportunities');
     return ((res['data'] as Map<String, dynamic>)['items'] as List)
-        .map((e) => OpportunityListItemModel.fromJson(e as Map<String, dynamic>))
+        .map(
+            (e) => OpportunityListItemModel.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
@@ -17,7 +18,8 @@ class OpportunityRepository {
     return OpportunityDetailModel.fromJson(res['data'] as Map<String, dynamic>);
   }
 
-  Future<void> submitOpportunityFeedback({required String opportunityId, required String feedbackValue}) async {
+  Future<void> submitOpportunityFeedback(
+      {required String opportunityId, required String feedbackValue}) async {
     await apiClient.postJson('/api/v1/opportunities/$opportunityId/feedback', {
       'feedback_value': feedbackValue,
     });

@@ -130,7 +130,6 @@ class WeeklyRepository {
     return generated;
   }
 
-
   Future<DeepWeeklyModel> fetchDeepWeekly() async {
     final weekly = await fetchCurrentWeekly();
     final focusArea = await _readFocusArea();
@@ -196,11 +195,13 @@ class WeeklyRepository {
         tokenCounts[token] = (tokenCounts[token] ?? 0) + 1;
       }
 
-      final bucket = chartDataMap.putIfAbsent(dayKey, () => _ChartAccumulator());
+      final bucket =
+          chartDataMap.putIfAbsent(dayKey, () => _ChartAccumulator());
       bucket.signalCount += 1;
       bucket.moodScore += _emotionToMoodScore(signal.emotion);
       bucket.frictionScore += _emotionToFrictionScore(signal.emotion);
-      if ((signal.emotion ?? '') == 'positive' || (signal.emotion ?? '') == 'mixed') {
+      if ((signal.emotion ?? '') == 'positive' ||
+          (signal.emotion ?? '') == 'mixed') {
         bucket.hasPositiveSignal = true;
       }
     }
@@ -215,7 +216,8 @@ class WeeklyRepository {
         date: entry.key,
         signalCount: bucket.signalCount,
         moodScore: double.parse((bucket.moodScore / count).toStringAsFixed(3)),
-        frictionScore: double.parse((bucket.frictionScore / count).toStringAsFixed(3)),
+        frictionScore:
+            double.parse((bucket.frictionScore / count).toStringAsFixed(3)),
         hasPositiveSignal: bucket.hasPositiveSignal,
       );
     }).toList()
@@ -294,7 +296,9 @@ class WeeklyRepository {
         bestAction: generated.bestAction,
         opportunitySnapshot: generated.opportunitySnapshot,
         feedbackSubmitted: generated.feedbackSubmitted,
-        chartData: generated.chartData.isNotEmpty ? generated.chartData : stats.chartData,
+        chartData: generated.chartData.isNotEmpty
+            ? generated.chartData
+            : stats.chartData,
       );
     }
 
@@ -323,7 +327,9 @@ class WeeklyRepository {
             'summary': '现在更适合先继续收集线索，等轮廓再清楚一点，再判断值不值得进一步整理。',
           },
       feedbackSubmitted: generated.feedbackSubmitted,
-      chartData: generated.chartData.isNotEmpty ? generated.chartData : stats.chartData,
+      chartData: generated.chartData.isNotEmpty
+          ? generated.chartData
+          : stats.chartData,
     );
   }
 
@@ -459,7 +465,8 @@ class WeeklyRepository {
     return '这周已经开始有线索冒出来了，不过现在更适合先轻轻看着。';
   }
 
-  List<dynamic> _lightenItems(List<dynamic> items, {required String fallbackName}) {
+  List<dynamic> _lightenItems(List<dynamic> items,
+      {required String fallbackName}) {
     if (items.isEmpty) {
       return [
         {
@@ -473,15 +480,13 @@ class WeeklyRepository {
       if (item is Map<String, dynamic>) {
         return {
           'name': (item['name'] as String?) ?? fallbackName,
-          'summary': (item['summary'] as String?) ??
-              '线索已经出现了，但还不适合下太重的判断。',
+          'summary': (item['summary'] as String?) ?? '线索已经出现了，但还不适合下太重的判断。',
         };
       }
       if (item is Map) {
         return {
           'name': (item['name']?.toString()) ?? fallbackName,
-          'summary': (item['summary']?.toString()) ??
-              '线索已经出现了，但还不适合下太重的判断。',
+          'summary': (item['summary']?.toString()) ?? '线索已经出现了，但还不适合下太重的判断。',
         };
       }
       return {

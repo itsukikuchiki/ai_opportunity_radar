@@ -2,6 +2,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/state/app_bootstrap_state.dart';
 import '../features/onboarding/onboarding_page.dart';
+import '../features/paywall/premium_gate_page.dart';
 import '../features/pages/me/me_page.dart';
 import '../features/pages/monthly/monthly_page.dart';
 import '../features/pages/memory/memory_page.dart';
@@ -61,25 +62,40 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       ),
       GoRoute(
         path: '${AppRoutes.todayDialog}/:captureId',
-        builder: (_, state) => TodayDialogPage(
-          captureId: state.pathParameters['captureId']!,
+        builder: (_, state) => PremiumGatePage(
+          source: 'Today dialogue',
+          child: TodayDialogPage(
+            captureId: state.pathParameters['captureId']!,
+          ),
         ),
       ),
       GoRoute(
         path: AppRoutes.deepWeekly,
-        builder: (_, __) => const DeepWeeklyPage(),
+        builder: (_, __) => const PremiumGatePage(
+          source: 'Deep Weekly',
+          child: DeepWeeklyPage(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.journal,
-        builder: (_, __) => const JournalPage(),
+        builder: (_, __) => const PremiumGatePage(
+          source: 'Journey journal',
+          child: JournalPage(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.monthly,
-        builder: (_, __) => const MonthlyPage(),
+        builder: (_, __) => const PremiumGatePage(
+          source: 'Monthly',
+          child: MonthlyPage(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.selfReview,
-        builder: (_, __) => const SelfReviewPage(),
+        builder: (_, __) => const PremiumGatePage(
+          source: 'Structured self-review',
+          child: SelfReviewPage(),
+        ),
       ),
       GoRoute(
         path: '${AppRoutes.opportunity}/:id',

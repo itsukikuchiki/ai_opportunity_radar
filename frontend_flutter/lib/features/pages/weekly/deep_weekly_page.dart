@@ -23,7 +23,8 @@ class DeepWeeklyPage extends StatelessWidget {
         ),
       ),
       body: FutureBuilder<DeepWeeklyModel>(
-        future: context.read<AppDependencies>().weeklyRepository.fetchDeepWeekly(),
+        future:
+            context.read<AppDependencies>().weeklyRepository.fetchDeepWeekly(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());

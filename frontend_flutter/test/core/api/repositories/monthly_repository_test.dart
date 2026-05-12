@@ -182,7 +182,8 @@ Future<_Harness> _createHarness({
 
   final repository = MonthlyRepository(
     localCaptureRepository: LocalCaptureRepository(localDatabase),
-    localMonthlySnapshotRepository: LocalMonthlySnapshotRepository(localDatabase),
+    localMonthlySnapshotRepository:
+        LocalMonthlySnapshotRepository(localDatabase),
     aiRepository: aiRepository,
     focusAreaLoader: () async => null,
     installationDateLoader: () async => installationDate,
@@ -218,9 +219,14 @@ class FakeMonthlyAiRepository extends AiRepository {
       status: 'ready',
       monthlySummary: 'This month keeps circling around work interruptions.',
       repeatedThemes: const ['Work interruptions keep returning.'],
-      improvingSignals: const ['Short recovery walks are helping a little more often.'],
-      unresolvedPoints: const ['Meeting-heavy days still drain energy quickly.'],
-      nextMonthWatch: 'Watch which situation triggers the first drop in energy.',
+      improvingSignals: const [
+        'Short recovery walks are helping a little more often.'
+      ],
+      unresolvedPoints: const [
+        'Meeting-heavy days still drain energy quickly.'
+      ],
+      nextMonthWatch:
+          'Watch which situation triggers the first drop in energy.',
       weeklyBridges: const [
         MonthlyBridgeWeekModel(
           label: 'Week 1',

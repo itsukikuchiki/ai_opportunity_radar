@@ -73,11 +73,13 @@ class LocalDatabase {
             await _addColumnIfNeeded(db, 'captures', 'ai_emotion TEXT');
             await _addColumnIfNeeded(db, 'captures', 'ai_intensity TEXT');
             await _addColumnIfNeeded(db, 'captures', 'ai_scene_tags_json TEXT');
-            await _addColumnIfNeeded(db, 'captures', 'ai_intent_tags_json TEXT');
+            await _addColumnIfNeeded(
+                db, 'captures', 'ai_intent_tags_json TEXT');
           }
 
           if (oldVersion < 5) {
-            await _addColumnIfNeeded(db, 'weekly_snapshots', 'chart_data_json TEXT');
+            await _addColumnIfNeeded(
+                db, 'weekly_snapshots', 'chart_data_json TEXT');
           }
 
           if (oldVersion < 6) {
@@ -173,7 +175,6 @@ class LocalDatabase {
         generated_at TEXT NOT NULL
       )
     ''');
-
 
     await db.execute('''
       CREATE TABLE monthly_snapshots (

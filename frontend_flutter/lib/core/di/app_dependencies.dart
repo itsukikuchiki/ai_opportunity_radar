@@ -64,10 +64,14 @@ class AppDependencies {
     await localDatabase.init();
 
     final localCaptureRepository = LocalCaptureRepository(localDatabase);
-    final localDailySnapshotRepository = LocalDailySnapshotRepository(localDatabase);
-    final localWeeklySnapshotRepository = LocalWeeklySnapshotRepository(localDatabase);
-    final localJourneySnapshotRepository = LocalJourneySnapshotRepository(localDatabase);
-    final localMonthlySnapshotRepository = LocalMonthlySnapshotRepository(localDatabase);
+    final localDailySnapshotRepository =
+        LocalDailySnapshotRepository(localDatabase);
+    final localWeeklySnapshotRepository =
+        LocalWeeklySnapshotRepository(localDatabase);
+    final localJourneySnapshotRepository =
+        LocalJourneySnapshotRepository(localDatabase);
+    final localMonthlySnapshotRepository =
+        LocalMonthlySnapshotRepository(localDatabase);
 
     final aiRepository = AiRepository(apiClient);
 

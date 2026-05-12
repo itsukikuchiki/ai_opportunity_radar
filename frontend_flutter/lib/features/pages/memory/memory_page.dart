@@ -5,10 +5,12 @@ import 'package:provider/provider.dart';
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/memory_models.dart';
+import '../../../core/purchases/purchase_controller.dart';
 import '../../../shared/states/load_state.dart';
 import '../../../shared/widgets/app_header.dart';
 import '../../../shared/widgets/empty_state_block.dart';
 import '../../../shared/widgets/section_header.dart';
+import '../../paywall/paywall_sheet.dart';
 import '../me/me_view_model.dart';
 import 'memory_view_model.dart';
 
@@ -82,15 +84,19 @@ class MemoryPage extends StatelessWidget {
                     ? AppLocaleText.tr(
                         context,
                         en: 'If you already have local entries today, Journey can still start showing right away. Otherwise, it will begin from day 2.',
-                        zhHans: '如果你今天已经留下本地记录，Journey 也可以立即开始展示；如果今天还没有记录，就会从第 2 天开始出现。',
-                        zhHant: '如果你今天已經留下本地記錄，Journey 也可以立即開始展示；如果今天還沒有記錄，就會從第 2 天開始出現。',
+                        zhHans:
+                            '如果你今天已经留下本地记录，Journey 也可以立即开始展示；如果今天还没有记录，就会从第 2 天开始出现。',
+                        zhHant:
+                            '如果你今天已經留下本地記錄，Journey 也可以立即開始展示；如果今天還沒有記錄，就會從第 2 天開始出現。',
                         ja: '今日すでにローカル記録があれば Journey はすぐ表示できます。まだ記録がなければ、2 日目から始まります。',
                       )
                     : AppLocaleText.tr(
                         context,
                         en: 'As more records accumulate, this page will begin sorting your long-term signals into weak signals, repeated patterns, and stable modes.',
-                        zhHans: '随着记录慢慢积累，这里会开始把长期线索分成：刚冒头的线索、已经重复的模式、以及开始稳定成形的倾向。',
-                        zhHant: '隨著記錄慢慢累積，這裡會開始把長期線索分成：剛冒頭的線索、已經重複的模式、以及開始穩定成形的傾向。',
+                        zhHans:
+                            '随着记录慢慢积累，这里会开始把长期线索分成：刚冒头的线索、已经重复的模式、以及开始稳定成形的倾向。',
+                        zhHant:
+                            '隨著記錄慢慢累積，這裡會開始把長期線索分成：剛冒頭的線索、已經重複的模式、以及開始穩定成形的傾向。',
                         ja: '記録が少しずつたまると、ここでは長期的な手がかりを「弱い signal」「繰り返している pattern」「安定し始めた mode」に分けて見られるようになります。',
                       ),
               ),
@@ -110,6 +116,7 @@ class _JourneyReadyBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final meVm = context.watch<MeViewModel>();
+    final purchase = context.watch<PurchaseController?>();
     final summary = vm.summary;
     final focusArea = meVm.selectedRepeatArea;
 
@@ -168,8 +175,12 @@ class _JourneyReadyBody extends StatelessWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: OutlinedButton.icon(
-            onPressed: () => context.go(AppRoutes.journal),
-            icon: const Icon(Icons.menu_book_outlined),
+            onPressed: () => _openJournal(context, purchase),
+            icon: Icon(
+              purchase?.isPremium ?? false
+                  ? Icons.menu_book_outlined
+                  : Icons.lock_outline,
+            ),
             label: Text(
               AppLocaleText.tr(
                 context,
@@ -186,6 +197,7 @@ class _JourneyReadyBody extends StatelessWidget {
           weakCount: weakSignals.length,
           repeatedCount: repeatedPatterns.length,
           stableCount: stableModes.length,
+          purchase: purchase,
         ),
         const SizedBox(height: 22),
         SectionHeader(
@@ -319,23 +331,59 @@ class _JourneyReadyBody extends StatelessWidget {
   String _focusAreaLabel(BuildContext context, String? value) {
     switch (value) {
       case 'work_tasks':
-        return AppLocaleText.tr(context, en: 'work and tasks', zhHans: '工作与任务', zhHant: '工作與任務', ja: '仕事とタスク');
+        return AppLocaleText.tr(context,
+            en: 'work and tasks',
+            zhHans: '工作与任务',
+            zhHant: '工作與任務',
+            ja: '仕事とタスク');
       case 'emotion_stress':
-        return AppLocaleText.tr(context, en: 'emotions and stress', zhHans: '情绪与压力', zhHant: '情緒與壓力', ja: '感情とストレス');
+        return AppLocaleText.tr(context,
+            en: 'emotions and stress',
+            zhHans: '情绪与压力',
+            zhHant: '情緒與壓力',
+            ja: '感情とストレス');
       case 'relationships':
-        return AppLocaleText.tr(context, en: 'relationships and interaction', zhHans: '关系与相处', zhHant: '關係與相處', ja: '人間関係と付き合い方');
+        return AppLocaleText.tr(context,
+            en: 'relationships and interaction',
+            zhHans: '关系与相处',
+            zhHant: '關係與相處',
+            ja: '人間関係と付き合い方');
       case 'time_rhythm':
-        return AppLocaleText.tr(context, en: 'time and daily rhythm', zhHans: '时间与生活节奏', zhHant: '時間與生活節奏', ja: '時間と生活リズム');
+        return AppLocaleText.tr(context,
+            en: 'time and daily rhythm',
+            zhHans: '时间与生活节奏',
+            zhHant: '時間與生活節奏',
+            ja: '時間と生活リズム');
       case 'health_body':
-        return AppLocaleText.tr(context, en: 'health and physical state', zhHans: '健康与身体状态', zhHant: '健康與身體狀態', ja: '健康と身体の状態');
+        return AppLocaleText.tr(context,
+            en: 'health and physical state',
+            zhHans: '健康与身体状态',
+            zhHant: '健康與身體狀態',
+            ja: '健康と身体の状態');
       case 'money_spending':
-        return AppLocaleText.tr(context, en: 'money and spending', zhHans: '金钱与消费', zhHant: '金錢與消費', ja: 'お金と消費');
+        return AppLocaleText.tr(context,
+            en: 'money and spending',
+            zhHans: '金钱与消费',
+            zhHant: '金錢與消費',
+            ja: 'お金と消費');
       case 'learning_growth_expression':
-        return AppLocaleText.tr(context, en: 'learning, growth, and expression', zhHans: '学习、成长与表达', zhHant: '學習、成長與表達', ja: '学び・成長・表現');
+        return AppLocaleText.tr(context,
+            en: 'learning, growth, and expression',
+            zhHans: '学习、成长与表达',
+            zhHant: '學習、成長與表達',
+            ja: '学び・成長・表現');
       case 'open':
-        return AppLocaleText.tr(context, en: 'whatever comes up', zhHans: '想到什么记什么', zhHant: '想到什麼記什麼', ja: '思いついたことから記録する');
+        return AppLocaleText.tr(context,
+            en: 'whatever comes up',
+            zhHans: '想到什么记什么',
+            zhHant: '想到什麼記什麼',
+            ja: '思いついたことから記録する');
       default:
-        return AppLocaleText.tr(context, en: 'your recent records', zhHans: '最近的记录', zhHant: '最近的記錄', ja: '最近の記録');
+        return AppLocaleText.tr(context,
+            en: 'your recent records',
+            zhHans: '最近的记录',
+            zhHant: '最近的記錄',
+            ja: '最近の記録');
     }
   }
 }
@@ -344,11 +392,13 @@ class _JourneyOverviewCard extends StatelessWidget {
   final int weakCount;
   final int repeatedCount;
   final int stableCount;
+  final PurchaseController? purchase;
 
   const _JourneyOverviewCard({
     required this.weakCount,
     required this.repeatedCount,
     required this.stableCount,
+    required this.purchase,
   });
 
   @override
@@ -378,23 +428,27 @@ class _JourneyOverviewCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            onPressed: () => context.go(AppRoutes.journal),
-            icon: const Icon(Icons.menu_book_outlined),
-            label: Text(
-              AppLocaleText.tr(
-                context,
-                en: 'Open journal view',
-                zhHans: '打开手帐视图',
-                zhHant: '打開手帳視圖',
-                ja: '手帳ビューを開く',
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () => _openJournal(context, purchase),
+              icon: Icon(
+                purchase?.isPremium ?? false
+                    ? Icons.menu_book_outlined
+                    : Icons.lock_outline,
+              ),
+              label: Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'Open journal view',
+                  zhHans: '打开手帐视图',
+                  zhHant: '打開手帳視圖',
+                  ja: '手帳ビューを開く',
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 14),
+          const SizedBox(height: 14),
           Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -435,6 +489,15 @@ class _JourneyOverviewCard extends StatelessWidget {
       ),
     );
   }
+}
+
+void _openJournal(BuildContext context, PurchaseController? purchase) {
+  if (purchase?.isPremium ?? false) {
+    context.go(AppRoutes.journal);
+    return;
+  }
+
+  showPremiumPaywall(context, source: 'Journey journal');
 }
 
 class _CountChip extends StatelessWidget {

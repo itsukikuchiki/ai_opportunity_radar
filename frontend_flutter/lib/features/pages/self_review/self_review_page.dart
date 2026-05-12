@@ -114,17 +114,29 @@ class SelfReviewPage extends StatelessWidget {
         if (review == null) return const [SizedBox.shrink()];
         return [
           _ReviewSection(
-            title: AppLocaleText.tr(context, en: 'What keeps blocking me lately', zhHans: '最近反复卡住我的是什么', zhHant: '最近反覆卡住我的是什麼', ja: '最近くり返し詰まりやすいもの'),
+            title: AppLocaleText.tr(context,
+                en: 'What keeps blocking me lately',
+                zhHans: '最近反复卡住我的是什么',
+                zhHant: '最近反覆卡住我的是什麼',
+                ja: '最近くり返し詰まりやすいもの'),
             items: review.repeatedBlockers,
           ),
           const SizedBox(height: 16),
           _ReviewSection(
-            title: AppLocaleText.tr(context, en: 'What drains me most lately', zhHans: '最近最消耗我的是什么', zhHant: '最近最消耗我的是什麼', ja: '最近いちばん消耗しやすいもの'),
+            title: AppLocaleText.tr(context,
+                en: 'What drains me most lately',
+                zhHans: '最近最消耗我的是什么',
+                zhHant: '最近最消耗我的是什麼',
+                ja: '最近いちばん消耗しやすいもの'),
             items: review.mainDrains,
           ),
           const SizedBox(height: 16),
           _ReviewSection(
-            title: AppLocaleText.tr(context, en: 'What is starting to help', zhHans: '最近开始有效的方式是什么', zhHant: '最近開始有效的方式是什麼', ja: '最近少し効き始めているもの'),
+            title: AppLocaleText.tr(context,
+                en: 'What is starting to help',
+                zhHans: '最近开始有效的方式是什么',
+                zhHant: '最近開始有效的方式是什麼',
+                ja: '最近少し効き始めているもの'),
             items: review.helpingPatterns,
           ),
           const SizedBox(height: 16),
@@ -135,8 +147,15 @@ class SelfReviewPage extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    AppLocaleText.tr(context, en: 'Closing note', zhHans: '收束一句', zhHant: '收束一句', ja: '最後に一言'),
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                    AppLocaleText.tr(context,
+                        en: 'Closing note',
+                        zhHans: '收束一句',
+                        zhHant: '收束一句',
+                        ja: '最後に一言'),
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 10),
                   Text(review.closingNote),
@@ -152,13 +171,28 @@ class SelfReviewPage extends StatelessWidget {
 
   String _preferenceText(BuildContext context, String? value) {
     final label = switch (value) {
-      'work_tasks' => AppLocaleText.tr(context, en: 'work and tasks', zhHans: '工作与任务', zhHant: '工作與任務', ja: '仕事とタスク'),
-      'emotion_stress' => AppLocaleText.tr(context, en: 'emotions and stress', zhHans: '情绪与压力', zhHant: '情緒與壓力', ja: '感情とストレス'),
-      'relationships' => AppLocaleText.tr(context, en: 'relationships', zhHans: '关系与相处', zhHant: '關係與相處', ja: '人間関係'),
-      'time_rhythm' => AppLocaleText.tr(context, en: 'time and rhythm', zhHans: '时间与节奏', zhHant: '時間與節奏', ja: '時間とリズム'),
-      _ => AppLocaleText.tr(context, en: 'current focus', zhHans: '当前关注', zhHant: '當前關注', ja: '今の注目'),
+      'work_tasks' => AppLocaleText.tr(context,
+          en: 'work and tasks', zhHans: '工作与任务', zhHant: '工作與任務', ja: '仕事とタスク'),
+      'emotion_stress' => AppLocaleText.tr(context,
+          en: 'emotions and stress',
+          zhHans: '情绪与压力',
+          zhHant: '情緒與壓力',
+          ja: '感情とストレス'),
+      'relationships' => AppLocaleText.tr(context,
+          en: 'relationships', zhHans: '关系与相处', zhHant: '關係與相處', ja: '人間関係'),
+      'time_rhythm' => AppLocaleText.tr(context,
+          en: 'time and rhythm',
+          zhHans: '时间与节奏',
+          zhHant: '時間與節奏',
+          ja: '時間とリズム'),
+      _ => AppLocaleText.tr(context,
+          en: 'current focus', zhHans: '当前关注', zhHant: '當前關注', ja: '今の注目'),
     };
-    return AppLocaleText.tr(context, en: 'Review angle: $label', zhHans: '梳理角度：$label', zhHant: '梳理角度：$label', ja: '見る角度：$label');
+    return AppLocaleText.tr(context,
+        en: 'Review angle: $label',
+        zhHans: '梳理角度：$label',
+        zhHant: '梳理角度：$label',
+        ja: '見る角度：$label');
   }
 }
 

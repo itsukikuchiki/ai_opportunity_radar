@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
+import '../../../core/purchases/purchase_controller.dart';
+import '../../paywall/paywall_sheet.dart';
 import '../../../shared/widgets/section_header.dart';
 import 'me_view_model.dart';
 
@@ -14,6 +16,7 @@ class MePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final vm = context.watch<MeViewModel>();
+    final purchase = context.watch<PurchaseController?>();
 
     return Scaffold(
       appBar: AppBar(
@@ -133,7 +136,24 @@ class MePage extends StatelessWidget {
                 zhHant: '修改',
                 ja: '変更',
               ),
-              onTap: vm.saving ? null : () => _showResponseStyleSheet(context, vm),
+              onTap: vm.saving
+                  ? null
+                  : () {
+                      if (purchase?.isPremium ?? false) {
+                        _showResponseStyleSheet(context, vm);
+                      } else {
+                        showPremiumPaywall(
+                          context,
+                          source: AppLocaleText.tr(
+                            context,
+                            en: 'AI response style',
+                            zhHans: 'AI 回应风格',
+                            zhHant: 'AI 回應風格',
+                            ja: 'AI の返答スタイル',
+                          ),
+                        );
+                      }
+                    },
               isBusy: vm.saving,
             ),
             const SizedBox(height: 12),
@@ -163,7 +183,8 @@ class MePage extends StatelessWidget {
               ),
             ),
           ],
-
+          const SizedBox(height: 24),
+          _PremiumStatusCard(purchase: purchase),
           const SizedBox(height: 24),
           SectionHeader(
             title: AppLocaleText.tr(
@@ -198,7 +219,7 @@ class MePage extends StatelessWidget {
               zhHant: '把這個月當作一條更長的曲線來看，而不是幾週分開看。',
               ja: '週ごとではなく、一か月を一本の流れとして見ます。',
             ),
-            value: AppLocaleText.tr(context, en: 'Open', zhHans: '打开', zhHant: '打開', ja: '開く'),
+            value: _premiumActionText(context, purchase),
             helper: AppLocaleText.tr(
               context,
               en: 'Monthly is a slower layer above Weekly, focused on repeated themes, improving signals, and what is still unresolved.',
@@ -206,8 +227,13 @@ class MePage extends StatelessWidget {
               zhHant: 'Monthly 是在 Weekly 之上的更慢一層，主要看反覆主題、改善中的線索，以及還沒解開的點。',
               ja: 'Monthly は Weekly より少し遅い層で、繰り返すテーマ、良くなりつつある手がかり、まだ残っている点を見ます。',
             ),
-            actionLabel: AppLocaleText.tr(context, en: 'Open', zhHans: '打开', zhHant: '打開', ja: '開く'),
-            onTap: () => context.go(AppRoutes.monthly),
+            actionLabel: _premiumActionText(context, purchase),
+            onTap: () => _openPremiumFeature(
+              context,
+              purchase,
+              source: 'Monthly',
+              route: AppRoutes.monthly,
+            ),
             isBusy: false,
           ),
           const SizedBox(height: 12),
@@ -227,7 +253,7 @@ class MePage extends StatelessWidget {
               zhHant: '把最近的線索收成三個更利於判斷的問題。',
               ja: '最近の手がかりを、少し絞った三つの問いとして見直します。',
             ),
-            value: AppLocaleText.tr(context, en: 'Open', zhHans: '打开', zhHant: '打開', ja: '開く'),
+            value: _premiumActionText(context, purchase),
             helper: AppLocaleText.tr(
               context,
               en: 'This review focuses on what keeps blocking you, what drains you most, and what is starting to help.',
@@ -235,12 +261,17 @@ class MePage extends StatelessWidget {
               zhHant: '這份梳理主要看：最近反覆卡住你的、最近最消耗你的、以及最近開始有效的方式。',
               ja: '最近くり返し詰まりやすいもの、いちばん消耗しやすいもの、少し効き始めているものに絞って見ます。',
             ),
-            actionLabel: AppLocaleText.tr(context, en: 'Open', zhHans: '打开', zhHant: '打開', ja: '開く'),
-            onTap: () => context.go(AppRoutes.selfReview),
+            actionLabel: _premiumActionText(context, purchase),
+            onTap: () => _openPremiumFeature(
+              context,
+              purchase,
+              source: 'Structured self-review',
+              route: AppRoutes.selfReview,
+            ),
             isBusy: false,
           ),
-
-          if (vm.errorMessage != null && vm.errorMessage!.trim().isNotEmpty) ...[
+          if (vm.errorMessage != null &&
+              vm.errorMessage!.trim().isNotEmpty) ...[
             const SizedBox(height: 16),
             Card(
               color: theme.colorScheme.errorContainer,
@@ -258,6 +289,32 @@ class MePage extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _premiumActionText(
+    BuildContext context,
+    PurchaseController? purchase,
+  ) {
+    if (purchase?.isPremium ?? false) {
+      return AppLocaleText.tr(context,
+          en: 'Open', zhHans: '打开', zhHant: '打開', ja: '開く');
+    }
+    return AppLocaleText.tr(context,
+        en: 'Pro', zhHans: 'Pro', zhHant: 'Pro', ja: 'Pro');
+  }
+
+  void _openPremiumFeature(
+    BuildContext context,
+    PurchaseController? purchase, {
+    required String source,
+    required String route,
+  }) {
+    if (purchase?.isPremium ?? false) {
+      context.go(route);
+      return;
+    }
+
+    showPremiumPaywall(context, source: source);
   }
 
   Future<void> _showFocusAreaSheet(BuildContext context, MeViewModel vm) async {
@@ -300,12 +357,13 @@ class MePage extends StatelessWidget {
     );
   }
 
-
-  Future<void> _showResponseStyleSheet(BuildContext context, MeViewModel vm) async {
+  Future<void> _showResponseStyleSheet(
+      BuildContext context, MeViewModel vm) async {
     final selected = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
-      builder: (_) => _ResponseStylePickerSheet(currentValue: vm.selectedResponseStyle),
+      builder: (_) =>
+          _ResponseStylePickerSheet(currentValue: vm.selectedResponseStyle),
     );
 
     if (selected == null || selected == vm.selectedResponseStyle) return;
@@ -339,12 +397,15 @@ class MePage extends StatelessWidget {
   String _responseStyleLabel(BuildContext context, String? value) {
     switch (value) {
       case 'clear':
-        return AppLocaleText.tr(context, en: 'Clear', zhHans: '清晰', zhHant: '清晰', ja: 'クリア');
+        return AppLocaleText.tr(context,
+            en: 'Clear', zhHans: '清晰', zhHant: '清晰', ja: 'クリア');
       case 'direct':
-        return AppLocaleText.tr(context, en: 'Direct', zhHans: '直接', zhHant: '直接', ja: '率直');
+        return AppLocaleText.tr(context,
+            en: 'Direct', zhHans: '直接', zhHant: '直接', ja: '率直');
       case 'gentle':
       default:
-        return AppLocaleText.tr(context, en: 'Gentle', zhHans: '温和', zhHant: '溫和', ja: 'やわらかめ');
+        return AppLocaleText.tr(context,
+            en: 'Gentle', zhHans: '温和', zhHant: '溫和', ja: 'やわらかめ');
     }
   }
 
@@ -381,23 +442,59 @@ class MePage extends StatelessWidget {
   String _focusAreaLabel(BuildContext context, String? value) {
     switch (value) {
       case 'work_tasks':
-        return AppLocaleText.tr(context, en: 'Work and tasks', zhHans: '工作与任务', zhHant: '工作與任務', ja: '仕事とタスク');
+        return AppLocaleText.tr(context,
+            en: 'Work and tasks',
+            zhHans: '工作与任务',
+            zhHant: '工作與任務',
+            ja: '仕事とタスク');
       case 'emotion_stress':
-        return AppLocaleText.tr(context, en: 'Emotions and stress', zhHans: '情绪与压力', zhHant: '情緒與壓力', ja: '感情とストレス');
+        return AppLocaleText.tr(context,
+            en: 'Emotions and stress',
+            zhHans: '情绪与压力',
+            zhHant: '情緒與壓力',
+            ja: '感情とストレス');
       case 'relationships':
-        return AppLocaleText.tr(context, en: 'Relationships and interaction', zhHans: '关系与相处', zhHant: '關係與相處', ja: '人間関係と付き合い方');
+        return AppLocaleText.tr(context,
+            en: 'Relationships and interaction',
+            zhHans: '关系与相处',
+            zhHant: '關係與相處',
+            ja: '人間関係と付き合い方');
       case 'time_rhythm':
-        return AppLocaleText.tr(context, en: 'Time and daily rhythm', zhHans: '时间与生活节奏', zhHant: '時間與生活節奏', ja: '時間と生活リズム');
+        return AppLocaleText.tr(context,
+            en: 'Time and daily rhythm',
+            zhHans: '时间与生活节奏',
+            zhHant: '時間與生活節奏',
+            ja: '時間と生活リズム');
       case 'health_body':
-        return AppLocaleText.tr(context, en: 'Health and physical state', zhHans: '健康与身体状态', zhHant: '健康與身體狀態', ja: '健康と身体の状態');
+        return AppLocaleText.tr(context,
+            en: 'Health and physical state',
+            zhHans: '健康与身体状态',
+            zhHant: '健康與身體狀態',
+            ja: '健康と身体の状態');
       case 'money_spending':
-        return AppLocaleText.tr(context, en: 'Money and spending', zhHans: '金钱与消费', zhHant: '金錢與消費', ja: 'お金と消費');
+        return AppLocaleText.tr(context,
+            en: 'Money and spending',
+            zhHans: '金钱与消费',
+            zhHant: '金錢與消費',
+            ja: 'お金と消費');
       case 'learning_growth_expression':
-        return AppLocaleText.tr(context, en: 'Learning, growth, and expression', zhHans: '学习、成长与表达', zhHant: '學習、成長與表達', ja: '学び・成長・表現');
+        return AppLocaleText.tr(context,
+            en: 'Learning, growth, and expression',
+            zhHans: '学习、成长与表达',
+            zhHant: '學習、成長與表達',
+            ja: '学び・成長・表現');
       case 'open':
-        return AppLocaleText.tr(context, en: 'Keep it open for now', zhHans: '先不限定，想到什么记什么', zhHant: '先不限定，想到什麼記什麼', ja: 'まだ決めず、思いついたことから記録する');
+        return AppLocaleText.tr(context,
+            en: 'Keep it open for now',
+            zhHans: '先不限定，想到什么记什么',
+            zhHant: '先不限定，想到什麼記什麼',
+            ja: 'まだ決めず、思いついたことから記録する');
       default:
-        return AppLocaleText.tr(context, en: 'Not selected yet', zhHans: '还没有选定', zhHant: '還沒有選定', ja: 'まだ選ばれていません');
+        return AppLocaleText.tr(context,
+            en: 'Not selected yet',
+            zhHans: '还没有选定',
+            zhHant: '還沒有選定',
+            ja: 'まだ選ばれていません');
     }
   }
 
@@ -492,6 +589,112 @@ class MePage extends StatelessWidget {
   }
 }
 
+class _PremiumStatusCard extends StatelessWidget {
+  final PurchaseController? purchase;
+
+  const _PremiumStatusCard({
+    required this.purchase,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isPremium = purchase?.isPremium ?? false;
+
+    return Card(
+      color: isPremium
+          ? theme.colorScheme.primaryContainer
+          : theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              isPremium
+                  ? Icons.workspace_premium
+                  : Icons.workspace_premium_outlined,
+              color: isPremium
+                  ? theme.colorScheme.onPrimaryContainer
+                  : theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isPremium
+                        ? AppLocaleText.tr(
+                            context,
+                            en: 'Pro is active',
+                            zhHans: 'Pro 已开通',
+                            zhHant: 'Pro 已開通',
+                            ja: 'Pro が有効です',
+                          )
+                        : AppLocaleText.tr(
+                            context,
+                            en: 'Pro unlocks deeper reviews',
+                            zhHans: 'Pro 解锁更深层回看',
+                            zhHant: 'Pro 解鎖更深層回看',
+                            ja: 'Pro で深い振り返りを開く',
+                          ),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    isPremium
+                        ? AppLocaleText.tr(
+                            context,
+                            en: 'Monthly, Deep Weekly, journal view, self-review, and response style switching are available.',
+                            zhHans: 'Monthly、Deep Weekly、手帐视图、自我梳理和回应风格切换都已可用。',
+                            zhHant: 'Monthly、Deep Weekly、手帳視圖、自我梳理和回應風格切換都已可用。',
+                            ja: 'Monthly、Deep Weekly、手帳ビュー、Self-Review、返答スタイル切替が使えます。',
+                          )
+                        : AppLocaleText.tr(
+                            context,
+                            en: 'Monthly, Deep Weekly, journal view, self-review, and response style switching require Pro.',
+                            zhHans:
+                                'Monthly、Deep Weekly、手帐视图、自我梳理和回应风格切换需要 Pro。',
+                            zhHant:
+                                'Monthly、Deep Weekly、手帳視圖、自我梳理和回應風格切換需要 Pro。',
+                            ja: 'Monthly、Deep Weekly、手帳ビュー、Self-Review、返答スタイル切替には Pro が必要です。',
+                          ),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: isPremium
+                          ? theme.colorScheme.onPrimaryContainer
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (!isPremium)
+              TextButton(
+                onPressed: () => showPremiumPaywall(context, source: 'Pro'),
+                child: Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Upgrade',
+                    zhHans: '升级',
+                    zhHant: '升級',
+                    ja: 'Upgrade',
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _EditablePreferenceCard extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -535,7 +738,9 @@ class _EditablePreferenceCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                Text(title,
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 4),
                 Text(
                   subtitle,
@@ -548,12 +753,14 @@ class _EditablePreferenceCard extends StatelessWidget {
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                    color: theme.colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.4),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Text(
                     value,
-                    style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -619,7 +826,9 @@ class _ReadonlyPreferenceCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                Text(title,
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 4),
                 Text(
                   subtitle,
@@ -632,12 +841,14 @@ class _ReadonlyPreferenceCard extends StatelessWidget {
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                    color: theme.colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.4),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Text(
                     value,
-                    style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -663,43 +874,107 @@ class _FocusAreaPickerSheet extends StatelessWidget {
     final options = <_FocusAreaOption>[
       _FocusAreaOption(
         value: 'work_tasks',
-        title: AppLocaleText.tr(context, en: 'Work and tasks', zhHans: '工作与任务', zhHant: '工作與任務', ja: '仕事とタスク'),
-        subtitle: AppLocaleText.tr(context, en: 'Progress, priorities, collaboration, communication, and repeated workflows', zhHans: '推进事情、安排优先级、合作沟通、反复消耗你的流程', zhHant: '推進事情、安排優先級、合作溝通、反覆消耗你的流程', ja: '物事の進め方、優先順位、協働や連絡、繰り返し消耗する流れ'),
+        title: AppLocaleText.tr(context,
+            en: 'Work and tasks',
+            zhHans: '工作与任务',
+            zhHant: '工作與任務',
+            ja: '仕事とタスク'),
+        subtitle: AppLocaleText.tr(context,
+            en: 'Progress, priorities, collaboration, communication, and repeated workflows',
+            zhHans: '推进事情、安排优先级、合作沟通、反复消耗你的流程',
+            zhHant: '推進事情、安排優先級、合作溝通、反覆消耗你的流程',
+            ja: '物事の進め方、優先順位、協働や連絡、繰り返し消耗する流れ'),
       ),
       _FocusAreaOption(
         value: 'emotion_stress',
-        title: AppLocaleText.tr(context, en: 'Emotions and stress', zhHans: '情绪与压力', zhHant: '情緒與壓力', ja: '感情とストレス'),
-        subtitle: AppLocaleText.tr(context, en: 'Frustration, hurt, joy, tension, and lingering feelings', zhHans: '烦躁、委屈、开心、紧绷，或者总放不下的时刻', zhHant: '煩躁、委屈、開心、緊繃，或者總放不下的時刻', ja: 'イライラ、しんどさ、うれしさ、張りつめた感じ、引きずる瞬間'),
+        title: AppLocaleText.tr(context,
+            en: 'Emotions and stress',
+            zhHans: '情绪与压力',
+            zhHant: '情緒與壓力',
+            ja: '感情とストレス'),
+        subtitle: AppLocaleText.tr(context,
+            en: 'Frustration, hurt, joy, tension, and lingering feelings',
+            zhHans: '烦躁、委屈、开心、紧绷，或者总放不下的时刻',
+            zhHant: '煩躁、委屈、開心、緊繃，或者總放不下的時刻',
+            ja: 'イライラ、しんどさ、うれしさ、張りつめた感じ、引きずる瞬間'),
       ),
       _FocusAreaOption(
         value: 'relationships',
-        title: AppLocaleText.tr(context, en: 'Relationships and interaction', zhHans: '关系与相处', zhHant: '關係與相處', ja: '人間関係と付き合い方'),
-        subtitle: AppLocaleText.tr(context, en: 'Family, friends, coworkers, partners, friction, and what matters to you', zhHans: '家人、朋友、同事、伴侣之间的互动、摩擦和在意', zhHant: '家人、朋友、同事、伴侶之間的互動、摩擦和在意', ja: '家族、友人、同僚、パートナーとのやり取り、摩擦、気になること'),
+        title: AppLocaleText.tr(context,
+            en: 'Relationships and interaction',
+            zhHans: '关系与相处',
+            zhHant: '關係與相處',
+            ja: '人間関係と付き合い方'),
+        subtitle: AppLocaleText.tr(context,
+            en: 'Family, friends, coworkers, partners, friction, and what matters to you',
+            zhHans: '家人、朋友、同事、伴侣之间的互动、摩擦和在意',
+            zhHant: '家人、朋友、同事、伴侶之間的互動、摩擦和在意',
+            ja: '家族、友人、同僚、パートナーとのやり取り、摩擦、気になること'),
       ),
       _FocusAreaOption(
         value: 'time_rhythm',
-        title: AppLocaleText.tr(context, en: 'Time and daily rhythm', zhHans: '时间与生活节奏', zhHant: '時間與生活節奏', ja: '時間と生活リズム'),
-        subtitle: AppLocaleText.tr(context, en: 'Commutes, routines, procrastination, rest, and interruptions', zhHans: '通勤、作息、拖延、休息不够，或者一天总被打断的地方', zhHant: '通勤、作息、拖延、休息不夠，或者一天總被打斷的地方', ja: '通勤、生活リズム、先延ばし、休めなさ、中断される場面'),
+        title: AppLocaleText.tr(context,
+            en: 'Time and daily rhythm',
+            zhHans: '时间与生活节奏',
+            zhHant: '時間與生活節奏',
+            ja: '時間と生活リズム'),
+        subtitle: AppLocaleText.tr(context,
+            en: 'Commutes, routines, procrastination, rest, and interruptions',
+            zhHans: '通勤、作息、拖延、休息不够，或者一天总被打断的地方',
+            zhHant: '通勤、作息、拖延、休息不夠，或者一天總被打斷的地方',
+            ja: '通勤、生活リズム、先延ばし、休めなさ、中断される場面'),
       ),
       _FocusAreaOption(
         value: 'health_body',
-        title: AppLocaleText.tr(context, en: 'Health and physical state', zhHans: '健康与身体状态', zhHant: '健康與身體狀態', ja: '健康と身体の状態'),
-        subtitle: AppLocaleText.tr(context, en: 'Fatigue, sleep, food, exercise, recovery, and body signals', zhHans: '疲惫、睡眠、饮食、运动、恢复感，或者身体给你的提醒', zhHant: '疲憊、睡眠、飲食、運動、恢復感，或者身體給你的提醒', ja: '疲れ、睡眠、食事、運動、回復感、身体からのサイン'),
+        title: AppLocaleText.tr(context,
+            en: 'Health and physical state',
+            zhHans: '健康与身体状态',
+            zhHant: '健康與身體狀態',
+            ja: '健康と身体の状態'),
+        subtitle: AppLocaleText.tr(context,
+            en: 'Fatigue, sleep, food, exercise, recovery, and body signals',
+            zhHans: '疲惫、睡眠、饮食、运动、恢复感，或者身体给你的提醒',
+            zhHant: '疲憊、睡眠、飲食、運動、恢復感，或者身體給你的提醒',
+            ja: '疲れ、睡眠、食事、運動、回復感、身体からのサイン'),
       ),
       _FocusAreaOption(
         value: 'money_spending',
-        title: AppLocaleText.tr(context, en: 'Money and spending', zhHans: '金钱与消费', zhHant: '金錢與消費', ja: 'お金と消費'),
-        subtitle: AppLocaleText.tr(context, en: 'Spending, habits, pressure, budgeting, and hesitant purchases', zhHans: '花销、消费习惯、金钱压力、预算安排，或者总让你犹豫的支出', zhHant: '花銷、消費習慣、金錢壓力、預算安排，或者總讓你猶豫的支出', ja: '支出、買い方の癖、お金のプレッシャー、予算、迷いやすい出費'),
+        title: AppLocaleText.tr(context,
+            en: 'Money and spending',
+            zhHans: '金钱与消费',
+            zhHant: '金錢與消費',
+            ja: 'お金と消費'),
+        subtitle: AppLocaleText.tr(context,
+            en: 'Spending, habits, pressure, budgeting, and hesitant purchases',
+            zhHans: '花销、消费习惯、金钱压力、预算安排，或者总让你犹豫的支出',
+            zhHant: '花銷、消費習慣、金錢壓力、預算安排，或者總讓你猶豫的支出',
+            ja: '支出、買い方の癖、お金のプレッシャー、予算、迷いやすい出費'),
       ),
       _FocusAreaOption(
         value: 'learning_growth_expression',
-        title: AppLocaleText.tr(context, en: 'Learning, growth, and expression', zhHans: '学习、成长与表达', zhHant: '學習、成長與表達', ja: '学び・成長・表現'),
-        subtitle: AppLocaleText.tr(context, en: 'Things you want to learn, express clearly, improve, or keep moving forward', zhHans: '想学的东西、想写清楚的内容、想变好的部分，或者一直在努力推进的方向', zhHant: '想學的東西、想寫清楚的內容、想變好的部分，或者一直在努力推進的方向', ja: '学びたいこと、言葉にしたいこと、伸ばしたい部分、少しずつ進めたい方向'),
+        title: AppLocaleText.tr(context,
+            en: 'Learning, growth, and expression',
+            zhHans: '学习、成长与表达',
+            zhHant: '學習、成長與表達',
+            ja: '学び・成長・表現'),
+        subtitle: AppLocaleText.tr(context,
+            en: 'Things you want to learn, express clearly, improve, or keep moving forward',
+            zhHans: '想学的东西、想写清楚的内容、想变好的部分，或者一直在努力推进的方向',
+            zhHant: '想學的東西、想寫清楚的內容、想變好的部分，或者一直在努力推進的方向',
+            ja: '学びたいこと、言葉にしたいこと、伸ばしたい部分、少しずつ進めたい方向'),
       ),
       _FocusAreaOption(
         value: 'open',
-        title: AppLocaleText.tr(context, en: 'Keep it open for now', zhHans: '先不限定，想到什么记什么', zhHant: '先不限定，想到什麼記什麼', ja: 'まだ決めず、思いついたことから記録する'),
-        subtitle: AppLocaleText.tr(context, en: 'Capture what really happens first, and sort the direction out later', zhHans: '先把真实发生的事情留下来，之后再慢慢看它更接近哪些方向', zhHant: '先把真實發生的事情留下來，之後再慢慢看它更接近哪些方向', ja: 'まずは実際に起きたことを残して、方向はあとから少しずつ見ていく'),
+        title: AppLocaleText.tr(context,
+            en: 'Keep it open for now',
+            zhHans: '先不限定，想到什么记什么',
+            zhHant: '先不限定，想到什麼記什麼',
+            ja: 'まだ決めず、思いついたことから記録する'),
+        subtitle: AppLocaleText.tr(context,
+            en: 'Capture what really happens first, and sort the direction out later',
+            zhHans: '先把真实发生的事情留下来，之后再慢慢看它更接近哪些方向',
+            zhHant: '先把真實發生的事情留下來，之後再慢慢看它更接近哪些方向',
+            ja: 'まずは実際に起きたことを残して、方向はあとから少しずつ見ていく'),
       ),
     ];
 
@@ -754,13 +1029,16 @@ class _FocusAreaPickerSheet extends StatelessWidget {
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
                         color: selected
-                            ? theme.colorScheme.primaryContainer.withValues(alpha: 0.65)
-                            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.26),
+                            ? theme.colorScheme.primaryContainer
+                                .withValues(alpha: 0.65)
+                            : theme.colorScheme.surfaceContainerHighest
+                                .withValues(alpha: 0.26),
                         borderRadius: BorderRadius.circular(18),
                         border: Border.all(
                           color: selected
                               ? theme.colorScheme.primary
-                              : theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
+                              : theme.colorScheme.outlineVariant
+                                  .withValues(alpha: 0.55),
                           width: selected ? 1.6 : 1,
                         ),
                       ),
@@ -768,7 +1046,9 @@ class _FocusAreaPickerSheet extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Icon(
-                            selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                            selected
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_off,
                             color: selected
                                 ? theme.colorScheme.primary
                                 : theme.colorScheme.onSurfaceVariant,
@@ -815,7 +1095,6 @@ class _FocusAreaOption {
   });
 }
 
-
 class _ResponseStylePickerSheet extends StatelessWidget {
   final String? currentValue;
 
@@ -828,18 +1107,33 @@ class _ResponseStylePickerSheet extends StatelessWidget {
     final options = <_ResponseStyleOption>[
       _ResponseStyleOption(
         value: 'gentle',
-        title: AppLocaleText.tr(context, en: 'Gentle', zhHans: '温和', zhHant: '溫和', ja: 'やわらかめ'),
-        subtitle: AppLocaleText.tr(context, en: 'Softer and more companion-like', zhHans: '更柔和、更像陪伴', zhHant: '更柔和、更像陪伴', ja: 'やわらかく寄り添う感じ'),
+        title: AppLocaleText.tr(context,
+            en: 'Gentle', zhHans: '温和', zhHant: '溫和', ja: 'やわらかめ'),
+        subtitle: AppLocaleText.tr(context,
+            en: 'Softer and more companion-like',
+            zhHans: '更柔和、更像陪伴',
+            zhHant: '更柔和、更像陪伴',
+            ja: 'やわらかく寄り添う感じ'),
       ),
       _ResponseStyleOption(
         value: 'clear',
-        title: AppLocaleText.tr(context, en: 'Clear', zhHans: '清晰', zhHant: '清晰', ja: 'クリア'),
-        subtitle: AppLocaleText.tr(context, en: 'More structured and to the point', zhHans: '更有结构，更快到重点', zhHant: '更有結構，更快到重點', ja: '整理されていて要点が早い'),
+        title: AppLocaleText.tr(context,
+            en: 'Clear', zhHans: '清晰', zhHant: '清晰', ja: 'クリア'),
+        subtitle: AppLocaleText.tr(context,
+            en: 'More structured and to the point',
+            zhHans: '更有结构，更快到重点',
+            zhHant: '更有結構，更快到重點',
+            ja: '整理されていて要点が早い'),
       ),
       _ResponseStyleOption(
         value: 'direct',
-        title: AppLocaleText.tr(context, en: 'Direct', zhHans: '直接', zhHant: '直接', ja: '率直'),
-        subtitle: AppLocaleText.tr(context, en: 'Shorter and sharper', zhHans: '更短，更直接', zhHant: '更短，更直接', ja: '短く率直'),
+        title: AppLocaleText.tr(context,
+            en: 'Direct', zhHans: '直接', zhHant: '直接', ja: '率直'),
+        subtitle: AppLocaleText.tr(context,
+            en: 'Shorter and sharper',
+            zhHans: '更短，更直接',
+            zhHant: '更短，更直接',
+            ja: '短く率直'),
       ),
     ];
 
@@ -851,7 +1145,8 @@ class _ResponseStylePickerSheet extends StatelessWidget {
           final option = options[index];
           final selected = option.value == currentValue;
           return ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             title: Text(option.title),
             subtitle: Text(option.subtitle),
             trailing: selected ? const Icon(Icons.check_circle) : null,

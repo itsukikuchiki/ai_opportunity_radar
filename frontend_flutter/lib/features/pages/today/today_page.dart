@@ -5,9 +5,11 @@ import 'package:provider/provider.dart';
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/today_models.dart';
+import '../../../core/purchases/purchase_controller.dart';
 import '../../../shared/widgets/app_header.dart';
 import '../../../shared/widgets/empty_state_block.dart';
 import '../../../shared/widgets/section_header.dart';
+import '../../paywall/paywall_sheet.dart';
 import '../me/me_view_model.dart';
 import 'today_state.dart';
 import 'today_view_model.dart';
@@ -45,6 +47,7 @@ class _TodayPageState extends State<TodayPage> {
   Widget build(BuildContext context) {
     final vm = context.watch<TodayViewModel>();
     final meVm = context.watch<MeViewModel>();
+    final purchase = context.watch<PurchaseController?>();
     final state = vm.state;
     final todaySignals = _todayOnlySignals(state.recentSignals);
 
@@ -69,7 +72,8 @@ class _TodayPageState extends State<TodayPage> {
       }
     });
 
-    final observationText = _resolveObservationText(context, state, todaySignals);
+    final observationText =
+        _resolveObservationText(context, state, todaySignals);
     final tryNextText = _resolveTryNextText(context, state, todaySignals);
 
     return Scaffold(
@@ -129,9 +133,11 @@ class _TodayPageState extends State<TodayPage> {
             const SizedBox(height: 10),
             _TimelineList(
               signals: todaySignals,
-              onOpenDialog: (signal) => context.go(
-                '${AppRoutes.todayDialog}/${signal.id}',
-              ),
+              onOpenDialog: (signal) {
+                final captureId = signal.id;
+                if (captureId == null || captureId.trim().isEmpty) return;
+                _openTodayDialog(context, purchase, captureId);
+              },
             ),
           ],
           if (state.isInitialLoading) ...[
@@ -147,6 +153,19 @@ class _TodayPageState extends State<TodayPage> {
         ],
       ),
     );
+  }
+
+  void _openTodayDialog(
+    BuildContext context,
+    PurchaseController? purchase,
+    String captureId,
+  ) {
+    if (purchase?.isPremium ?? false) {
+      context.go('${AppRoutes.todayDialog}/$captureId');
+      return;
+    }
+
+    showPremiumPaywall(context, source: 'Today dialogue');
   }
 
   List<RecentSignalModel> _todayOnlySignals(List<RecentSignalModel> all) {
@@ -236,23 +255,56 @@ class _TodayPageState extends State<TodayPage> {
   String _focusAreaLabel(BuildContext context, String? value) {
     switch (value) {
       case 'work_tasks':
-        return AppLocaleText.tr(context, en: 'work and tasks', zhHans: '工作与任务', zhHant: '工作與任務', ja: '仕事とタスク');
+        return AppLocaleText.tr(context,
+            en: 'work and tasks',
+            zhHans: '工作与任务',
+            zhHant: '工作與任務',
+            ja: '仕事とタスク');
       case 'emotion_stress':
-        return AppLocaleText.tr(context, en: 'emotions and stress', zhHans: '情绪与压力', zhHant: '情緒與壓力', ja: '感情とストレス');
+        return AppLocaleText.tr(context,
+            en: 'emotions and stress',
+            zhHans: '情绪与压力',
+            zhHant: '情緒與壓力',
+            ja: '感情とストレス');
       case 'relationships':
-        return AppLocaleText.tr(context, en: 'relationships and interaction', zhHans: '关系与相处', zhHant: '關係與相處', ja: '人間関係と付き合い方');
+        return AppLocaleText.tr(context,
+            en: 'relationships and interaction',
+            zhHans: '关系与相处',
+            zhHant: '關係與相處',
+            ja: '人間関係と付き合い方');
       case 'time_rhythm':
-        return AppLocaleText.tr(context, en: 'time and daily rhythm', zhHans: '时间与生活节奏', zhHant: '時間與生活節奏', ja: '時間と生活リズム');
+        return AppLocaleText.tr(context,
+            en: 'time and daily rhythm',
+            zhHans: '时间与生活节奏',
+            zhHant: '時間與生活節奏',
+            ja: '時間と生活リズム');
       case 'health_body':
-        return AppLocaleText.tr(context, en: 'health and physical state', zhHans: '健康与身体状态', zhHant: '健康與身體狀態', ja: '健康と身体の状態');
+        return AppLocaleText.tr(context,
+            en: 'health and physical state',
+            zhHans: '健康与身体状态',
+            zhHant: '健康與身體狀態',
+            ja: '健康と身体の状態');
       case 'money_spending':
-        return AppLocaleText.tr(context, en: 'money and spending', zhHans: '金钱与消费', zhHant: '金錢與消費', ja: 'お金と消費');
+        return AppLocaleText.tr(context,
+            en: 'money and spending',
+            zhHans: '金钱与消费',
+            zhHant: '金錢與消費',
+            ja: 'お金と消費');
       case 'learning_growth_expression':
-        return AppLocaleText.tr(context, en: 'learning, growth, and expression', zhHans: '学习、成长与表达', zhHant: '學習、成長與表達', ja: '学び・成長・表現');
+        return AppLocaleText.tr(context,
+            en: 'learning, growth, and expression',
+            zhHans: '学习、成长与表达',
+            zhHant: '學習、成長與表達',
+            ja: '学び・成長・表現');
       case 'open':
-        return AppLocaleText.tr(context, en: 'whatever comes up', zhHans: '想到什么记什么', zhHant: '想到什麼記什麼', ja: '思いついたことから記録する');
+        return AppLocaleText.tr(context,
+            en: 'whatever comes up',
+            zhHans: '想到什么记什么',
+            zhHant: '想到什麼記什麼',
+            ja: '思いついたことから記録する');
       default:
-        return AppLocaleText.tr(context, en: 'not set yet', zhHans: '暂未设置', zhHant: '暫未設定', ja: '未設定');
+        return AppLocaleText.tr(context,
+            en: 'not set yet', zhHans: '暂未设置', zhHant: '暫未設定', ja: '未設定');
     }
   }
 
@@ -298,7 +350,8 @@ class _TodayPageState extends State<TodayPage> {
 
   String _todayDateText(BuildContext context) {
     final now = DateTime.now();
-    final languageCode = Localizations.localeOf(context).languageCode.toLowerCase();
+    final languageCode =
+        Localizations.localeOf(context).languageCode.toLowerCase();
 
     switch (languageCode) {
       case 'ja':
@@ -372,7 +425,8 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  String _fallbackObservation(BuildContext context, List<RecentSignalModel> signals) {
+  String _fallbackObservation(
+      BuildContext context, List<RecentSignalModel> signals) {
     if (signals.isEmpty) {
       return AppLocaleText.tr(
         context,
@@ -400,7 +454,8 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  String _fallbackSuggestion(BuildContext context, List<RecentSignalModel> signals) {
+  String _fallbackSuggestion(
+      BuildContext context, List<RecentSignalModel> signals) {
     if (signals.isEmpty) {
       return AppLocaleText.tr(
         context,
@@ -599,7 +654,8 @@ class _FollowupQuestionCard extends StatelessWidget {
             children: question.options
                 .map(
                   (option) => OutlinedButton(
-                    onPressed: isSubmitting ? null : () => onSubmit(option.value),
+                    onPressed:
+                        isSubmitting ? null : () => onSubmit(option.value),
                     child: Text(option.label),
                   ),
                 )

@@ -14,7 +14,8 @@ void main() {
   testWidgets('Today 页面会提交 follow-up 选项并清掉问题卡片', (tester) async {
     final repo = StubTodayRepository(
       fetchTodayResult: {
-        'insight': TodayInsightModel(text: 'A small thread is starting to show.'),
+        'insight':
+            TodayInsightModel(text: 'A small thread is starting to show.'),
         'pendingQuestion': FollowupQuestionModel(
           id: 'followup-1',
           question: 'Where did this friction show up most clearly?',

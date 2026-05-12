@@ -77,9 +77,8 @@ class RecentSignalModel {
   factory RecentSignalModel.fromJson(Map<String, dynamic> json) {
     return RecentSignalModel(
       id: json['id'] as String?,
-      content: (json['content'] as String?) ??
-          (json['summary'] as String?) ??
-          '',
+      content:
+          (json['content'] as String?) ?? (json['summary'] as String?) ?? '',
       createdAt: _parseDateTime(
         json['created_at'] ??
             json['createdAt'] ??
@@ -96,10 +95,9 @@ class RecentSignalModel {
           (json['tryNext'] as String?) ??
           (json['try_text'] as String?) ??
           (json['ai_try_next'] as String?),
-      emotion: (json['emotion'] as String?) ??
-          (json['ai_emotion'] as String?),
-      intensity: (json['intensity'] as String?) ??
-          (json['ai_intensity'] as String?),
+      emotion: (json['emotion'] as String?) ?? (json['ai_emotion'] as String?),
+      intensity:
+          (json['intensity'] as String?) ?? (json['ai_intensity'] as String?),
       sceneTags: _parseStringList(
         json['scene_tags'] ?? json['ai_scene_tags_json'],
       ),
@@ -215,7 +213,6 @@ class AiTodaySummaryResult {
     required this.suggestion,
   });
 }
-
 
 class LightDialogTurnModel {
   final String role;

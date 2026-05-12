@@ -28,8 +28,7 @@ class MonthlyRepository {
     final installationDate = await _readOrCreateInstallationDate();
     final today = _dateOnly(DateTime.now());
 
-    final isFirstMonth =
-        installationDate.year == today.year &&
+    final isFirstMonth = installationDate.year == today.year &&
         installationDate.month == today.month;
 
     final recentSignals =
@@ -79,7 +78,7 @@ class MonthlyRepository {
 
     MonthlyReviewModel generated;
     try {
-     generated = await aiRepository.generateMonthlyReview(
+      generated = await aiRepository.generateMonthlyReview(
         monthStart: monthStartKey,
         monthEnd: _dateKey(range.end),
         entries: stats.entries,
@@ -230,8 +229,9 @@ class MonthlyRepository {
     required _MonthRange range,
   }) {
     return MonthlyReviewModel(
-      monthStart:
-          generated.monthStart.isEmpty ? _dateKey(range.start) : generated.monthStart,
+      monthStart: generated.monthStart.isEmpty
+          ? _dateKey(range.start)
+          : generated.monthStart,
       monthEnd:
           generated.monthEnd.isEmpty ? _dateKey(range.end) : generated.monthEnd,
       status: generated.status.isEmpty ? 'ready' : generated.status,
@@ -248,8 +248,7 @@ class MonthlyRepository {
     required _MonthRange range,
     required _MonthlyStats stats,
   }) {
-    final topToken =
-        stats.topTokens.isEmpty ? '这个月的记录' : stats.topTokens.first;
+    final topToken = stats.topTokens.isEmpty ? '这个月的记录' : stats.topTokens.first;
 
     final bridgeItems = stats.weekCounts.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));

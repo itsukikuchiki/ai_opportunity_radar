@@ -25,8 +25,7 @@ class MeViewModel extends ChangeNotifier {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      selectedRepeatArea =
-          prefs.getString(repeatAreaPreferenceKey) ??
+      selectedRepeatArea = prefs.getString(repeatAreaPreferenceKey) ??
           prefs.getString(OnboardingViewModel.repeatAreaPreferenceKey) ??
           prefs.getString(fallbackRepeatAreaPreferenceKey);
       selectedResponseStyle =
@@ -40,7 +39,6 @@ class MeViewModel extends ChangeNotifier {
   }
 
   Future<void> reload() => load();
-
 
   Future<bool> updateResponseStyle(String value) async {
     saving = true;

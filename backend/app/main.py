@@ -6,6 +6,7 @@ from app.api.captures import router as captures_router
 from app.api.followups import router as followups_router
 from app.api.weekly import router as weekly_router
 from app.api.opportunities import router as opportunities_router
+from app.api.purchases import router as purchases_router
 from app.api.memory import router as memory_router
 from app.api.onboarding import router as onboarding_router
 from app.api.self_review import router as self_review_router
@@ -36,6 +37,7 @@ app.include_router(captures_router, prefix="/api/v1/captures", tags=["captures"]
 app.include_router(followups_router, prefix="/api/v1/followups", tags=["followups"])
 app.include_router(weekly_router, prefix="/api/v1/weekly", tags=["weekly"])
 app.include_router(opportunities_router, prefix="/api/v1/opportunities", tags=["opportunities"])
+app.include_router(purchases_router, prefix="/api/v1/purchases", tags=["purchases"])
 app.include_router(memory_router, prefix="/api/v1/memory", tags=["memory"])
 app.include_router(ai_router, prefix="/api/v1/ai", tags=["ai"])
 app.include_router(self_review_router, prefix="/api/v1/ai", tags=["self_review"])

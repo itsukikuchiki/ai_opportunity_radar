@@ -27,7 +27,8 @@ class MonthlyViewModel extends ChangeNotifier {
       if (monthly?.status == 'first_month_gate') {
         showFirstMonthGate = true;
         loadState = LoadState.empty;
-      } else if (monthly?.status == 'insufficient_data' || monthly?.status == 'not_started') {
+      } else if (monthly?.status == 'insufficient_data' ||
+          monthly?.status == 'not_started') {
         loadState = LoadState.empty;
       } else {
         loadState = LoadState.ready;

@@ -31,21 +31,15 @@ class AiRepository {
       final data = (res['data'] as Map<String, dynamic>?) ?? res;
 
       return AiCaptureReplyResult(
-        acknowledgement:
-            (data['acknowledgement'] as String?) ??
+        acknowledgement: (data['acknowledgement'] as String?) ??
             _styleText(_fallbackAcknowledgement(content), style),
-        observation:
-            (data['observation'] as String?) ??
+        observation: (data['observation'] as String?) ??
             _styleText(_fallbackSingleObservation(content), style),
-        tryNext:
-            (data['try_next'] as String?) ??
+        tryNext: (data['try_next'] as String?) ??
             _styleText(_fallbackSingleTryNext(content), style),
-        emotion:
-            (data['emotion'] as String?) ??
-            _fallbackEmotion(content),
+        emotion: (data['emotion'] as String?) ?? _fallbackEmotion(content),
         intensity:
-            (data['intensity'] as String?) ??
-            _fallbackIntensity(content),
+            (data['intensity'] as String?) ?? _fallbackIntensity(content),
         sceneTags: _parseStringList(data['scene_tags']),
         intentTags: _parseStringList(data['intent_tags']),
         followup: data['followup'] == null
@@ -282,15 +276,41 @@ class AiRepository {
       return DeepWeeklyModel.fromJson(data);
     } catch (_) {
       final topic = weekly.deriveTopicFocus();
+      final chartPoints = [...weekly.chartData]..sort(
+          (a, b) => a.date.compareTo(b.date),
+        );
+      WeeklyChartPointModel? peak;
+      WeeklyChartPointModel? low;
+      if (chartPoints.isNotEmpty) {
+        peak = chartPoints.reduce(
+          (a, b) => a.signalCount >= b.signalCount ? a : b,
+        );
+        low = chartPoints.reduce(
+          (a, b) => a.moodScore <= b.moodScore ? a : b,
+        );
+      }
+      final peakLabel = _shortDateLabel(peak?.date) ?? '这周某一天';
+      final lowLabel = _shortDateLabel(low?.date) ?? '这周某个低点';
       return DeepWeeklyModel(
-        summary: '${topic.reason} 这一周更像是同一种拉扯在不同场景里回来，而不是几件彼此无关的事。',
-        rootTension: '更深一层的 tension 往往不是单个事件，而是你想推进的方向和反复回来的摩擦点互相顶住。',
-        hiddenPattern: '把图和文字放在一起看，重点不是哪一天最糟，而是线索一密集时，同类问题也会一起浮上来。',
-        nextFocus: topic.nextWatch,
+        summary: '${topic.reason} Deep Weekly 更需要看的，是这些记录背后的同一种拉扯，而不是把免费版内容拉长。',
+        rootTension:
+            '更深一层的 tension 往往不是单个事件，而是你想推进的方向和反复回来的摩擦点互相顶住，导致每次都要重新找回节奏。',
+        hiddenPattern:
+            '把图和文字放在一起看，$peakLabel 是线索更密的节点，$lowLabel 更像状态低点。重点不是哪天最糟，而是压力聚集后你如何被拉走。',
+        nextFocus: '${topic.nextWatch} 下次再出现同类场景时，多记一句它发生在开始、推进中段，还是收尾阶段。',
         riskNote: '这份 deep weekly 适合帮你收窄观察面，不适合一次性下结论。',
-        keyNodes: [topic.headline],
+        keyNodes: [
+          topic.headline,
+          '线索密集点：$peakLabel',
+          '走势低点：$lowLabel',
+        ],
       );
     }
+  }
+
+  String? _shortDateLabel(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    return raw.length >= 10 && raw.contains('-') ? raw.substring(5) : raw;
   }
 
   String _normalizeResponseStyle(String? value) {
@@ -422,8 +442,7 @@ class AiRepository {
 
     if (entries.length == 1) {
       final first = entries.first;
-      return first.observation ??
-          '今天记录了 1 条。你已经开始把今天里真正触动你的事留了下来。';
+      return first.observation ?? '今天记录了 1 条。你已经开始把今天里真正触动你的事留了下来。';
     }
 
     final mixedCount = entries.where((e) => e.emotion == 'mixed').length;
@@ -449,8 +468,7 @@ class AiRepository {
 
     if (entries.length == 1) {
       final first = entries.first;
-      return first.tryNext ??
-          '如果同类事情今天再出现一次，再补记一条就可以。';
+      return first.tryNext ?? '如果同类事情今天再出现一次，再补记一条就可以。';
     }
 
     final workHeavy = entries.where((e) => e.sceneTags.contains('work')).length;
@@ -469,28 +487,89 @@ class AiRepository {
     final text = content.toLowerCase();
 
     final positiveKeywords = [
-      '开心', '高兴', '喜欢', '顺利', '放松', '舒服', '满足', '期待', '有成就感',
-      '轻松', '好吃', '快乐', '愉快', '安心', '踏实',
-      '嬉しい', '楽しい', 'よかった', '満足', '安心',
-      'happy', 'glad', 'good', 'great', 'relieved', 'nice',
+      '开心',
+      '高兴',
+      '喜欢',
+      '顺利',
+      '放松',
+      '舒服',
+      '满足',
+      '期待',
+      '有成就感',
+      '轻松',
+      '好吃',
+      '快乐',
+      '愉快',
+      '安心',
+      '踏实',
+      '嬉しい',
+      '楽しい',
+      'よかった',
+      '満足',
+      '安心',
+      'happy',
+      'glad',
+      'good',
+      'great',
+      'relieved',
+      'nice',
     ];
     final negativeKeywords = [
-      '烦', '累', '崩', '难受', '焦虑', '生气', '压力', '不想', '麻烦', '受不了',
-      '被打断', '烦躁', '委屈', '失控', '糟糕', '痛苦', '压抑',
-      'しんどい', 'つらい', '疲れた', 'イライラ', '不安', '最悪',
-      'annoyed', 'tired', 'upset', 'angry', 'anxious', 'stressed', 'frustrated',
+      '烦',
+      '累',
+      '崩',
+      '难受',
+      '焦虑',
+      '生气',
+      '压力',
+      '不想',
+      '麻烦',
+      '受不了',
+      '被打断',
+      '烦躁',
+      '委屈',
+      '失控',
+      '糟糕',
+      '痛苦',
+      '压抑',
+      'しんどい',
+      'つらい',
+      '疲れた',
+      'イライラ',
+      '不安',
+      '最悪',
+      'annoyed',
+      'tired',
+      'upset',
+      'angry',
+      'anxious',
+      'stressed',
+      'frustrated',
     ];
     final mixedMarkers = [
-      '但是', '但', '不过', '后来', '虽然', '又', '缓回来', '好了一点',
-      'けど', 'でも', 'そのあと',
-      'but', 'however', 'though', 'later',
+      '但是',
+      '但',
+      '不过',
+      '后来',
+      '虽然',
+      '又',
+      '缓回来',
+      '好了一点',
+      'けど',
+      'でも',
+      'そのあと',
+      'but',
+      'however',
+      'though',
+      'later',
     ];
 
     final hasPositive = positiveKeywords.any(text.contains);
     final hasNegative = negativeKeywords.any(text.contains);
     final hasMixedMarker = mixedMarkers.any(text.contains);
 
-    if ((hasPositive && hasNegative) || (hasMixedMarker && (hasPositive || hasNegative))) {
+    if ((hasPositive && hasNegative) ||
+        (hasMixedMarker && (hasPositive || hasNegative))) {
       return 'mixed';
     }
     if (hasNegative) return 'negative';
@@ -502,20 +581,44 @@ class AiRepository {
     final text = content.toLowerCase();
 
     final strongMarkers = [
-      '一直', '总是', '反复', '受不了', '崩了', '特别', '非常', '真的', '很烦', '很累',
-      'ずっと', 'かなり', '本当に', 'めちゃくちゃ',
-      'very', 'really', 'extremely',
+      '一直',
+      '总是',
+      '反复',
+      '受不了',
+      '崩了',
+      '特别',
+      '非常',
+      '真的',
+      '很烦',
+      '很累',
+      'ずっと',
+      'かなり',
+      '本当に',
+      'めちゃくちゃ',
+      'very',
+      'really',
+      'extremely',
     ];
     final mediumMarkers = [
-      '有点', '有一些', '有一点', '有些', '稍微',
-      'ちょっと', '少し',
-      'a bit', 'kind of', 'somewhat',
+      '有点',
+      '有一些',
+      '有一点',
+      '有些',
+      '稍微',
+      'ちょっと',
+      '少し',
+      'a bit',
+      'kind of',
+      'somewhat',
     ];
 
-    if (strongMarkers.any(text.contains) || content.contains('!') || content.contains('！')) {
+    if (strongMarkers.any(text.contains) ||
+        content.contains('!') ||
+        content.contains('！')) {
       return 'high';
     }
-    if (mediumMarkers.any(text.contains) || _fallbackEmotion(content) != 'neutral') {
+    if (mediumMarkers.any(text.contains) ||
+        _fallbackEmotion(content) != 'neutral') {
       return 'medium';
     }
     return 'low';
@@ -527,40 +630,129 @@ class AiRepository {
 
     bool hit(List<String> keywords) => keywords.any(text.contains);
 
-    if (hit(['上班', '开会', '同事', '老板', '需求', '任务', '公司', '工作', '邮件', '会议', '職場', '仕事', '会議', 'task', 'work', 'meeting', 'manager'])) {
+    if (hit([
+      '上班',
+      '开会',
+      '同事',
+      '老板',
+      '需求',
+      '任务',
+      '公司',
+      '工作',
+      '邮件',
+      '会议',
+      '職場',
+      '仕事',
+      '会議',
+      'task',
+      'work',
+      'meeting',
+      'manager'
+    ])) {
       scenes.add('work');
     }
-    if (hit(['通勤', '地铁', '电车', '路上', '回家路上', '出门', '満員電車', 'commute', 'train'])) {
+    if (hit(
+        ['通勤', '地铁', '电车', '路上', '回家路上', '出门', '満員電車', 'commute', 'train'])) {
       scenes.add('commute');
     }
-    if (hit(['朋友', '家人', '恋人', '关系', '聊天', '人間関係', 'family', 'friend', 'partner'])) {
+    if (hit([
+      '朋友',
+      '家人',
+      '恋人',
+      '关系',
+      '聊天',
+      '人間関係',
+      'family',
+      'friend',
+      'partner'
+    ])) {
       scenes.add('relationship');
     }
-    if (hit(['头疼', '困', '睡', '累', '身体', '胃', '不舒服', '健康', '体調', '眠い', 'body', 'health'])) {
+    if (hit([
+      '头疼',
+      '困',
+      '睡',
+      '累',
+      '身体',
+      '胃',
+      '不舒服',
+      '健康',
+      '体調',
+      '眠い',
+      'body',
+      'health'
+    ])) {
       scenes.add('body');
     }
-    if (hit(['花钱', '工资', '金钱', '消费', '买', '预算', 'お金', '支出', 'money', 'budget', 'spent'])) {
+    if (hit([
+      '花钱',
+      '工资',
+      '金钱',
+      '消费',
+      '买',
+      '预算',
+      'お金',
+      '支出',
+      'money',
+      'budget',
+      'spent'
+    ])) {
       scenes.add('money');
     }
-    if (hit(['休息', '放松', '睡觉', '午休', '恢复', '发呆', '散步', '休憩', 'rest', 'relax'])) {
+    if (hit(
+        ['休息', '放松', '睡觉', '午休', '恢复', '发呆', '散步', '休憩', 'rest', 'relax'])) {
       scenes.add('rest');
     }
-    if (hit(['完成', '做完', '推进', '成果', '达成', '有进展', '進んだ', '達成', 'finished', 'done'])) {
+    if (hit([
+      '完成',
+      '做完',
+      '推进',
+      '成果',
+      '达成',
+      '有进展',
+      '進んだ',
+      '達成',
+      'finished',
+      'done'
+    ])) {
       scenes.add('achievement');
     }
     if (hit(['怀疑自己', '自我否定', '不够好', '没做好', '担心自己', '自信がない', 'self doubt'])) {
       scenes.add('self_doubt');
     }
-    if (hit(['被打断', '重复', '麻烦', '卡住', '拖延', '琐事', '不顺', 'interrupted', 'blocked', 'friction'])) {
+    if (hit([
+      '被打断',
+      '重复',
+      '麻烦',
+      '卡住',
+      '拖延',
+      '琐事',
+      '不顺',
+      'interrupted',
+      'blocked',
+      'friction'
+    ])) {
       scenes.add('daily_friction');
     }
     if (hit(['在家', '回家', '房间', '家里', '家务', '家', '家で', 'home'])) {
       scenes.add('home');
     }
-    if (hit(['学习', '看书', '复习', '考试', '输出', '写作', '勉強', 'study', 'reading', 'writing'])) {
+    if (hit([
+      '学习',
+      '看书',
+      '复习',
+      '考试',
+      '输出',
+      '写作',
+      '勉強',
+      'study',
+      'reading',
+      'writing'
+    ])) {
       scenes.add('study');
     }
-    if (hit(['吃饭', '好吃', '逛', '买东西', '天气', '散步', '咖啡', '食べた', 'lunch', 'coffee'])) {
+    if (hit(
+        ['吃饭', '好吃', '逛', '买东西', '天气', '散步', '咖啡', '食べた', 'lunch', 'coffee'])) {
       scenes.add('daily_life');
     }
 
@@ -585,16 +777,13 @@ class AiRepository {
     }
     if (intents.isEmpty) intents.add('record');
 
-    if ([
-      '为什么', '是不是', '感觉', '好像', '也许', 'maybe', 'wonder', '気がする'
-    ].any(text.contains) &&
+    if (['为什么', '是不是', '感觉', '好像', '也许', 'maybe', 'wonder', '気がする']
+            .any(text.contains) &&
         !intents.contains('reflection')) {
       intents.add('reflection');
     }
 
-    if ([
-      '要不要', '决定', '算了', 'whether', 'decide', '決める'
-    ].any(text.contains) &&
+    if (['要不要', '决定', '算了', 'whether', 'decide', '決める'].any(text.contains) &&
         !intents.contains('decision')) {
       intents.add('decision');
     }

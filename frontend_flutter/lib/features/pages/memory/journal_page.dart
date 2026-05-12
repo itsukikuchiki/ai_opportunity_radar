@@ -23,7 +23,10 @@ class JournalPage extends StatelessWidget {
         ),
       ),
       body: FutureBuilder<List<RecentSignalModel>>(
-        future: context.read<AppDependencies>().localCaptureRepository.listRecentSignals(limit: 2000),
+        future: context
+            .read<AppDependencies>()
+            .localCaptureRepository
+            .listRecentSignals(limit: 2000),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -46,7 +49,8 @@ class JournalPage extends StatelessWidget {
           final groups = <String, List<RecentSignalModel>>{};
           for (final signal in signals) {
             final dt = signal.createdAt?.toLocal() ?? DateTime.now();
-            final key = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+            final key =
+                '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
             groups.putIfAbsent(key, () => []).add(signal);
           }
           final dayKeys = groups.keys.toList()..sort((a, b) => b.compareTo(a));
@@ -56,7 +60,9 @@ class JournalPage extends StatelessWidget {
             itemCount: dayKeys.length,
             itemBuilder: (context, index) {
               final key = dayKeys[index];
-              final items = groups[key]!..sort((a, b) => (a.createdAt ?? DateTime(2000)).compareTo(b.createdAt ?? DateTime(2000)));
+              final items = groups[key]!
+                ..sort((a, b) => (a.createdAt ?? DateTime(2000))
+                    .compareTo(b.createdAt ?? DateTime(2000)));
               return Padding(
                 padding: const EdgeInsets.only(bottom: 18),
                 child: Column(
@@ -79,22 +85,30 @@ class JournalPage extends StatelessWidget {
                                 children: [
                                   Text(
                                     _formatTime(signal.createdAt),
-                                    style: Theme.of(context).textTheme.labelMedium,
+                                    style:
+                                        Theme.of(context).textTheme.labelMedium,
                                   ),
                                   const SizedBox(height: 6),
                                   Text(signal.content),
-                                  if ((signal.acknowledgement ?? '').trim().isNotEmpty) ...[
+                                  if ((signal.acknowledgement ?? '')
+                                      .trim()
+                                      .isNotEmpty) ...[
                                     const SizedBox(height: 8),
                                     Text(
                                       signal.acknowledgement!,
-                                      style: Theme.of(context).textTheme.bodyMedium,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium,
                                     ),
                                   ],
-                                  if ((signal.tryNext ?? '').trim().isNotEmpty) ...[
+                                  if ((signal.tryNext ?? '')
+                                      .trim()
+                                      .isNotEmpty) ...[
                                     const SizedBox(height: 6),
                                     Text(
                                       '→ ${signal.tryNext!}',
-                                      style: Theme.of(context).textTheme.bodySmall,
+                                      style:
+                                          Theme.of(context).textTheme.bodySmall,
                                     ),
                                   ],
                                 ],

@@ -62,7 +62,8 @@ class OpportunityDetailModel {
       description: json['description'] as String?,
       maturity: json['maturity'] as String?,
       opportunityType: json['opportunity_type'] as String?,
-      totalScore: (score?['total'] as num?)?.toDouble() ?? (json['score_total'] as num?)?.toDouble(),
+      totalScore: (score?['total'] as num?)?.toDouble() ??
+          (json['score_total'] as num?)?.toDouble(),
       whyThisOpportunity: json['why_this_opportunity'] as String?,
       evidenceSummary: (json['evidence_summary'] as List?) ?? [],
       solutionFitExplanation: json['solution_fit_explanation'] as String?,
