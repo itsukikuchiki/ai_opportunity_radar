@@ -12,6 +12,8 @@ from app.schemas.purchase_schema import VerifyPurchaseRequest, VerifyPurchaseRes
 
 class PurchaseService:
     pro_monthly_product_id = "jp.sunrise.signalpath.pro.monthly"
+    pro_yearly_product_id = "jp.sunrise.signalpath.pro.yearly"
+    pro_product_ids = {pro_monthly_product_id, pro_yearly_product_id}
     production_verify_url = "https://buy.itunes.apple.com/verifyReceipt"
     sandbox_verify_url = "https://sandbox.itunes.apple.com/verifyReceipt"
 
@@ -19,7 +21,7 @@ class PurchaseService:
         product_id = payload.product_id.strip()
         verification_data = payload.verification_data.strip()
 
-        if product_id != self.pro_monthly_product_id:
+        if product_id not in self.pro_product_ids:
             return self._response(
                 verified=False,
                 product_id=product_id,

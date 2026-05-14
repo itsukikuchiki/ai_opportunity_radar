@@ -23,12 +23,19 @@ Future<void> showPremiumPaywall(
   );
 }
 
-class _PremiumPaywall extends StatelessWidget {
+class _PremiumPaywall extends StatefulWidget {
   final String source;
 
   const _PremiumPaywall({
     required this.source,
   });
+
+  @override
+  State<_PremiumPaywall> createState() => _PremiumPaywallState();
+}
+
+class _PremiumPaywallState extends State<_PremiumPaywall> {
+  String _selectedProductId = PurchaseController.proYearlyProductId;
 
   @override
   Widget build(BuildContext context) {
@@ -38,8 +45,9 @@ class _PremiumPaywall extends StatelessWidget {
     final pending = purchase?.purchasePending ?? false;
     final restoring = purchase?.restoring ?? false;
     final isPremium = purchase?.isPremium ?? false;
-    final price = purchase?.proMonthlyDisplayPrice ?? '\$0.99';
-    final storeReady = purchase?.canBuyPro ?? false;
+    final monthlyPrice = purchase?.proMonthlyDisplayPrice ?? '\$0.99';
+    final yearlyPrice = purchase?.proYearlyDisplayPrice ?? '\$9.99';
+    final selectedReady = purchase?.canBuyProduct(_selectedProductId) ?? false;
 
     return SafeArea(
       child: Padding(
@@ -77,7 +85,7 @@ class _PremiumPaywall extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              _subtitle(context, source),
+              _subtitle(context, widget.source),
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -159,10 +167,83 @@ class _PremiumPaywall extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
+            if (!isPremium) ...[
+              _PlanOption(
+                title: AppLocaleText.tr(
+                  context,
+                  en: 'Yearly',
+                  zhHans: '年付',
+                  zhHant: '年付',
+                  ja: '年額',
+                ),
+                subtitle: AppLocaleText.tr(
+                  context,
+                  en: 'Best for long-term reflection',
+                  zhHans: '更适合长期回看',
+                  zhHant: '更適合長期回看',
+                  ja: '長期の振り返りにおすすめ',
+                ),
+                price: AppLocaleText.tr(
+                  context,
+                  en: '$yearlyPrice / year',
+                  zhHans: '$yearlyPrice / 年',
+                  zhHant: '$yearlyPrice / 年',
+                  ja: '$yearlyPrice / 年',
+                ),
+                selected:
+                    _selectedProductId == PurchaseController.proYearlyProductId,
+                enabled: purchase?.proYearlyProduct != null,
+                badge: AppLocaleText.tr(
+                  context,
+                  en: 'Best value',
+                  zhHans: '更划算',
+                  zhHant: '更划算',
+                  ja: 'おすすめ',
+                ),
+                onTap: () {
+                  setState(() {
+                    _selectedProductId = PurchaseController.proYearlyProductId;
+                  });
+                },
+              ),
+              const SizedBox(height: 8),
+              _PlanOption(
+                title: AppLocaleText.tr(
+                  context,
+                  en: 'Monthly',
+                  zhHans: '月付',
+                  zhHant: '月付',
+                  ja: '月額',
+                ),
+                subtitle: AppLocaleText.tr(
+                  context,
+                  en: 'Flexible month-to-month access',
+                  zhHans: '按月灵活开通',
+                  zhHant: '按月彈性開通',
+                  ja: '月ごとに気軽に使う',
+                ),
+                price: AppLocaleText.tr(
+                  context,
+                  en: '$monthlyPrice / month',
+                  zhHans: '$monthlyPrice / 月',
+                  zhHant: '$monthlyPrice / 月',
+                  ja: '$monthlyPrice / 月',
+                ),
+                selected: _selectedProductId ==
+                    PurchaseController.proMonthlyProductId,
+                enabled: purchase?.proMonthlyProduct != null,
+                onTap: () {
+                  setState(() {
+                    _selectedProductId = PurchaseController.proMonthlyProductId;
+                  });
+                },
+              ),
+              const SizedBox(height: 14),
+            ],
             if (!isPremium)
               FilledButton.icon(
-                onPressed: storeReady && !loading && !pending
-                    ? () => purchase?.buyProMonthly()
+                onPressed: selectedReady && !loading && !pending
+                    ? () => purchase?.buyProProduct(_selectedProductId)
                     : null,
                 icon: pending || loading
                     ? const SizedBox.square(
@@ -173,10 +254,22 @@ class _PremiumPaywall extends StatelessWidget {
                 label: Text(
                   AppLocaleText.tr(
                     context,
-                    en: 'Start Pro - $price / month',
-                    zhHans: '开通 Pro - $price / 月',
-                    zhHant: '開通 Pro - $price / 月',
-                    ja: 'Pro を始める - $price / 月',
+                    en: _selectedProductId ==
+                            PurchaseController.proYearlyProductId
+                        ? 'Start Pro - $yearlyPrice / year'
+                        : 'Start Pro - $monthlyPrice / month',
+                    zhHans: _selectedProductId ==
+                            PurchaseController.proYearlyProductId
+                        ? '开通 Pro - $yearlyPrice / 年'
+                        : '开通 Pro - $monthlyPrice / 月',
+                    zhHant: _selectedProductId ==
+                            PurchaseController.proYearlyProductId
+                        ? '開通 Pro - $yearlyPrice / 年'
+                        : '開通 Pro - $monthlyPrice / 月',
+                    ja: _selectedProductId ==
+                            PurchaseController.proYearlyProductId
+                        ? 'Pro を始める - $yearlyPrice / 年'
+                        : 'Pro を始める - $monthlyPrice / 月',
                   ),
                 ),
               ),
@@ -270,6 +363,123 @@ class _PremiumPaywall extends StatelessWidget {
       zhHans: '$source 属于 Pro 的深度层，用来做更长周期的回看和追问。',
       zhHant: '$source 屬於 Pro 的深度層，用來做更長週期的回看和追問。',
       ja: '$source は、より深い振り返りとフォローアップのための Pro 機能です。',
+    );
+  }
+}
+
+class _PlanOption extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String price;
+  final String? badge;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _PlanOption({
+    required this.title,
+    required this.subtitle,
+    required this.price,
+    this.badge,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final borderColor =
+        selected ? theme.colorScheme.primary : theme.colorScheme.outlineVariant;
+    final foreground = enabled
+        ? theme.colorScheme.onSurface
+        : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.58);
+
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected
+              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.34)
+              : theme.colorScheme.surface,
+          border: Border.all(color: borderColor),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_unchecked,
+              color: enabled
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.45),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: foreground,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      if (badge != null) ...[
+                        const SizedBox(width: 8),
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            child: Text(
+                              badge!,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onPrimary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              price,
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: foreground,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

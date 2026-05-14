@@ -8,6 +8,11 @@ import '../api/api_client.dart';
 
 class PurchaseController extends ChangeNotifier {
   static const String proMonthlyProductId = 'jp.sunrise.signalpath.pro.monthly';
+  static const String proYearlyProductId = 'jp.sunrise.signalpath.pro.yearly';
+  static const Set<String> proProductIds = {
+    proMonthlyProductId,
+    proYearlyProductId,
+  };
   static const String premiumEntitlementKey = 'premium_entitlement_active';
   static const String entitlementProductIdKey =
       'premium_entitlement_product_id';
@@ -27,7 +32,7 @@ class PurchaseController extends ChangeNotifier {
   final bool _storeSupported;
 
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
-  ProductDetails? _proMonthlyProduct;
+  final Map<String, ProductDetails> _proProducts = {};
 
   bool loading = true;
   bool storeAvailable = false;
@@ -67,14 +72,24 @@ class PurchaseController extends ChangeNotifier {
     init();
   }
 
-  ProductDetails? get proMonthlyProduct => _proMonthlyProduct;
+  ProductDetails? get proMonthlyProduct => _proProducts[proMonthlyProductId];
 
-  String get proMonthlyDisplayPrice => _proMonthlyProduct?.price ?? '\$0.99';
+  ProductDetails? get proYearlyProduct => _proProducts[proYearlyProductId];
+
+  String get proMonthlyDisplayPrice => proMonthlyProduct?.price ?? '\$0.99';
+
+  String get proYearlyDisplayPrice => proYearlyProduct?.price ?? '\$9.99';
 
   bool get canBuyPro =>
       !isPremium &&
       storeAvailable &&
-      _proMonthlyProduct != null &&
+      _proProducts.isNotEmpty &&
+      !purchasePending;
+
+  bool canBuyProduct(String productId) =>
+      !isPremium &&
+      storeAvailable &&
+      _proProducts.containsKey(productId) &&
       !purchasePending;
 
   static bool get _platformSupportsStore {
@@ -115,18 +130,20 @@ class PurchaseController extends ChangeNotifier {
         return;
       }
 
-      final response = await _inAppPurchase.queryProductDetails({
-        proMonthlyProductId,
-      });
+      final response = await _inAppPurchase.queryProductDetails(proProductIds);
 
       if (response.error != null) {
         errorMessage = response.error!.message;
       }
 
       notFoundProductIds = response.notFoundIDs;
-      if (response.productDetails.isNotEmpty) {
-        _proMonthlyProduct = response.productDetails.first;
-      }
+      _proProducts
+        ..clear()
+        ..addEntries(
+          response.productDetails.map((product) {
+            return MapEntry(product.id, product);
+          }),
+        );
     } catch (e) {
       errorMessage = e.toString();
     } finally {
@@ -136,13 +153,21 @@ class PurchaseController extends ChangeNotifier {
   }
 
   Future<void> buyProMonthly() async {
+    await buyProProduct(proMonthlyProductId);
+  }
+
+  Future<void> buyProYearly() async {
+    await buyProProduct(proYearlyProductId);
+  }
+
+  Future<void> buyProProduct(String productId) async {
     errorMessage = null;
 
-    if (_proMonthlyProduct == null) {
+    if (!_proProducts.containsKey(productId)) {
       await init();
     }
 
-    final product = _proMonthlyProduct;
+    final product = _proProducts[productId];
     if (product == null) {
       errorMessage = 'Premium product is not available from the store yet.';
       notifyListeners();
@@ -195,7 +220,7 @@ class PurchaseController extends ChangeNotifier {
     List<PurchaseDetails> purchases,
   ) async {
     for (final purchase in purchases) {
-      if (purchase.productID != proMonthlyProductId) {
+      if (!proProductIds.contains(purchase.productID)) {
         if (purchase.pendingCompletePurchase) {
           await _inAppPurchase.completePurchase(purchase);
         }

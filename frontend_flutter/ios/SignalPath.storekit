@@ -65,6 +65,34 @@
           "winbackOffers" : [
 
           ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "7F0B4F1D",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlock deeper reviews, journal view, self-review, and response style switching for a full year.",
+              "displayName" : "Signal Path Pro Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "jp.sunrise.signalpath.pro.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Yearly Pro",
+          "subscriptionGroupID" : "A7B8C9D0",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
         }
       ]
     }
