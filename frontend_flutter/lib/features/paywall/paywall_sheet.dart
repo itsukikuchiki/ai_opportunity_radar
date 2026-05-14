@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/i18n/app_locale_text.dart';
 import '../../core/purchases/purchase_controller.dart';
@@ -35,6 +36,13 @@ class _PremiumPaywall extends StatefulWidget {
 }
 
 class _PremiumPaywallState extends State<_PremiumPaywall> {
+  static final Uri _privacyPolicyUri = Uri.parse(
+    'https://itsukikuchiki.github.io/signalpath-support/',
+  );
+  static final Uri _termsOfUseUri = Uri.parse(
+    'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/',
+  );
+
   String _selectedProductId = PurchaseController.proYearlyProductId;
 
   @override
@@ -47,7 +55,11 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
     final isPremium = purchase?.isPremium ?? false;
     final monthlyPrice = purchase?.proMonthlyDisplayPrice ?? '\$0.99';
     final yearlyPrice = purchase?.proYearlyDisplayPrice ?? '\$9.99';
-    final selectedReady = purchase?.canBuyProduct(_selectedProductId) ?? false;
+    final effectiveProductId = _effectiveProductId(purchase);
+    final selectedReady = purchase?.canBuyProduct(effectiveProductId) ?? false;
+    final hasAnyPlan = purchase?.proYearlyProduct != null ||
+        purchase?.proMonthlyProduct != null;
+    final canRetryLoadPlans = purchase != null && !loading && !pending;
 
     return SafeArea(
       child: Padding(
@@ -171,10 +183,10 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
               _PlanOption(
                 title: AppLocaleText.tr(
                   context,
-                  en: 'Yearly',
-                  zhHans: '年付',
-                  zhHant: '年付',
-                  ja: '年額',
+                  en: 'Yearly Pro',
+                  zhHans: '年付 Pro',
+                  zhHant: '年付 Pro',
+                  ja: '年額 Pro',
                 ),
                 subtitle: AppLocaleText.tr(
                   context,
@@ -191,7 +203,7 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                   ja: '$yearlyPrice / 年',
                 ),
                 selected:
-                    _selectedProductId == PurchaseController.proYearlyProductId,
+                    effectiveProductId == PurchaseController.proYearlyProductId,
                 enabled: purchase?.proYearlyProduct != null,
                 badge: AppLocaleText.tr(
                   context,
@@ -210,10 +222,10 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
               _PlanOption(
                 title: AppLocaleText.tr(
                   context,
-                  en: 'Monthly',
-                  zhHans: '月付',
-                  zhHant: '月付',
-                  ja: '月額',
+                  en: 'Monthly Pro',
+                  zhHans: '月付 Pro',
+                  zhHant: '月付 Pro',
+                  ja: '月額 Pro',
                 ),
                 subtitle: AppLocaleText.tr(
                   context,
@@ -229,7 +241,7 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                   zhHant: '$monthlyPrice / 月',
                   ja: '$monthlyPrice / 月',
                 ),
-                selected: _selectedProductId ==
+                selected: effectiveProductId ==
                     PurchaseController.proMonthlyProductId,
                 enabled: purchase?.proMonthlyProduct != null,
                 onTap: () {
@@ -243,33 +255,25 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
             if (!isPremium)
               FilledButton.icon(
                 onPressed: selectedReady && !loading && !pending
-                    ? () => purchase?.buyProProduct(_selectedProductId)
-                    : null,
+                    ? () => purchase?.buyProProduct(effectiveProductId)
+                    : !hasAnyPlan && canRetryLoadPlans
+                        ? () => purchase.init()
+                        : null,
                 icon: pending || loading
                     ? const SizedBox.square(
                         dimension: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.lock_open_rounded),
+                    : !hasAnyPlan
+                        ? const Icon(Icons.refresh_rounded)
+                        : const Icon(Icons.lock_open_rounded),
                 label: Text(
-                  AppLocaleText.tr(
+                  _primaryButtonText(
                     context,
-                    en: _selectedProductId ==
-                            PurchaseController.proYearlyProductId
-                        ? 'Start Pro - $yearlyPrice / year'
-                        : 'Start Pro - $monthlyPrice / month',
-                    zhHans: _selectedProductId ==
-                            PurchaseController.proYearlyProductId
-                        ? '开通 Pro - $yearlyPrice / 年'
-                        : '开通 Pro - $monthlyPrice / 月',
-                    zhHant: _selectedProductId ==
-                            PurchaseController.proYearlyProductId
-                        ? '開通 Pro - $yearlyPrice / 年'
-                        : '開通 Pro - $monthlyPrice / 月',
-                    ja: _selectedProductId ==
-                            PurchaseController.proYearlyProductId
-                        ? 'Pro を始める - $yearlyPrice / 年'
-                        : 'Pro を始める - $monthlyPrice / 月',
+                    productId: effectiveProductId,
+                    hasAnyPlan: hasAnyPlan,
+                    yearlyPrice: yearlyPrice,
+                    monthlyPrice: monthlyPrice,
                   ),
                 ),
               ),
@@ -313,6 +317,11 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                   ),
                 ],
               ],
+            ),
+            const SizedBox(height: 4),
+            _LegalLinksRow(
+              onOpenPrivacy: () => _openLegalLink(_privacyPolicyUri),
+              onOpenTerms: () => _openLegalLink(_termsOfUseUri),
             ),
             if (purchase?.errorMessage != null) ...[
               const SizedBox(height: 8),
@@ -363,6 +372,105 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
       zhHans: '$source 属于 Pro 的深度层，用来做更长周期的回看和追问。',
       zhHant: '$source 屬於 Pro 的深度層，用來做更長週期的回看和追問。',
       ja: '$source は、より深い振り返りとフォローアップのための Pro 機能です。',
+    );
+  }
+
+  String _effectiveProductId(PurchaseController? purchase) {
+    if (purchase?.canBuyProduct(_selectedProductId) ?? false) {
+      return _selectedProductId;
+    }
+    if (purchase?.proYearlyProduct != null) {
+      return PurchaseController.proYearlyProductId;
+    }
+    if (purchase?.proMonthlyProduct != null) {
+      return PurchaseController.proMonthlyProductId;
+    }
+    return _selectedProductId;
+  }
+
+  String _primaryButtonText(
+    BuildContext context, {
+    required String productId,
+    required bool hasAnyPlan,
+    required String yearlyPrice,
+    required String monthlyPrice,
+  }) {
+    if (!hasAnyPlan) {
+      return AppLocaleText.tr(
+        context,
+        en: 'Reload purchase options',
+        zhHans: '重新加载购买选项',
+        zhHant: '重新載入購買選項',
+        ja: '購入オプションを再読み込み',
+      );
+    }
+
+    return AppLocaleText.tr(
+      context,
+      en: productId == PurchaseController.proYearlyProductId
+          ? 'Start Pro - $yearlyPrice / year'
+          : 'Start Pro - $monthlyPrice / month',
+      zhHans: productId == PurchaseController.proYearlyProductId
+          ? '开通 Pro - $yearlyPrice / 年'
+          : '开通 Pro - $monthlyPrice / 月',
+      zhHant: productId == PurchaseController.proYearlyProductId
+          ? '開通 Pro - $yearlyPrice / 年'
+          : '開通 Pro - $monthlyPrice / 月',
+      ja: productId == PurchaseController.proYearlyProductId
+          ? 'Pro を始める - $yearlyPrice / 年'
+          : 'Pro を始める - $monthlyPrice / 月',
+    );
+  }
+
+  Future<void> _openLegalLink(Uri uri) async {
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened) {
+      await launchUrl(uri, mode: LaunchMode.platformDefault);
+    }
+  }
+}
+
+class _LegalLinksRow extends StatelessWidget {
+  final VoidCallback onOpenPrivacy;
+  final VoidCallback onOpenTerms;
+
+  const _LegalLinksRow({
+    required this.onOpenPrivacy,
+    required this.onOpenTerms,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 0,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        TextButton(
+          onPressed: onOpenPrivacy,
+          child: Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Privacy Policy',
+              zhHans: '隐私政策',
+              zhHant: '隱私政策',
+              ja: 'プライバシーポリシー',
+            ),
+          ),
+        ),
+        TextButton(
+          onPressed: onOpenTerms,
+          child: Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Terms of Use (EULA)',
+              zhHans: '使用条款 (EULA)',
+              zhHant: '使用條款 (EULA)',
+              ja: '利用規約 (EULA)',
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
