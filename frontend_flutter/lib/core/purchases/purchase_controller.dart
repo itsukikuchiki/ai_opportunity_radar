@@ -167,7 +167,9 @@ class PurchaseController extends ChangeNotifier {
       await init();
     }
 
-    final product = _proProducts[productId];
+    final product = _proProducts[productId] ??
+        _proProducts[proYearlyProductId] ??
+        _proProducts[proMonthlyProductId];
     if (product == null) {
       errorMessage = 'Premium product is not available from the store yet.';
       notifyListeners();

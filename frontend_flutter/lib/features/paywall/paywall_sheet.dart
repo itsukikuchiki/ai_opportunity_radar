@@ -59,7 +59,7 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
     final selectedReady = purchase?.canBuyProduct(effectiveProductId) ?? false;
     final hasAnyPlan = purchase?.proYearlyProduct != null ||
         purchase?.proMonthlyProduct != null;
-    final canRetryLoadPlans = purchase != null && !loading && !pending;
+    final canStartPurchase = purchase != null && !pending;
 
     return SafeArea(
       child: Padding(
@@ -204,7 +204,7 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                 ),
                 selected:
                     effectiveProductId == PurchaseController.proYearlyProductId,
-                enabled: purchase?.proYearlyProduct != null,
+                enabled: true,
                 badge: AppLocaleText.tr(
                   context,
                   en: 'Best value',
@@ -243,7 +243,7 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                 ),
                 selected: effectiveProductId ==
                     PurchaseController.proMonthlyProductId,
-                enabled: purchase?.proMonthlyProduct != null,
+                enabled: true,
                 onTap: () {
                   setState(() {
                     _selectedProductId = PurchaseController.proMonthlyProductId;
@@ -254,17 +254,15 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
             ],
             if (!isPremium)
               FilledButton.icon(
-                onPressed: selectedReady && !loading && !pending
-                    ? () => purchase?.buyProProduct(effectiveProductId)
-                    : !hasAnyPlan && canRetryLoadPlans
-                        ? () => purchase.init()
-                        : null,
-                icon: pending || loading
+                onPressed: canStartPurchase
+                    ? () => purchase.buyProProduct(effectiveProductId)
+                    : null,
+                icon: pending
                     ? const SizedBox.square(
                         dimension: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : !hasAnyPlan
+                    : !selectedReady || loading || !hasAnyPlan
                         ? const Icon(Icons.refresh_rounded)
                         : const Icon(Icons.lock_open_rounded),
                 label: Text(
