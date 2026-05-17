@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
@@ -41,6 +43,7 @@ class _RadarAppState extends State<RadarApp> {
   SelfReviewViewModel? _selfReviewViewModel;
   MeViewModel? _meViewModel;
   PurchaseController? _purchaseController;
+  bool _trackedAppOpen = false;
 
   @override
   void initState() {
@@ -55,15 +58,25 @@ class _RadarAppState extends State<RadarApp> {
     _dependencies = dependencies;
     _onboardingViewModel = OnboardingViewModel(dependencies.apiClient);
     _todayViewModel = TodayViewModel(dependencies.todayRepository);
-    _weeklyViewModel = WeeklyViewModel(dependencies.weeklyRepository);
+    _weeklyViewModel = WeeklyViewModel(
+      dependencies.weeklyRepository,
+      analyticsRepository: dependencies.analyticsRepository,
+    );
     _opportunityDetailViewModel =
         OpportunityDetailViewModel(dependencies.opportunityRepository);
-    _memoryViewModel = MemoryViewModel(dependencies.memoryRepository);
+    _memoryViewModel = MemoryViewModel(
+      dependencies.memoryRepository,
+      analyticsRepository: dependencies.analyticsRepository,
+    );
     _monthlyViewModel = MonthlyViewModel(dependencies.monthlyRepository);
     _selfReviewViewModel =
         SelfReviewViewModel(dependencies.selfReviewRepository);
     _meViewModel = MeViewModel();
     _purchaseController = PurchaseController(apiClient: dependencies.apiClient);
+    if (!_trackedAppOpen) {
+      _trackedAppOpen = true;
+      unawaited(dependencies.analyticsRepository.track('app_open'));
+    }
   }
 
   @override

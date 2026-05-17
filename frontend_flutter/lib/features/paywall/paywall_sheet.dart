@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/di/app_dependencies.dart';
 import '../../core/i18n/app_locale_text.dart';
 import '../../core/purchases/purchase_controller.dart';
 
@@ -11,6 +14,16 @@ Future<void> showPremiumPaywall(
   required String source,
 }) {
   final purchase = context.read<PurchaseController?>();
+  try {
+    unawaited(
+      context.read<AppDependencies>().analyticsRepository.track(
+        'paywall_open',
+        properties: {'source': source},
+      ),
+    );
+  } catch (_) {
+    // Some widget tests mount the paywall without the full app dependency graph.
+  }
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,

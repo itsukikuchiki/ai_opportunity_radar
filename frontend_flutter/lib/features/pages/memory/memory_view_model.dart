@@ -1,18 +1,23 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../core/api/repositories/analytics_repository.dart';
 import '../../../core/api/repositories/memory_repository.dart';
 import '../../../core/models/memory_models.dart';
 import '../../../shared/states/load_state.dart';
 
 class MemoryViewModel extends ChangeNotifier {
   final MemoryRepository repository;
+  final AnalyticsRepository? analyticsRepository;
 
   LoadState loadState = LoadState.initial;
   MemorySummaryModel? summary;
   String? errorMessage;
   bool showFirstDayGate = false;
 
-  MemoryViewModel(this.repository) {
+  MemoryViewModel(
+    this.repository, {
+    this.analyticsRepository,
+  }) {
     load();
   }
 
@@ -31,6 +36,16 @@ class MemoryViewModel extends ChangeNotifier {
       final result = await repository.fetchMemorySummaryResult();
       summary = result.summary;
       showFirstDayGate = result.isFirstDayGate;
+      await analyticsRepository?.track(
+        'journey_open',
+        properties: {
+          'status': result.isFirstDayGate
+              ? 'first_day_gate'
+              : summary?.hasAnySignals == true
+                  ? 'ready'
+                  : 'empty',
+        },
+      );
 
       if (showFirstDayGate) {
         loadState = LoadState.empty;
@@ -40,6 +55,10 @@ class MemoryViewModel extends ChangeNotifier {
         loadState = LoadState.ready;
       }
     } catch (e) {
+      await analyticsRepository?.track(
+        'journey_open',
+        properties: {'status': 'error'},
+      );
       errorMessage = e.toString();
       loadState = LoadState.error;
     }

@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../local/local_capture_repository.dart';
 import '../../local/local_daily_snapshot_repository.dart';
 import '../../models/today_models.dart';
+import 'analytics_repository.dart';
 import 'ai_repository.dart';
 
 typedef FocusAreaLoader = Future<String?> Function();
@@ -12,6 +13,7 @@ class TodayRepository {
   final LocalCaptureRepository localCaptureRepository;
   final LocalDailySnapshotRepository localDailySnapshotRepository;
   final AiRepository aiRepository;
+  final AnalyticsRepository? analyticsRepository;
   final FocusAreaLoader? focusAreaLoader;
   final ResponseStyleLoader? responseStyleLoader;
 
@@ -19,6 +21,7 @@ class TodayRepository {
     required this.localCaptureRepository,
     required this.localDailySnapshotRepository,
     required this.aiRepository,
+    this.analyticsRepository,
     this.focusAreaLoader,
     this.responseStyleLoader,
   });
@@ -80,6 +83,13 @@ class TodayRepository {
     final inserted = await localCaptureRepository.insertCapture(
       content: content,
       tagHint: tagHint,
+    );
+    await analyticsRepository?.track(
+      'entry_created',
+      properties: {
+        'content_length': content.trim().length,
+        'has_tag_hint': tagHint != null && tagHint.trim().isNotEmpty,
+      },
     );
 
     final focusArea = await _readFocusArea();

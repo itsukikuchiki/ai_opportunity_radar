@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../api/api_client.dart';
+import '../api/repositories/analytics_repository.dart';
 import '../api/repositories/ai_repository.dart';
 import '../api/repositories/memory_repository.dart';
 import '../api/repositories/monthly_repository.dart';
@@ -18,6 +21,7 @@ import '../local/local_weekly_snapshot_repository.dart';
 
 class AppDependencies {
   final ApiClient apiClient;
+  final AnalyticsRepository analyticsRepository;
   final AiRepository aiRepository;
   final TodayRepository todayRepository;
   final WeeklyRepository weeklyRepository;
@@ -34,6 +38,7 @@ class AppDependencies {
 
   AppDependencies({
     required this.apiClient,
+    required this.analyticsRepository,
     required this.aiRepository,
     required this.todayRepository,
     required this.weeklyRepository,
@@ -52,13 +57,19 @@ class AppDependencies {
   static Future<AppDependencies> create() async {
     final prefs = await SharedPreferences.getInstance();
 
+    var createdNewUser = false;
     var localUserId = prefs.getString('local_user_id');
     if (localUserId == null || localUserId.trim().isEmpty) {
       localUserId = const Uuid().v4();
       await prefs.setString('local_user_id', localUserId);
+      createdNewUser = true;
     }
 
     final apiClient = ApiClient(userId: localUserId);
+    final analyticsRepository = AnalyticsRepository(apiClient);
+    if (createdNewUser) {
+      unawaited(analyticsRepository.track('user_registered'));
+    }
 
     final localDatabase = LocalDatabase();
     await localDatabase.init();
@@ -77,6 +88,7 @@ class AppDependencies {
 
     return AppDependencies(
       apiClient: apiClient,
+      analyticsRepository: analyticsRepository,
       aiRepository: aiRepository,
       localDatabase: localDatabase,
       localCaptureRepository: localCaptureRepository,
@@ -88,6 +100,7 @@ class AppDependencies {
         localCaptureRepository: localCaptureRepository,
         localDailySnapshotRepository: localDailySnapshotRepository,
         aiRepository: aiRepository,
+        analyticsRepository: analyticsRepository,
       ),
       weeklyRepository: WeeklyRepository(
         localCaptureRepository: localCaptureRepository,

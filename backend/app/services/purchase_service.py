@@ -8,6 +8,7 @@ from urllib.error import URLError
 
 from app.core.config import settings
 from app.schemas.purchase_schema import VerifyPurchaseRequest, VerifyPurchaseResponse
+from app.services.analytics_service import AnalyticsService
 
 
 class PurchaseService:
@@ -17,19 +18,30 @@ class PurchaseService:
     production_verify_url = "https://buy.itunes.apple.com/verifyReceipt"
     sandbox_verify_url = "https://sandbox.itunes.apple.com/verifyReceipt"
 
-    def verify(self, payload: VerifyPurchaseRequest) -> VerifyPurchaseResponse:
+    def __init__(self, db=None):
+        self.db = db
+
+    def verify(
+        self,
+        payload: VerifyPurchaseRequest,
+        user_id: str | None = None,
+    ) -> VerifyPurchaseResponse:
         product_id = payload.product_id.strip()
         verification_data = payload.verification_data.strip()
 
         if product_id not in self.pro_product_ids:
-            return self._response(
+            return self._persist_response(
+                payload=payload,
+                user_id=user_id,
                 verified=False,
                 product_id=product_id,
                 reason="unexpected_product_id",
             )
 
         if not verification_data:
-            return self._response(
+            return self._persist_response(
+                payload=payload,
+                user_id=user_id,
                 verified=False,
                 product_id=product_id,
                 reason="missing_verification_data",
@@ -37,23 +49,29 @@ class PurchaseService:
 
         source = (payload.verification_source or "").lower()
         if "local" in source or self._looks_like_storekit_test_data(verification_data):
-            return self._response(
+            return self._persist_response(
+                payload=payload,
+                user_id=user_id,
                 verified=True,
                 product_id=product_id,
                 environment="local_storekit",
             )
 
         if not settings.app_store_shared_secret:
-            return self._response(
+            return self._persist_response(
+                payload=payload,
+                user_id=user_id,
                 verified=False,
                 product_id=product_id,
                 reason="missing_app_store_shared_secret",
             )
 
-        return self._verify_with_apple(
+        result = self._verify_with_apple(
             product_id=product_id,
             receipt_data=verification_data,
         )
+        self._persist(payload=payload, user_id=user_id, response=result)
+        return result
 
     def _verify_with_apple(
         self,
@@ -142,4 +160,41 @@ class PurchaseService:
             product_id=product_id,
             environment=environment,
             reason=reason,
+        )
+
+    def _persist_response(
+        self,
+        *,
+        payload: VerifyPurchaseRequest,
+        user_id: str | None,
+        verified: bool,
+        product_id: str,
+        environment: str | None = None,
+        reason: str | None = None,
+    ) -> VerifyPurchaseResponse:
+        response = self._response(
+            verified=verified,
+            product_id=product_id,
+            environment=environment,
+            reason=reason,
+        )
+        self._persist(payload=payload, user_id=user_id, response=response)
+        return response
+
+    def _persist(
+        self,
+        *,
+        payload: VerifyPurchaseRequest,
+        user_id: str | None,
+        response: VerifyPurchaseResponse,
+    ) -> None:
+        if self.db is None or not user_id:
+            return
+        AnalyticsService(self.db).upsert_subscription(
+            user_id=user_id,
+            product_id=response.product_id,
+            verified=response.verified,
+            environment=response.environment,
+            reason=response.reason,
+            transaction_date=payload.transaction_date,
         )

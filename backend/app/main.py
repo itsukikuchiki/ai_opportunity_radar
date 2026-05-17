@@ -10,6 +10,7 @@ from app.api.purchases import router as purchases_router
 from app.api.memory import router as memory_router
 from app.api.onboarding import router as onboarding_router
 from app.api.self_review import router as self_review_router
+from app.api.analytics import router as analytics_router
 from app.core.db import Base, engine
 import app.models  # noqa: F401
 
@@ -41,6 +42,7 @@ app.include_router(purchases_router, prefix="/api/v1/purchases", tags=["purchase
 app.include_router(memory_router, prefix="/api/v1/memory", tags=["memory"])
 app.include_router(ai_router, prefix="/api/v1/ai", tags=["ai"])
 app.include_router(self_review_router, prefix="/api/v1/ai", tags=["self_review"])
+app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["analytics"])
 
 
 @app.get("/health")

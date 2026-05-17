@@ -1,11 +1,13 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../core/api/repositories/weekly_repository.dart';
+import '../../../core/api/repositories/analytics_repository.dart';
 import '../../../core/models/weekly_models.dart';
 import '../../../shared/states/load_state.dart';
 
 class WeeklyViewModel extends ChangeNotifier {
   final WeeklyRepository repository;
+  final AnalyticsRepository? analyticsRepository;
 
   LoadState loadState = LoadState.initial;
   SubmitState feedbackSubmitState = SubmitState.idle;
@@ -13,7 +15,10 @@ class WeeklyViewModel extends ChangeNotifier {
   String? errorMessage;
   bool showFirstDayGate = false;
 
-  WeeklyViewModel(this.repository) {
+  WeeklyViewModel(
+    this.repository, {
+    this.analyticsRepository,
+  }) {
     load();
   }
 
@@ -29,6 +34,12 @@ class WeeklyViewModel extends ChangeNotifier {
 
     try {
       weeklyInsight = await repository.fetchCurrentWeekly();
+      await analyticsRepository?.track(
+        'weekly_open',
+        properties: {
+          'status': weeklyInsight?.status ?? 'unknown',
+        },
+      );
 
       if (weeklyInsight?.status == 'first_day_gate') {
         showFirstDayGate = true;
@@ -40,6 +51,10 @@ class WeeklyViewModel extends ChangeNotifier {
         loadState = LoadState.ready;
       }
     } catch (e) {
+      await analyticsRepository?.track(
+        'weekly_open',
+        properties: {'status': 'error'},
+      );
       errorMessage = e.toString();
       loadState = LoadState.error;
     }
@@ -61,6 +76,13 @@ class WeeklyViewModel extends ChangeNotifier {
       await repository.submitWeeklyFeedback(
         weekStart: weekly.weekStart,
         feedbackValue: value,
+      );
+      await analyticsRepository?.track(
+        'weekly_feedback',
+        properties: {
+          'week_start': weekly.weekStart,
+          'feedback_value': value,
+        },
       );
 
       feedbackSubmitState = SubmitState.success;

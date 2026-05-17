@@ -8,8 +8,10 @@ from app.models.opportunity import Opportunity
 from app.models.followup import FollowupQuestion, FollowupAnswer
 from app.models.weekly_insight import WeeklyInsight
 from app.models.experiment import Experiment
+from app.models.analytics import AnalyticsEvent, UserSubscription, AiUsage
 
 __all__ = [
     'User', 'UserProfile', 'Capture', 'RawMemory', 'Pattern', 'Friction', 'Desire',
-    'Opportunity', 'FollowupQuestion', 'FollowupAnswer', 'WeeklyInsight', 'Experiment'
+    'Opportunity', 'FollowupQuestion', 'FollowupAnswer', 'WeeklyInsight', 'Experiment',
+    'AnalyticsEvent', 'UserSubscription', 'AiUsage'
 ]
