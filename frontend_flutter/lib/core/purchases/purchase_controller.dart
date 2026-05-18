@@ -1,12 +1,16 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
 
 class PurchaseController extends ChangeNotifier {
+  static const MethodChannel _nativeStoreKitChannel =
+      MethodChannel('signalpath/storekit');
   static const String proMonthlyProductId = 'jp.sunrise.signalpath.pro.monthly';
   static const String proYearlyProductId = 'jp.sunrise.signalpath.pro.yearly';
   static const Set<String> proProductIds = {
@@ -34,6 +38,7 @@ class PurchaseController extends ChangeNotifier {
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
   Future<void>? _initFuture;
   final Map<String, ProductDetails> _proProducts = {};
+  final Set<String> _nativeStoreKitProductIds = {};
 
   bool loading = true;
   bool storeAvailable = false;
@@ -159,11 +164,66 @@ class PurchaseController extends ChangeNotifier {
             return MapEntry(product.id, product);
           }),
         );
+
+      if (_shouldUseNativeStoreKitFallback(response)) {
+        await _loadNativeStoreKitProducts();
+      }
     } catch (e) {
       errorMessage = e.toString();
+      await _loadNativeStoreKitProducts();
     } finally {
       loading = false;
       notifyListeners();
+    }
+  }
+
+  bool _shouldUseNativeStoreKitFallback(ProductDetailsResponse response) {
+    if (!_canUseNativeStoreKit) return false;
+    return response.productDetails.isEmpty || response.error != null;
+  }
+
+  bool get _canUseNativeStoreKit {
+    if (kIsWeb) return false;
+    return Platform.isIOS;
+  }
+
+  Future<void> _loadNativeStoreKitProducts() async {
+    if (!_canUseNativeStoreKit) return;
+
+    try {
+      final products = await _nativeStoreKitChannel.invokeListMethod<dynamic>(
+        'queryProducts',
+        {'ids': proProductIds.toList()},
+      );
+      if (products == null || products.isEmpty) {
+        return;
+      }
+
+      _nativeStoreKitProductIds.clear();
+      _proProducts
+        ..clear()
+        ..addEntries(products.map((item) {
+          final data = Map<String, dynamic>.from(item as Map);
+          final id = data['id'] as String;
+          _nativeStoreKitProductIds.add(id);
+          return MapEntry(
+            id,
+            ProductDetails(
+              id: id,
+              title: data['title'] as String? ?? id,
+              description: data['description'] as String? ?? '',
+              price: data['price'] as String? ?? '',
+              rawPrice: (data['rawPrice'] as num?)?.toDouble() ?? 0,
+              currencyCode: data['currencyCode'] as String? ?? '',
+            ),
+          );
+        }));
+      errorMessage = null;
+      notFoundProductIds = const [];
+    } on PlatformException catch (e) {
+      errorMessage = 'StoreKit fallback: ${e.message ?? e.code}';
+    } catch (e) {
+      errorMessage = 'StoreKit fallback: $e';
     }
   }
 
@@ -191,6 +251,11 @@ class PurchaseController extends ChangeNotifier {
       return;
     }
 
+    if (_nativeStoreKitProductIds.contains(product.id)) {
+      await _buyWithNativeStoreKit(product.id);
+      return;
+    }
+
     purchasePending = true;
     notifyListeners();
 
@@ -214,6 +279,35 @@ class PurchaseController extends ChangeNotifier {
     }
   }
 
+  Future<void> _buyWithNativeStoreKit(String productId) async {
+    purchasePending = true;
+    notifyListeners();
+
+    try {
+      final transaction = await _nativeStoreKitChannel.invokeMapMethod(
+        'purchase',
+        {'id': productId},
+      );
+      if (transaction == null) {
+        errorMessage = 'The store did not return a transaction.';
+        return;
+      }
+      await _activatePremiumFromNativeStoreKit(
+        Map<String, dynamic>.from(transaction),
+      );
+      errorMessage = null;
+    } on PlatformException catch (e) {
+      if (e.code != 'PURCHASE_CANCELLED') {
+        errorMessage = e.message ?? e.code;
+      }
+    } catch (e) {
+      errorMessage = e.toString();
+    } finally {
+      purchasePending = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> restorePurchases() async {
     restoring = true;
     errorMessage = null;
@@ -227,7 +321,24 @@ class PurchaseController extends ChangeNotifier {
     }
 
     try {
-      await _inAppPurchase.restorePurchases();
+      if (_canUseNativeStoreKit && _nativeStoreKitProductIds.isNotEmpty) {
+        final restored = await _nativeStoreKitChannel.invokeListMethod<dynamic>(
+          'restore',
+        );
+        final purchases = restored
+                ?.map((item) => Map<String, dynamic>.from(item as Map))
+                .where(
+                  (item) =>
+                      proProductIds.contains(item['productId'] as String?),
+                )
+                .toList() ??
+            const [];
+        if (purchases.isNotEmpty) {
+          await _activatePremiumFromNativeStoreKit(purchases.first);
+        }
+      } else {
+        await _inAppPurchase.restorePurchases();
+      }
     } catch (e) {
       errorMessage = e.toString();
     } finally {
@@ -302,6 +413,37 @@ class PurchaseController extends ChangeNotifier {
     entitlementVerificationSource = purchase.verificationData.source;
     entitlementTransactionDate = purchase.transactionDate;
 
+    await prefs.setString(entitlementProductIdKey, entitlementProductId!);
+    await prefs.setString(
+      entitlementVerificationDataKey,
+      entitlementVerificationData ?? '',
+    );
+    await prefs.setString(
+      entitlementVerificationSourceKey,
+      entitlementVerificationSource ?? '',
+    );
+    if (entitlementTransactionDate != null) {
+      await prefs.setString(
+        entitlementTransactionDateKey,
+        entitlementTransactionDate!,
+      );
+    }
+    await _verifyWithBackend(prefs);
+  }
+
+  Future<void> _activatePremiumFromNativeStoreKit(
+    Map<String, dynamic> transaction,
+  ) async {
+    isPremium = true;
+    entitlementProductId =
+        transaction['productId'] as String? ?? proMonthlyProductId;
+    entitlementVerificationData = transaction['verificationData'] as String?;
+    entitlementVerificationSource =
+        transaction['verificationSource'] as String? ?? 'storekit2';
+    entitlementTransactionDate = transaction['purchaseDate'] as String?;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(premiumEntitlementKey, true);
     await prefs.setString(entitlementProductIdKey, entitlementProductId!);
     await prefs.setString(
       entitlementVerificationDataKey,
