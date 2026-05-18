@@ -32,6 +32,7 @@ class PurchaseController extends ChangeNotifier {
   final bool _storeSupported;
 
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
+  Future<void>? _initFuture;
   final Map<String, ProductDetails> _proProducts = {};
 
   bool loading = true;
@@ -100,6 +101,20 @@ class PurchaseController extends ChangeNotifier {
   }
 
   Future<void> init() async {
+    final inFlight = _initFuture;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    _initFuture = _loadProducts();
+    try {
+      await _initFuture;
+    } finally {
+      _initFuture = null;
+    }
+  }
+
+  Future<void> _loadProducts() async {
     loading = true;
     errorMessage = null;
     notifyListeners();
@@ -180,9 +195,17 @@ class PurchaseController extends ChangeNotifier {
     notifyListeners();
 
     final purchaseParam = PurchaseParam(productDetails: product);
-    final started = await _inAppPurchase.buyNonConsumable(
-      purchaseParam: purchaseParam,
-    );
+    bool started;
+    try {
+      started = await _inAppPurchase.buyNonConsumable(
+        purchaseParam: purchaseParam,
+      );
+    } catch (e) {
+      purchasePending = false;
+      errorMessage = e.toString();
+      notifyListeners();
+      return;
+    }
 
     if (!started) {
       purchasePending = false;

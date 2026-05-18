@@ -72,7 +72,10 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
     final selectedReady = purchase?.canBuyProduct(effectiveProductId) ?? false;
     final hasAnyPlan = purchase?.proYearlyProduct != null ||
         purchase?.proMonthlyProduct != null;
-    final canStartPurchase = purchase != null && !pending;
+    final canStartPurchase =
+        purchase != null && !pending && !loading && hasAnyPlan && selectedReady;
+    final canReloadPlans =
+        purchase != null && !pending && !loading && !hasAnyPlan;
 
     return SafeArea(
       child: Padding(
@@ -269,7 +272,9 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
               FilledButton.icon(
                 onPressed: canStartPurchase
                     ? () => purchase.buyProProduct(effectiveProductId)
-                    : null,
+                    : canReloadPlans
+                        ? () => purchase.init()
+                        : null,
                 icon: pending
                     ? const SizedBox.square(
                         dimension: 18,
