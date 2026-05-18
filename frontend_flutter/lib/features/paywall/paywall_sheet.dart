@@ -72,10 +72,17 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
     final selectedReady = purchase?.canBuyProduct(effectiveProductId) ?? false;
     final hasAnyPlan = purchase?.proYearlyProduct != null ||
         purchase?.proMonthlyProduct != null;
-    final canStartPurchase =
-        purchase != null && !pending && !loading && hasAnyPlan && selectedReady;
-    final canReloadPlans =
-        purchase != null && !pending && !loading && !hasAnyPlan;
+    final canAttemptNativePurchase =
+        purchase?.canAttemptNativeStoreKitPurchase ?? false;
+    final canStartPurchase = purchase != null &&
+        !pending &&
+        !loading &&
+        (selectedReady || canAttemptNativePurchase);
+    final canReloadPlans = purchase != null &&
+        !pending &&
+        !loading &&
+        !hasAnyPlan &&
+        !canAttemptNativePurchase;
 
     return SafeArea(
       child: Padding(
@@ -280,14 +287,17 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                         dimension: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : !selectedReady || loading || !hasAnyPlan
-                        ? const Icon(Icons.refresh_rounded)
-                        : const Icon(Icons.lock_open_rounded),
+                    : canStartPurchase
+                        ? const Icon(Icons.lock_open_rounded)
+                        : !selectedReady || loading || !hasAnyPlan
+                            ? const Icon(Icons.refresh_rounded)
+                            : const Icon(Icons.lock_open_rounded),
                 label: Text(
                   _primaryButtonText(
                     context,
                     productId: effectiveProductId,
                     hasAnyPlan: hasAnyPlan,
+                    canAttemptNativePurchase: canAttemptNativePurchase,
                     yearlyPrice: yearlyPrice,
                     monthlyPrice: monthlyPrice,
                   ),
@@ -408,10 +418,11 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
     BuildContext context, {
     required String productId,
     required bool hasAnyPlan,
+    required bool canAttemptNativePurchase,
     required String yearlyPrice,
     required String monthlyPrice,
   }) {
-    if (!hasAnyPlan) {
+    if (!hasAnyPlan && !canAttemptNativePurchase) {
       return AppLocaleText.tr(
         context,
         en: 'Reload purchase options',

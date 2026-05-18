@@ -98,6 +98,9 @@ class PurchaseController extends ChangeNotifier {
       _proProducts.containsKey(productId) &&
       !purchasePending;
 
+  bool get canAttemptNativeStoreKitPurchase =>
+      !isPremium && storeAvailable && _canUseNativeStoreKit && !purchasePending;
+
   static bool get _platformSupportsStore {
     if (kIsWeb) return false;
     return defaultTargetPlatform == TargetPlatform.iOS ||
@@ -196,6 +199,7 @@ class PurchaseController extends ChangeNotifier {
         {'ids': proProductIds.toList()},
       );
       if (products == null || products.isEmpty) {
+        errorMessage = null;
         return;
       }
 
@@ -246,6 +250,10 @@ class PurchaseController extends ChangeNotifier {
         _proProducts[proYearlyProductId] ??
         _proProducts[proMonthlyProductId];
     if (product == null) {
+      if (_canUseNativeStoreKit) {
+        await _buyWithNativeStoreKit(productId);
+        return;
+      }
       errorMessage = 'Premium product is not available from the store yet.';
       notifyListeners();
       return;
