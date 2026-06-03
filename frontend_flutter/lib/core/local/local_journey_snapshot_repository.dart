@@ -71,6 +71,7 @@ class LocalJourneySnapshotRepository {
     required List<Map<String, dynamic>> entries,
     required List<String> topTokens,
     required int totalDays,
+    List<Map<String, dynamic>> experimentHistory = const [],
   }) {
     final buffer = StringBuffer();
 
@@ -85,6 +86,18 @@ class LocalJourneySnapshotRepository {
 
     for (final token in topTokens) {
       buffer.write('token:$token|');
+    }
+
+    for (final experiment in experimentHistory) {
+      buffer.write('experiment:');
+      buffer.write(experiment['id'] ?? '');
+      buffer.write('|');
+      buffer.write(experiment['status'] ?? '');
+      buffer.write('|');
+      buffer.write(experiment['feedback_text'] ?? '');
+      buffer.write('|');
+      buffer.write(experiment['updated_at'] ?? '');
+      buffer.write('||');
     }
 
     buffer.write('days:$totalDays');

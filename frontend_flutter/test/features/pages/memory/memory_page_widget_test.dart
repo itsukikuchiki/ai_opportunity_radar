@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -62,6 +63,17 @@ void main() {
 
     expect(find.byType(MemoryPage), findsOneWidget);
     expect(find.text('Journey'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.text('This period, start here'),
+      320,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('This period, start here'), findsOneWidget);
+    expect(find.text('One pattern'), findsOneWidget);
+    expect(find.text('One friction source'), findsOneWidget);
+    expect(find.text('One recovery clue'), findsOneWidget);
+    expect(find.text('Experiment feedback'), findsOneWidget);
+    expect(find.text('Next gentle adjustment'), findsOneWidget);
     expect(repo.fetchCallCount, 1);
   });
 
@@ -89,6 +101,6 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Journey starts on day 2'), findsOneWidget);
+    expect(find.text('Your Life Journey is forming'), findsOneWidget);
   });
 }

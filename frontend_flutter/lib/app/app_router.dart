@@ -8,11 +8,12 @@ import '../features/pages/monthly/monthly_page.dart';
 import '../features/pages/memory/memory_page.dart';
 import '../features/pages/opportunities/opportunity_detail_page.dart';
 import '../features/pages/self_review/self_review_page.dart';
+import '../features/pages/signal_library/signal_library_page.dart';
+import '../features/pages/today/today_diary_page.dart';
 import '../features/pages/today/today_dialog_page.dart';
 import '../features/pages/today/today_page.dart';
 import '../features/pages/weekly/deep_weekly_page.dart';
 import '../features/pages/weekly/weekly_page.dart';
-import '../features/pages/memory/journal_page.dart';
 import '../features/shell/home_shell_page.dart';
 
 class AppRoutes {
@@ -24,6 +25,8 @@ class AppRoutes {
   static const me = '/me';
   static const monthly = '/monthly';
   static const selfReview = '/self-review';
+  static const signalLibrary = '/signal-library';
+  static const todayDiary = '/today/diary';
   static const todayDialog = '/today/dialog';
   static const deepWeekly = '/weekly/deep';
   static const journal = '/memory/journal';
@@ -55,10 +58,18 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
             builder: (_, __) => const MemoryPage(),
           ),
           GoRoute(
+            path: AppRoutes.signalLibrary,
+            builder: (_, __) => const SignalLibraryPage(),
+          ),
+          GoRoute(
             path: AppRoutes.me,
             builder: (_, __) => const MePage(),
           ),
         ],
+      ),
+      GoRoute(
+        path: AppRoutes.todayDiary,
+        builder: (_, __) => const TodayDiaryPage(),
       ),
       GoRoute(
         path: '${AppRoutes.todayDialog}/:captureId',
@@ -78,10 +89,7 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       ),
       GoRoute(
         path: AppRoutes.journal,
-        builder: (_, __) => const PremiumGatePage(
-          source: 'Journey journal',
-          child: JournalPage(),
-        ),
+        builder: (_, __) => const TodayDiaryPage(),
       ),
       GoRoute(
         path: AppRoutes.monthly,

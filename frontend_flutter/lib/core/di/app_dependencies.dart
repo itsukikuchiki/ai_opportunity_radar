@@ -6,16 +6,19 @@ import 'package:uuid/uuid.dart';
 import '../api/api_client.dart';
 import '../api/repositories/analytics_repository.dart';
 import '../api/repositories/ai_repository.dart';
+import '../api/repositories/energy_budget_repository.dart';
 import '../api/repositories/memory_repository.dart';
 import '../api/repositories/monthly_repository.dart';
 import '../api/repositories/opportunity_repository.dart';
 import '../api/repositories/self_review_repository.dart';
+import '../api/repositories/signal_library_repository.dart';
 import '../api/repositories/today_repository.dart';
 import '../api/repositories/weekly_repository.dart';
 import '../local/local_capture_repository.dart';
 import '../local/local_daily_snapshot_repository.dart';
 import '../local/local_database.dart';
 import '../local/local_journey_snapshot_repository.dart';
+import '../local/local_life_experiment_repository.dart';
 import '../local/local_monthly_snapshot_repository.dart';
 import '../local/local_weekly_snapshot_repository.dart';
 
@@ -26,8 +29,10 @@ class AppDependencies {
   final TodayRepository todayRepository;
   final WeeklyRepository weeklyRepository;
   final MemoryRepository memoryRepository;
+  final EnergyBudgetRepository energyBudgetRepository;
   final MonthlyRepository monthlyRepository;
   final SelfReviewRepository selfReviewRepository;
+  final SignalLibraryRepository signalLibraryRepository;
   final OpportunityRepository opportunityRepository;
   final LocalDatabase localDatabase;
   final LocalCaptureRepository localCaptureRepository;
@@ -35,6 +40,7 @@ class AppDependencies {
   final LocalWeeklySnapshotRepository localWeeklySnapshotRepository;
   final LocalJourneySnapshotRepository localJourneySnapshotRepository;
   final LocalMonthlySnapshotRepository localMonthlySnapshotRepository;
+  final LocalLifeExperimentRepository localLifeExperimentRepository;
 
   AppDependencies({
     required this.apiClient,
@@ -43,8 +49,10 @@ class AppDependencies {
     required this.todayRepository,
     required this.weeklyRepository,
     required this.memoryRepository,
+    required this.energyBudgetRepository,
     required this.monthlyRepository,
     required this.selfReviewRepository,
+    required this.signalLibraryRepository,
     required this.opportunityRepository,
     required this.localDatabase,
     required this.localCaptureRepository,
@@ -52,6 +60,7 @@ class AppDependencies {
     required this.localWeeklySnapshotRepository,
     required this.localJourneySnapshotRepository,
     required this.localMonthlySnapshotRepository,
+    required this.localLifeExperimentRepository,
   });
 
   static Future<AppDependencies> create() async {
@@ -83,6 +92,9 @@ class AppDependencies {
         LocalJourneySnapshotRepository(localDatabase);
     final localMonthlySnapshotRepository =
         LocalMonthlySnapshotRepository(localDatabase);
+    final localLifeExperimentRepository =
+        LocalLifeExperimentRepository(localDatabase);
+    final signalLibraryRepository = SignalLibraryRepository(localDatabase);
 
     final aiRepository = AiRepository(apiClient);
 
@@ -96,21 +108,32 @@ class AppDependencies {
       localWeeklySnapshotRepository: localWeeklySnapshotRepository,
       localJourneySnapshotRepository: localJourneySnapshotRepository,
       localMonthlySnapshotRepository: localMonthlySnapshotRepository,
+      localLifeExperimentRepository: localLifeExperimentRepository,
       todayRepository: TodayRepository(
         localCaptureRepository: localCaptureRepository,
         localDailySnapshotRepository: localDailySnapshotRepository,
         aiRepository: aiRepository,
+        apiClient: apiClient,
         analyticsRepository: analyticsRepository,
       ),
       weeklyRepository: WeeklyRepository(
         localCaptureRepository: localCaptureRepository,
         localWeeklySnapshotRepository: localWeeklySnapshotRepository,
+        localLifeExperimentRepository: localLifeExperimentRepository,
         aiRepository: aiRepository,
+        localUserId: localUserId,
       ),
       memoryRepository: MemoryRepository(
         localCaptureRepository: localCaptureRepository,
         localJourneySnapshotRepository: localJourneySnapshotRepository,
+        localLifeExperimentRepository: localLifeExperimentRepository,
         aiRepository: aiRepository,
+        localUserId: localUserId,
+      ),
+      energyBudgetRepository: EnergyBudgetRepository(
+        localCaptureRepository: localCaptureRepository,
+        localLifeExperimentRepository: localLifeExperimentRepository,
+        localUserId: localUserId,
       ),
       monthlyRepository: MonthlyRepository(
         localCaptureRepository: localCaptureRepository,
@@ -121,6 +144,7 @@ class AppDependencies {
         localCaptureRepository: localCaptureRepository,
         apiClient: apiClient,
       ),
+      signalLibraryRepository: signalLibraryRepository,
       opportunityRepository: OpportunityRepository(apiClient),
     );
   }

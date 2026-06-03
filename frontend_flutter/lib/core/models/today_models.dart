@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class FollowupQuestionModel {
   final String id;
   final String question;
@@ -51,41 +53,92 @@ class DailyBestActionModel {
 
 class RecentSignalModel {
   final String? id;
+  final String? signalCardId;
+  final String sourceType;
   final String content;
   final DateTime? createdAt;
+  final String? localDate;
+  final String? timezone;
   final String? acknowledgement;
   final String? observation;
   final String? tryNext;
   final String? emotion;
   final String? intensity;
+  final String? scene;
+  final String? friction;
+  final String? positiveSignal;
+  final String? energyLoad;
+  final List<String> linkedLifeChainStages;
+  final Map<String, dynamic> rawPayloadJson;
   final List<String> sceneTags;
   final List<String> intentTags;
+  final String userConfirmation;
+  final Map<String, dynamic> userCorrectionJson;
+  final bool includedInSummary;
+  final bool includedInWeekly;
+  final bool includedInJourney;
+  final String privacyLevel;
+  final bool isLegacy;
+  final String migrationStatus;
+  final bool isLocalDraft;
+  final bool syncFailed;
 
   RecentSignalModel({
     this.id,
+    this.signalCardId,
+    this.sourceType = 'text',
     required this.content,
     this.createdAt,
+    this.localDate,
+    this.timezone,
     this.acknowledgement,
     this.observation,
     this.tryNext,
     this.emotion,
     this.intensity,
+    this.scene,
+    this.friction,
+    this.positiveSignal,
+    this.energyLoad,
+    this.linkedLifeChainStages = const [],
+    this.rawPayloadJson = const {},
     this.sceneTags = const [],
     this.intentTags = const [],
+    this.userConfirmation = 'unconfirmed',
+    this.userCorrectionJson = const {},
+    this.includedInSummary = false,
+    this.includedInWeekly = false,
+    this.includedInJourney = false,
+    this.privacyLevel = 'private',
+    this.isLegacy = false,
+    this.migrationStatus = 'native',
+    this.isLocalDraft = false,
+    this.syncFailed = false,
   });
 
   factory RecentSignalModel.fromJson(Map<String, dynamic> json) {
     return RecentSignalModel(
       id: json['id'] as String?,
-      content:
-          (json['content'] as String?) ?? (json['summary'] as String?) ?? '',
+      signalCardId: (json['signal_card_id'] as String?) ??
+          (json['signalCardId'] as String?),
+      sourceType: (json['source_type'] as String?) ??
+          (json['sourceType'] as String?) ??
+          'text',
+      content: (json['raw_text'] as String?) ??
+          (json['content'] as String?) ??
+          (json['summary'] as String?) ??
+          '',
       createdAt: _parseDateTime(
         json['created_at'] ??
             json['createdAt'] ??
             json['timestamp'] ??
             json['captured_at'],
       ),
+      localDate:
+          (json['local_date'] as String?) ?? (json['localDate'] as String?),
+      timezone: json['timezone'] as String?,
       acknowledgement: (json['acknowledgement'] as String?) ??
+          (json['ai_reply'] as String?) ??
           (json['ai_acknowledgement'] as String?) ??
           (json['response'] as String?),
       observation: (json['observation'] as String?) ??
@@ -98,12 +151,38 @@ class RecentSignalModel {
       emotion: (json['emotion'] as String?) ?? (json['ai_emotion'] as String?),
       intensity:
           (json['intensity'] as String?) ?? (json['ai_intensity'] as String?),
+      scene: json['scene'] as String?,
+      friction: json['friction'] as String?,
+      positiveSignal: (json['positive_signal'] as String?) ??
+          (json['positiveSignal'] as String?),
+      energyLoad:
+          (json['energy_load'] as String?) ?? (json['energyLoad'] as String?),
+      linkedLifeChainStages: _parseStringList(
+        json['linked_life_chain_stage'] ?? json['linkedLifeChainStage'],
+      ),
+      rawPayloadJson: _parseMap(
+        json['raw_payload_json'] ?? json['rawPayloadJson'],
+      ),
       sceneTags: _parseStringList(
-        json['scene_tags'] ?? json['ai_scene_tags_json'],
+        json['scene_tags'] ?? json['ai_scene_tags_json'] ?? json['scene'],
       ),
       intentTags: _parseStringList(
         json['intent_tags'] ?? json['ai_intent_tags_json'],
       ),
+      userConfirmation: (json['user_confirmation'] as String?) ?? 'unconfirmed',
+      userCorrectionJson: _parseMap(
+        json['user_correction_json'] ?? json['userCorrectionJson'],
+      ),
+      includedInSummary: _parseBool(json['included_in_summary']),
+      includedInWeekly: _parseBool(json['included_in_weekly']),
+      includedInJourney: _parseBool(json['included_in_journey']),
+      privacyLevel: (json['privacy_level'] as String?) ??
+          (json['privacyLevel'] as String?) ??
+          'private',
+      isLegacy: _parseBool(json['is_legacy']),
+      migrationStatus: (json['migration_status'] as String?) ?? 'native',
+      isLocalDraft: _parseBool(json['is_local_draft'] ?? json['isLocalDraft']),
+      syncFailed: _parseBool(json['sync_failed'] ?? json['syncFailed']),
     );
   }
 
@@ -148,8 +227,82 @@ class RecentSignalModel {
     return const [];
   }
 
+  static Map<String, dynamic> _parseMap(dynamic raw) {
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) {
+      return raw.map((key, value) => MapEntry(key.toString(), value));
+    }
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is Map) {
+          return decoded.map((key, value) => MapEntry(key.toString(), value));
+        }
+      } catch (_) {}
+    }
+    return const {};
+  }
+
+  static bool _parseBool(dynamic raw) {
+    if (raw is bool) return raw;
+    if (raw is int) return raw != 0;
+    if (raw is String) {
+      final value = raw.toLowerCase().trim();
+      return value == 'true' || value == '1' || value == 'yes';
+    }
+    return false;
+  }
+
   String dedupeKey() {
-    return '${id ?? ''}|${content.trim().toLowerCase()}';
+    return '${signalCardId ?? id ?? ''}|${content.trim().toLowerCase()}';
+  }
+
+  bool get isLibrarySaved => sourceType == 'library_saved';
+
+  bool get isAiPredicted => sourceType == 'ai_predicted';
+
+  bool get hasUserConfirmedLibrarySaved {
+    if (!isLibrarySaved) return true;
+    if (userConfirmation != 'edited' && userConfirmation != 'supplemented') {
+      return false;
+    }
+    return _hasPersonalContext;
+  }
+
+  bool get _hasPersonalContext {
+    final edited = userCorrectionJson['edited_text']?.toString().trim();
+    final supplement = userCorrectionJson['supplement_text']?.toString().trim();
+    return (edited != null && edited.isNotEmpty) ||
+        (supplement != null && supplement.isNotEmpty);
+  }
+
+  bool get hasUserConfirmedAiPrediction {
+    if (!isAiPredicted) return true;
+    if (userConfirmation != 'edited' && userConfirmation != 'supplemented') {
+      return false;
+    }
+    return _hasPersonalContext;
+  }
+
+  String? get libraryPatternTitle {
+    final title = rawPayloadJson['title']?.toString().trim();
+    return title == null || title.isEmpty ? null : title;
+  }
+
+  String? get libraryAbstractPattern {
+    final pattern = rawPayloadJson['abstract_pattern']?.toString().trim();
+    return pattern == null || pattern.isEmpty ? null : pattern;
+  }
+
+  String localDateKey() {
+    final existing = localDate?.trim();
+    if (existing != null && existing.isNotEmpty) return existing;
+    final local = createdAt?.toLocal();
+    if (local == null) return '';
+    final month = local.month.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    return '${local.year}-$month-$day';
   }
 }
 

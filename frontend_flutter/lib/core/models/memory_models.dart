@@ -74,6 +74,28 @@ class MemorySummaryModel {
       desires.isNotEmpty ||
       experiments.isNotEmpty;
 
+  JourneySignalItemModel? get longTermPattern => _firstOrNull(patterns);
+  JourneySignalItemModel? get mainFriction => _firstOrNull(frictions);
+  JourneySignalItemModel? get recoverySignal => _firstOrNull(desires);
+  JourneySignalItemModel? get experimentFeedback => _firstOrNull(experiments);
+
+  JourneySignalItemModel get nextAdjustmentDirection {
+    final experiment = experimentFeedback;
+    if (experiment == null) {
+      return const JourneySignalItemModel(
+        name: '下次可以轻一点调整',
+        summary: '现在还不用急着改变什么。继续记录几天后，再选一个最省力的小方向就好。',
+        signalLevel: 'weak_signal',
+      );
+    }
+    return JourneySignalItemModel(
+      name: '下次可以轻一点调整',
+      summary:
+          '可以把“${experiment.name}”先当作一个生活设计来看：它有没有帮你省一点力，如果没有，也只是说明这个设计需要再调小一点。',
+      signalLevel: experiment.signalLevel,
+    );
+  }
+
   List<JourneySignalItemModel> get weakSignals => [
         ...patterns.where((e) => e.isWeakSignal),
         ...frictions.where((e) => e.isWeakSignal),
@@ -94,4 +116,10 @@ class MemorySummaryModel {
         ...desires.where((e) => e.isStableMode),
         ...experiments.where((e) => e.isStableMode),
       ];
+
+  static JourneySignalItemModel? _firstOrNull(
+    List<JourneySignalItemModel> items,
+  ) {
+    return items.isEmpty ? null : items.first;
+  }
 }

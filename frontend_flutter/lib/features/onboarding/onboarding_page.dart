@@ -133,10 +133,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 onPageChanged: (value) {
                   setState(() => _currentStep = value);
                 },
-                children: [
-                  const _HeroIntroStep(),
-                  const _HowItWorksStep(),
-                  _FocusAreaStep(vm: vm),
+                children: const [
+                  _HeroIntroStep(),
+                  _SignalInputStep(),
+                  _SignalOutputStep(),
                 ],
               ),
             ),
@@ -207,147 +207,71 @@ class _HeroIntroStep extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+      padding: const EdgeInsets.fromLTRB(24, 42, 24, 24),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(36),
-            child: Image.asset(
-              'assets/icon-1024.png',
-              width: 180,
-              height: 180,
-              fit: BoxFit.cover,
-            ),
+          Image.asset(
+            'assets/brand-icon-display.png',
+            width: 210,
+            height: 210,
+            fit: BoxFit.contain,
           ),
           const SizedBox(height: 28),
           Text(
             AppLocaleText.tr(
               context,
-              en: 'Signal Path: AI Journal',
-              zhHans: 'Signal Path：AI 手帐',
-              zhHant: 'Signal Path：AI 手帳',
-              ja: 'Signal Path：AI手帳',
+              en: 'Signal Path',
+              zhHans: 'Signal Path',
+              zhHant: 'Signal Path',
+              ja: 'Signal Path',
             ),
             style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w500,
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 12),
           Text(
             AppLocaleText.tr(
               context,
-              en: 'Write it down first. We can make sense of the rest slowly.',
-              zhHans: '先记下来，剩下的我们慢慢看清。',
-              zhHant: '先記下來，剩下的我們慢慢看清。',
-              ja: 'まずは残しておこう。あとのことは、ゆっくり見えてくる。',
+              en: 'Notice the signals, adjust gently',
+              zhHans: '看见信号，轻轻调整',
+              zhHant: '看見信號，輕輕調整',
+              ja: 'シグナルに気づき、そっと整える',
             ),
             style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w400,
               height: 1.5,
             ),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 16),
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Not a diagnosis. Not a score.',
+              zhHans: '不是诊断，也不是评分。',
+              zhHant: '不是診斷，也不是評分。',
+              ja: '診断でも、評価でもありません。',
+            ),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w400,
+            ),
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );
   }
 }
 
-class _HowItWorksStep extends StatelessWidget {
-  const _HowItWorksStep();
+class _SignalInputStep extends StatelessWidget {
+  const _SignalInputStep();
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      (
-        number: '01',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Write down one small thing',
-          zhHans: '记下一件小事',
-          zhHant: '記下一件小事',
-          ja: '小さなことを一つ残す',
-        ),
-        body: AppLocaleText.tr(
-          context,
-          en: 'Anything that felt stuck, repeated, frustrating, off, or just a little noticeable today is enough.',
-          zhHans: '今天哪里卡了一下，哪里重复了一下，哪里让你烦躁、不顺，或者哪里让你有点在意，都可以先记下来。',
-          zhHant: '今天哪裡卡了一下，哪裡重複了一下，哪裡讓你煩躁、不順，或者哪裡讓你有點在意，都可以先記下來。',
-          ja: '今日どこで少し引っかかったか、どこが繰り返されたか、どこで少し苛立ったか、少し気になったことでも大丈夫です。',
-        ),
-      ),
-      (
-        number: '02',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Receive one short response',
-          zhHans: '收到一句回应',
-          zhHant: '收到一句回應',
-          ja: '短いひと言を受け取る',
-        ),
-        body: AppLocaleText.tr(
-          context,
-          en: 'After each entry, AI will first respond with one short line and help you hold onto that moment.',
-          zhHans: '每次记完后，AI 会先用一句很短的话接住你，陪你把这条留住。',
-          zhHant: '每次記完後，AI 會先用一句很短的話接住你，陪你把這條留住。',
-          ja: '記録のたびに、AI がまず短いひと言で受け止め、その瞬間を残すのを手伝います。',
-        ),
-      ),
-      (
-        number: '03',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Start seeing patterns slowly',
-          zhHans: '慢慢看见规律',
-          zhHant: '慢慢看見規律',
-          ja: '少しずつパターンが見えてくる',
-        ),
-        body: AppLocaleText.tr(
-          context,
-          en: 'After a few days or a week, you’ll start seeing what repeats, what deserves adjustment, and what is already helping.',
-          zhHans: '过几天、过一周后，你会看到哪些情况在重复，哪些地方值得调整，哪些做法其实已经开始有帮助。',
-          zhHant: '過幾天、過一週後，你會看到哪些情況在重複，哪些地方值得調整，哪些做法其實已經開始有幫助。',
-          ja: '数日から一週間ほどすると、何が繰り返されているのか、どこを調整すべきか、何がすでに助けになっているのかが見えてきます。',
-        ),
-      ),
-      (
-        number: '04',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Keep the clues that fit you',
-          zhHans: '把适合你的线索留下来',
-          zhHant: '把適合你的線索留下來',
-          ja: '自分に合う手がかりを残す',
-        ),
-        body: AppLocaleText.tr(
-          context,
-          en: 'AI will gradually remember your rhythm, recurring frictions, what is getting smoother, and what still deserves watching.',
-          zhHans: '让 AI 慢慢记住你的节奏、反复出现的摩擦点、已经开始变顺的方法，以及那些还值得继续观察的变化。',
-          zhHant: '讓 AI 慢慢記住你的節奏、反覆出現的摩擦點、已經開始變順的方法，以及那些還值得繼續觀察的變化。',
-          ja: 'AI はあなたのリズム、繰り返し現れる摩擦、少しずつ整ってきたやり方、まだ見守るべき変化を少しずつ覚えていきます。',
-        ),
-      ),
-      (
-        number: '05',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Leave the trail that appears over time',
-          zhHans: '留下这一路慢慢显出来的轨迹',
-          zhHant: '留下這一路慢慢顯出來的軌跡',
-          ja: '時間とともに見えてくる軌跡を残す',
-        ),
-        body: AppLocaleText.tr(
-          context,
-          en: 'The places you return to, where you get stuck, what is getting smoother, and what is still emerging will all be kept bit by bit.',
-          zhHans: '你常走到哪些地方，最容易卡在哪些地方，哪些部分已经开始变顺，哪些变化还在慢慢浮现，都会一点点被留下来。',
-          zhHant: '你常走到哪些地方，最容易卡在哪些地方，哪些部分已經開始變順，哪些變化還在慢慢浮現，都會一點點被留下來。',
-          ja: 'よく戻ってくる場所、詰まりやすい場所、少しずつ整ってきた部分、まだ浮かびつつある変化が、少しずつ残されていきます。',
-        ),
-      ),
-    ];
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
       child: Column(
@@ -356,60 +280,62 @@ class _HowItWorksStep extends StatelessWidget {
           Text(
             AppLocaleText.tr(
               context,
-              en: 'How you will use it',
-              zhHans: '你会怎么使用它',
-              zhHant: '你會怎麼使用它',
-              ja: 'どう使っていくか',
+              en: 'Put down one small signal from today.',
+              zhHans: '把今天的一点信号先放下来。',
+              zhHant: '把今天的一點信號先放下來。',
+              ja: '今日の小さなシグナルを、まず残しておく。',
             ),
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w500,
                 ),
           ),
           const SizedBox(height: 8),
           Text(
             AppLocaleText.tr(
               context,
-              en: 'You do not need to figure things out first. Let AI help you see them gradually.',
-              zhHans: '不需要你先把事情想清楚，让 AI 来帮你想。',
-              zhHant: '不需要你先把事情想清楚，讓 AI 來幫你想。',
-              ja: '最初から整理できていなくても大丈夫。AI と一緒に少しずつ見えてきます。',
+              en: 'Your original text is saved first. AI only helps organize it gently.',
+              zhHans: '原文会先保存，AI 只是帮你轻轻整理。',
+              zhHant: '原文會先保存，AI 只是幫你輕輕整理。',
+              ja: '原文は先に保存され、AI はそっと整えるだけです。',
             ),
             style: Theme.of(context).textTheme.bodyLarge,
           ),
           const SizedBox(height: 16),
-          Expanded(
-            child: ListView.separated(
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                return _OnboardingInfoCard(
-                  number: item.number,
-                  title: item.title,
-                  body: item.body,
-                );
-              },
+          const _SignalDropPreview(),
+          const SizedBox(height: 16),
+          _OnboardingInfoCard(
+            number: '01',
+            title: AppLocaleText.tr(
+              context,
+              en: 'What you left',
+              zhHans: '你留下的内容',
+              zhHant: '你留下的內容',
+              ja: 'あなたが残したこと',
+            ),
+            body: AppLocaleText.tr(
+              context,
+              en: 'A sentence, a voice transcript, or even just a state can be saved as a private observation.',
+              zhHans: '一句话、语音转写，或只是一个状态，都可以先放进私人观察。',
+              zhHant: '一句話、語音轉寫，或只是一個狀態，都可以先放進私人觀察。',
+              ja: '一言でも、音声の文字起こしでも、ただの状態でも、まず個人の観察として残せます。',
             ),
           ),
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(top: 12),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .surfaceContainerHighest
-                  .withValues(alpha: 0.45),
-              borderRadius: BorderRadius.circular(18),
+          const SizedBox(height: 12),
+          _OnboardingInfoCard(
+            number: '02',
+            title: AppLocaleText.tr(
+              context,
+              en: 'Gentle organization',
+              zhHans: '轻轻整理',
+              zhHant: '輕輕整理',
+              ja: 'そっと整理',
             ),
-            child: Text(
-              AppLocaleText.tr(
-                context,
-                en: 'The point is not to remember perfectly, but to leave behind what truly happened first.',
-                zhHans: '重点不是“记得多好”，而是先把真实发生的东西留下来。',
-                zhHant: '重點不是「記得多好」，而是先把真實發生的東西留下來。',
-                ja: '大事なのは「どれだけ上手に覚えるか」ではなく、まず本当に起きたことを残しておくことです。',
-              ),
+            body: AppLocaleText.tr(
+              context,
+              en: 'Even if AI fails, your saved content stays. The result is only an added small observation.',
+              zhHans: 'AI 失败也不会影响保存；整理结果只是附加小观察。',
+              zhHant: 'AI 失敗也不會影響保存；整理結果只是附加小觀察。',
+              ja: 'AI の整理に失敗しても保存には影響しません。結果は追加の小さな観察にすぎません。',
             ),
           ),
         ],
@@ -418,15 +344,11 @@ class _HowItWorksStep extends StatelessWidget {
   }
 }
 
-class _FocusAreaStep extends StatelessWidget {
-  final OnboardingViewModel vm;
-
-  const _FocusAreaStep({required this.vm});
+class _SignalOutputStep extends StatelessWidget {
+  const _SignalOutputStep();
 
   @override
   Widget build(BuildContext context) {
-    final options = _focusOptions(context);
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
       child: Column(
@@ -435,243 +357,214 @@ class _FocusAreaStep extends StatelessWidget {
           Text(
             AppLocaleText.tr(
               context,
-              en: 'What would you like me to notice first?',
-              zhHans: '你更希望我先留意哪些方面？',
-              zhHant: '你更希望我先留意哪些方面？',
-              ja: 'まず、どんな方向に注目してほしい？',
+              en: 'Turn scattered signals into a life path.',
+              zhHans: '把零散信号整理成生活路径',
+              zhHant: '把零散信號整理成生活路徑',
+              ja: 'ばらばらのシグナルを、生活の旅路として整える。',
             ),
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w500,
                 ),
           ),
           const SizedBox(height: 8),
           Text(
             AppLocaleText.tr(
               context,
-              en: 'This is not fixed forever. Choose the closest direction for now, and you can change it later in Me.',
-              zhHans: '这一步不是必须的，也不是以后不能改。先选一个最接近的方向，之后可以在 Me 页面里调整。',
-              zhHant: '這一步不是必須的，也不是以後不能改。先選一個最接近的方向，之後可以在 Me 頁面裡調整。',
-              ja: 'これは固定ではありません。いま一番近い方向を選んで、あとで Me で変えられます。',
+              en: 'Not a report. Not a score. It helps you see where energy is spent and where recovery is happening.',
+              zhHans: '不是报告，也不是评分。只是帮你看见这段时间哪里耗力，哪里在恢复。',
+              zhHant: '不是報告，也不是評分。只是幫你看見這段時間哪裡耗力，哪裡在恢復。',
+              ja: 'レポートでも、評価でもありません。この時期にどこで消耗し、どこで回復しているかを見るためのものです。',
             ),
             style: Theme.of(context).textTheme.bodyLarge,
           ),
           const SizedBox(height: 16),
-          Expanded(
-            child: ListView.separated(
-              itemCount: options.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, index) {
-                final option = options[index];
-                final selected = vm.selectedRepeatArea == option.value;
-
-                return InkWell(
-                  borderRadius: BorderRadius.circular(20),
-                  onTap: () => vm.updateRepeatArea(option.value),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? Theme.of(context)
-                              .colorScheme
-                              .primaryContainer
-                              .withValues(alpha: 0.55)
-                          : Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest
-                              .withValues(alpha: 0.28),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: selected
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context)
-                                .colorScheme
-                                .outlineVariant
-                                .withValues(alpha: 0.5),
-                        width: selected ? 1.6 : 1,
-                      ),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          selected
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_off,
-                          color: selected
-                              ? Theme.of(context).colorScheme.primary
-                              : Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                option.title,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleMedium
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(option.subtitle),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
+          const _SignalPathPreview(),
+          const SizedBox(height: 16),
+          _OnboardingInfoCard(
+            number: 'W',
+            title: AppLocaleText.tr(
+              context,
+              en: 'Weekly',
+              zhHans: '本周',
+              zhHant: '本週',
+              ja: '今週',
+            ),
+            body: AppLocaleText.tr(
+              context,
+              en: 'Start with one pattern this week, then choose one small experiment.',
+              zhHans: '先看一个模式，再选择一个很小的尝试。',
+              zhHant: '先看一個模式，再選擇一個很小的嘗試。',
+              ja: '今週はまず一つのパターンを見て、小さな試みを一つ選べます。',
+            ),
+          ),
+          const SizedBox(height: 12),
+          _OnboardingInfoCard(
+            number: 'J',
+            title: AppLocaleText.tr(
+              context,
+              en: 'Journey',
+              zhHans: '旅程',
+              zhHant: '旅程',
+              ja: '旅路',
+            ),
+            body: AppLocaleText.tr(
+              context,
+              en: 'It places repetition, recovery, and experiments on one Life Journey.',
+              zhHans: '把几周里的重复、恢复和实验轨迹，慢慢连成生活地图。',
+              zhHant: '把幾週裡的重複、恢復和實驗軌跡，慢慢連成生活地圖。',
+              ja: '繰り返し、回復、試みの軌跡を、一つの生活の旅路にまとめます。',
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  List<_FocusAreaOption> _focusOptions(BuildContext context) {
-    return [
-      _FocusAreaOption(
-        value: 'work_tasks',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Work and tasks',
-          zhHans: '工作与任务',
-          zhHant: '工作與任務',
-          ja: '仕事とタスク',
-        ),
-        subtitle: AppLocaleText.tr(
-          context,
-          en: 'Progress, priorities, collaboration, communication, and repeated workflows',
-          zhHans: '比如推进事情、安排优先级、合作沟通、反复消耗你的流程',
-          zhHant: '比如推進事情、安排優先級、合作溝通、反覆消耗你的流程',
-          ja: '物事の進め方、優先順位、協働や連絡、繰り返し消耗する流れ',
+class _SignalDropPreview extends StatelessWidget {
+  const _SignalDropPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      height: 142,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
         ),
       ),
-      _FocusAreaOption(
-        value: 'emotion_stress',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Emotions and stress',
-          zhHans: '情绪与压力',
-          zhHant: '情緒與壓力',
-          ja: '感情とストレス',
-        ),
-        subtitle: AppLocaleText.tr(
-          context,
-          en: 'Moments of frustration, hurt, joy, tension, or feelings that linger',
-          zhHans: '比如烦躁、委屈、开心、紧绷，或者总放不下的时刻',
-          zhHant: '比如煩躁、委屈、開心、緊繃，或者總放不下的時刻',
-          ja: 'イライラ、しんどさ、うれしさ、張りつめた感じ、引きずる瞬間',
-        ),
+      child: CustomPaint(
+        painter: _SignalDropPreviewPainter(theme.colorScheme),
       ),
-      _FocusAreaOption(
-        value: 'relationships',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Relationships and interaction',
-          zhHans: '关系与相处',
-          zhHant: '關係與相處',
-          ja: '人間関係と付き合い方',
-        ),
-        subtitle: AppLocaleText.tr(
-          context,
-          en: 'Family, friends, coworkers, partners, friction, and what matters to you',
-          zhHans: '比如和家人、朋友、同事、伴侣之间的互动、摩擦和在意',
-          zhHant: '比如和家人、朋友、同事、伴侶之間的互動、摩擦和在意',
-          ja: '家族、友人、同僚、パートナーとのやり取り、摩擦、気になること',
-        ),
-      ),
-      _FocusAreaOption(
-        value: 'time_rhythm',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Time and daily rhythm',
-          zhHans: '时间与生活节奏',
-          zhHant: '時間與生活節奏',
-          ja: '時間と生活リズム',
-        ),
-        subtitle: AppLocaleText.tr(
-          context,
-          en: 'Commutes, routines, procrastination, rest, and places where your day gets interrupted',
-          zhHans: '比如通勤、作息、拖延、休息不够，或者一天总被打断的地方',
-          zhHant: '比如通勤、作息、拖延、休息不夠，或者一天總被打斷的地方',
-          ja: '通勤、生活リズム、先延ばし、休めなさ、一日の中で何度も途切れること',
-        ),
-      ),
-      _FocusAreaOption(
-        value: 'health_body',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Health and physical state',
-          zhHans: '健康与身体状态',
-          zhHant: '健康與身體狀態',
-          ja: '健康と身体の状態',
-        ),
-        subtitle: AppLocaleText.tr(
-          context,
-          en: 'Fatigue, sleep, food, exercise, recovery, and body signals',
-          zhHans: '比如疲惫、睡眠、饮食、运动、恢复感，或者身体给你的提醒',
-          zhHant: '比如疲憊、睡眠、飲食、運動、恢復感，或者身體給你的提醒',
-          ja: '疲れ、睡眠、食事、運動、回復感、身体からのサイン',
-        ),
-      ),
-      _FocusAreaOption(
-        value: 'money_spending',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Money and spending',
-          zhHans: '金钱与消费',
-          zhHant: '金錢與消費',
-          ja: 'お金と消費',
-        ),
-        subtitle: AppLocaleText.tr(
-          context,
-          en: 'Spending, habits, pressure, budgeting, and hesitant purchases',
-          zhHans: '比如花销、消费习惯、金钱压力、预算安排，或者总让你犹豫的支出',
-          zhHant: '比如花銷、消費習慣、金錢壓力、預算安排，或者總讓你猶豫的支出',
-          ja: '支出、買い方の癖、お金のプレッシャー、予算、迷いやすい出費',
-        ),
-      ),
-      _FocusAreaOption(
-        value: 'learning_growth_expression',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Learning, growth, and expression',
-          zhHans: '学习、成长与表达',
-          zhHant: '學習、成長與表達',
-          ja: '学び・成長・表現',
-        ),
-        subtitle: AppLocaleText.tr(
-          context,
-          en: 'Things you want to learn, express clearly, improve, or keep moving forward',
-          zhHans: '比如想学的东西、想写清楚的内容、想变好的部分，或者一直在努力推进的方向',
-          zhHant: '比如想學的東西、想寫清楚的內容、想變好的部分，或者一直在努力推進的方向',
-          ja: '学びたいこと、言葉にしたいこと、伸ばしたい部分、少しずつ進めたい方向',
-        ),
-      ),
-      _FocusAreaOption(
-        value: 'open',
-        title: AppLocaleText.tr(
-          context,
-          en: 'Keep it open for now',
-          zhHans: '先不限定，想到什么记什么',
-          zhHant: '先不限定，想到什麼記什麼',
-          ja: 'まだ決めず、思いついたことから記録する',
-        ),
-        subtitle: AppLocaleText.tr(
-          context,
-          en: 'Capture what really happens first, and sort the direction out later',
-          zhHans: '先把真实发生的事情留下来，之后再慢慢看它更接近哪些方向',
-          zhHant: '先把真實發生的事情留下來，之後再慢慢看它更接近哪些方向',
-          ja: 'まずは実際に起きたことを残して、方向はあとから少しずつ見ていく',
-        ),
-      ),
-    ];
+    );
   }
+}
+
+class _SignalPathPreview extends StatelessWidget {
+  const _SignalPathPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      height: 154,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+      ),
+      child: CustomPaint(
+        painter: _SignalPathPreviewPainter(theme.colorScheme),
+      ),
+    );
+  }
+}
+
+class _SignalDropPreviewPainter extends CustomPainter {
+  final ColorScheme colors;
+
+  const _SignalDropPreviewPainter(this.colors);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final tray = RRect.fromRectAndRadius(
+      Rect.fromLTWH(size.width * 0.18, size.height * 0.60, size.width * 0.64,
+          size.height * 0.22),
+      const Radius.circular(18),
+    );
+    canvas.drawRRect(
+      tray,
+      Paint()
+        ..color = colors.surface.withValues(alpha: 0.86)
+        ..style = PaintingStyle.fill,
+    );
+
+    final line = Paint()
+      ..color = colors.primary.withValues(alpha: 0.40)
+      ..strokeWidth = 2.4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final path = Path()
+      ..moveTo(size.width * 0.26, size.height * 0.30)
+      ..cubicTo(size.width * 0.38, size.height * 0.48, size.width * 0.54,
+          size.height * 0.24, size.width * 0.68, size.height * 0.54);
+    canvas.drawPath(path, line);
+
+    final fill = Paint()..style = PaintingStyle.fill;
+    final dots = [
+      (Offset(size.width * 0.25, size.height * 0.30), colors.tertiary, 9.0),
+      (Offset(size.width * 0.47, size.height * 0.38), colors.primary, 11.0),
+      (Offset(size.width * 0.68, size.height * 0.54), colors.secondary, 9.0),
+    ];
+    for (final dot in dots) {
+      fill.color = dot.$2.withValues(alpha: 0.72);
+      canvas.drawCircle(dot.$1, dot.$3, fill);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SignalDropPreviewPainter oldDelegate) =>
+      oldDelegate.colors != colors;
+}
+
+class _SignalPathPreviewPainter extends CustomPainter {
+  final ColorScheme colors;
+
+  const _SignalPathPreviewPainter(this.colors);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final barPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = colors.primary.withValues(alpha: 0.28);
+    for (var i = 0; i < 4; i++) {
+      final left = size.width * (0.16 + i * 0.055);
+      final height = size.height * (0.16 + i * 0.035);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(left, size.height * 0.54 - height, 9, height),
+          const Radius.circular(5),
+        ),
+        barPaint,
+      );
+    }
+
+    final pathPaint = Paint()
+      ..color = colors.secondary.withValues(alpha: 0.54)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final path = Path()
+      ..moveTo(size.width * 0.38, size.height * 0.62)
+      ..cubicTo(size.width * 0.48, size.height * 0.30, size.width * 0.58,
+          size.height * 0.74, size.width * 0.70, size.height * 0.44)
+      ..cubicTo(size.width * 0.76, size.height * 0.29, size.width * 0.84,
+          size.height * 0.48, size.width * 0.88, size.height * 0.36);
+    canvas.drawPath(path, pathPaint);
+
+    final fill = Paint()..style = PaintingStyle.fill;
+    final dots = [
+      (Offset(size.width * 0.38, size.height * 0.62), colors.primary, 8.5),
+      (Offset(size.width * 0.55, size.height * 0.48), colors.tertiary, 10.0),
+      (Offset(size.width * 0.70, size.height * 0.44), colors.secondary, 9.0),
+      (Offset(size.width * 0.88, size.height * 0.36), colors.error, 7.0),
+    ];
+    for (final dot in dots) {
+      fill.color = dot.$2.withValues(alpha: 0.68);
+      canvas.drawCircle(dot.$1, dot.$3, fill);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SignalPathPreviewPainter oldDelegate) =>
+      oldDelegate.colors != colors;
 }
 
 class _OnboardingInfoCard extends StatelessWidget {
@@ -733,16 +626,4 @@ class _OnboardingInfoCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _FocusAreaOption {
-  final String value;
-  final String title;
-  final String subtitle;
-
-  const _FocusAreaOption({
-    required this.value,
-    required this.title,
-    required this.subtitle,
-  });
 }

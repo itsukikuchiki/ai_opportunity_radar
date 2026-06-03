@@ -17,7 +17,8 @@ class HomeShellPage extends StatelessWidget {
 
     if (location == AppRoutes.weekly) return 1;
     if (location == AppRoutes.memory) return 2;
-    if (location == AppRoutes.me) return 3;
+    if (location == AppRoutes.signalLibrary) return 3;
+    if (location == AppRoutes.me) return 4;
     return 0;
   }
 
@@ -33,6 +34,9 @@ class HomeShellPage extends StatelessWidget {
         context.go(AppRoutes.memory);
         break;
       case 3:
+        context.go(AppRoutes.signalLibrary);
+        break;
+      case 4:
         context.go(AppRoutes.me);
         break;
     }
@@ -73,9 +77,9 @@ class HomeShellPage extends StatelessWidget {
               label: AppLocaleText.tr(
                 context,
                 en: 'Today',
-                zhHans: 'Today',
-                zhHant: 'Today',
-                ja: 'Today',
+                zhHans: '今天',
+                zhHant: '今天',
+                ja: '今日',
               ),
             ),
             NavigationDestination(
@@ -84,9 +88,9 @@ class HomeShellPage extends StatelessWidget {
               label: AppLocaleText.tr(
                 context,
                 en: 'Weekly',
-                zhHans: 'Weekly',
-                zhHant: 'Weekly',
-                ja: 'Weekly',
+                zhHans: '本周',
+                zhHant: '本週',
+                ja: '今週',
               ),
             ),
             NavigationDestination(
@@ -95,9 +99,20 @@ class HomeShellPage extends StatelessWidget {
               label: AppLocaleText.tr(
                 context,
                 en: 'Journey',
-                zhHans: 'Journey',
-                zhHant: 'Journey',
-                ja: 'Journey',
+                zhHans: '旅程',
+                zhHant: '旅程',
+                ja: '旅路',
+              ),
+            ),
+            NavigationDestination(
+              icon: const Icon(Icons.library_books_outlined),
+              selectedIcon: const Icon(Icons.library_books),
+              label: AppLocaleText.tr(
+                context,
+                en: 'Library',
+                zhHans: '信号库',
+                zhHant: '信號庫',
+                ja: 'シグナルライブラリ',
               ),
             ),
             NavigationDestination(
@@ -106,9 +121,9 @@ class HomeShellPage extends StatelessWidget {
               label: AppLocaleText.tr(
                 context,
                 en: 'Me',
-                zhHans: 'Me',
-                zhHant: 'Me',
-                ja: 'Me',
+                zhHans: '我的',
+                zhHant: '我的',
+                ja: 'マイ',
               ),
             ),
           ],

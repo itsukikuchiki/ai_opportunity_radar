@@ -53,4 +53,21 @@ class ApiClient {
 
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
+
+  Future<Map<String, dynamic>> patchJson(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl$path'),
+      headers: _headers(),
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode >= 400) {
+      throw Exception('PATCH $path failed: ${response.body}');
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
 }

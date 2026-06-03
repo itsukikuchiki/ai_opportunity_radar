@@ -1,20 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:provider/single_child_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ai_opportunity_radar/core/api/api_client.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/ai_repository.dart';
+import 'package:ai_opportunity_radar/core/api/repositories/energy_budget_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/memory_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/monthly_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/today_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/weekly_repository.dart';
+import 'package:ai_opportunity_radar/core/models/advanced_energy_boundary_models.dart';
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_daily_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_journey_snapshot_repository.dart';
+import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_monthly_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_weekly_snapshot_repository.dart';
+import 'package:ai_opportunity_radar/core/models/energy_budget_models.dart';
+import 'package:ai_opportunity_radar/core/models/memory_models.dart';
 import 'package:ai_opportunity_radar/core/models/monthly_models.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
 import 'package:ai_opportunity_radar/features/pages/me/me_view_model.dart';
@@ -50,11 +56,19 @@ Future<void> seedMockPrefs({
 Widget buildTestApp({
   required Widget child,
   required List<SingleChildWidget> providers,
+  Locale locale = const Locale('en'),
 }) {
   return MultiProvider(
     providers: providers,
     child: MaterialApp(
-      locale: const Locale('en'),
+      locale: locale,
+      supportedLocales: const [
+        Locale('en'),
+        Locale('ja'),
+        Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+        Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      ],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: child,
     ),
   );
@@ -62,11 +76,15 @@ Widget buildTestApp({
 
 class StubTodayRepository extends TodayRepository {
   final Map<String, dynamic> fetchTodayResult;
+  final Future<void> Function()? onRetryPendingDrafts;
   final List<Map<String, String>> followupCalls = [];
   int fetchTodayCallCount = 0;
+  int retryPendingDraftsCallCount = 0;
 
-  StubTodayRepository({required this.fetchTodayResult})
-      : super(
+  StubTodayRepository({
+    required this.fetchTodayResult,
+    this.onRetryPendingDrafts,
+  }) : super(
           localCaptureRepository: LocalCaptureRepository(createDummyDatabase()),
           localDailySnapshotRepository: LocalDailySnapshotRepository(
             createDummyDatabase(),
@@ -78,6 +96,12 @@ class StubTodayRepository extends TodayRepository {
   Future<Map<String, dynamic>> fetchToday() async {
     fetchTodayCallCount += 1;
     return fetchTodayResult;
+  }
+
+  @override
+  Future<void> retryPendingDrafts() async {
+    retryPendingDraftsCallCount += 1;
+    await onRetryPendingDrafts?.call();
   }
 
   @override
@@ -138,6 +162,52 @@ class StubWeeklyRepository extends WeeklyRepository {
     required String feedbackValue,
   }) async {
     feedbackValues.add(feedbackValue);
+  }
+
+  @override
+  Future<LifeExperimentModel?> saveLifeExperiment(String experimentId) async {
+    return weekly.lifeExperiment?.copyWith(status: 'saved');
+  }
+
+  @override
+  Future<LifeExperimentModel?> skipLifeExperiment(String experimentId) async {
+    return weekly.lifeExperiment?.copyWith(status: 'skipped');
+  }
+
+  @override
+  Future<LifeExperimentModel?> submitLifeExperimentFeedback({
+    required String experimentId,
+    required String status,
+    required String feedbackText,
+  }) async {
+    return weekly.lifeExperiment?.copyWith(
+      status: status,
+      feedbackText: feedbackText,
+    );
+  }
+}
+
+class StubEnergyBudgetRepository extends EnergyBudgetRepository {
+  final EnergyBudgetModel budget;
+  int fetchCallCount = 0;
+
+  StubEnergyBudgetRepository({required this.budget})
+      : super(
+          localCaptureRepository: LocalCaptureRepository(createDummyDatabase()),
+          localLifeExperimentRepository: LocalLifeExperimentRepository(
+            createDummyDatabase(),
+          ),
+        );
+
+  @override
+  Future<EnergyBudgetModel> fetchBasicEnergyBudget({
+    WeeklyInsightModel? weekly,
+    MemorySummaryModel? journey,
+    AdvancedEnergyExternalSummary? externalSummary,
+    int limit = 1000,
+  }) async {
+    fetchCallCount += 1;
+    return budget;
   }
 }
 

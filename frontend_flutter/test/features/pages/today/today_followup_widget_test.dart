@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -12,6 +13,9 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('Today 页面会提交 follow-up 选项并清掉问题卡片', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     final repo = StubTodayRepository(
       fetchTodayResult: {
         'insight':

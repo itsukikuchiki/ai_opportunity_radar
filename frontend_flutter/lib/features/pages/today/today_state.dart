@@ -5,6 +5,7 @@ class TodayState {
   final LoadState loadState;
   final SubmitState captureSubmitState;
   final SubmitState followupSubmitState;
+  final SubmitState draftSyncSubmitState;
   final String inputText;
   final String? acknowledgement;
   final TodayInsightModel? insight;
@@ -14,11 +15,13 @@ class TodayState {
   final String? errorMessage;
   final int captureSuccessTick;
   final int followupSuccessTick;
+  final String? draftSyncMessage;
 
   const TodayState({
     required this.loadState,
     required this.captureSubmitState,
     required this.followupSubmitState,
+    required this.draftSyncSubmitState,
     required this.inputText,
     required this.acknowledgement,
     required this.insight,
@@ -28,12 +31,14 @@ class TodayState {
     required this.errorMessage,
     required this.captureSuccessTick,
     required this.followupSuccessTick,
+    required this.draftSyncMessage,
   });
 
   factory TodayState.initial() => const TodayState(
         loadState: LoadState.initial,
         captureSubmitState: SubmitState.idle,
         followupSubmitState: SubmitState.idle,
+        draftSyncSubmitState: SubmitState.idle,
         inputText: '',
         acknowledgement: null,
         insight: null,
@@ -43,6 +48,7 @@ class TodayState {
         errorMessage: null,
         captureSuccessTick: 0,
         followupSuccessTick: 0,
+        draftSyncMessage: null,
       );
 
   bool get isInitialLoading =>
@@ -53,6 +59,8 @@ class TodayState {
   bool get isFollowupSubmitting =>
       followupSubmitState == SubmitState.submitting;
 
+  bool get isDraftSyncing => draftSyncSubmitState == SubmitState.submitting;
+
   bool get hasError => errorMessage != null && errorMessage!.trim().isNotEmpty;
 
   bool get hasRecentSignals => recentSignals.isNotEmpty;
@@ -61,6 +69,7 @@ class TodayState {
     LoadState? loadState,
     SubmitState? captureSubmitState,
     SubmitState? followupSubmitState,
+    SubmitState? draftSyncSubmitState,
     String? inputText,
     String? acknowledgement,
     TodayInsightModel? insight,
@@ -70,14 +79,17 @@ class TodayState {
     String? errorMessage,
     int? captureSuccessTick,
     int? followupSuccessTick,
+    String? draftSyncMessage,
     bool clearAcknowledgement = false,
     bool clearPendingQuestion = false,
     bool clearErrorMessage = false,
+    bool clearDraftSyncMessage = false,
   }) {
     return TodayState(
       loadState: loadState ?? this.loadState,
       captureSubmitState: captureSubmitState ?? this.captureSubmitState,
       followupSubmitState: followupSubmitState ?? this.followupSubmitState,
+      draftSyncSubmitState: draftSyncSubmitState ?? this.draftSyncSubmitState,
       inputText: inputText ?? this.inputText,
       acknowledgement: clearAcknowledgement
           ? null
@@ -92,6 +104,9 @@ class TodayState {
           clearErrorMessage ? null : (errorMessage ?? this.errorMessage),
       captureSuccessTick: captureSuccessTick ?? this.captureSuccessTick,
       followupSuccessTick: followupSuccessTick ?? this.followupSuccessTick,
+      draftSyncMessage: clearDraftSyncMessage
+          ? null
+          : (draftSyncMessage ?? this.draftSyncMessage),
     );
   }
 }

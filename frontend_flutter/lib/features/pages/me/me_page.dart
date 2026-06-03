@@ -538,7 +538,7 @@ class MePage extends StatelessWidget {
           en: 'Fatigue, sleep, food, exercise, recovery, and body signals.',
           zhHans: '比如疲惫、睡眠、饮食、运动、恢复感，或者身体给你的提醒。',
           zhHant: '比如疲憊、睡眠、飲食、運動、恢復感，或者身體給你的提醒。',
-          ja: '疲れ、睡眠、食事、運動、回復感、身体からのサイン。',
+          ja: '疲れ、睡眠、食事、運動、回復感、身体からのシグナル。',
         );
       case 'money_spending':
         return AppLocaleText.tr(
@@ -935,7 +935,7 @@ class _FocusAreaPickerSheet extends StatelessWidget {
             en: 'Fatigue, sleep, food, exercise, recovery, and body signals',
             zhHans: '疲惫、睡眠、饮食、运动、恢复感，或者身体给你的提醒',
             zhHant: '疲憊、睡眠、飲食、運動、恢復感，或者身體給你的提醒',
-            ja: '疲れ、睡眠、食事、運動、回復感、身体からのサイン'),
+            ja: '疲れ、睡眠、食事、運動、回復感、身体からのシグナル'),
       ),
       _FocusAreaOption(
         value: 'money_spending',

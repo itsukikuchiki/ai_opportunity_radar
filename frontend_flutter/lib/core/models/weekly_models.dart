@@ -46,6 +46,150 @@ class WeeklyTopicFocusModel {
   });
 }
 
+class WeeklyV3CStructureModel {
+  final String lightObservation;
+  final String onePattern;
+  final String oneExperiment;
+  final String positiveSignal;
+
+  const WeeklyV3CStructureModel({
+    required this.lightObservation,
+    required this.onePattern,
+    required this.oneExperiment,
+    required this.positiveSignal,
+  });
+}
+
+class WeeklyInclusionSummaryModel {
+  final int usedCount;
+  final int timelineOnlyCount;
+  final int excludedCount;
+  final int legacyReferenceCount;
+
+  const WeeklyInclusionSummaryModel({
+    required this.usedCount,
+    required this.timelineOnlyCount,
+    required this.excludedCount,
+    required this.legacyReferenceCount,
+  });
+
+  factory WeeklyInclusionSummaryModel.fromMap(Map<String, dynamic>? map) {
+    if (map == null) {
+      return const WeeklyInclusionSummaryModel(
+        usedCount: 0,
+        timelineOnlyCount: 0,
+        excludedCount: 0,
+        legacyReferenceCount: 0,
+      );
+    }
+    return WeeklyInclusionSummaryModel(
+      usedCount: (map['used_count'] as num?)?.toInt() ?? 0,
+      timelineOnlyCount: (map['timeline_only_count'] as num?)?.toInt() ?? 0,
+      excludedCount: (map['excluded_count'] as num?)?.toInt() ?? 0,
+      legacyReferenceCount:
+          (map['legacy_reference_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class LifeExperimentModel {
+  final String id;
+  final String localUserId;
+  final String sourceWeekStart;
+  final String sourceWeekEnd;
+  final String title;
+  final String hypothesis;
+  final String suggestedAction;
+  final List<String> linkedSignalCardIds;
+  final String status;
+  final String? feedbackText;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  const LifeExperimentModel({
+    required this.id,
+    required this.localUserId,
+    required this.sourceWeekStart,
+    required this.sourceWeekEnd,
+    required this.title,
+    required this.hypothesis,
+    required this.suggestedAction,
+    required this.linkedSignalCardIds,
+    required this.status,
+    this.feedbackText,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory LifeExperimentModel.fromJson(Map<String, dynamic> json) {
+    return LifeExperimentModel(
+      id: (json['id'] as String?) ?? '',
+      localUserId: (json['local_user_id'] as String?) ?? '',
+      sourceWeekStart: (json['source_week_start'] as String?) ?? '',
+      sourceWeekEnd: (json['source_week_end'] as String?) ?? '',
+      title: (json['title'] as String?) ?? '',
+      hypothesis: (json['hypothesis'] as String?) ?? '',
+      suggestedAction: (json['suggested_action'] as String?) ?? '',
+      linkedSignalCardIds:
+          ((json['linked_signal_card_ids'] as List?) ?? const [])
+              .map((e) => e?.toString() ?? '')
+              .where((e) => e.trim().isNotEmpty)
+              .toList(),
+      status: (json['status'] as String?) ?? 'suggested',
+      feedbackText: json['feedback_text'] as String?,
+      createdAt: _parseDateTime(json['created_at']),
+      updatedAt: _parseDateTime(json['updated_at']),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'local_user_id': localUserId,
+      'source_week_start': sourceWeekStart,
+      'source_week_end': sourceWeekEnd,
+      'title': title,
+      'hypothesis': hypothesis,
+      'suggested_action': suggestedAction,
+      'linked_signal_card_ids': linkedSignalCardIds,
+      'status': status,
+      'feedback_text': feedbackText,
+      'created_at': createdAt?.toUtc().toIso8601String(),
+      'updated_at': updatedAt?.toUtc().toIso8601String(),
+    };
+  }
+
+  LifeExperimentModel copyWith({
+    String? status,
+    String? feedbackText,
+    DateTime? updatedAt,
+  }) {
+    return LifeExperimentModel(
+      id: id,
+      localUserId: localUserId,
+      sourceWeekStart: sourceWeekStart,
+      sourceWeekEnd: sourceWeekEnd,
+      title: title,
+      hypothesis: hypothesis,
+      suggestedAction: suggestedAction,
+      linkedSignalCardIds: linkedSignalCardIds,
+      status: status ?? this.status,
+      feedbackText: feedbackText ?? this.feedbackText,
+      createdAt: createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  static DateTime? _parseDateTime(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is DateTime) return raw;
+    if (raw is String && raw.trim().isNotEmpty) {
+      return DateTime.tryParse(raw);
+    }
+    return null;
+  }
+}
+
 class WeeklyInsightModel {
   final String weekStart;
   final String weekEnd;
@@ -92,6 +236,57 @@ class WeeklyInsightModel {
 
   bool get isLightReady => status == 'light_ready';
   bool get isReady => status == 'ready';
+
+  WeeklyInclusionSummaryModel get inclusionSummary {
+    final raw = opportunitySnapshot?['_weekly_inclusion'];
+    if (raw is Map<String, dynamic>) {
+      return WeeklyInclusionSummaryModel.fromMap(raw);
+    }
+    if (raw is Map) {
+      return WeeklyInclusionSummaryModel.fromMap(
+        raw.map((key, value) => MapEntry('$key', value)),
+      );
+    }
+    return WeeklyInclusionSummaryModel.fromMap(null);
+  }
+
+  LifeExperimentModel? get lifeExperiment {
+    final raw = opportunitySnapshot?['_life_experiment'];
+    if (raw is Map<String, dynamic>) {
+      return LifeExperimentModel.fromJson(raw);
+    }
+    if (raw is Map) {
+      return LifeExperimentModel.fromJson(
+        raw.map((key, value) => MapEntry('$key', value)),
+      );
+    }
+    return null;
+  }
+
+  WeeklyV3CStructureModel deriveV3CStructure() {
+    final topic = deriveTopicFocus();
+    final opportunityName = _stringOrNull(opportunitySnapshot?['name']);
+    final opportunitySummary = _stringOrNull(opportunitySnapshot?['summary']);
+    final keyInsightText = (keyInsight ?? '').trim();
+    final actionText = (bestAction ?? '').trim();
+
+    return WeeklyV3CStructureModel(
+      lightObservation: keyInsightText.ifEmpty(
+        isLightReady
+            ? '这周可以先这样看：线索已经开始出现，但还适合保持轻一点。'
+            : '这周可以先这样看：有一个方向开始比其他内容更明显。',
+      ),
+      onePattern: topic.headline.ifEmpty(
+        isLightReady ? '这周先冒头的一个线索' : '这周最明显的一个模式',
+      ),
+      oneExperiment: actionText.ifEmpty(
+        '下周可以试试一个很小的实验：同类场景出现时，只补一句它发生在哪里。',
+      ),
+      positiveSignal: (opportunitySummary ?? opportunityName ?? '').ifEmpty(
+        '也留意一下哪些时刻让状态稍微往回收一点，它们可能是恢复线索。',
+      ),
+    );
+  }
 
   WeeklyTopicFocusModel deriveTopicFocus() {
     final friction = _firstMap(frictions);

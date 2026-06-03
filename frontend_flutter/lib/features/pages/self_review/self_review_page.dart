@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../shared/states/load_state.dart';
 import '../../../shared/widgets/app_header.dart';
@@ -20,6 +22,17 @@ class SelfReviewPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go(AppRoutes.me);
+            }
+          },
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+        ),
         title: Text(
           AppLocaleText.tr(
             context,

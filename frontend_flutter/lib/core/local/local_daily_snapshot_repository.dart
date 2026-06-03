@@ -55,6 +55,18 @@ class LocalDailySnapshotRepository {
       buffer.write('|');
       buffer.write(signal.content.trim());
       buffer.write('|');
+      buffer.write(signal.sourceType);
+      buffer.write('|');
+      buffer.write(signal.userConfirmation);
+      buffer.write('|');
+      buffer.write(signal.privacyLevel);
+      buffer.write('|');
+      buffer.write(signal.isLegacy ? 'legacy' : 'native');
+      buffer.write('|');
+      buffer.write(signal.isLocalDraft ? 'draft' : 'synced');
+      buffer.write('|');
+      buffer.write(signal.syncFailed ? 'sync_failed' : 'sync_ok');
+      buffer.write('|');
       buffer.write(signal.createdAt?.toUtc().toIso8601String() ?? '');
       buffer.write('||');
     }

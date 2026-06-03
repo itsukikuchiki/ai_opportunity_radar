@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 class LocalDatabase {
   static const _databaseName = 'ai_opportunity_radar_local.db';
-  static const _databaseVersion = 6;
+  static const _databaseVersion = 12;
 
   final String? dbPathOverride;
   final DatabaseFactory? databaseFactoryOverride;
@@ -99,6 +99,52 @@ class LocalDatabase {
               )
             ''');
           }
+
+          if (oldVersion < 7) {
+            await _createSignalCardTables(db);
+          }
+
+          if (oldVersion < 8) {
+            await _addColumnIfNeeded(
+              db,
+              'signal_cards',
+              "source_type TEXT NOT NULL DEFAULT 'text'",
+            );
+            await _addColumnIfNeeded(
+              db,
+              'signal_cards',
+              "privacy_level TEXT NOT NULL DEFAULT 'private'",
+            );
+          }
+
+          if (oldVersion < 9) {
+            await _addColumnIfNeeded(
+              db,
+              'signal_cards',
+              'linked_experiment_id TEXT',
+            );
+            await _createLifeExperimentTables(db);
+          }
+
+          if (oldVersion < 10) {
+            await _addColumnIfNeeded(
+              db,
+              'signal_cards',
+              "linked_life_chain_stage TEXT NOT NULL DEFAULT '[]'",
+            );
+          }
+
+          if (oldVersion < 11) {
+            await _addColumnIfNeeded(
+              db,
+              'signal_cards',
+              'raw_payload_json TEXT',
+            );
+          }
+
+          if (oldVersion < 12) {
+            await _createSignalLibraryTables(db);
+          }
         },
       ),
     );
@@ -192,8 +238,122 @@ class LocalDatabase {
       )
     ''');
 
+    await _createSignalCardTables(db);
+    await _createLifeExperimentTables(db);
+    await _createSignalLibraryTables(db);
+
     await db.execute(
       'CREATE INDEX idx_captures_created_at ON captures(created_at DESC)',
+    );
+  }
+
+  Future<void> _createSignalCardTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS signal_cards (
+        id TEXT PRIMARY KEY,
+        signal_card_id TEXT,
+        raw_memory_id TEXT,
+        capture_id TEXT,
+        source_type TEXT NOT NULL DEFAULT 'text',
+        raw_text TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        local_date TEXT NOT NULL,
+        timezone TEXT,
+        language TEXT,
+        ai_reply TEXT,
+        observation TEXT,
+        try_next TEXT,
+        emotion TEXT,
+        intensity TEXT,
+        scene TEXT,
+        friction TEXT,
+        positive_signal TEXT,
+        energy_load TEXT,
+        linked_life_chain_stage TEXT NOT NULL DEFAULT '[]',
+        raw_payload_json TEXT,
+        scene_tags_json TEXT,
+        intent_tags_json TEXT,
+        user_confirmation TEXT NOT NULL DEFAULT 'unconfirmed',
+        user_correction_json TEXT,
+        included_in_summary INTEGER NOT NULL DEFAULT 0,
+        included_in_weekly INTEGER NOT NULL DEFAULT 0,
+        included_in_journey INTEGER NOT NULL DEFAULT 0,
+        linked_experiment_id TEXT,
+        privacy_level TEXT NOT NULL DEFAULT 'private',
+        is_legacy INTEGER NOT NULL DEFAULT 0,
+        migration_status TEXT NOT NULL DEFAULT 'native',
+        is_local_draft INTEGER NOT NULL DEFAULT 0,
+        sync_failed INTEGER NOT NULL DEFAULT 0,
+        sync_status TEXT NOT NULL DEFAULT 'synced',
+        last_error TEXT,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS signal_card_drafts (
+        draft_id TEXT PRIMARY KEY,
+        raw_text TEXT NOT NULL,
+        source_type TEXT NOT NULL DEFAULT 'text',
+        tag_hint TEXT,
+        created_at TEXT NOT NULL,
+        local_date TEXT NOT NULL,
+        timezone TEXT,
+        language TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        remote_signal_card_id TEXT,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_signal_cards_local_date ON signal_cards(local_date DESC, created_at DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_signal_card_drafts_status ON signal_card_drafts(status, created_at ASC)',
+    );
+  }
+
+  Future<void> _createLifeExperimentTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS life_experiments (
+        id TEXT PRIMARY KEY,
+        local_user_id TEXT NOT NULL,
+        source_week_start TEXT NOT NULL,
+        source_week_end TEXT NOT NULL,
+        title TEXT NOT NULL,
+        hypothesis TEXT NOT NULL,
+        suggested_action TEXT NOT NULL,
+        linked_signal_card_ids_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'suggested',
+        feedback_text TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_life_experiments_week ON life_experiments(source_week_start, local_user_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_life_experiments_status ON life_experiments(status, updated_at DESC)',
+    );
+  }
+
+  Future<void> _createSignalLibraryTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS signal_library_actions (
+        id TEXT PRIMARY KEY,
+        pattern_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        is_private INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_signal_library_actions_pattern ON signal_library_actions(pattern_id, updated_at DESC)',
     );
   }
 

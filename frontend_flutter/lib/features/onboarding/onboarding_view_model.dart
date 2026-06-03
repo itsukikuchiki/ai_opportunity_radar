@@ -23,11 +23,7 @@ class OnboardingViewModel extends ChangeNotifier {
   }
 
   Future<void> complete() async {
-    if (selectedRepeatArea == null) {
-      errorCode = 'repeat_area_required';
-      notifyListeners();
-      throw Exception(errorCode);
-    }
+    selectedRepeatArea ??= 'open';
 
     submitting = true;
     errorCode = null;
