@@ -62,8 +62,9 @@ class _TodayPageState extends State<TodayPage> {
     final purchase = context.watch<PurchaseController?>();
     final state = vm.state;
     final todaySignals = _todayOnlySignals(state.recentSignals);
-    final pendingDraftCount =
-        state.recentSignals.where((signal) => signal.isLocalDraft).length;
+    final pendingDraftCount = state.recentSignals
+        .where((signal) => signal.isLocalDraft || signal.syncFailed)
+        .length;
 
     if (_controller.text != state.inputText) {
       _controller.value = TextEditingValue(
@@ -148,7 +149,7 @@ class _TodayPageState extends State<TodayPage> {
               count: pendingDraftCount,
               isSyncing: state.isDraftSyncing,
               message: state.draftSyncMessage,
-              onRetry: vm.retryDraftSync,
+              onRetry: () => _retryDraftSync(context, vm),
             ),
           ] else if (state.draftSyncMessage == 'sync_complete') ...[
             const SizedBox(height: 16),
@@ -226,11 +227,46 @@ class _TodayPageState extends State<TodayPage> {
     showPremiumPaywall(context, source: 'Today dialogue');
   }
 
+  Future<void> _retryDraftSync(
+    BuildContext context,
+    TodayViewModel vm,
+  ) async {
+    final result = await vm.retryDraftSync();
+    if (!context.mounted) return;
+
+    final text = switch (result) {
+      DraftSyncResult.completed => AppLocaleText.tr(
+          context,
+          en: 'Sync completed.',
+          zhHans: '同步完成。',
+          zhHant: '同步完成。',
+          ja: '同期が完了しました。',
+        ),
+      DraftSyncResult.noPending => AppLocaleText.tr(
+          context,
+          en: 'Nothing is waiting to sync.',
+          zhHans: '没有需要同步的内容。',
+          zhHant: '沒有需要同步的內容。',
+          ja: '同期待ちの内容はありません。',
+        ),
+      DraftSyncResult.stillPending => AppLocaleText.tr(
+          context,
+          en: 'Still saved on this device. Try again when the connection is stable.',
+          zhHans: '内容仍已保存在本机。网络稳定后可以再试一次。',
+          zhHant: '內容仍已保存在本機。網路穩定後可以再試一次。',
+          ja: '内容は端末に保存されています。接続が安定したら、もう一度試せます。',
+        ),
+    };
+
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
   Future<void> _openVoiceTranscriptDraft(
     BuildContext context,
     TodayViewModel vm,
   ) async {
     final controller = TextEditingController();
+    final focusNode = FocusNode();
     final result = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -243,27 +279,62 @@ class _TodayPageState extends State<TodayPage> {
             ja: '音声メモの文字起こし',
           ),
         ),
-        content: TextField(
-          controller: controller,
-          minLines: 4,
-          maxLines: 6,
-          autofocus: true,
-          decoration: InputDecoration(
-            helperText: AppLocaleText.tr(
-              context,
-              en: 'MVP keeps transcript only. No audio is saved or uploaded.',
-              zhHans: 'MVP 只保存转写文字，不保存或上传音频。',
-              zhHant: 'MVP 只保存轉寫文字，不保存或上傳音訊。',
-              ja: 'MVP では文字だけを保存します。音声は保存・アップロードしません。',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: () {
+                focusNode.requestFocus();
+              },
+              icon: const Icon(Icons.mic_none_rounded),
+              label: Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'Start voice input',
+                  zhHans: '开始语音录入',
+                  zhHant: '開始語音錄入',
+                  ja: '音声入力を始める',
+                ),
+              ),
             ),
-            hintText: AppLocaleText.tr(
-              context,
-              en: 'Edit the transcript before saving...',
-              zhHans: '保存前可以先编辑转写内容……',
-              zhHant: '保存前可以先編輯轉寫內容……',
-              ja: '保存前に文字起こしを編集できます…',
+            const SizedBox(height: 10),
+            Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Use the keyboard microphone or system dictation, then edit the transcript before saving.',
+                zhHans: '点击后可使用键盘麦克风或系统听写，保存前还能编辑转写内容。',
+                zhHant: '點擊後可使用鍵盤麥克風或系統聽寫，保存前還能編輯轉寫內容。',
+                ja: 'キーボードのマイクやシステム音声入力を使い、保存前に文字を編集できます。',
+              ),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
             ),
-          ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: controller,
+              focusNode: focusNode,
+              minLines: 4,
+              maxLines: 6,
+              autofocus: true,
+              decoration: InputDecoration(
+                helperText: AppLocaleText.tr(
+                  context,
+                  en: 'Only transcript text is saved. Audio is not saved or uploaded.',
+                  zhHans: '只保存转写文字，不保存或上传音频。',
+                  zhHant: '只保存轉寫文字，不保存或上傳音訊。',
+                  ja: '保存するのは文字だけです。音声は保存・アップロードしません。',
+                ),
+                hintText: AppLocaleText.tr(
+                  context,
+                  en: 'Edit the transcript before saving...',
+                  zhHans: '保存前可以先编辑转写内容……',
+                  zhHant: '保存前可以先編輯轉寫內容……',
+                  ja: '保存前に文字起こしを編集できます…',
+                ),
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -295,6 +366,7 @@ class _TodayPageState extends State<TodayPage> {
       ),
     );
     controller.dispose();
+    focusNode.dispose();
     if (result == null || result.trim().isEmpty) return;
     await vm.submitVoiceTranscript(result);
   }
@@ -902,42 +974,41 @@ class _PlanBlockCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _UnifiedCard(
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.event_note_outlined),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Plan Block',
-                    zhHans: 'Plan Block',
-                    zhHant: 'Plan Block',
-                    ja: 'Plan Block',
-                  ),
-                  style: Theme.of(context).textTheme.titleSmall,
+          Row(
+            children: [
+              const Icon(Icons.event_note_outlined),
+              const SizedBox(width: 10),
+              Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'Plan Block',
+                  zhHans: 'Plan Block',
+                  zhHant: 'Plan Block',
+                  ja: 'Plan Block',
                 ),
-                const SizedBox(height: 4),
-                Text(text),
-                const SizedBox(height: 4),
-                Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Local only. No calendar event, notification, or task was created.',
-                    zhHans: '仅本地保存，没有创建日历、提醒或任务。',
-                    zhHant: '僅本地保存，沒有建立日曆、提醒或任務。',
-                    ja: 'ローカル保存のみです。カレンダー、通知、タスクは作成していません。',
-                  ),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                ),
-              ],
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const ExperimentPathVisual(),
+          const SizedBox(height: 10),
+          Text(text),
+          const SizedBox(height: 4),
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Local only. No calendar event, notification, or task was created.',
+              zhHans: '仅本地保存，没有创建日历、提醒或任务。',
+              zhHant: '僅本地保存，沒有建立日曆、提醒或任務。',
+              ja: 'ローカル保存のみです。カレンダー、通知、タスクは作成していません。',
             ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
           ),
         ],
       ),

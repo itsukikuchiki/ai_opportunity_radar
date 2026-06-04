@@ -118,7 +118,6 @@ void main() {
       240,
       scrollable: find.byType(Scrollable).last,
     );
-    expect(find.text('Signal density and weekly trend'), findsOneWidget);
     expect(find.text('Energy Budget'), findsOneWidget);
     expect(find.text('Most costly source'), findsOneWidget);
     expect(find.text('Buffer point'), findsOneWidget);
@@ -126,6 +125,12 @@ void main() {
       find.textContaining('not a score or diagnosis'),
       findsOneWidget,
     );
+    await tester.scrollUntilVisible(
+      find.text('Signal trend'),
+      240,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('Signal trend'), findsOneWidget);
     expect(repo.fetchCallCount, 1);
     expect(energyRepo.fetchCallCount, 1);
   });

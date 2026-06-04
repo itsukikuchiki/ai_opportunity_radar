@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../app/app_router.dart';
 import '../../core/state/app_bootstrap_state.dart';
 import '../../core/i18n/app_locale_text.dart';
+import '../../shared/widgets/signal_illustration_kit.dart';
 import 'onboarding_view_model.dart';
 
 class OnboardingPage extends StatefulWidget {
@@ -212,7 +213,7 @@ class _HeroIntroStep extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Image.asset(
-            'assets/brand-icon-display.png',
+            'assets/icon-1024-noalpha.png',
             width: 210,
             height: 210,
             fit: BoxFit.contain,
@@ -301,7 +302,7 @@ class _SignalInputStep extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyLarge,
           ),
           const SizedBox(height: 16),
-          const _SignalDropPreview(),
+          const SignalDropVisual(height: 170),
           const SizedBox(height: 16),
           _OnboardingInfoCard(
             number: '01',
@@ -378,7 +379,7 @@ class _SignalOutputStep extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyLarge,
           ),
           const SizedBox(height: 16),
-          const _SignalPathPreview(),
+          const SignalToMapVisual(height: 180),
           const SizedBox(height: 16),
           _OnboardingInfoCard(
             number: 'W',
@@ -419,152 +420,6 @@ class _SignalOutputStep extends StatelessWidget {
       ),
     );
   }
-}
-
-class _SignalDropPreview extends StatelessWidget {
-  const _SignalDropPreview();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      height: 142,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-        ),
-      ),
-      child: CustomPaint(
-        painter: _SignalDropPreviewPainter(theme.colorScheme),
-      ),
-    );
-  }
-}
-
-class _SignalPathPreview extends StatelessWidget {
-  const _SignalPathPreview();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      height: 154,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-        ),
-      ),
-      child: CustomPaint(
-        painter: _SignalPathPreviewPainter(theme.colorScheme),
-      ),
-    );
-  }
-}
-
-class _SignalDropPreviewPainter extends CustomPainter {
-  final ColorScheme colors;
-
-  const _SignalDropPreviewPainter(this.colors);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final tray = RRect.fromRectAndRadius(
-      Rect.fromLTWH(size.width * 0.18, size.height * 0.60, size.width * 0.64,
-          size.height * 0.22),
-      const Radius.circular(18),
-    );
-    canvas.drawRRect(
-      tray,
-      Paint()
-        ..color = colors.surface.withValues(alpha: 0.86)
-        ..style = PaintingStyle.fill,
-    );
-
-    final line = Paint()
-      ..color = colors.primary.withValues(alpha: 0.40)
-      ..strokeWidth = 2.4
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-    final path = Path()
-      ..moveTo(size.width * 0.26, size.height * 0.30)
-      ..cubicTo(size.width * 0.38, size.height * 0.48, size.width * 0.54,
-          size.height * 0.24, size.width * 0.68, size.height * 0.54);
-    canvas.drawPath(path, line);
-
-    final fill = Paint()..style = PaintingStyle.fill;
-    final dots = [
-      (Offset(size.width * 0.25, size.height * 0.30), colors.tertiary, 9.0),
-      (Offset(size.width * 0.47, size.height * 0.38), colors.primary, 11.0),
-      (Offset(size.width * 0.68, size.height * 0.54), colors.secondary, 9.0),
-    ];
-    for (final dot in dots) {
-      fill.color = dot.$2.withValues(alpha: 0.72);
-      canvas.drawCircle(dot.$1, dot.$3, fill);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _SignalDropPreviewPainter oldDelegate) =>
-      oldDelegate.colors != colors;
-}
-
-class _SignalPathPreviewPainter extends CustomPainter {
-  final ColorScheme colors;
-
-  const _SignalPathPreviewPainter(this.colors);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final barPaint = Paint()
-      ..style = PaintingStyle.fill
-      ..color = colors.primary.withValues(alpha: 0.28);
-    for (var i = 0; i < 4; i++) {
-      final left = size.width * (0.16 + i * 0.055);
-      final height = size.height * (0.16 + i * 0.035);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(left, size.height * 0.54 - height, 9, height),
-          const Radius.circular(5),
-        ),
-        barPaint,
-      );
-    }
-
-    final pathPaint = Paint()
-      ..color = colors.secondary.withValues(alpha: 0.54)
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-    final path = Path()
-      ..moveTo(size.width * 0.38, size.height * 0.62)
-      ..cubicTo(size.width * 0.48, size.height * 0.30, size.width * 0.58,
-          size.height * 0.74, size.width * 0.70, size.height * 0.44)
-      ..cubicTo(size.width * 0.76, size.height * 0.29, size.width * 0.84,
-          size.height * 0.48, size.width * 0.88, size.height * 0.36);
-    canvas.drawPath(path, pathPaint);
-
-    final fill = Paint()..style = PaintingStyle.fill;
-    final dots = [
-      (Offset(size.width * 0.38, size.height * 0.62), colors.primary, 8.5),
-      (Offset(size.width * 0.55, size.height * 0.48), colors.tertiary, 10.0),
-      (Offset(size.width * 0.70, size.height * 0.44), colors.secondary, 9.0),
-      (Offset(size.width * 0.88, size.height * 0.36), colors.error, 7.0),
-    ];
-    for (final dot in dots) {
-      fill.color = dot.$2.withValues(alpha: 0.68);
-      canvas.drawCircle(dot.$1, dot.$3, fill);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _SignalPathPreviewPainter oldDelegate) =>
-      oldDelegate.colors != colors;
 }
 
 class _OnboardingInfoCard extends StatelessWidget {

@@ -1,17 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/memory_models.dart';
-import '../../../core/purchases/purchase_controller.dart';
 import '../../../shared/states/load_state.dart';
 import '../../../shared/widgets/app_header.dart';
 import '../../../shared/widgets/empty_state_block.dart';
 import '../../../shared/widgets/section_header.dart';
 import '../../../shared/widgets/signal_illustration_kit.dart';
-import '../../paywall/paywall_sheet.dart';
 import '../me/me_view_model.dart';
 import 'memory_view_model.dart';
 
@@ -113,7 +109,6 @@ class _JourneyReadyBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final meVm = context.watch<MeViewModel>();
-    final purchase = context.watch<PurchaseController?>();
     final summary = vm.summary;
     final focusArea = meVm.selectedRepeatArea;
 
@@ -176,32 +171,10 @@ class _JourneyReadyBody extends StatelessWidget {
           experimentCount: summary.experiments.length,
         ),
         const SizedBox(height: 14),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            onPressed: () => _openJournal(context, purchase),
-            icon: Icon(
-              purchase?.isPremium ?? false
-                  ? Icons.menu_book_outlined
-                  : Icons.lock_outline,
-            ),
-            label: Text(
-              AppLocaleText.tr(
-                context,
-                en: 'Open journal view',
-                zhHans: '打开手帐视图',
-                zhHant: '打開手帳視圖',
-                ja: '手帳ビューを開く',
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
         _JourneyOverviewCard(
           weakCount: weakSignals.length,
           repeatedCount: repeatedPatterns.length,
           stableCount: stableModes.length,
-          purchase: purchase,
         ),
         const SizedBox(height: 22),
         _ReviewAdjustSection(summary: summary),
@@ -461,22 +434,37 @@ class _JourneyHeatmapLite extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 5,
-            runSpacing: 5,
-            children: [
-              for (final level in cells)
-                Container(
-                  width: 18,
-                  height: 18,
-                  decoration: BoxDecoration(
-                    color: cellColor(level).withValues(
-                      alpha: level == 0 ? 0.35 : 0.72,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const columns = 7;
+              const gap = 6.0;
+              final cellSize =
+                  ((constraints.maxWidth - gap * (columns - 1)) / columns)
+                      .clamp(18.0, 34.0);
+
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  for (final level in cells)
+                    Container(
+                      width: cellSize,
+                      height: cellSize,
+                      decoration: BoxDecoration(
+                        color: cellColor(level).withValues(
+                          alpha: level == 0 ? 0.28 : 0.86,
+                        ),
+                        borderRadius: BorderRadius.circular(7),
+                        border: Border.all(
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: level == 0 ? 0.34 : 0.12,
+                          ),
+                        ),
+                      ),
                     ),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-            ],
+                ],
+              );
+            },
           ),
           const SizedBox(height: 10),
           Text(
@@ -501,13 +489,11 @@ class _JourneyOverviewCard extends StatelessWidget {
   final int weakCount;
   final int repeatedCount;
   final int stableCount;
-  final PurchaseController? purchase;
 
   const _JourneyOverviewCard({
     required this.weakCount,
     required this.repeatedCount,
     required this.stableCount,
-    required this.purchase,
   });
 
   @override
@@ -536,28 +522,6 @@ class _JourneyOverviewCard extends StatelessWidget {
               ja: 'ここではカテゴリだけでなく、それぞれの手がかりがどこまで育っているかも見えるようになっています。',
             ),
           ),
-          const SizedBox(height: 14),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: () => _openJournal(context, purchase),
-              icon: Icon(
-                purchase?.isPremium ?? false
-                    ? Icons.menu_book_outlined
-                    : Icons.lock_outline,
-              ),
-              label: Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'Open journal view',
-                  zhHans: '打开手帐视图',
-                  zhHant: '打開手帳視圖',
-                  ja: '手帳ビューを開く',
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
           Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -598,15 +562,6 @@ class _JourneyOverviewCard extends StatelessWidget {
       ),
     );
   }
-}
-
-void _openJournal(BuildContext context, PurchaseController? purchase) {
-  if (purchase?.isPremium ?? false) {
-    context.push(AppRoutes.journal);
-    return;
-  }
-
-  showPremiumPaywall(context, source: 'Journey journal');
 }
 
 class _CountChip extends StatelessWidget {

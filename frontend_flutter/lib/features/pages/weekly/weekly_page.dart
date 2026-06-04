@@ -409,26 +409,48 @@ class _WeeklyReadyBody extends StatelessWidget {
             SectionHeader(
               title: AppLocaleText.tr(
                 context,
-                en: 'This week at a glance',
-                zhHans: '这周一眼看过去',
-                zhHant: '這週一眼看過去',
-                ja: '今週をひと目で見る',
+                en: 'Energy budget',
+                zhHans: '能量分布',
+                zhHant: '能量分布',
+                ja: 'エネルギー分布',
               ),
               subtitle: isLightReady
                   ? AppLocaleText.tr(
                       context,
-                      en: 'Even a light weekly read can already show where signals are gathering and where the weekly trend is moving.',
-                      zhHans: '先看看线索往哪几天聚，以及这一周的状态大致往哪里走。',
-                      zhHant: '先看看線索往哪幾天聚，以及這一週的狀態大致往哪裡走。',
-                      ja: 'シグナルがどの日に集まりやすいか、今週の流れがどちらへ動いているかを軽く見ます。',
+                      en: 'A light view of where energy may be draining or returning. It is a distribution, not a score.',
+                      zhHans: '轻轻看一下哪里可能有些耗力，哪里可能有恢复线索。这是分布，不是评分。',
+                      zhHant: '輕輕看一下哪裡可能有些耗力，哪裡可能有恢復線索。這是分布，不是評分。',
+                      ja: 'どこで少し消耗し、どこに回復の手がかりがあるかを軽く見ます。これは分布であり、点数ではありません。',
                     )
                   : AppLocaleText.tr(
                       context,
-                      en: 'Bars show signal density, and the line shows the weekly trend.',
-                      zhHans: '柱状表示线索密度，折线表示这一周的走势。',
-                      zhHant: '柱狀表示線索密度，折線表示這一週的走勢。',
-                      ja: '棒は手がかりの密度、折れ線は今週の流れを表します。',
+                      en: 'Look at the distribution first, without turning the week into a score.',
+                      zhHans: '先看分布，不把这一周变成评分。',
+                      zhHant: '先看分布，不把這一週變成評分。',
+                      ja: 'まず分布として見ます。今週を点数にはしません。',
                     ),
+            ),
+            const SizedBox(height: 10),
+            _EnergyBudgetLiteCard(
+              budget: energyBudget,
+              fallbackExperiment: structure.oneExperiment,
+            ),
+            const SizedBox(height: 18),
+            SectionHeader(
+              title: AppLocaleText.tr(
+                context,
+                en: 'Signal trend',
+                zhHans: '信号走势',
+                zhHant: '信號走勢',
+                ja: 'シグナルの流れ',
+              ),
+              subtitle: AppLocaleText.tr(
+                context,
+                en: 'Bars show signal density, and the line shows the weekly trend.',
+                zhHans: '柱状表示信号密度，折线表示这一周的走势。',
+                zhHant: '柱狀表示信號密度，折線表示這一週的走勢。',
+                ja: '棒はシグナルの密度、線は今週の流れを表します。',
+              ),
             ),
             const SizedBox(height: 10),
             _CompositeChartCard(
@@ -440,11 +462,6 @@ class _WeeklyReadyBody extends StatelessWidget {
               _ChartInsightCard(points: chartData)
             else
               const _PremiumChartInsightCard(),
-            const SizedBox(height: 16),
-            _EnergyBudgetLiteCard(
-              budget: energyBudget,
-              fallbackExperiment: structure.oneExperiment,
-            ),
           ],
         ),
         _WeeklyPagerPage(
@@ -1002,6 +1019,16 @@ class _EnergyBudgetLiteCard extends StatelessWidget {
                     zhHant: '輕輕看一下哪裡可能有點耗力，以及哪裡可以先留一點餘地。',
                     ja: 'どこが少し消耗しやすいか、どこに少し余白を置けそうかを軽く見ます。',
                   ),
+          ),
+          const SizedBox(height: 12),
+          EnergyRingVisual(
+            label: AppLocaleText.tr(
+              context,
+              en: 'Distribution\nnot a score',
+              zhHans: '分布感\n不是评分',
+              zhHant: '分布感\n不是評分',
+              ja: '分布を見る\n評価ではありません',
+            ),
           ),
           const SizedBox(height: 12),
           _EnergyDistributionBar(blocks: value?.blocks ?? const []),

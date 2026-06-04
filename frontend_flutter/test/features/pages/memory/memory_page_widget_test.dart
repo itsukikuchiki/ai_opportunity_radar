@@ -74,6 +74,8 @@ void main() {
     expect(find.text('One recovery clue'), findsOneWidget);
     expect(find.text('Experiment feedback'), findsOneWidget);
     expect(find.text('Next gentle adjustment'), findsOneWidget);
+    expect(find.text('Open journal view'), findsNothing);
+    expect(find.text('打开手帐视图'), findsNothing);
     expect(repo.fetchCallCount, 1);
   });
 

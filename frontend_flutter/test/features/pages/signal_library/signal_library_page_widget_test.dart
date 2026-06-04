@@ -39,7 +39,10 @@ void main() {
     await tester.pumpWidget(_buildWidget());
     await tester.pump();
 
-    await tester.tap(find.text('Save to my observation'));
+    final saveButton = find.text('Save to my observation');
+    await tester.ensureVisible(saveButton);
+    await tester.pump();
+    await tester.tap(saveButton);
     await tester.pump();
 
     expect(

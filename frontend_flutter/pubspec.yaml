@@ -1,7 +1,7 @@
 name: ai_opportunity_radar
 publish_to: 'none'
 description: MVP scaffold for AI Opportunity Radar
-version: 3.0.1+4
+version: 3.0.2+1
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
@@ -33,4 +33,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon-1024.png
+    - assets/icon-1024-noalpha.png
     - assets/brand-icon-display.png

@@ -62,6 +62,8 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
             ),
           ),
           const SizedBox(height: 14),
+          const LibraryFlowVisual(),
+          const SizedBox(height: 14),
           if (viewModel.message != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),

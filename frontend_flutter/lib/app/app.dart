@@ -268,7 +268,7 @@ class _BrandLaunchScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Image.asset(
-                'assets/brand-icon-display.png',
+                'assets/icon-1024-noalpha.png',
                 width: 148,
                 height: 148,
                 fit: BoxFit.contain,

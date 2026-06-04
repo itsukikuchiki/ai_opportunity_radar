@@ -6,6 +6,8 @@ import '../../../core/models/today_models.dart';
 import '../../../shared/states/load_state.dart';
 import 'today_state.dart';
 
+enum DraftSyncResult { completed, stillPending, noPending }
+
 class TodayViewModel extends ChangeNotifier {
   final TodayRepository repository;
 
@@ -49,8 +51,13 @@ class TodayViewModel extends ChangeNotifier {
 
   Future<void> retry() => load();
 
-  Future<void> retryDraftSync() async {
-    if (_state.isDraftSyncing) return;
+  Future<DraftSyncResult> retryDraftSync() async {
+    if (_state.isDraftSyncing) return DraftSyncResult.stillPending;
+    final hasPending = _state.recentSignals.any(
+      (signal) => signal.isLocalDraft || signal.syncFailed,
+    );
+    if (!hasPending) return DraftSyncResult.noPending;
+
     _state = _state.copyWith(
       draftSyncSubmitState: SubmitState.submitting,
       clearErrorMessage: true,
@@ -76,14 +83,19 @@ class TodayViewModel extends ChangeNotifier {
         draftSyncMessage: stillPending ? 'sync_still_pending' : 'sync_complete',
         clearErrorMessage: true,
       );
+      return stillPending
+          ? DraftSyncResult.stillPending
+          : DraftSyncResult.completed;
     } catch (e) {
       _state = _state.copyWith(
         draftSyncSubmitState: SubmitState.failure,
         draftSyncMessage: 'sync_still_pending',
         errorMessage: e.toString(),
       );
+      return DraftSyncResult.stillPending;
+    } finally {
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   void updateInput(String value) {

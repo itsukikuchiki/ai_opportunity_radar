@@ -241,7 +241,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.retryPendingDraftsCallCount, 1);
-    expect(find.text('同步完成。'), findsOneWidget);
+    expect(find.text('同步完成。'), findsWidgets);
     expect(find.textContaining('1 条内容已先保存在这台设备上'), findsNothing);
   });
 }
