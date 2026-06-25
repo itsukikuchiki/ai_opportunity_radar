@@ -279,10 +279,10 @@ class RecentSignalModel {
 
   bool get hasUserConfirmedAiPrediction {
     if (!isAiPredicted) return true;
-    if (userConfirmation != 'edited' && userConfirmation != 'supplemented') {
-      return false;
+    if (userConfirmation == 'edited' || userConfirmation == 'supplemented') {
+      return _hasPersonalContext;
     }
-    return _hasPersonalContext;
+    return false;
   }
 
   String? get libraryPatternTitle {

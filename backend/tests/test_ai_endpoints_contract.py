@@ -209,6 +209,35 @@ def test_capture_reply_contract_accepts_response_style(client):
     assert data["acknowledgement"].startswith("先说重点：")
 
 
+def test_capture_reply_stays_grounded_in_specific_user_text(client):
+    examples = [
+        ("token好贵", ["token", "成本", "贵"]),
+        ("每周只有骑马是值得期待的", ["骑马", "期待", "恢复"]),
+        ("我们永远无法预测明天会发生什么，但可以好好活在当下", ["明天", "当下"]),
+        ("好想早日退休", ["退休", "工作", "离开"]),
+        ("明天可以去骑马好开心", ["骑马", "开心", "期待"]),
+    ]
+
+    for content, required_terms in examples:
+        resp = client.post(
+            "/api/v1/ai/capture-reply",
+            headers=_headers(),
+            json={
+                "content": content,
+                "recent_assistant_texts": [],
+                "focus_area": "emotion_stress",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        combined = "".join(
+            [data["acknowledgement"], data["observation"], data["try_next"]]
+        )
+        assert any(term in combined for term in required_terms), combined
+        assert "这种小瞬间其实也很有信息量" not in combined
+        assert "先不用急着解释清楚" not in combined
+
+
 def test_today_summary_contract_accepts_response_style(client):
     resp = client.post(
         "/api/v1/ai/today-summary",

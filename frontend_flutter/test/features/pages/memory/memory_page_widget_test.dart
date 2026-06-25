@@ -62,18 +62,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(MemoryPage), findsOneWidget);
-    expect(find.text('Journey'), findsWidgets);
-    await tester.scrollUntilVisible(
-      find.text('This period, start here'),
-      320,
-      scrollable: find.byType(Scrollable).first,
+    expect(find.text('Long-term patterns'), findsOneWidget);
+    expect(find.text('Life structure path'), findsOneWidget);
+    await tester.dragUntilVisible(
+      find.text('Experiment tracks'),
+      find.byType(ListView).first,
+      const Offset(0, -240),
     );
-    expect(find.text('This period, start here'), findsOneWidget);
-    expect(find.text('One pattern'), findsOneWidget);
-    expect(find.text('One friction source'), findsOneWidget);
-    expect(find.text('One recovery clue'), findsOneWidget);
-    expect(find.text('Experiment feedback'), findsOneWidget);
-    expect(find.text('Next gentle adjustment'), findsOneWidget);
+    expect(find.text('Monthly life map'), findsOneWidget);
+    expect(find.text('Experiment tracks'), findsOneWidget);
     expect(find.text('Open journal view'), findsNothing);
     expect(find.text('打开手帐视图'), findsNothing);
     expect(repo.fetchCallCount, 1);

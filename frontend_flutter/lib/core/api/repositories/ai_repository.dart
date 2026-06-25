@@ -172,6 +172,7 @@ class AiRepository {
       return MemorySummaryModel.fromJson(data);
     } catch (_) {
       return _fallbackJourneySummary(
+        entries: entries,
         topTokens: topTokens,
         totalDays: totalDays,
       );
@@ -354,6 +355,11 @@ class AiRepository {
     final trimmed = content.trim();
     if (trimmed.isEmpty) return '先把这一条留在这里。';
 
+    final topic = _topicHint(content);
+    if (topic != null) {
+      return _topicAcknowledgement(topic);
+    }
+
     final emotion = _fallbackEmotion(content);
     final sceneTags = _fallbackSceneTags(content);
 
@@ -380,6 +386,11 @@ class AiRepository {
   }
 
   String _fallbackSingleObservation(String content) {
+    final topic = _topicHint(content);
+    if (topic != null) {
+      return _topicObservation(topic);
+    }
+
     final emotion = _fallbackEmotion(content);
     final sceneTags = _fallbackSceneTags(content);
 
@@ -408,6 +419,11 @@ class AiRepository {
   }
 
   String _fallbackSingleTryNext(String content) {
+    final topic = _topicHint(content);
+    if (topic != null) {
+      return _topicTryNext(topic);
+    }
+
     final emotion = _fallbackEmotion(content);
     final sceneTags = _fallbackSceneTags(content);
 
@@ -577,6 +593,108 @@ class AiRepository {
     return 'neutral';
   }
 
+  String? _topicHint(String content) {
+    final text = content.toLowerCase();
+    bool hit(List<String> keywords) => keywords.any(text.contains);
+
+    if (hit(['token', 'tokens', 'トークン']) &&
+        hit(['贵', '高', 'expensive', 'cost', '高い'])) {
+      return 'cost';
+    }
+    if (hit(['骑马', '乗馬', '馬', 'horse'])) {
+      return 'horse_expectation';
+    }
+    if (hit([
+      '无法预测明天',
+      '不能预测明天',
+      '预测明天',
+      '活在当下',
+      '明日',
+      '予測',
+      'tomorrow',
+      'present'
+    ])) {
+      return 'tomorrow_uncertainty';
+    }
+    if (hit(['退休', '退職', '引退', 'retire'])) {
+      return 'retirement_wish';
+    }
+    if (hit(['天气不错', '好天气', 'いい天気', 'weather is nice', 'good weather'])) {
+      return 'weather_good';
+    }
+    if (hit(['不想上班', '休息', '休みたい', 'rest'])) {
+      return 'rest_wish';
+    }
+    if (hit(
+        ['钱', '贵', '预算', '成本', '花费', '价格', 'お金', 'money', 'budget', 'cost'])) {
+      return 'money';
+    }
+    return null;
+  }
+
+  String _topicAcknowledgement(String topic) {
+    switch (topic) {
+      case 'cost':
+        return '你在意的不是小情绪，而是成本突然变得很明显：token 花费这件事需要被认真看一下。';
+      case 'horse_expectation':
+        return '这一条的重点很清楚：骑马像是这一周里真正能让你期待的一块恢复时间。';
+      case 'tomorrow_uncertainty':
+        return '你写到的是对明天不可控的提醒，也是在把注意力轻轻拉回当下。';
+      case 'retirement_wish':
+        return '“想早点退休”背后更像是持续被工作消耗后的逃离感，不只是随口一说。';
+      case 'weather_good':
+        return '天气不错这件小事已经让今天亮了一点，它本身就值得被留下来。';
+      case 'rest_wish':
+        return '这里最明显的是想停下来休息的念头，可能是身体和心力都在要一点空间。';
+      case 'money':
+        return '这条和钱有关，真正牵动你的可能是支出、价值感或安全感之间的拉扯。';
+      default:
+        return '这条可以先作为一个具体线索留下来。';
+    }
+  }
+
+  String _topicObservation(String topic) {
+    switch (topic) {
+      case 'cost':
+        return '这条更像是成本提醒：当 token 或 AI 使用成本变得显眼，它会影响你对工具是否值得继续用的判断。';
+      case 'horse_expectation':
+        return '这条的恢复线索很明确：骑马不是普通安排，而是你这周少数真正期待的事情。';
+      case 'tomorrow_uncertainty':
+        return '这条更像是一种生活视角：明天不可控，所以今天能抓住的当下变得更重要。';
+      case 'retirement_wish':
+        return '这条不是简单抱怨，它更像是在提示：现在的工作消耗已经让你开始想象彻底离开的生活。';
+      case 'weather_good':
+        return '这条里的正向线索很小但清楚：外部环境变轻，会让今天更容易松一点。';
+      case 'rest_wish':
+        return '这条更像是恢复需求浮出来了：你可能不是懒，而是确实想要一点不用继续扛的空间。';
+      case 'money':
+        return '这条和钱有关，也可能牵着安全感、值不值得、以及资源是否够用的判断。';
+      default:
+        return '这条可以先作为一个具体线索留下来。';
+    }
+  }
+
+  String _topicTryNext(String topic) {
+    switch (topic) {
+      case 'cost':
+        return '可以先记一笔：这次让你觉得贵的，是单次花费、持续消耗，还是不确定能不能换来价值。';
+      case 'horse_expectation':
+        return '可以先补一句：骑马让你期待的到底是身体活动、自由感，还是暂时离开日常压力。';
+      case 'tomorrow_uncertainty':
+        return '今天不用把明天想清楚，只选一件当下能好好做的小事就够了。';
+      case 'retirement_wish':
+        return '先不用立刻讨论退休，只补一句：最想离开的到底是工作量、节奏，还是长期没有恢复空间。';
+      case 'weather_good':
+        return '如果可以，今天留意一下：天气变好后，你更想散步、休息，还是做一点轻松的事。';
+      case 'rest_wish':
+        return '先给自己一个很小的恢复块：哪怕只是十分钟不输入、不处理、不回应。';
+      case 'money':
+        return '先记清楚这笔钱让你卡住的点：价格、必要性，还是付出之后的确定感。';
+      default:
+        return '先看看它之后还会不会再回来。';
+    }
+  }
+
   String _fallbackIntensity(String content) {
     final text = content.toLowerCase();
 
@@ -691,13 +809,34 @@ class AiRepository {
       '消费',
       '买',
       '预算',
+      'token',
+      '贵',
+      '成本',
+      '价格',
       'お金',
       '支出',
       'money',
       'budget',
+      'cost',
       'spent'
     ])) {
       scenes.add('money');
+    }
+    if (hit([
+      '明天',
+      '未来',
+      '预测',
+      '当下',
+      '明日',
+      '予測',
+      'tomorrow',
+      'future',
+      'present'
+    ])) {
+      scenes.add('future');
+    }
+    if (hit(['骑马', '乗馬', 'horse', 'ride'])) {
+      scenes.add('hobby');
     }
     if (hit(
         ['休息', '放松', '睡觉', '午休', '恢复', '发呆', '散步', '休憩', 'rest', 'relax'])) {
@@ -833,28 +972,36 @@ class AiRepository {
       );
     }
 
-    final topTokenText = topTokens.isEmpty ? '本周记录' : topTokens.first;
+    final contents = _entryContents(entries);
+    final topTokenText = _evidenceTopicFromEntries(
+      contents: contents,
+      topTokens: topTokens,
+      fallback: '本周记录',
+    );
     final peakDay = _resolvePeakDay(dayCounts);
+    final confidenceLine =
+        entries.length < 4 ? '基于目前少量信号，先把它当成临时观察。' : '这周已经有足够线索，可以先看它的重复方式。';
 
     return WeeklyInsightModel(
       weekStart: weekStart,
       weekEnd: weekEnd,
       status: 'ready',
-      keyInsight: '这周的记录开始围绕“$topTokenText”聚集，$peakDay 的信号更密集。',
+      keyInsight: '$confidenceLine 这周先看“$topTokenText”，$peakDay 的信号更密集。',
       patterns: [
         {
-          'name': '重复出现的主题',
-          'summary': '这周有一些内容在反复出现，说明它已经不只是一次性的瞬间。',
+          'name': '本周小观察：$topTokenText',
+          'summary': '$confidenceLine 先看它在哪些场景里回来。',
         },
         {
-          'name': '高频关键词：$topTokenText',
-          'summary': '从本地统计看，这个主题在这周尤其明显。',
+          'name': '证据来源',
+          'summary':
+              _evidenceSummary(contents: contents, fallback: topTokenText),
         },
       ],
       frictions: [
         {
-          'name': '本周的主要消耗',
-          'summary': '当前最大的摩擦，更像是同类事情反复回来，而不是单次事件。',
+          'name': '本周可能的消耗点',
+          'summary': '目前先看“$topTokenText”带来的负担；还不需要当成结论。',
         },
       ],
       bestAction: '这周先试一步：下次再出现同类情况时，用一句话补记它发生在什么场景。',
@@ -868,23 +1015,30 @@ class AiRepository {
   }
 
   MemorySummaryModel _fallbackJourneySummary({
+    required List<Map<String, dynamic>> entries,
     required List<String> topTokens,
     required int totalDays,
   }) {
-    final topToken = topTokens.isEmpty ? '最近的记录' : topTokens.first;
+    final contents = _entryContents(entries);
+    final topToken = _evidenceTopicFromEntries(
+      contents: contents,
+      topTokens: topTokens,
+      fallback: '最近的记录',
+    );
+    final confidence = entries.length < 6 ? '还只是早期生活轨迹' : '已经开始有长期线索';
 
     return MemorySummaryModel(
       patterns: [
         JourneySignalItemModel(
-          name: '反复出现的主题',
-          summary: '一路看下来，“$topToken”开始不止一次地出现，说明它已经在慢慢形成长期模式。',
+          name: '正在形成的生活路径',
+          summary: '$confidence：目前最清楚的是“$topToken”。先看它是偶尔出现，还是慢慢变成重复结构。',
           signalLevel: totalDays >= 3 ? 'repeated_pattern' : 'weak_signal',
         ),
       ],
       frictions: [
         JourneySignalItemModel(
-          name: '持续性的摩擦',
-          summary: '这段时间里，有些问题不是一次性的，而是在慢慢累积，开始形成稳定摩擦。',
+          name: '可能的长期消耗',
+          summary: '如果“$topToken”继续出现，它可能是后面要回看的消耗来源；现在先保持小观察。',
           signalLevel: totalDays >= 4 ? 'stable_mode' : 'repeated_pattern',
         ),
       ],
@@ -905,6 +1059,60 @@ class AiRepository {
     );
   }
 
+  List<String> _entryContents(List<Map<String, dynamic>> entries) {
+    return entries
+        .map((e) => (e['content'] ?? '').toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
+  String _evidenceTopicFromEntries({
+    required List<String> contents,
+    required List<String> topTokens,
+    required String fallback,
+  }) {
+    final joined = contents.join(' ');
+    final topic = _topicHint(joined);
+    switch (topic) {
+      case 'cost':
+        return 'token 成本';
+      case 'horse_expectation':
+        return '骑马带来的期待和恢复';
+      case 'tomorrow_uncertainty':
+        return '明天不可控与活在当下';
+      case 'retirement_wish':
+        return '想离开工作消耗';
+      case 'weather_good':
+        return '天气带来的轻一点的状态';
+      case 'rest_wish':
+        return '想停下来休息';
+      case 'money':
+        return '钱和成本压力';
+      default:
+        return topTokens.isEmpty ? fallback : _readableToken(topTokens.first);
+    }
+  }
+
+  String _evidenceSummary({
+    required List<String> contents,
+    required String fallback,
+  }) {
+    final samples = contents.take(2).toList();
+    if (samples.isEmpty) {
+      return '目前证据还少，先把“$fallback”作为待观察线索。';
+    }
+    if (samples.length == 1) {
+      return '目前主要来自一条记录：“${_truncateEvidence(samples.first)}”。先不要过度判断。';
+    }
+    return '目前主要来自这些记录：“${_truncateEvidence(samples[0], 18)}”和“${_truncateEvidence(samples[1], 18)}”。先看它们是否还会重复。';
+  }
+
+  String _truncateEvidence(String value, [int maxLength = 28]) {
+    final trimmed = value.trim();
+    if (trimmed.length <= maxLength) return trimmed;
+    return '${trimmed.substring(0, maxLength)}…';
+  }
+
   MonthlyReviewModel _fallbackMonthlyReview({
     required String monthStart,
     required String monthEnd,
@@ -912,8 +1120,9 @@ class AiRepository {
     required List<String> topTokens,
     required int totalDays,
   }) {
-    final topToken = topTokens.isEmpty ? '这个月的记录' : topTokens.first;
-    final repeated = topTokens.take(3).toList();
+    final topToken =
+        topTokens.isEmpty ? '这个月的记录' : _readableToken(topTokens.first);
+    final repeated = topTokens.take(3).map(_readableToken).toList();
     final week1Count = entries.isEmpty ? 0 : entries.length;
 
     return MonthlyReviewModel(
@@ -943,5 +1152,39 @@ class AiRepository {
   String _resolvePeakDay(Map<String, int> dayCounts) {
     if (dayCounts.isEmpty) return '这周';
     return dayCounts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+  }
+
+  String _readableToken(String token) {
+    final normalized = token
+        .replaceAll(RegExp(r'^[\[\("“]+|[\]\)"”]+$'), '')
+        .replaceAll('_', ' ')
+        .trim()
+        .toLowerCase();
+    const labels = {
+      'planning': '安排',
+      'work': '工作',
+      'relationship': '关系',
+      'relations': '关系',
+      'boundary': '边界',
+      'boundaries': '边界',
+      'recovery': '恢复',
+      'rest': '休息',
+      'sleep': '睡眠',
+      'body': '身体',
+      'energy': '能量',
+      'attention': '注意力',
+      'switching': '切换',
+      'schedule': '日程',
+      'schedule density': '安排密度',
+      'care load': '照顾负荷',
+      'limited buffer': '缓冲不足',
+      'buffer': '缓冲',
+      'weather': '天气',
+      'commute': '通勤',
+      'home': '家里',
+      'daily friction': '日常摩擦',
+      'daily life': '日常生活',
+    };
+    return labels[normalized] ?? token.trim();
   }
 }

@@ -10,9 +10,7 @@ import '../core/purchases/purchase_controller.dart';
 import '../core/state/app_bootstrap_state.dart';
 import '../features/onboarding/onboarding_view_model.dart';
 import '../features/pages/me/me_view_model.dart';
-import '../features/pages/monthly/monthly_view_model.dart';
 import '../features/pages/memory/memory_view_model.dart';
-import '../features/pages/opportunities/opportunity_detail_view_model.dart';
 import '../features/pages/self_review/self_review_view_model.dart';
 import '../features/pages/signal_library/signal_library_view_model.dart';
 import '../features/pages/today/today_view_model.dart';
@@ -37,9 +35,7 @@ class _RadarAppState extends State<RadarApp> {
   OnboardingViewModel? _onboardingViewModel;
   TodayViewModel? _todayViewModel;
   WeeklyViewModel? _weeklyViewModel;
-  OpportunityDetailViewModel? _opportunityDetailViewModel;
   MemoryViewModel? _memoryViewModel;
-  MonthlyViewModel? _monthlyViewModel;
   SelfReviewViewModel? _selfReviewViewModel;
   SignalLibraryViewModel? _signalLibraryViewModel;
   MeViewModel? _meViewModel;
@@ -64,18 +60,21 @@ class _RadarAppState extends State<RadarApp> {
       energyBudgetRepository: dependencies.energyBudgetRepository,
       analyticsRepository: dependencies.analyticsRepository,
     );
-    _opportunityDetailViewModel =
-        OpportunityDetailViewModel(dependencies.opportunityRepository);
     _memoryViewModel = MemoryViewModel(
       dependencies.memoryRepository,
       analyticsRepository: dependencies.analyticsRepository,
     );
-    _monthlyViewModel = MonthlyViewModel(dependencies.monthlyRepository);
     _selfReviewViewModel =
         SelfReviewViewModel(dependencies.selfReviewRepository);
     _signalLibraryViewModel =
         SignalLibraryViewModel(dependencies.signalLibraryRepository);
-    _meViewModel = MeViewModel();
+    _meViewModel = MeViewModel(
+      dependencies.apiClient,
+      dependencies.backupBundleRepository,
+      dependencies.cloudBackupRepository,
+      dependencies.localUserId,
+      dependencies.deviceId,
+    );
     _purchaseController = PurchaseController(apiClient: dependencies.apiClient);
     if (!_trackedAppOpen) {
       _trackedAppOpen = true;
@@ -88,9 +87,7 @@ class _RadarAppState extends State<RadarApp> {
     _onboardingViewModel?.dispose();
     _todayViewModel?.dispose();
     _weeklyViewModel?.dispose();
-    _opportunityDetailViewModel?.dispose();
     _memoryViewModel?.dispose();
-    _monthlyViewModel?.dispose();
     _selfReviewViewModel?.dispose();
     _signalLibraryViewModel?.dispose();
     _meViewModel?.dispose();
@@ -122,12 +119,8 @@ class _RadarAppState extends State<RadarApp> {
                 value: _todayViewModel!),
             ChangeNotifierProvider<WeeklyViewModel>.value(
                 value: _weeklyViewModel!),
-            ChangeNotifierProvider<OpportunityDetailViewModel>.value(
-                value: _opportunityDetailViewModel!),
             ChangeNotifierProvider<MemoryViewModel>.value(
                 value: _memoryViewModel!),
-            ChangeNotifierProvider<MonthlyViewModel>.value(
-                value: _monthlyViewModel!),
             ChangeNotifierProvider<SelfReviewViewModel>.value(
                 value: _selfReviewViewModel!),
             ChangeNotifierProvider<SignalLibraryViewModel>.value(
@@ -208,24 +201,24 @@ class _RadarAppState extends State<RadarApp> {
 
   ThemeData _buildTheme() {
     const colorScheme = ColorScheme.light(
-      primary: Color(0xFF2F5F85),
+      primary: Color(0xFF7267F0),
       onPrimary: Colors.white,
-      primaryContainer: Color(0xFFEAF2F8),
-      onPrimaryContainer: Color(0xFF223044),
-      secondary: Color(0xFF526DA8),
+      primaryContainer: Color(0xFFEDEBFF),
+      onPrimaryContainer: Color(0xFF151A33),
+      secondary: Color(0xFF5F95E8),
       onSecondary: Colors.white,
-      secondaryContainer: Color(0xFFEEF5FA),
-      onSecondaryContainer: Color(0xFF223044),
-      tertiary: Color(0xFF7EA48B),
+      secondaryContainer: Color(0xFFEAF3FF),
+      onSecondaryContainer: Color(0xFF151A33),
+      tertiary: Color(0xFF62C594),
       onTertiary: Colors.white,
-      tertiaryContainer: Color(0xFFEEF7F0),
-      onTertiaryContainer: Color(0xFF223044),
-      surface: Color(0xFFF8FBFD),
-      onSurface: Color(0xFF223044),
-      surfaceContainerHighest: Color(0xFFF1F5F8),
-      onSurfaceVariant: Color(0xFF728292),
-      outline: Color(0xFFB8C8D5),
-      outlineVariant: Color(0xFFD9E3EA),
+      tertiaryContainer: Color(0xFFEAF8F0),
+      onTertiaryContainer: Color(0xFF151A33),
+      surface: Color(0xFFFFFCFA),
+      onSurface: Color(0xFF151A33),
+      surfaceContainerHighest: Color(0xFFF5F4F8),
+      onSurfaceVariant: Color(0xFF7F8797),
+      outline: Color(0xFFCFCBD8),
+      outlineVariant: Color(0xFFE7E4EC),
     );
 
     return ThemeData(
@@ -233,19 +226,49 @@ class _RadarAppState extends State<RadarApp> {
       colorScheme: colorScheme,
       scaffoldBackgroundColor: colorScheme.surface,
       cardTheme: const CardThemeData(elevation: 0, margin: EdgeInsets.zero),
+      fontFamily: 'SF Pro Text',
+      textTheme: const TextTheme(
+        headlineMedium:
+            TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0),
+        headlineSmall: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0),
+        titleLarge: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0),
+        titleMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0),
+        bodyLarge: TextStyle(height: 1.45, letterSpacing: 0),
+        bodyMedium: TextStyle(height: 1.45, letterSpacing: 0),
+      ),
       appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFFF8FBFD),
-        foregroundColor: Color(0xFF1F2430),
+        backgroundColor: Color(0x00FFFCFA),
+        foregroundColor: Color(0xFF151A33),
         elevation: 0,
         scrolledUnderElevation: 0,
-        centerTitle: false,
+        centerTitle: true,
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: const Color(0xFF7267F0),
+          foregroundColor: Colors.white,
+          minimumSize: const Size(64, 46),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF151A33),
+          side: const BorderSide(color: Color(0xFFE7E4EC)),
+          minimumSize: const Size(64, 46),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: Colors.white,
-        indicatorColor: const Color(0xFFDCECF8),
+        backgroundColor: Colors.white.withValues(alpha: 0.94),
+        indicatorColor: const Color(0xFFEDEBFF),
         labelTextStyle: WidgetStateProperty.all(
           const TextStyle(
-            color: Color(0xFF2F5F85),
+            color: Color(0xFF7267F0),
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -268,7 +291,7 @@ class _BrandLaunchScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Image.asset(
-                'assets/icon-1024-noalpha.png',
+                'assets/brand-icon-transparent.png',
                 width: 148,
                 height: 148,
                 fit: BoxFit.contain,

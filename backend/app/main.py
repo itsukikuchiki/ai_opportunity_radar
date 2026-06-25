@@ -11,6 +11,8 @@ from app.api.memory import router as memory_router
 from app.api.onboarding import router as onboarding_router
 from app.api.self_review import router as self_review_router
 from app.api.analytics import router as analytics_router
+from app.api.usage import router as usage_router
+from app.api.account_backup import router as account_backup_router
 from app.core.db import Base, engine
 import app.models  # noqa: F401
 
@@ -43,6 +45,8 @@ app.include_router(memory_router, prefix="/api/v1/memory", tags=["memory"])
 app.include_router(ai_router, prefix="/api/v1/ai", tags=["ai"])
 app.include_router(self_review_router, prefix="/api/v1/ai", tags=["self_review"])
 app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["analytics"])
+app.include_router(usage_router, prefix="/api/v1/usage", tags=["usage"])
+app.include_router(account_backup_router, prefix="/api/v1", tags=["account_backup"])
 
 
 @app.get("/health")

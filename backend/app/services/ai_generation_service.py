@@ -130,24 +130,30 @@ class AiGenerationService:
                 feedback_submitted=False,
             )
 
-        top_token = self._safe_top_token(request.top_tokens)
+        contents = [entry.content.strip() for entry in request.entries if entry.content and entry.content.strip()]
+        top_token = self._evidence_topic(contents=contents, top_tokens=request.top_tokens)
         peak_day = self._peak_day(request.day_counts)
+        confidence_line = (
+            "基于目前少量信号，先把它当成临时观察。"
+            if request.entry_count < 4
+            else "这周已经有足够线索，可以先看它的重复方式。"
+        )
 
         patterns = [
             WeeklyInsightItem(
-                name="重复出现的主题",
-                summary=f"这周几条记录开始往“{top_token}”上聚，说明它已经不只是一次性的瞬间。",
+                name=f"本周小观察：{top_token}",
+                summary=f"{confidence_line} 记录里最先浮出来的是“{top_token}”，先看它在哪些场景里回来。",
             ),
             WeeklyInsightItem(
-                name=f"高频关键词：{top_token}",
-                summary=f"从这周的本地统计看，“{top_token}”是目前最明显的长期线索之一。",
+                name="证据来源",
+                summary=self._evidence_summary(contents=contents, fallback=top_token),
             ),
         ]
 
         frictions = [
             WeeklyInsightItem(
-                name="本周的主要消耗",
-                summary=f"这周更像是同类问题反复回来，而不是单次事件；其中 {peak_day} 的 signal 更集中。",
+                name="本周可能的消耗点",
+                summary=f"目前先看“{top_token}”带来的负担；其中 {peak_day} 的信号更集中，但还不需要当成结论。",
             ),
         ]
 
@@ -155,14 +161,14 @@ class AiGenerationService:
 
         opportunity_snapshot = OpportunitySnapshotSchema(
             name="把重复信号固定下来",
-            summary=f"如果“{top_token}”总是回来，它很适合先被结构化记录，再观察是否值得进一步模板化。",
+            summary=f"如果“{top_token}”之后还会回来，它适合先被结构化记录，再决定要不要调整。",
         )
 
         return WeeklyGenerateResponse(
             week_start=request.week_start,
             week_end=request.week_end,
             status="ready",
-            key_insight=f"这周的记录开始围绕“{top_token}”聚集，{peak_day} 的信号更密集。",
+            key_insight=f"{confidence_line} 这周先看“{top_token}”，{peak_day} 的信号更密集。",
             patterns=patterns,
             frictions=frictions,
             best_action=best_action,
@@ -285,32 +291,34 @@ class AiGenerationService:
         self,
         request: JourneyGenerateRequest,
     ) -> JourneyGenerateResponse:
-        top_token = self._safe_top_token(request.top_tokens)
+        contents = [entry.content.strip() for entry in request.entries if entry.content and entry.content.strip()]
+        top_token = self._evidence_topic(contents=contents, top_tokens=request.top_tokens)
         total_days = max(request.total_days, 1)
+        confidence = "还只是早期生活轨迹" if request.entry_count < 6 else "已经开始有长期线索"
 
         return JourneyGenerateResponse(
             patterns=[
                 WeeklyInsightItem(
-                    name="反复出现的主题",
-                    summary=f"一路看下来，“{top_token}”开始不止一次地出现，说明它已经在慢慢形成长期模式。",
+                    name="正在形成的生活路径",
+                    summary=f"{confidence}：目前最清楚的是“{top_token}”。先看它是偶尔出现，还是慢慢变成重复结构。",
                 )
             ],
             frictions=[
                 WeeklyInsightItem(
-                    name="持续性的摩擦",
-                    summary="这段时间里，有些问题不是一次性的，而是在慢慢累积，开始形成稳定摩擦。",
+                    name="可能的长期消耗",
+                    summary=f"如果“{top_token}”继续出现，它可能是后面要回看的消耗来源；现在先保持轻观察。",
                 )
             ],
             desires=[
                 WeeklyInsightItem(
                     name="还在浮现的方向",
-                    summary=f"记录已经跨越 {total_days} 天，一些真正长期在意的方向正在慢慢浮现。",
+                    summary=f"记录已经跨越 {total_days} 天，先从真实记录里看哪些事让你想恢复、期待或离开消耗。",
                 )
             ],
             experiments=[
                 WeeklyInsightItem(
-                    name="开始有帮助的东西",
-                    summary="继续记录下去，会更容易看见什么做法不是偶然有效，而是在慢慢变得有帮助。",
+                    name="Review & Adjust 入口",
+                    summary="后续实验反馈会和这些记录放在一起看：有效、偏难、跳过都只是证据，不是失败。",
                 )
             ],
         )
@@ -400,7 +408,10 @@ class AiGenerationService:
             "relationship": {"朋友", "家人", "恋人", "同事关系", "相处", "聊天", "关系", "人間関係", "family", "friend", "partner"},
             "body": {"头疼", "困", "睡", "累", "身体", "胃", "月经", "不舒服", "健康", "体調", "眠い", "body", "health"},
             "money": {"花钱", "工资", "金钱", "消费", "买", "预算", "お金", "支出", "money", "budget", "spent"},
+            "cost": {"token", "tokens", "贵", "成本", "价格", "花费", "expensive", "cost"},
             "rest": {"休息", "放松", "睡觉", "午休", "恢复", "发呆", "散步", "休憩", "rest", "relax"},
+            "future": {"明天", "未来", "预测", "当下", "明日", "予測", "tomorrow", "future", "present"},
+            "hobby": {"骑马", "乗馬", "horse", "ride"},
             "achievement": {"完成", "做完", "推进", "成果", "达成", "有进展", "進んだ", "達成", "finished", "done"},
             "self_doubt": {"怀疑自己", "自我否定", "不够好", "没做好", "担心自己", "自信", "自信がない", "self doubt", "not good enough"},
             "daily_friction": {"被打断", "重复", "麻烦", "卡住", "拖延", "琐事", "不顺", "切り替え", "interrupted", "blocked", "friction"},
@@ -480,12 +491,50 @@ class AiGenerationService:
             scene_tags=scene_tags,
             intent_tags=intent_tags,
         )
+        topic = self.classification_service._topic_hint(content)
+        if topic:
+            observation = self._topic_observation(topic=topic)
+            try_next = self._topic_try_next(topic=topic)
 
         return {
             "acknowledgement": self._style_text(acknowledgement.strip(), response_style, kind='acknowledgement'),
             "observation": self._style_text(observation.strip(), response_style, kind='observation'),
             "try_next": self._style_text(try_next.strip(), response_style, kind='suggestion'),
         }
+
+    def _topic_observation(self, *, topic: str) -> str:
+        if topic == "cost":
+            return "这条更像是成本提醒：当 token 或 AI 使用成本变得显眼，它会影响你对工具是否值得继续用的判断。"
+        if topic == "horse_expectation":
+            return "这条的恢复线索很明确：骑马不是普通安排，而是你这周少数真正期待的事情。"
+        if topic == "tomorrow_uncertainty":
+            return "这条更像是一种生活视角：明天不可控，所以今天能抓住的当下变得更重要。"
+        if topic == "retirement_wish":
+            return "这条不是简单抱怨，它更像是在提示：现在的工作消耗已经让你开始想象彻底离开的生活。"
+        if topic == "weather_good":
+            return "这条里的正向线索很小但清楚：外部环境变轻，会让今天更容易松一点。"
+        if topic == "rest_wish":
+            return "这条更像是恢复需求浮出来了：你可能不是懒，而是确实想要一点不用继续扛的空间。"
+        if topic == "money":
+            return "这条和钱有关，也可能牵着安全感、值不值得、以及资源是否够用的判断。"
+        return "这条可以先作为一个具体线索留下来。"
+
+    def _topic_try_next(self, *, topic: str) -> str:
+        if topic == "cost":
+            return "可以先记一笔：这次让你觉得贵的，是单次花费、持续消耗，还是不确定能不能换来价值。"
+        if topic == "horse_expectation":
+            return "可以先补一句：骑马让你期待的到底是身体活动、自由感，还是暂时离开日常压力。"
+        if topic == "tomorrow_uncertainty":
+            return "今天不用把明天想清楚，只选一件当下能好好做的小事就够了。"
+        if topic == "retirement_wish":
+            return "先不用立刻讨论退休，只补一句：最想离开的到底是工作量、节奏，还是长期没有恢复空间。"
+        if topic == "weather_good":
+            return "如果可以，今天留意一下：天气变好后，你更想散步、休息，还是做一点轻松的事。"
+        if topic == "rest_wish":
+            return "先给自己一个很小的恢复块：哪怕只是十分钟不输入、不处理、不回应。"
+        if topic == "money":
+            return "先记清楚这笔钱让你卡住的点：价格、必要性，还是付出之后的确定感。"
+        return "先看看它之后还会不会再回来。"
 
 
     def _style_text(self, text: str, response_style: str, kind: str = 'reply') -> str:
@@ -642,6 +691,33 @@ class AiGenerationService:
             if token:
                 return token
         return "最近的记录"
+
+    def _evidence_topic(self, *, contents: list[str], top_tokens: list[str]) -> str:
+        joined = " ".join(contents).lower()
+        topic = self.classification_service._topic_hint(joined)
+        if topic == "cost":
+            return "token 成本"
+        if topic == "horse_expectation":
+            return "骑马带来的期待和恢复"
+        if topic == "tomorrow_uncertainty":
+            return "明天不可控与活在当下"
+        if topic == "retirement_wish":
+            return "想离开工作消耗"
+        if topic == "weather_good":
+            return "天气带来的轻一点的状态"
+        if topic == "rest_wish":
+            return "想停下来休息"
+        if topic == "money":
+            return "钱和成本压力"
+        return self._safe_top_token(top_tokens)
+
+    def _evidence_summary(self, *, contents: list[str], fallback: str) -> str:
+        samples = [item for item in contents if item][:2]
+        if not samples:
+            return f"目前证据还少，先把“{fallback}”作为待观察线索。"
+        if len(samples) == 1:
+            return f"目前主要来自一条记录：“{samples[0][:28]}”。先不要过度判断。"
+        return f"目前主要来自这些记录：“{samples[0][:18]}”和“{samples[1][:18]}”。先看它们是否还会重复。"
 
     def _peak_day(self, day_counts: dict[str, int]) -> str:
         if not day_counts:

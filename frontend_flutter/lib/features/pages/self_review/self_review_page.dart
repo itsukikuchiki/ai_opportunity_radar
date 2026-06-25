@@ -4,10 +4,9 @@ import 'package:provider/provider.dart';
 
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
+import '../../../core/models/self_review_models.dart';
 import '../../../shared/states/load_state.dart';
-import '../../../shared/widgets/app_header.dart';
-import '../../../shared/widgets/empty_state_block.dart';
-import '../../../shared/widgets/section_header.dart';
+import '../../../shared/widgets/aurora_ui.dart';
 import '../me/me_view_model.dart';
 import 'self_review_view_model.dart';
 
@@ -21,59 +20,127 @@ class SelfReviewPage extends StatelessWidget {
     final review = vm.review;
 
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go(AppRoutes.me);
-            }
-          },
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-        ),
-        title: Text(
-          AppLocaleText.tr(
-            context,
-            en: 'Self review',
-            zhHans: '专题梳理',
-            zhHant: '專題梳理',
-            ja: 'セルフレビュー',
-          ),
-        ),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+      body: Stack(
         children: [
-          AppHeader(
-            title: AppLocaleText.tr(
-              context,
-              en: 'Structured self-review',
-              zhHans: 'Structured Self-Review',
-              zhHant: 'Structured Self-Review',
-              ja: 'Structured Self-Review',
-            ),
-            subtitle: AppLocaleText.tr(
-              context,
-              en: 'A slower pass that gathers your recent signals into a few sharper questions.',
-              zhHans: '把最近的线索收成几个更利于判断的问题。',
-              zhHant: '把最近的線索收成幾個更利於判斷的問題。',
-              ja: '最近の手がかりを、少し絞った問いとして見直します。',
-            ),
-            summary: review == null || review.reviewedDays <= 0
-                ? null
-                : AppLocaleText.tr(
-                    context,
-                    en: 'Reviewing signals across ${review.reviewedDays} active days.',
-                    zhHans: '正在回看最近 ${review.reviewedDays} 个有记录的日子。',
-                    zhHant: '正在回看最近 ${review.reviewedDays} 個有記錄的日子。',
-                    ja: '記録のあった ${review.reviewedDays} 日分をまとめて見ています。',
+          AuroraPage(
+            child: SafeArea(
+              bottom: false,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: AuroraIconButton(
+                      icon: Icons.arrow_back_rounded,
+                      tooltip:
+                          MaterialLocalizations.of(context).backButtonTooltip,
+                      onPressed: () {
+                        if (context.canPop()) {
+                          context.pop();
+                        } else {
+                          context.go(AppRoutes.me);
+                        }
+                      },
+                    ),
                   ),
-            preferenceText: _preferenceText(context, meVm.selectedRepeatArea),
+                  const SizedBox(height: 14),
+                  AuroraCard(
+                    padding: const EdgeInsets.all(22),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFFFFFF), Color(0xFFF7F3FF)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    child: Row(
+                      children: [
+                        const AuroraSoftIconCircle(
+                          icon: Icons.spa_rounded,
+                          color: AuroraColors.purple,
+                          size: 64,
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                AppLocaleText.tr(
+                                  context,
+                                  en: 'Why is recovery difficult at night?',
+                                  zhHans: '本次专题：为什么一到晚上就很难恢复？',
+                                  zhHant: '本次專題：為什麼一到晚上就很難恢復？',
+                                  ja: '今回のテーマ：夜になると回復しにくい理由',
+                                ),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(
+                                      color: AuroraColors.ink,
+                                      fontWeight: FontWeight.w800,
+                                      height: 1.25,
+                                    ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                AppLocaleText.tr(
+                                  context,
+                                  en: 'A slower pass based on recent signals.',
+                                  zhHans: '基于最近 7 天的信号，做一次证据驱动的自我回顾。',
+                                  zhHant: '基於最近 7 天的信號，做一次證據驅動的自我回顧。',
+                                  ja: '最近 7 日のシグナルから、証拠に沿って見直します。',
+                                ),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                      color: AuroraColors.muted,
+                                      height: 1.45,
+                                    ),
+                              ),
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  AuroraChip(
+                                    label: review == null ||
+                                            review.reviewedDays <= 0
+                                        ? AppLocaleText.tr(context,
+                                            en: 'Current focus',
+                                            zhHans: '当前关注',
+                                            zhHant: '目前關注',
+                                            ja: '今の焦点')
+                                        : AppLocaleText.tr(context,
+                                            en:
+                                                '${review.reviewedDays} active days',
+                                            zhHans:
+                                                '${review.reviewedDays} 个记录日',
+                                            zhHant:
+                                                '${review.reviewedDays} 個記錄日',
+                                            ja: '${review.reviewedDays} 日分'),
+                                  ),
+                                  AuroraChip(
+                                    label: _preferenceText(
+                                      context,
+                                      meVm.selectedRepeatArea,
+                                    ),
+                                    color: AuroraColors.blue,
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  ..._buildBody(context, vm),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 12),
-          ..._buildBody(context, vm),
+          const AuroraSafeTopMask(),
         ],
       ),
     );
@@ -84,29 +151,26 @@ class SelfReviewPage extends StatelessWidget {
     switch (vm.loadState) {
       case LoadState.loading:
         return const [
-          Padding(
-            padding: EdgeInsets.symmetric(vertical: 56),
-            child: Center(child: CircularProgressIndicator()),
-          ),
+          _ReviewLoadingState(),
         ];
       case LoadState.error:
         return [
-          EmptyStateBlock(
-            icon: Icons.error_outline,
-            title: AppLocaleText.tr(
-              context,
-              en: 'Self review failed to load',
-              zhHans: '专题梳理加载失败',
-              zhHant: '專題梳理載入失敗',
-              ja: 'セルフレビューの読み込みに失敗しました',
-            ),
+          _ReviewMessageState(
+            icon: Icons.warning_amber_rounded,
+            color: AuroraColors.orange,
+            title: AppLocaleText.tr(context,
+                en: 'Self review failed to load',
+                zhHans: '专题梳理加载失败',
+                zhHant: '專題梳理載入失敗',
+                ja: 'セルフレビューの読み込みに失敗しました'),
             subtitle: vm.errorMessage,
           ),
         ];
       case LoadState.empty:
         return [
-          EmptyStateBlock(
-            icon: Icons.psychology_alt_outlined,
+          _ReviewMessageState(
+            icon: Icons.psychology_alt_rounded,
+            color: AuroraColors.purple,
             title: AppLocaleText.tr(
               context,
               en: 'Not enough material yet',
@@ -126,55 +190,61 @@ class SelfReviewPage extends StatelessWidget {
       case LoadState.ready:
         if (review == null) return const [SizedBox.shrink()];
         return [
+          _RelatedRecordStrip(),
+          const SizedBox(height: 18),
           _ReviewSection(
+            number: '01',
             title: AppLocaleText.tr(context,
-                en: 'What keeps blocking me lately',
-                zhHans: '最近反复卡住我的是什么',
-                zhHant: '最近反覆卡住我的是什麼',
-                ja: '最近くり返し詰まりやすいもの'),
+                en: 'Pattern I can see',
+                zhHans: '我看到的模式',
+                zhHant: '我看到的模式',
+                ja: '見えてきたパターン'),
+            subtitle: AppLocaleText.tr(context,
+                en: 'Early finding based on evidence',
+                zhHans: '基于证据的初步发现',
+                zhHant: '基於證據的初步發現',
+                ja: '証拠にもとづく初期の発見'),
             items: review.repeatedBlockers,
+            color: AuroraColors.purple,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
           _ReviewSection(
+            number: '02',
             title: AppLocaleText.tr(context,
-                en: 'What drains me most lately',
-                zhHans: '最近最消耗我的是什么',
-                zhHant: '最近最消耗我的是什麼',
-                ja: '最近いちばん消耗しやすいもの'),
+                en: 'A place to reinterpret',
+                zhHans: '可以重新理解的地方',
+                zhHant: '可以重新理解的地方',
+                ja: '捉え直せるところ'),
+            subtitle: AppLocaleText.tr(context,
+                en: 'A gentler angle',
+                zhHans: '新的视角',
+                zhHant: '新的視角',
+                ja: '新しい見方'),
             items: review.mainDrains,
+            color: AuroraColors.orange,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
           _ReviewSection(
+            number: '03',
             title: AppLocaleText.tr(context,
-                en: 'What is starting to help',
-                zhHans: '最近开始有效的方式是什么',
-                zhHant: '最近開始有效的方式是什麼',
-                ja: '最近少し効き始めているもの'),
+                en: 'Next small try',
+                zhHans: '下一步尝试',
+                zhHant: '下一步嘗試',
+                ja: '次の小さな試み'),
+            subtitle: AppLocaleText.tr(context,
+                en: 'Small experiment',
+                zhHans: '小步实验',
+                zhHant: '小步實驗',
+                ja: '小さな実験'),
             items: review.helpingPatterns,
+            color: AuroraColors.mint,
           ),
-          const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    AppLocaleText.tr(context,
-                        en: 'Closing note',
-                        zhHans: '收束一句',
-                        zhHant: '收束一句',
-                        ja: '最後に一言'),
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(review.closingNote),
-                ],
-              ),
-            ),
+          const SizedBox(height: 18),
+          _SelfReviewActionLoopCard(review: review),
+          const SizedBox(height: 18),
+          AuroraQuoteCard(
+            text: review.closingNote,
+            icon: Icons.auto_awesome_rounded,
           ),
         ];
       case LoadState.initial:
@@ -201,36 +271,508 @@ class SelfReviewPage extends StatelessWidget {
       _ => AppLocaleText.tr(context,
           en: 'current focus', zhHans: '当前关注', zhHant: '當前關注', ja: '今の注目'),
     };
-    return AppLocaleText.tr(context,
-        en: 'Review angle: $label',
-        zhHans: '梳理角度：$label',
-        zhHant: '梳理角度：$label',
-        ja: '見る角度：$label');
+    return label;
+  }
+}
+
+class _ReviewLoadingState extends StatelessWidget {
+  const _ReviewLoadingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return AuroraCard(
+      padding: const EdgeInsets.all(28),
+      child: Column(
+        children: [
+          const AuroraSoftIconCircle(
+            icon: Icons.auto_awesome_rounded,
+            color: AuroraColors.purple,
+            size: 72,
+          ),
+          const SizedBox(height: 18),
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Gathering your signals...',
+              zhHans: '正在整理最近的信号...',
+              zhHant: '正在整理最近的信號...',
+              ja: '最近のシグナルを整理しています...',
+            ),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReviewMessageState extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String? subtitle;
+
+  const _ReviewMessageState({
+    required this.icon,
+    required this.color,
+    required this.title,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AuroraCard(
+      padding: const EdgeInsets.all(26),
+      child: Column(
+        children: [
+          AuroraSoftIconCircle(icon: icon, color: color, size: 72),
+          const SizedBox(height: 18),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          if ((subtitle ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              subtitle!,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AuroraColors.muted,
+                    height: 1.5,
+                  ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RelatedRecordStrip extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      (Icons.auto_awesome_rounded, '21:43', '今天不想回消息。', AuroraColors.purple),
+      (Icons.work_rounded, '19:30', '和朋友晚餐', AuroraColors.orange),
+      (Icons.menu_book_rounded, '17:10', '阅读 30 分钟', AuroraColors.mint),
+    ];
+    return AuroraCard(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                AppLocaleText.tr(context,
+                    en: 'Related records',
+                    zhHans: '相关记录',
+                    zhHant: '相關記錄',
+                    ja: '関連する記録'),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: AuroraColors.ink,
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const Spacer(),
+              Text(
+                AppLocaleText.tr(context,
+                    en: 'View all',
+                    zhHans: '查看全部',
+                    zhHant: '查看全部',
+                    ja: 'すべて見る'),
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(color: AuroraColors.muted),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: items
+                .map(
+                  (item) => Expanded(
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: item.$4.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(18),
+                        border:
+                            Border.all(color: item.$4.withValues(alpha: 0.18)),
+                      ),
+                      child: Row(
+                        children: [
+                          AuroraSoftIconCircle(
+                            icon: item.$1,
+                            color: item.$4,
+                            size: 34,
+                            iconSize: 17,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(item.$2,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelMedium),
+                                Text(
+                                  item.$3,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(color: AuroraColors.muted),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SelfReviewActionLoopCard extends StatelessWidget {
+  final SelfReviewModel review;
+
+  const _SelfReviewActionLoopCard({required this.review});
+
+  @override
+  Widget build(BuildContext context) {
+    final judgement = review.repeatedBlockers.isNotEmpty
+        ? review.repeatedBlockers.first
+        : AppLocaleText.tr(
+            context,
+            en: 'The theme is still forming. Keep the evidence light for now.',
+            zhHans: '这个专题还在形成中，先把证据轻轻留下。',
+            zhHant: '這個專題還在形成中，先把證據輕輕留下。',
+            ja: 'このテーマはまだ形になっている途中です。まずは証拠を軽く残します。',
+          );
+    final action = review.helpingPatterns.isNotEmpty
+        ? review.helpingPatterns.first
+        : AppLocaleText.tr(
+            context,
+            en: 'Choose one small adjustment and review whether it saves a little effort.',
+            zhHans: '先选一个小调整，再回看它有没有帮你省一点力。',
+            zhHant: '先選一個小調整，再回看它有沒有幫你省一點力。',
+            ja: '小さな調整を一つ選び、少し楽になったかを後で見ます。',
+          );
+
+    return AuroraCard(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      gradient: const LinearGradient(
+        colors: [Color(0xFFFFFFFF), Color(0xFFF7F3FF)],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const AuroraSoftIconCircle(
+                icon: Icons.route_rounded,
+                color: AuroraColors.purple,
+                size: 38,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Theme loop',
+                    zhHans: '专题闭环',
+                    zhHant: '專題閉環',
+                    ja: 'テーマの循環',
+                  ),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _LoopStepTile(
+            icon: Icons.auto_awesome_rounded,
+            color: AuroraColors.purple,
+            label: AppLocaleText.tr(
+              context,
+              en: 'AI judgement',
+              zhHans: 'AI 判断',
+              zhHant: 'AI 判斷',
+              ja: 'AI の判断',
+            ),
+            body: judgement,
+          ),
+          const SizedBox(height: 10),
+          _LoopStepTile(
+            icon: Icons.science_rounded,
+            color: AuroraColors.mint,
+            label: AppLocaleText.tr(
+              context,
+              en: 'Small action',
+              zhHans: '小行动',
+              zhHant: '小行動',
+              ja: '小さな行動',
+            ),
+            body: action,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _ReviewActionChip(
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Set as weekly try',
+                  zhHans: '设为本周尝试',
+                  zhHant: '設為本週嘗試',
+                  ja: '今週試す',
+                ),
+                filled: true,
+              ),
+              _ReviewActionChip(
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Looks right',
+                  zhHans: '准',
+                  zhHant: '準',
+                  ja: '合っている',
+                ),
+              ),
+              _ReviewActionChip(
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Partly',
+                  zhHans: '有一部分',
+                  zhHant: '有一部分',
+                  ja: '一部だけ',
+                ),
+              ),
+              _ReviewActionChip(
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Another angle',
+                  zhHans: '换个角度',
+                  zhHant: '換個角度',
+                  ja: '別の角度',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Next Weekly can use this as a Review & Adjust entry.',
+              zhHans: '下一次 Weekly 可以把它作为 Review & Adjust 的入口。',
+              zhHant: '下一次 Weekly 可以把它作為 Review & Adjust 的入口。',
+              ja: '次の Weekly で Review & Adjust の入口として使えます。',
+            ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AuroraColors.muted,
+                  height: 1.4,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoopStepTile extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+  final String body;
+
+  const _LoopStepTile({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.body,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.065),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AuroraSoftIconCircle(
+              icon: icon, color: color, size: 32, iconSize: 17),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AuroraColors.ink,
+                      height: 1.42,
+                    ),
+                children: [
+                  TextSpan(
+                    text: '$label：',
+                    style: TextStyle(color: color, fontWeight: FontWeight.w800),
+                  ),
+                  TextSpan(text: body),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReviewActionChip extends StatelessWidget {
+  final String label;
+  final bool filled;
+
+  const _ReviewActionChip({
+    required this.label,
+    this.filled = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      label: Text(label),
+      avatar: Icon(
+        filled ? Icons.flag_rounded : Icons.check_circle_outline_rounded,
+        size: 18,
+      ),
+      backgroundColor:
+          filled ? AuroraColors.purple : Colors.white.withValues(alpha: 0.80),
+      labelStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: filled ? Colors.white : AuroraColors.ink,
+            fontWeight: FontWeight.w700,
+          ),
+      side: BorderSide(color: AuroraColors.purple.withValues(alpha: 0.20)),
+      onPressed: () {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Saved as a gentle review signal.',
+                zhHans: '已作为温和复盘线索保存。',
+                zhHant: '已作為溫和復盤線索保存。',
+                ja: 'やさしいふり返りの手がかりとして残しました。',
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
 class _ReviewSection extends StatelessWidget {
+  final String number;
   final String title;
+  final String subtitle;
   final List<String> items;
+  final Color color;
 
-  const _ReviewSection({required this.title, required this.items});
+  const _ReviewSection({
+    required this.number,
+    required this.title,
+    required this.subtitle,
+    required this.items,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(title: title),
-        const SizedBox(height: 12),
-        ...items.map(
-          (item) => Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Text(item),
-            ),
+    return AuroraCard(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              AuroraChip(label: number, color: color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: color,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: AuroraColors.muted,
+                    ),
+              ),
+            ],
           ),
-        ),
-      ],
+          const SizedBox(height: 14),
+          if (items.isEmpty)
+            Text(
+              AppLocaleText.tr(
+                context,
+                en: 'No clear pattern yet. Keep it as a small observation.',
+                zhHans: '现在还没有很清楚的模式，先把它当作小观察。',
+                zhHant: '現在還沒有很清楚的模式，先把它當作小觀察。',
+                ja: 'まだはっきりしたパターンではありません。小さな観察として残します。',
+              ),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: AuroraColors.muted, height: 1.45),
+            )
+          else
+            ...items.take(3).map(
+                  (item) => Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: color.withValues(alpha: 0.12)),
+                    ),
+                    child: Text(
+                      item,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AuroraColors.ink,
+                            height: 1.45,
+                          ),
+                    ),
+                  ),
+                ),
+        ],
+      ),
     );
   }
 }

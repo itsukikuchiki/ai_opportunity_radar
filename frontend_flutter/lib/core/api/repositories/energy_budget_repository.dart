@@ -1,4 +1,5 @@
 import '../../local/local_capture_repository.dart';
+import '../../local/external_energy_hint_store.dart';
 import '../../local/local_life_experiment_repository.dart';
 import '../../models/advanced_energy_boundary_models.dart';
 import '../../models/energy_budget_models.dart';
@@ -9,11 +10,13 @@ import '../../models/weekly_models.dart';
 class EnergyBudgetRepository {
   final LocalCaptureRepository localCaptureRepository;
   final LocalLifeExperimentRepository? localLifeExperimentRepository;
+  final ExternalEnergyHintStore? externalEnergyHintStore;
   final String localUserId;
 
   EnergyBudgetRepository({
     required this.localCaptureRepository,
     this.localLifeExperimentRepository,
+    this.externalEnergyHintStore,
     this.localUserId = 'local',
   });
 
@@ -23,6 +26,8 @@ class EnergyBudgetRepository {
     AdvancedEnergyExternalSummary? externalSummary,
     int limit = 1000,
   }) async {
+    final resolvedExternalSummary =
+        externalSummary ?? externalEnergyHintStore?.loadSummary();
     final signals = await localCaptureRepository.listSignalCards(limit: limit);
     final eligibleSignals = signals.where(_isEnergyEligible).toList();
     final experimentHistory = await localLifeExperimentRepository?.listRecent(
@@ -34,12 +39,12 @@ class EnergyBudgetRepository {
       return _emptyBudget(
         weekly: weekly,
         journey: journey,
-        externalSummary: externalSummary,
+        externalSummary: resolvedExternalSummary,
       );
     }
 
     final stats = _buildStats(eligibleSignals);
-    final externalHints = _safeExternalHints(externalSummary);
+    final externalHints = _safeExternalHints(resolvedExternalSummary);
     return EnergyBudgetModel(
       status: eligibleSignals.length < 2 ? 'light_ready' : 'ready',
       mostDrainingSource: _mostDrainingSource(stats),

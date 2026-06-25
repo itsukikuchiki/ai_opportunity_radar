@@ -12,6 +12,7 @@ class SignalLibraryViewModel extends ChangeNotifier {
   String? message;
   bool loading = false;
   String _language = 'en';
+  String selectedCategory = 'frequent';
 
   SignalLibraryViewModel(this._repository);
 
@@ -22,6 +23,112 @@ class SignalLibraryViewModel extends ChangeNotifier {
     patterns = await _repository.listCuratedPatterns(language: language);
     loading = false;
     notifyListeners();
+  }
+
+  List<LibraryPatternModel> get visiblePatterns {
+    if (selectedCategory == 'frequent') return patterns;
+    return patterns.where(_matchesSelectedCategory).toList(growable: false);
+  }
+
+  void selectCategory(String category) {
+    if (selectedCategory == category) return;
+    selectedCategory = category;
+    message = null;
+    notifyListeners();
+  }
+
+  bool _matchesSelectedCategory(LibraryPatternModel pattern) {
+    final haystack = [
+      pattern.id,
+      pattern.title,
+      pattern.abstractPattern,
+      pattern.energyLoadHint,
+      pattern.possiblePositiveSignal,
+      pattern.gentleReflection,
+      pattern.suggestedSmallExperiment,
+      ...pattern.commonScenes,
+      ...pattern.commonFrictions,
+    ].join(' ').toLowerCase();
+
+    bool containsAny(List<String> values) =>
+        values.any((value) => haystack.contains(value.toLowerCase()));
+
+    switch (selectedCategory) {
+      case 'recovery':
+        return containsAny([
+          'recovery',
+          'recover',
+          'rest',
+          'body',
+          'sleep',
+          '恢复',
+          '恢復',
+          '休息',
+          '身体',
+          '身體',
+          '睡眠',
+          '回復',
+          '休息',
+        ]);
+      case 'relationships':
+        return containsAny([
+          'relationship',
+          'relationships',
+          'communication',
+          'connection',
+          'boundary',
+          '关系',
+          '關係',
+          '沟通',
+          '溝通',
+          '连接',
+          '連結',
+          '边界',
+          '邊界',
+          '関係',
+          'コミュニケーション',
+          'つながり',
+          '境界',
+        ]);
+      case 'work':
+        return containsAny([
+          'work',
+          'planning',
+          'messages',
+          'attention',
+          'schedule',
+          '工作',
+          '安排',
+          '消息',
+          '注意力',
+          '日程',
+          '予定',
+          '仕事',
+          'メッセージ',
+          '注意',
+        ]);
+      case 'boundary':
+        return containsAny([
+          'boundary',
+          'buffer',
+          'personal time',
+          'freedom',
+          'agency',
+          '边界',
+          '邊界',
+          '缓冲',
+          '緩衝',
+          '自由',
+          '个人时间',
+          '個人時間',
+          '境界',
+          'バッファ',
+          '自由感',
+          '自分の時間',
+        ]);
+      default:
+        return true;
+    }
   }
 
   Future<void> markAlsoHaveThis(LibraryPatternModel pattern) async {

@@ -48,6 +48,7 @@ def client() -> Generator[TestClient, None, None]:
         api_memory = import_module("app.api.memory")
         api_onboarding = import_module("app.api.onboarding")
         api_ai = import_module("app.api.ai")
+        api_account_backup = import_module("app.api.account_backup")
 
         reload(api_captures)
         reload(api_followups)
@@ -56,6 +57,7 @@ def client() -> Generator[TestClient, None, None]:
         reload(api_memory)
         reload(api_onboarding)
         reload(api_ai)
+        reload(api_account_backup)
 
         # 6) 最后再 reload app.main，让 app 重新 include 这些新的 router
         app_main = import_module("app.main")

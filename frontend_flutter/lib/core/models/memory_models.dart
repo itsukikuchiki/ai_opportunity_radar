@@ -1,3 +1,5 @@
+import 'monthly_models.dart';
+
 class JourneySignalItemModel {
   final String name;
   final String summary;
@@ -35,12 +37,14 @@ class MemorySummaryModel {
   final List<JourneySignalItemModel> frictions;
   final List<JourneySignalItemModel> desires;
   final List<JourneySignalItemModel> experiments;
+  final MonthlyReviewModel? monthlyReview;
 
   MemorySummaryModel({
     required this.patterns,
     required this.frictions,
     required this.desires,
     required this.experiments,
+    this.monthlyReview,
   });
 
   factory MemorySummaryModel.fromJson(Map<String, dynamic> json) {
@@ -65,6 +69,11 @@ class MemorySummaryModel {
           .map(
               (e) => JourneySignalItemModel.fromJson(e.cast<String, dynamic>()))
           .toList(),
+      monthlyReview: json['monthly_review'] is Map
+          ? MonthlyReviewModel.fromJson(
+              (json['monthly_review'] as Map).cast<String, dynamic>(),
+            )
+          : null,
     );
   }
 
@@ -73,6 +82,22 @@ class MemorySummaryModel {
       frictions.isNotEmpty ||
       desires.isNotEmpty ||
       experiments.isNotEmpty;
+
+  MemorySummaryModel copyWith({
+    List<JourneySignalItemModel>? patterns,
+    List<JourneySignalItemModel>? frictions,
+    List<JourneySignalItemModel>? desires,
+    List<JourneySignalItemModel>? experiments,
+    MonthlyReviewModel? monthlyReview,
+  }) {
+    return MemorySummaryModel(
+      patterns: patterns ?? this.patterns,
+      frictions: frictions ?? this.frictions,
+      desires: desires ?? this.desires,
+      experiments: experiments ?? this.experiments,
+      monthlyReview: monthlyReview ?? this.monthlyReview,
+    );
+  }
 
   JourneySignalItemModel? get longTermPattern => _firstOrNull(patterns);
   JourneySignalItemModel? get mainFriction => _firstOrNull(frictions);

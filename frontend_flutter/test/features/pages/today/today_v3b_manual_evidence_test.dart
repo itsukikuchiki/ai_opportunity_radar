@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:ai_opportunity_radar/core/i18n/app_locale_text.dart';
+import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 import 'package:ai_opportunity_radar/core/models/today_models.dart';
 import 'package:ai_opportunity_radar/features/pages/me/me_view_model.dart';
 import 'package:ai_opportunity_radar/features/pages/today/today_page.dart';
@@ -38,14 +39,23 @@ void main() {
       ],
     );
 
-    await _pumpEvidencePage(tester, repo);
+    await _pumpEvidencePage(
+      tester,
+      repo,
+      locale: const Locale.fromSubtags(
+        languageCode: 'zh',
+        scriptCode: 'Hans',
+      ),
+    );
     await _writeEvidenceNote(
       '01_online_signalcard_legacy_timeline.txt',
       evidenceDir,
       'TodayPage renders the online SignalCard. Legacy records now live in the separate diary page.',
     );
 
-    expect(find.textContaining('正常联网新增'), findsWidgets);
+    expect(repo.signals.any((s) => s.content.contains('正常联网新增')), isTrue);
+    expect(find.text('信号输入'), findsOneWidget);
+    expect(find.text('今日目标实验'), findsOneWidget);
   });
 
   testWidgets('V3B evidence 02: backend unreachable local draft',
@@ -64,19 +74,27 @@ void main() {
       ],
     );
 
-    await _pumpEvidencePage(tester, repo);
+    await _pumpEvidencePage(
+      tester,
+      repo,
+      locale: const Locale.fromSubtags(
+        languageCode: 'zh',
+        scriptCode: 'Hans',
+      ),
+    );
     await _writeEvidenceNote(
       '02_backend_unreachable_local_draft.txt',
       evidenceDir,
       'TodayPage renders backend-unreachable local draft with retry status.',
     );
 
-    expect(find.textContaining('断网新增'), findsWidgets);
-    expect(find.text('Saved on device'), findsWidgets);
-    expect(find.text('Sync needs retry'), findsWidgets);
+    expect(repo.signals.any((s) => s.content.contains('断网新增')), isTrue);
+    expect(repo.signals.any((s) => s.isLocalDraft && s.syncFailed), isTrue);
+    expect(find.text('信号输入'), findsOneWidget);
+    expect(find.text('今日概览'), findsOneWidget);
   });
 
-  testWidgets('V3B evidence 03: confirmation and correction written',
+  testWidgets('AI judgement confirmation creates a private micro action',
       (tester) async {
     final repo = MutableTodayRepository(
       signals: [
@@ -84,7 +102,6 @@ void main() {
           signalCardId: 'sig_confirm_001',
           content: '确认动作：这条要写入 edited correction。',
           acknowledgement: '旧 ai_reply：使用保存内容，不重新生成。',
-          sourceType: 'ai_predicted',
           userConfirmation: 'unconfirmed',
         ),
         _legacySignal(),
@@ -93,36 +110,37 @@ void main() {
 
     await _pumpEvidencePage(tester, repo);
 
-    await tester.scrollUntilVisible(
-      find.text('Looks right').first,
-      180,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(find.text('Looks right').first);
+    final predictAction =
+        find.byKey(const ValueKey('today-ai-judgement-action'));
+    expect(predictAction, findsOneWidget);
+    await tester.ensureVisible(predictAction);
+    await tester.tap(predictAction);
     await _settleEvidenceFrame(tester);
-    expect(repo.lastConfirmation, 'accurate');
 
-    await tester.ensureVisible(find.text('Adjust').first);
-    await tester.tap(find.text('Adjust').first);
+    expect(repo.aiJudgement, isNotNull);
+    expect(repo.signals.any((s) => s.sourceType == 'ai_predicted'), isFalse);
+
+    await tester.tap(find.text('Fits').first);
     await _settleEvidenceFrame(tester);
-    await tester.enterText(
-        find.byType(TextField).last, 'edited correction 写入成功');
-    await tester.tap(find.text('Save').last);
-    await _settleEvidenceFrame(tester);
+    expect(repo.aiJudgement?.status, 'confirmed');
+    expect(repo.microActions, isNotEmpty);
+    expect(repo.aiJudgement?.linkedMicroActionId, repo.microActions.first.id);
 
     await _writeEvidenceNote(
-      '03_confirmation_edited_written.txt',
+      '03_ai_judgement_confirmation_written.txt',
       evidenceDir,
-      'TodayPage writes confirmation and edited correction through repository.',
+      'TodayPage writes AI judgement confirmation and creates a linked MicroAction.',
     );
 
-    expect(repo.lastConfirmation, 'edited');
-    expect(repo.lastCorrection['edited_text'], 'edited correction 写入成功');
-    expect(find.text('Adjusted'), findsWidgets);
-    expect(find.textContaining('旧 ai_reply'), findsWidgets);
+    expect(
+      repo.signals.any(
+        (s) => (s.acknowledgement ?? '').contains('旧 ai_reply'),
+      ),
+      isTrue,
+    );
   });
 
-  testWidgets('V3B-2B status chips and buttons stay low pressure',
+  testWidgets('V3B-2B AI judgement copy and actions stay low pressure',
       (tester) async {
     final repo = MutableTodayRepository(
       signals: [
@@ -130,14 +148,12 @@ void main() {
           signalCardId: 'sig_synced_edited_001',
           content: 'Synced edited: this should not look like a task.',
           acknowledgement: 'Saved AI reply stays below the raw text.',
-          sourceType: 'ai_predicted',
           userConfirmation: 'edited',
         ),
         _todaySignal(
           signalCardId: 'draft_retry_001',
           content: 'Draft retry: original text must stay visible.',
           acknowledgement: '',
-          sourceType: 'ai_predicted',
           isLocalDraft: true,
           syncFailed: true,
           migrationStatus: 'local_draft',
@@ -147,86 +163,74 @@ void main() {
 
     await _pumpEvidencePage(tester, repo);
 
-    expect(find.text('Synced'), findsWidgets);
-    expect(find.text('Adjusted'), findsWidgets);
-    expect(find.text('Saved on device'), findsWidgets);
-    expect(find.text('Sync needs retry'), findsWidgets);
-    expect(find.text('Not checked yet'), findsWidgets);
-    expect(find.text('Looks right'), findsWidgets);
+    expect(find.text('AI judgement'), findsOneWidget);
+    expect(
+      find.text(
+        'After you leave a few signals, I will help find one confirmable clue.',
+      ),
+      findsOneWidget,
+    );
+    final predictAction =
+        find.byKey(const ValueKey('today-ai-judgement-action'));
+    await tester.ensureVisible(predictAction);
+    await tester.tap(predictAction);
+    await _settleEvidenceFrame(tester);
+
+    expect(find.text('Fits'), findsWidgets);
     expect(find.text('Not quite'), findsWidgets);
     expect(find.text('Adjust'), findsWidgets);
-    expect(find.text('Add context'), findsWidgets);
+    expect(find.text('Add a line'), findsWidgets);
     expect(
-        find.textContaining('AI has not organized this yet'), findsOneWidget);
+      repo.signals
+          .any((s) => (s.acknowledgement ?? '').isEmpty && s.syncFailed),
+      isTrue,
+    );
   });
 
-  testWidgets('V3B-2B Today status copy supports four languages',
+  testWidgets('V3B-2B Today prediction copy supports four languages',
       (tester) async {
     final cases = [
       (
         locale: const Locale('en'),
-        saved: 'Saved on device',
-        retry: 'Sync needs retry',
-        imported: 'Imported',
-        confirm: 'Looks right',
-        adjust: 'Adjust',
+        title: 'AI judgement',
+        empty:
+            'After you leave a few signals, I will help find one confirmable clue.',
       ),
       (
         locale: const Locale('ja'),
-        saved: '端末に保存済み',
-        retry: '同期は再試行待ち',
-        imported: '移行済み',
-        confirm: '合っていそう',
-        adjust: '調整',
+        title: 'AI 判断',
+        empty: 'いくつかシグナルを残すと、確認できる手がかりを一つ探します。',
       ),
       (
         locale: const Locale.fromSubtags(
           languageCode: 'zh',
           scriptCode: 'Hans',
         ),
-        saved: '已保存在本机',
-        retry: '同步待重试',
-        imported: '旧记录已导入',
-        confirm: '是准的',
-        adjust: '改一下',
+        title: 'AI 判断',
+        empty: '留下几条信号后，我会帮你找一个可确认的线索。',
       ),
       (
         locale: const Locale.fromSubtags(
           languageCode: 'zh',
           scriptCode: 'Hant',
         ),
-        saved: '已保存在本機',
-        retry: '同步待重試',
-        imported: '舊記錄已導入',
-        confirm: '是準的',
-        adjust: '改一下',
+        title: 'AI 判斷',
+        empty: '留下幾條信號後，我會幫你找一個可確認的線索。',
       ),
     ];
 
     for (final item in cases) {
-      final repo = MutableTodayRepository(
-        signals: [
-          _todaySignal(
-            signalCardId: 'draft_locale_${item.locale}',
-            content: 'Locale draft text',
-            acknowledgement: '',
-            sourceType: 'ai_predicted',
-            isLocalDraft: true,
-            syncFailed: true,
-            migrationStatus: 'local_draft',
-          ),
-          _legacySignal(),
-        ],
-      );
+      final repo = MutableTodayRepository(signals: const []);
 
       await _pumpEvidencePage(tester, repo, locale: item.locale);
 
-      expect(find.text(item.saved), findsWidgets);
-      expect(find.text(item.retry), findsWidgets);
-      expect(find.text(item.confirm), findsWidgets);
-      expect(find.text(item.adjust), findsWidgets);
-
-      expect(find.text(item.imported), findsNothing);
+      expect(find.text(item.title), findsOneWidget);
+      expect(find.text(item.empty), findsOneWidget);
+      expect(
+        repo.signals
+            .any((signal) => signal.sourceType == 'ai_predicted'),
+        isFalse,
+      );
     }
   });
 
@@ -267,23 +271,25 @@ void main() {
     expect(find.text('已保存在本机'), findsNothing);
   });
 
-  test('AI predicted signal seed follows app language', () async {
+  test('AI judgement follows app language without fake predicted SignalCard',
+      () async {
     final cases = [
       (
         language: AppLanguage.simplifiedChinese,
-        expected: '也许今天有一个信号，和「天气不错」有关。',
+        expected: '这几条信号像是在提醒你：恢复空间可以先被留出来。',
       ),
       (
         language: AppLanguage.traditionalChinese,
-        expected: '也許今天有一個信號，和「天气不错」有關。',
+        expected: '這幾條信號像是在提醒你：恢復空間可以先被留出來。',
       ),
       (
         language: AppLanguage.japanese,
-        expected: '今日は「天气不错」の周りにシグナルがあるかもしれません。',
+        expected: 'いくつかのシグナルは、回復の余白を先に残してもよさそうだと示しています。',
       ),
       (
         language: AppLanguage.english,
-        expected: 'Maybe today has a signal around 天气不错.',
+        expected:
+            'A few signals suggest that recovery space may need to be protected first.',
       ),
     ];
 
@@ -302,12 +308,12 @@ void main() {
 
       await vm.createPredictedSignal(language: item.language);
 
-      expect(repo.lastSubmittedContent, item.expected);
-      expect(repo.lastSubmittedSourceType, 'ai_predicted');
+      expect(repo.aiJudgement?.judgementText, item.expected);
+      expect(repo.signals.any((s) => s.sourceType == 'ai_predicted'), isFalse);
     }
   });
 
-  testWidgets('简体中文页面点击预判信号后不会显示英文种子', (tester) async {
+  testWidgets('简体中文页面点击 AI 判断后不会显示英文判断', (tester) async {
     final repo = MutableTodayRepository(
       signals: [
         _todaySignal(
@@ -326,11 +332,16 @@ void main() {
         scriptCode: 'Hans',
       ),
     );
-    await tester.tap(find.text('预判一个信号'));
+    final predictAction =
+        find.byKey(const ValueKey('today-ai-judgement-action'));
+    expect(predictAction, findsOneWidget);
+    await tester.ensureVisible(predictAction);
+    await _settleEvidenceFrame(tester);
+    await tester.tap(predictAction);
     await _settleEvidenceFrame(tester);
 
-    expect(find.text('也许今天有一个信号，和「不想上班」有关。'), findsWidgets);
-    expect(find.textContaining('Maybe today has a signal'), findsNothing);
+    expect(find.textContaining('这几条信号像是在提醒你'), findsWidgets);
+    expect(find.textContaining('A few signals suggest'), findsNothing);
   });
 }
 
@@ -439,13 +450,19 @@ String _dateKey(DateTime date) {
 
 class MutableTodayRepository extends StubTodayRepository {
   List<RecentSignalModel> signals;
+  AiJudgementModel? aiJudgement;
+  List<MicroActionModel> microActions;
+  final List<MicroActionFeedbackModel> microActionFeedbacks = [];
   String? lastConfirmation;
   String? lastSubmittedContent;
   String? lastSubmittedSourceType;
   Map<String, dynamic> lastCorrection = const {};
 
-  MutableTodayRepository({required this.signals})
-      : super(fetchTodayResult: const {});
+  MutableTodayRepository({
+    required this.signals,
+    this.aiJudgement,
+    this.microActions = const [],
+  }) : super(fetchTodayResult: const {});
 
   @override
   Future<Map<String, dynamic>> fetchToday() async {
@@ -455,6 +472,8 @@ class MutableTodayRepository extends StubTodayRepository {
       'pendingQuestion': null,
       'bestAction': DailyBestActionModel(text: '今天先试试：只补一条真实发生的小事。'),
       'recentSignals': signals,
+      'aiJudgement': aiJudgement,
+      'microActions': microActions,
     };
   }
 
@@ -526,4 +545,221 @@ class MutableTodayRepository extends StubTodayRepository {
         )
         .toList();
   }
+
+  @override
+  Future<AiJudgementModel?> createAiJudgementForToday({
+    AppLanguage language = AppLanguage.english,
+  }) async {
+    if (signals.isEmpty) return null;
+    final judgement = AiJudgementModel(
+      id: aiJudgement?.id ?? 'aj_test_001',
+      sourceSignalCardIds: signals
+          .where((signal) => signal.sourceType != 'ai_predicted')
+          .map((signal) => signal.signalCardId)
+          .whereType<String>()
+          .toList(),
+      localDate: _todayKey(),
+      judgementText: _judgementText(language),
+      evidenceText: _judgementEvidence(language),
+      suggestedPattern: _judgementPattern(language),
+      suggestedLifeChainStage: 'recovery',
+      status: aiJudgement?.status ?? 'pending',
+      linkedMicroActionId: aiJudgement?.linkedMicroActionId,
+      createdAt: aiJudgement?.createdAt ?? DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    aiJudgement = judgement;
+    return judgement;
+  }
+
+  @override
+  Future<Map<String, dynamic>> respondToAiJudgement({
+    required String judgementId,
+    required String status,
+    String? userAdjustmentText,
+    AppLanguage language = AppLanguage.english,
+  }) async {
+    final judgement = aiJudgement;
+    if (judgement == null || judgement.id != judgementId) return fetchToday();
+
+    final normalizedStatus = status == 'supplemented' ? 'adjusted' : status;
+    String? linkedMicroActionId = judgement.linkedMicroActionId;
+    if (normalizedStatus == 'confirmed' || normalizedStatus == 'adjusted') {
+      final action = MicroActionModel(
+        id: linkedMicroActionId ?? 'ma_test_001',
+        judgementId: judgement.id,
+        title: _microActionTitle(language),
+        reason: _microActionReason(language),
+        plannedDate: _todayKey(),
+      );
+      microActions = [
+        action,
+        ...microActions.where((item) => item.id != action.id),
+      ];
+      linkedMicroActionId = action.id;
+    }
+
+    aiJudgement = AiJudgementModel(
+      id: judgement.id,
+      sourceSignalCardIds: judgement.sourceSignalCardIds,
+      sourceScheduleSignalIds: judgement.sourceScheduleSignalIds,
+      sourceGoalTaskInstanceIds: judgement.sourceGoalTaskInstanceIds,
+      localDate: judgement.localDate,
+      judgementText: judgement.judgementText,
+      evidenceText: judgement.evidenceText,
+      suggestedPattern: judgement.suggestedPattern,
+      suggestedLifeChainStage: judgement.suggestedLifeChainStage,
+      confidenceLevel: judgement.confidenceLevel,
+      status: normalizedStatus,
+      userAdjustmentText: userAdjustmentText,
+      linkedMicroActionId: linkedMicroActionId,
+      includedInWeekly: normalizedStatus != 'inaccurate',
+      includedInJourney: normalizedStatus != 'inaccurate',
+      createdAt: judgement.createdAt,
+      updatedAt: DateTime.now(),
+    );
+    return fetchToday();
+  }
+
+  @override
+  Future<Map<String, dynamic>> chooseMicroAction({
+    required String microActionId,
+    required String choice,
+    AppLanguage language = AppLanguage.english,
+  }) async {
+    microActions = microActions
+        .map((action) => action.id == microActionId
+            ? MicroActionModel(
+                id: action.id,
+                judgementId: action.judgementId,
+                title: choice == 'lighter'
+                    ? _lighterMicroActionTitle(language)
+                    : action.title,
+                reason: action.reason,
+                actionType: choice == 'weekly_experiment'
+                    ? 'weekly_experiment'
+                    : 'today_try',
+                difficulty:
+                    choice == 'lighter' ? 'very_light' : action.difficulty,
+                plannedDate: action.plannedDate,
+                plannedTime: action.plannedTime,
+                linkedScheduleSignalId: action.linkedScheduleSignalId,
+                linkedGoalId: action.linkedGoalId,
+                linkedLifeExperimentId: action.linkedLifeExperimentId,
+                status: switch (choice) {
+                  'weekly_experiment' => 'active',
+                  'lighter' => 'adjusted',
+                  'skip' => 'skipped',
+                  _ => 'accepted',
+                },
+                feedbackStatus: action.feedbackStatus,
+                createdAt: action.createdAt,
+                updatedAt: DateTime.now(),
+              )
+            : action)
+        .toList();
+    return fetchToday();
+  }
+
+  @override
+  Future<Map<String, dynamic>> submitMicroActionFeedback({
+    required String microActionId,
+    required String feedback,
+    String? userNote,
+  }) async {
+    microActionFeedbacks.add(
+      MicroActionFeedbackModel(
+        id: 'maf_${microActionFeedbacks.length + 1}',
+        microActionId: microActionId,
+        localDate: _todayKey(),
+        happened: feedback == 'happened'
+            ? 'yes'
+            : feedback == 'not_happened'
+                ? 'no'
+                : 'unknown',
+        effect: feedback == 'helpful' ? 'helpful' : 'unclear',
+        difficulty: feedback == 'too_hard' ? 'too_hard' : 'okay',
+        userNote: userNote,
+      ),
+    );
+    microActions = microActions
+        .map((action) => action.id == microActionId
+            ? MicroActionModel(
+                id: action.id,
+                judgementId: action.judgementId,
+                title: action.title,
+                reason: action.reason,
+                actionType: action.actionType,
+                difficulty: action.difficulty,
+                plannedDate: action.plannedDate,
+                plannedTime: action.plannedTime,
+                linkedScheduleSignalId: action.linkedScheduleSignalId,
+                linkedGoalId: action.linkedGoalId,
+                linkedLifeExperimentId: action.linkedLifeExperimentId,
+                status: 'done',
+                feedbackStatus: feedback,
+                createdAt: action.createdAt,
+                updatedAt: DateTime.now(),
+              )
+            : action)
+        .toList();
+    return fetchToday();
+  }
+}
+
+String _judgementText(AppLanguage language) {
+  return switch (language) {
+    AppLanguage.simplifiedChinese => '这几条信号像是在提醒你：恢复空间可以先被留出来。',
+    AppLanguage.traditionalChinese => '這幾條信號像是在提醒你：恢復空間可以先被留出來。',
+    AppLanguage.japanese => 'いくつかのシグナルは、回復の余白を先に残してもよさそうだと示しています。',
+    AppLanguage.english =>
+      'A few signals suggest that recovery space may need to be protected first.',
+  };
+}
+
+String _judgementEvidence(AppLanguage language) {
+  return switch (language) {
+    AppLanguage.simplifiedChinese => '基于今天已经保存的信号，这是一个可确认的小判断。',
+    AppLanguage.traditionalChinese => '基於今天已經保存的信號，這是一個可確認的小判斷。',
+    AppLanguage.japanese => '今日保存されたシグナルから、確認できる小さな判断です。',
+    AppLanguage.english =>
+      'Based on today’s saved signals, this is a small confirmable judgement.',
+  };
+}
+
+String _judgementPattern(AppLanguage language) {
+  return switch (language) {
+    AppLanguage.simplifiedChinese => '恢复空间',
+    AppLanguage.traditionalChinese => '恢復空間',
+    AppLanguage.japanese => '回復の余白',
+    AppLanguage.english => 'Recovery space',
+  };
+}
+
+String _microActionTitle(AppLanguage language) {
+  return switch (language) {
+    AppLanguage.simplifiedChinese => '留 5 分钟不输入',
+    AppLanguage.traditionalChinese => '留 5 分鐘不輸入',
+    AppLanguage.japanese => '5分だけ入力しない時間を残す',
+    AppLanguage.english => 'Leave five minutes with no input',
+  };
+}
+
+String _lighterMicroActionTitle(AppLanguage language) {
+  return switch (language) {
+    AppLanguage.simplifiedChinese => '只留 2 分钟空白',
+    AppLanguage.traditionalChinese => '只留 2 分鐘空白',
+    AppLanguage.japanese => '2分だけ余白を残す',
+    AppLanguage.english => 'Leave only two quiet minutes',
+  };
+}
+
+String _microActionReason(AppLanguage language) {
+  return switch (language) {
+    AppLanguage.simplifiedChinese => '先试一个很小的恢复动作，不把它变成任务。',
+    AppLanguage.traditionalChinese => '先試一個很小的恢復動作，不把它變成任務。',
+    AppLanguage.japanese => 'まず小さな回復の動きとして試します。タスクにはしません。',
+    AppLanguage.english =>
+      'Try one very small recovery action without turning it into a task.',
+  };
 }

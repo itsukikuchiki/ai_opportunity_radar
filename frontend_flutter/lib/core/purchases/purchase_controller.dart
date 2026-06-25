@@ -30,6 +30,8 @@ class PurchaseController extends ChangeNotifier {
       'premium_entitlement_server_verified';
   static const String entitlementServerReasonKey =
       'premium_entitlement_server_reason';
+  static const String noRestorableSubscriptionMessage =
+      'No active Pro subscription was found for this Apple ID.';
 
   final InAppPurchase _inAppPurchase;
   final ApiClient? _apiClient;
@@ -329,7 +331,7 @@ class PurchaseController extends ChangeNotifier {
     }
 
     try {
-      if (_canUseNativeStoreKit && _nativeStoreKitProductIds.isNotEmpty) {
+      if (_canUseNativeStoreKit) {
         final restored = await _nativeStoreKitChannel.invokeListMethod<dynamic>(
           'restore',
         );
@@ -343,6 +345,9 @@ class PurchaseController extends ChangeNotifier {
             const [];
         if (purchases.isNotEmpty) {
           await _activatePremiumFromNativeStoreKit(purchases.first);
+          errorMessage = null;
+        } else {
+          errorMessage = noRestorableSubscriptionMessage;
         }
       } else {
         await _inAppPurchase.restorePurchases();

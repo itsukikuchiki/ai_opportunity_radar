@@ -1,7 +1,9 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../backup/cloud_backup_sync_service.dart';
 import '../../local/local_capture_repository.dart';
 import '../../local/local_life_experiment_repository.dart';
+import '../../local/local_phase3_plus_repository.dart';
 import '../../local/local_weekly_snapshot_repository.dart';
 import '../../models/today_models.dart';
 import '../../models/weekly_models.dart';
@@ -14,9 +16,11 @@ class WeeklyRepository {
   final LocalCaptureRepository localCaptureRepository;
   final LocalWeeklySnapshotRepository localWeeklySnapshotRepository;
   final LocalLifeExperimentRepository? localLifeExperimentRepository;
+  final LocalPhase3PlusRepository? localPhase3PlusRepository;
   final AiRepository aiRepository;
   final WeeklyFocusAreaLoader? focusAreaLoader;
   final InstallationDateLoader? installationDateLoader;
+  final CloudBackupSyncService? cloudBackupSyncService;
   final String localUserId;
 
   WeeklyRepository({
@@ -24,8 +28,10 @@ class WeeklyRepository {
     required this.localWeeklySnapshotRepository,
     required this.aiRepository,
     this.localLifeExperimentRepository,
+    this.localPhase3PlusRepository,
     this.focusAreaLoader,
     this.installationDateLoader,
+    this.cloudBackupSyncService,
     this.localUserId = 'local',
   });
 
@@ -94,6 +100,15 @@ class WeeklyRepository {
     );
 
     final weekStartKey = _dateKey(range.start);
+    final phase3PlusSummary = await localPhase3PlusRepository?.summarizeRange(
+      startDate: weekStartKey,
+      endDate: _dateKey(range.end),
+    );
+    final phase3ActionReview =
+        await localPhase3PlusRepository?.summarizeActionLoop(
+      startDate: weekStartKey,
+      endDate: _dateKey(range.end),
+    );
     final cached = await localWeeklySnapshotRepository.getByWeekStart(
       weekStartKey,
     );
@@ -103,7 +118,10 @@ class WeeklyRepository {
 
     if (cached != null && cachedHash == sourceHash) {
       return _attachSuggestedExperiment(
-        cached,
+        _withActionReview(
+          _withPhase3PlusSummary(cached, phase3PlusSummary?.toJson()),
+          phase3ActionReview,
+        ),
         weekSignals: weekSignals,
       );
     }
@@ -142,6 +160,10 @@ class WeeklyRepository {
     }
 
     await _markIncludedInWeekly(weekSignals);
+    generated = _withActionReview(
+      _withPhase3PlusSummary(generated, phase3PlusSummary?.toJson()),
+      phase3ActionReview,
+    );
     generated = await _attachSuggestedExperiment(
       generated,
       weekSignals: weekSignals,
@@ -180,30 +202,33 @@ class WeeklyRepository {
         experimentId: experiment.id,
         signalCardIds: experiment.linkedSignalCardIds,
       );
+      cloudBackupSyncService?.markDataChanged();
     }
     return experiment;
   }
 
-  Future<LifeExperimentModel?> skipLifeExperiment(String experimentId) {
-    return localLifeExperimentRepository?.updateStatus(
-          experimentId: experimentId,
-          status: 'skipped',
-          feedbackText: 'Skipped for now',
-        ) ??
-        Future.value(null);
+  Future<LifeExperimentModel?> skipLifeExperiment(String experimentId) async {
+    final experiment = await localLifeExperimentRepository?.updateStatus(
+      experimentId: experimentId,
+      status: 'skipped',
+      feedbackText: 'Skipped for now',
+    );
+    if (experiment != null) cloudBackupSyncService?.markDataChanged();
+    return experiment;
   }
 
   Future<LifeExperimentModel?> submitLifeExperimentFeedback({
     required String experimentId,
     required String status,
     required String feedbackText,
-  }) {
-    return localLifeExperimentRepository?.updateStatus(
-          experimentId: experimentId,
-          status: status,
-          feedbackText: feedbackText,
-        ) ??
-        Future.value(null);
+  }) async {
+    final experiment = await localLifeExperimentRepository?.updateStatus(
+      experimentId: experimentId,
+      status: status,
+      feedbackText: feedbackText,
+    );
+    if (experiment != null) cloudBackupSyncService?.markDataChanged();
+    return experiment;
   }
 
   List<RecentSignalModel> _filterSignalsForRange(
@@ -318,6 +343,50 @@ class WeeklyRepository {
       opportunitySnapshot: {
         ...?weekly.opportunitySnapshot,
         '_life_experiment': experiment.toJson(),
+      },
+      feedbackSubmitted: weekly.feedbackSubmitted,
+      chartData: weekly.chartData,
+    );
+  }
+
+  WeeklyInsightModel _withPhase3PlusSummary(
+    WeeklyInsightModel weekly,
+    Map<String, dynamic>? summary,
+  ) {
+    if (summary == null) return weekly;
+    return WeeklyInsightModel(
+      weekStart: weekly.weekStart,
+      weekEnd: weekly.weekEnd,
+      status: weekly.status,
+      keyInsight: weekly.keyInsight,
+      patterns: weekly.patterns,
+      frictions: weekly.frictions,
+      bestAction: weekly.bestAction,
+      opportunitySnapshot: {
+        ...?weekly.opportunitySnapshot,
+        '_schedule_goal_summary': summary,
+      },
+      feedbackSubmitted: weekly.feedbackSubmitted,
+      chartData: weekly.chartData,
+    );
+  }
+
+  WeeklyInsightModel _withActionReview(
+    WeeklyInsightModel weekly,
+    Map<String, dynamic>? actionReview,
+  ) {
+    if (actionReview == null) return weekly;
+    return WeeklyInsightModel(
+      weekStart: weekly.weekStart,
+      weekEnd: weekly.weekEnd,
+      status: weekly.status,
+      keyInsight: weekly.keyInsight,
+      patterns: weekly.patterns,
+      frictions: weekly.frictions,
+      bestAction: weekly.bestAction,
+      opportunitySnapshot: {
+        ...?weekly.opportunitySnapshot,
+        '_weekly_action_review': actionReview,
       },
       feedbackSubmitted: weekly.feedbackSubmitted,
       chartData: weekly.chartData,

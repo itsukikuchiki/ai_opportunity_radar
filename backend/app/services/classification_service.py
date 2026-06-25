@@ -21,12 +21,112 @@ class ClassificationService:
         mood = self._detect_mood(text)
         axis = self._detect_axis(text)
 
+        specific = self._specific_reply(
+            text=text,
+            lang=lang,
+            mood=mood,
+            axis=axis,
+        )
+        if specific and specific not in recent_tail:
+            return specific
+
         pool = self._reply_pool(lang=lang, mood=mood, axis=axis)
         candidates = [item for item in pool if item not in recent_tail]
         if not candidates:
             candidates = pool
 
         return candidates[len(text) % len(candidates)]
+
+    def _specific_reply(self, *, text: str, lang: str, mood: str, axis: str) -> str | None:
+        topic = self._topic_hint(text)
+        if not topic:
+            return None
+
+        if lang == "ja":
+            return self._specific_reply_ja(topic=topic, mood=mood, axis=axis)
+        if lang == "en":
+            return self._specific_reply_en(topic=topic, mood=mood, axis=axis)
+        return self._specific_reply_zh(topic=topic, mood=mood, axis=axis)
+
+    def _specific_reply_zh(self, *, topic: str, mood: str, axis: str) -> str:
+        if topic == "cost":
+            return "你在意的不是小情绪，而是成本突然变得很明显：token 花费这件事需要被认真看一下。"
+        if topic == "horse_expectation":
+            return "这一条的重点很清楚：骑马像是这一周里真正能让你期待的一块恢复时间。"
+        if topic == "tomorrow_uncertainty":
+            return "你写到的是对明天不可控的提醒，也是在把注意力轻轻拉回当下。"
+        if topic == "retirement_wish":
+            return "“想早点退休”背后更像是持续被工作消耗后的逃离感，不只是随口一说。"
+        if topic == "weather_good":
+            return "天气不错这件小事已经让今天亮了一点，它本身就值得被留下来。"
+        if topic == "rest_wish":
+            return "这里最明显的是想停下来休息的念头，可能是身体和心力都在要一点空间。"
+        if topic == "money":
+            return "这条和钱有关，真正牵动你的可能是支出、价值感或安全感之间的拉扯。"
+        return ""
+
+    def _specific_reply_ja(self, *, topic: str, mood: str, axis: str) -> str:
+        if topic == "cost":
+            return "ここで気になっているのは小さな気分ではなく、token のコストがはっきり見えてきたことですね。"
+        if topic == "horse_expectation":
+            return "乗馬が、この週の中でちゃんと楽しみにできる回復時間になっている感じがあります。"
+        if topic == "tomorrow_uncertainty":
+            return "明日は予測できない、という気づきが、今に意識を戻してくれていますね。"
+        if topic == "retirement_wish":
+            return "早く引退したい、という言葉の奥に、仕事で削られ続けている感じが見えます。"
+        if topic == "weather_good":
+            return "天気がいい、という小さな明るさも、今日の大事なシグナルですね。"
+        if topic == "rest_wish":
+            return "ここでは、少し休みたいという身体と心のサインが出ていますね。"
+        if topic == "money":
+            return "これはお金そのものだけでなく、支出や納得感、安全感の話にもつながりそうです。"
+        return ""
+
+    def _specific_reply_en(self, *, topic: str, mood: str, axis: str) -> str:
+        if topic == "cost":
+            return "This is not just a small mood. The real signal is that token cost has become something you need to watch."
+        if topic == "horse_expectation":
+            return "Horse riding sounds like one of the few genuinely restorative things you are looking forward to this week."
+        if topic == "tomorrow_uncertainty":
+            return "You are naming how uncertain tomorrow is, while gently pulling attention back to the present."
+        if topic == "retirement_wish":
+            return "Wanting to retire early sounds less like a joke and more like a sign of sustained work drain."
+        if topic == "weather_good":
+            return "Good weather is a small bright signal too. It is worth keeping."
+        if topic == "rest_wish":
+            return "The clearest signal here is wanting space to stop and rest for a while."
+        if topic == "money":
+            return "This seems connected to money, but also to value, safety, and whether the cost feels worth it."
+        return ""
+
+    def _topic_hint(self, text: str) -> str | None:
+        lowered = text.lower()
+        if self._contains_any(lowered, ["token", "tokens", "トークン"]) and self._contains_any(
+            lowered,
+            ["贵", "高", "expensive", "cost", "高い"],
+        ):
+            return "cost"
+        if self._contains_any(lowered, ["骑马", "馬", "乗馬", "horse"]):
+            if self._contains_any(
+                lowered,
+                ["期待", "开心", "值得", "楽しみ", "嬉しい", "look forward", "happy"],
+            ):
+                return "horse_expectation"
+            return "horse_expectation"
+        if self._contains_any(
+            lowered,
+            ["无法预测明天", "不能预测明天", "预测明天", "活在当下", "tomorrow", "明日", "予測", "present"],
+        ):
+            return "tomorrow_uncertainty"
+        if self._contains_any(lowered, ["退休", "退職", "引退", "retire"]):
+            return "retirement_wish"
+        if self._contains_any(lowered, ["天气不错", "好天气", "いい天気", "weather is nice", "good weather"]):
+            return "weather_good"
+        if self._contains_any(lowered, ["休息", "不想上班", "想停", "早日退", "休みたい", "rest"]):
+            return "rest_wish"
+        if self._contains_any(lowered, ["钱", "贵", "预算", "成本", "花费", "价格", "お金", "cost", "money", "budget"]):
+            return "money"
+        return None
 
     def _reply_pool(self, *, lang: str, mood: str, axis: str) -> list[str]:
         if lang == "ja":
@@ -97,9 +197,9 @@ class ClassificationService:
                 "先别急着分清哪一种，先把这一团感觉放在这里。",
             ]
         return [
-            "好，我接住了，先把这个点放在这里。",
-            "先不用急着解释清楚，能把它留下来就很好。",
-            "这种小瞬间其实也很有信息量，后面再慢慢看。",
+            "这条已经被留下来了，后面可以看它会不会再次出现。",
+            "先把这件具体发生过的事放好，不急着把它解释完整。",
+            "这一条可以先作为一个小观察保存下来。",
         ]
 
     def _reply_pool_ja(self, *, mood: str, axis: str) -> list[str]:

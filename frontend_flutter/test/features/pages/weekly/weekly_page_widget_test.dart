@@ -10,6 +10,14 @@ import 'package:ai_opportunity_radar/features/pages/weekly/weekly_view_model.dar
 
 import '../../../helpers/widget_test_helpers.dart';
 
+Future<void> _dragWeeklyDashboard(
+  WidgetTester tester, [
+  double distance = 640,
+]) async {
+  await tester.drag(find.byType(ListView).first, Offset(0, -distance));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -104,33 +112,23 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(WeeklyPage), findsOneWidget);
-    expect(find.text('Weekly'), findsWidgets);
-    expect(find.text('Observation'), findsOneWidget);
-    expect(find.text('Energy'), findsOneWidget);
-    expect(find.text('Experiment'), findsOneWidget);
-    await tester.drag(
-      find.byKey(const ValueKey('weekly-page-view')),
-      const Offset(-500, 0),
-    );
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
+    expect(find.text('Main drain chain'), findsOneWidget);
+    await tester.dragUntilVisible(
       find.text('Energy Budget'),
-      240,
-      scrollable: find.byType(Scrollable).last,
+      find.byType(ListView).first,
+      const Offset(0, -280),
     );
     expect(find.text('Energy Budget'), findsOneWidget);
-    expect(find.text('Most costly source'), findsOneWidget);
-    expect(find.text('Buffer point'), findsOneWidget);
     expect(
-      find.textContaining('not a score or diagnosis'),
-      findsOneWidget,
+      find.textContaining('distribution'),
+      findsWidgets,
     );
-    await tester.scrollUntilVisible(
-      find.text('Signal trend'),
-      240,
-      scrollable: find.byType(Scrollable).last,
+    await tester.dragUntilVisible(
+      find.text('High drain'),
+      find.byType(ListView).first,
+      const Offset(0, -220),
     );
-    expect(find.text('Signal trend'), findsOneWidget);
+    expect(find.text('High drain'), findsOneWidget);
     expect(repo.fetchCallCount, 1);
     expect(energyRepo.fetchCallCount, 1);
   });
@@ -219,10 +217,24 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
+    await _dragWeeklyDashboard(tester, 520);
+    expect(find.text('Energy Budget'), findsOneWidget);
+    expect(
+      find.textContaining('distribution'),
+      findsWidgets,
+    );
+    await tester.dragUntilVisible(
+      find.text('A small experiment you can keep'),
+      find.byType(ListView),
+      const Offset(0, -360),
+    );
+    expect(find.text('A small experiment you can keep'), findsOneWidget);
+    expect(find.text('Save'), findsOneWidget);
+    expect(find.text('Not now'), findsOneWidget);
+    await tester.dragUntilVisible(
       find.text('How your notes were used'),
-      240,
-      scrollable: find.byType(Scrollable).last,
+      find.byType(ListView).first,
+      const Offset(0, -240),
     );
     expect(find.text('How your notes were used'), findsOneWidget);
     expect(
@@ -235,40 +247,6 @@ void main() {
       find.textContaining('stay saved in your Timeline'),
       findsOneWidget,
     );
-    await tester.drag(
-      find.byKey(const ValueKey('weekly-page-view')),
-      const Offset(-500, 0),
-    );
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('Energy Budget'),
-      240,
-      scrollable: find.byType(Scrollable).last,
-    );
-    expect(find.text('Energy Budget'), findsOneWidget);
-    expect(find.text('Most costly source'), findsOneWidget);
-    expect(find.text('Small adjustment'), findsOneWidget);
-    expect(
-      find.textContaining('not used here'),
-      findsOneWidget,
-    );
-    await tester.drag(
-      find.byKey(const ValueKey('weekly-page-view')),
-      const Offset(-500, 0),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('This week, you can look at it this way'), findsOneWidget);
-    expect(find.text('One pattern'), findsOneWidget);
-    expect(find.text('One small experiment'), findsOneWidget);
-    expect(find.text('Recovery signal'), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.text('A small experiment you can keep'),
-      240,
-      scrollable: find.byType(Scrollable).last,
-    );
-    expect(find.text('A small experiment you can keep'), findsOneWidget);
-    expect(find.text('Save'), findsOneWidget);
-    expect(find.text('Not now'), findsOneWidget);
   });
 
   testWidgets('Weekly Energy Budget 数据不足时显示低压力 fallback', (tester) async {
@@ -316,24 +294,11 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    await tester.drag(
-      find.byKey(const ValueKey('weekly-page-view')),
-      const Offset(-500, 0),
-    );
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('Energy Budget'),
-      240,
-      scrollable: find.byType(Scrollable).last,
-    );
+    await _dragWeeklyDashboard(tester, 520);
     expect(find.text('Energy Budget'), findsOneWidget);
     expect(
-      find.textContaining('not a score or diagnosis'),
+      find.textContaining('light read'),
       findsWidgets,
-    );
-    expect(
-      find.textContaining('not used here'),
-      findsOneWidget,
     );
   });
 

@@ -3,10 +3,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../local/local_capture_repository.dart';
 import '../../local/local_journey_snapshot_repository.dart';
 import '../../local/local_life_experiment_repository.dart';
+import '../../local/local_phase3_plus_repository.dart';
+import '../../models/phase3_plus_models.dart';
 import '../../models/memory_models.dart';
 import '../../models/today_models.dart';
 import '../../models/weekly_models.dart';
 import 'ai_repository.dart';
+import 'monthly_repository.dart';
 
 typedef MemoryFocusAreaLoader = Future<String?> Function();
 typedef JourneyInstallationDateLoader = Future<DateTime> Function();
@@ -25,7 +28,9 @@ class MemoryRepository {
   final LocalCaptureRepository localCaptureRepository;
   final LocalJourneySnapshotRepository localJourneySnapshotRepository;
   final LocalLifeExperimentRepository? localLifeExperimentRepository;
+  final LocalPhase3PlusRepository? localPhase3PlusRepository;
   final AiRepository aiRepository;
+  final MonthlyRepository? monthlyRepository;
   final MemoryFocusAreaLoader? focusAreaLoader;
   final JourneyInstallationDateLoader? installationDateLoader;
   final String localUserId;
@@ -34,7 +39,9 @@ class MemoryRepository {
     required this.localCaptureRepository,
     required this.localJourneySnapshotRepository,
     required this.aiRepository,
+    this.monthlyRepository,
     this.localLifeExperimentRepository,
+    this.localPhase3PlusRepository,
     this.focusAreaLoader,
     this.installationDateLoader,
     this.localUserId = 'local',
@@ -51,8 +58,14 @@ class MemoryRepository {
           localUserId: localUserId,
         ) ??
         const <LifeExperimentModel>[];
+    final phase3PlusSummary = await localPhase3PlusRepository?.summarizeRange(
+      startDate: _dateKey(installationDate),
+      endDate: _dateKey(today),
+    );
 
-    if (journeySignals.isEmpty && experimentHistory.isEmpty) {
+    if (journeySignals.isEmpty &&
+        experimentHistory.isEmpty &&
+        _isPhase3PlusEmpty(phase3PlusSummary)) {
       return MemoryFetchResult(
         summary: null,
         isFirstDayGate: isFirstDay,
@@ -86,7 +99,9 @@ class MemoryRepository {
 
     if (cached != null && cachedHash == sourceHash) {
       return MemoryFetchResult(
-        summary: cached,
+        summary: await _attachMonthlyReview(
+          _attachPhase3PlusJourney(cached, phase3PlusSummary),
+        ),
         isFirstDayGate: false,
       );
     }
@@ -117,9 +132,54 @@ class MemoryRepository {
     );
 
     return MemoryFetchResult(
-      summary: generated,
+      summary: await _attachMonthlyReview(
+        _attachPhase3PlusJourney(generated, phase3PlusSummary),
+      ),
       isFirstDayGate: false,
     );
+  }
+
+  bool _isPhase3PlusEmpty(Phase3PlusSummary? summary) {
+    if (summary == null) return true;
+    return summary.scheduleKnownCount == 0 &&
+        summary.pendingScheduleCount == 0 &&
+        summary.feedbackCount == 0 &&
+        summary.activeGoalCount == 0 &&
+        summary.goalFeedbackCount == 0;
+  }
+
+  MemorySummaryModel _attachPhase3PlusJourney(
+    MemorySummaryModel summary,
+    Phase3PlusSummary? phase3,
+  ) {
+    if (_isPhase3PlusEmpty(phase3)) return summary;
+    final item = JourneySignalItemModel(
+      name: '安排与目标的调整线索',
+      summary:
+          '这段时间已经留下 ${phase3!.scheduleKnownCount + phase3.pendingScheduleCount} 个安排信号、${phase3.activeGoalCount} 个目标练习，后续可以看哪些设计真的省力。',
+      signalLevel: phase3.feedbackCount + phase3.goalFeedbackCount >= 3
+          ? 'repeated_pattern'
+          : 'weak_signal',
+    );
+    return summary.copyWith(
+      experiments: [
+        item,
+        ...summary.experiments.where((e) => e.name != item.name),
+      ],
+    );
+  }
+
+  Future<MemorySummaryModel> _attachMonthlyReview(
+    MemorySummaryModel summary,
+  ) async {
+    final repository = monthlyRepository;
+    if (repository == null) return summary;
+    try {
+      final monthly = await repository.fetchCurrentMonthly();
+      return summary.copyWith(monthlyReview: monthly);
+    } catch (_) {
+      return summary;
+    }
   }
 
   Future<MemorySummaryModel?> fetchMemorySummary() async {
@@ -433,7 +493,9 @@ class MemoryRepository {
     required String fallbackLabel,
     required _JourneyStats stats,
   }) {
-    final topToken = stats.topTokens.isEmpty ? '最近的记录' : stats.topTokens.first;
+    final topToken = stats.topTokens.isEmpty
+        ? '最近的记录'
+        : _readableToken(stats.topTokens.first);
 
     if (stats.entryCount <= 1) {
       return '现在还只是一个刚刚冒头的线索，先继续看看它会不会再出现。';
@@ -445,7 +507,9 @@ class MemoryRepository {
   }
 
   MemorySummaryModel _buildFallbackJourneySummary(_JourneyStats stats) {
-    final topToken = stats.topTokens.isEmpty ? '最近的记录' : stats.topTokens.first;
+    final topToken = stats.topTokens.isEmpty
+        ? '最近的记录'
+        : _readableToken(stats.topTokens.first);
     final weakOrRepeated = _resolveSignalLevel(
       entryCount: stats.entryCount,
       activeDays: stats.activeDays,
@@ -570,6 +634,40 @@ class MemoryRepository {
         .replaceAll('你应该', '可以先')
         .replaceAll('必须', '可以试试')
         .replaceAll('完成', '试一小步');
+  }
+
+  String _readableToken(String token) {
+    final normalized = token
+        .replaceAll(RegExp(r'^[\[\("“]+|[\]\)"”]+$'), '')
+        .replaceAll('_', ' ')
+        .trim()
+        .toLowerCase();
+    const labels = {
+      'planning': '安排',
+      'work': '工作',
+      'relationship': '关系',
+      'relations': '关系',
+      'boundary': '边界',
+      'boundaries': '边界',
+      'recovery': '恢复',
+      'rest': '休息',
+      'sleep': '睡眠',
+      'body': '身体',
+      'energy': '能量',
+      'attention': '注意力',
+      'switching': '切换',
+      'schedule': '日程',
+      'schedule density': '安排密度',
+      'care load': '照顾负荷',
+      'limited buffer': '缓冲不足',
+      'buffer': '缓冲',
+      'weather': '天气',
+      'commute': '通勤',
+      'home': '家里',
+      'daily friction': '日常摩擦',
+      'daily life': '日常生活',
+    };
+    return labels[normalized] ?? token.trim();
   }
 
   String _feedbackText(String? feedbackText) {

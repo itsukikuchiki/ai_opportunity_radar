@@ -4,9 +4,8 @@ import '../core/state/app_bootstrap_state.dart';
 import '../features/onboarding/onboarding_page.dart';
 import '../features/paywall/premium_gate_page.dart';
 import '../features/pages/me/me_page.dart';
-import '../features/pages/monthly/monthly_page.dart';
+import '../features/pages/me/advanced_signal_settings_page.dart';
 import '../features/pages/memory/memory_page.dart';
-import '../features/pages/opportunities/opportunity_detail_page.dart';
 import '../features/pages/self_review/self_review_page.dart';
 import '../features/pages/signal_library/signal_library_page.dart';
 import '../features/pages/today/today_diary_page.dart';
@@ -20,11 +19,10 @@ class AppRoutes {
   static const onboarding = '/onboarding';
   static const today = '/today';
   static const weekly = '/weekly';
-  static const opportunity = '/opportunity';
   static const memory = '/memory';
   static const me = '/me';
-  static const monthly = '/monthly';
   static const selfReview = '/self-review';
+  static const advancedSignals = '/me/advanced-signals';
   static const signalLibrary = '/signal-library';
   static const todayDiary = '/today/diary';
   static const todayDialog = '/today/dialog';
@@ -33,9 +31,14 @@ class AppRoutes {
 }
 
 GoRouter createAppRouter(AppBootstrapState bootstrap) {
+  const qaInitialRoute = String.fromEnvironment('SIGNALPATH_INITIAL_ROUTE');
+  final qaResolvedInitialRoute = _resolvedInitialRoute(qaInitialRoute);
+  final initialLocation = bootstrap.onboardingCompleted
+      ? qaResolvedInitialRoute
+      : AppRoutes.onboarding;
+
   return GoRouter(
-    initialLocation:
-        bootstrap.onboardingCompleted ? AppRoutes.today : AppRoutes.onboarding,
+    initialLocation: initialLocation,
     refreshListenable: bootstrap,
     routes: [
       GoRoute(
@@ -92,13 +95,6 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
         builder: (_, __) => const TodayDiaryPage(),
       ),
       GoRoute(
-        path: AppRoutes.monthly,
-        builder: (_, __) => const PremiumGatePage(
-          source: 'Monthly',
-          child: MonthlyPage(),
-        ),
-      ),
-      GoRoute(
         path: AppRoutes.selfReview,
         builder: (_, __) => const PremiumGatePage(
           source: 'Structured self-review',
@@ -106,24 +102,57 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
         ),
       ),
       GoRoute(
-        path: '${AppRoutes.opportunity}/:id',
-        builder: (_, state) =>
-            OpportunityDetailPage(opportunityId: state.pathParameters['id']!),
+        path: AppRoutes.advancedSignals,
+        builder: (_, __) => const AdvancedSignalSettingsPage(),
       ),
     ],
     redirect: (_, state) {
       final completed = bootstrap.onboardingCompleted;
       final goingToOnboarding = state.matchedLocation == AppRoutes.onboarding;
+      final hasQaInitialRoute = qaInitialRoute.isNotEmpty;
 
       if (!completed && !goingToOnboarding) {
         return AppRoutes.onboarding;
       }
 
       if (completed && goingToOnboarding) {
-        return AppRoutes.today;
+        return hasQaInitialRoute ? qaResolvedInitialRoute : AppRoutes.today;
+      }
+
+      if (completed &&
+          hasQaInitialRoute &&
+          _isShellRoute(state.matchedLocation) &&
+          state.matchedLocation != qaResolvedInitialRoute) {
+        return qaResolvedInitialRoute;
       }
 
       return null;
     },
   );
+}
+
+bool _isShellRoute(String route) {
+  switch (route) {
+    case AppRoutes.today:
+    case AppRoutes.weekly:
+    case AppRoutes.memory:
+    case AppRoutes.signalLibrary:
+    case AppRoutes.me:
+      return true;
+    default:
+      return false;
+  }
+}
+
+String _resolvedInitialRoute(String route) {
+  switch (route) {
+    case AppRoutes.today:
+    case AppRoutes.weekly:
+    case AppRoutes.memory:
+    case AppRoutes.signalLibrary:
+    case AppRoutes.me:
+      return route;
+    default:
+      return AppRoutes.today;
+  }
 }

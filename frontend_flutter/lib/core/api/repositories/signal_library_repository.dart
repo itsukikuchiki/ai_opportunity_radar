@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../backup/cloud_backup_sync_service.dart';
 import '../../local/local_database.dart';
 import '../../models/signal_library_models.dart';
 import '../../models/today_models.dart';
@@ -10,10 +11,12 @@ import '../../models/today_models.dart';
 class SignalLibraryRepository {
   final LocalDatabase localDatabase;
   final Uuid _uuid;
+  final CloudBackupSyncService? cloudBackupSyncService;
 
   SignalLibraryRepository(
     this.localDatabase, {
     Uuid uuid = const Uuid(),
+    this.cloudBackupSyncService,
   }) : _uuid = uuid;
 
   Future<List<LibraryPatternModel>> listCuratedPatterns({
@@ -112,6 +115,7 @@ class SignalLibraryRepository {
       patternId: pattern.id,
       action: 'save_to_my_observation',
     );
+    cloudBackupSyncService?.markDataChanged();
 
     final rows = await db.query(
       'signal_cards',

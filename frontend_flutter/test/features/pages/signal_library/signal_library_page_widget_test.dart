@@ -15,22 +15,16 @@ void main() {
     await tester.pumpWidget(_buildWidget());
     await tester.pump();
 
-    expect(find.text('Signal Library'), findsOneWidget);
+    expect(find.text('Shared life signals'), findsOneWidget);
     expect(
-      find.textContaining('Officially organized life patterns'),
+      find.text('Possible structure'),
       findsOneWidget,
     );
-    expect(
-      find.textContaining('not community content'),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining('Some people encounter a similar structure'),
-      findsOneWidget,
-    );
-    expect(find.text('I also have this'), findsOneWidget);
-    expect(find.text('Save to my observation'), findsOneWidget);
-    expect(find.text('Not for me'), findsOneWidget);
+    expect(find.text('Observe'), findsOneWidget);
+    expect(find.text('Small experiment'), findsOneWidget);
+    expect(find.text('Me too'), findsOneWidget);
+    expect(find.text('Save'), findsOneWidget);
+    expect(find.text('Share'), findsOneWidget);
     expect(find.textContaining('you are this kind of person'), findsNothing);
   });
 
@@ -39,7 +33,7 @@ void main() {
     await tester.pumpWidget(_buildWidget());
     await tester.pump();
 
-    final saveButton = find.text('Save to my observation');
+    final saveButton = find.text('Save');
     await tester.ensureVisible(saveButton);
     await tester.pump();
     await tester.tap(saveButton);
@@ -49,7 +43,7 @@ void main() {
       find.text('Saved privately into your observations.'),
       findsOneWidget,
     );
-    expect(find.text('In observations'), findsOneWidget);
+    expect(find.text('Saved'), findsOneWidget);
     expect(find.textContaining('confirm you have this problem'), findsNothing);
   });
 
@@ -68,7 +62,7 @@ void main() {
     await tester.pump();
 
     expect(repository.lastLanguage, 'zh-Hans');
-    expect(find.text('先放进你的观察里'), findsOneWidget);
+    expect(find.text('保存'), findsOneWidget);
     expect(find.textContaining('你就是这种人'), findsNothing);
     expect(find.textContaining('你有这个问题'), findsNothing);
   });
@@ -144,6 +138,53 @@ void main() {
     expect(find.text('安排过密的一周'), findsOneWidget);
     expect(find.text('Over-scheduled weeks'), findsNothing);
   });
+
+  testWidgets(
+      'category chips filter visible library cards instead of acting as static labels',
+      (tester) async {
+    final repository = _FakeSignalLibraryRepository(includeCategorySet: true);
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_buildWidget(repository: repository));
+    await tester.pump();
+
+    expect(find.text('Over-scheduled weeks'), findsOneWidget);
+    expect(find.text('Recovery debt'), findsOneWidget);
+    expect(find.text('Unclear expectations'), findsOneWidget);
+
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('library-category-recovery')));
+    await tester.tap(find.byKey(const ValueKey('library-category-recovery')));
+    await tester.pump();
+
+    expect(find.text('Recovery debt'), findsOneWidget);
+    expect(find.text('Over-scheduled weeks'), findsNothing);
+    expect(find.text('Unclear expectations'), findsNothing);
+
+    await tester.drag(
+      find.byType(SingleChildScrollView).first,
+      const Offset(-520, 0),
+    );
+    await tester.pump();
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('library-category-work')));
+    await tester.tap(find.byKey(const ValueKey('library-category-work')));
+    await tester.pump();
+
+    expect(find.text('Over-scheduled weeks'), findsOneWidget);
+    expect(find.text('Recovery debt'), findsNothing);
+    expect(find.text('Unclear expectations'), findsNothing);
+
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('library-category-relationships')));
+    await tester
+        .tap(find.byKey(const ValueKey('library-category-relationships')));
+    await tester.pump();
+
+    expect(find.text('Unclear expectations'), findsOneWidget);
+    expect(find.text('Over-scheduled weeks'), findsNothing);
+  });
 }
 
 Widget _buildWidget(
@@ -170,7 +211,10 @@ Widget _buildWidget(
 }
 
 class _FakeSignalLibraryRepository extends SignalLibraryRepository {
-  _FakeSignalLibraryRepository() : super(LocalDatabase());
+  _FakeSignalLibraryRepository({this.includeCategorySet = false})
+      : super(LocalDatabase());
+
+  final bool includeCategorySet;
 
   String? lastLanguage;
   final List<String> requestedLanguages = [];
@@ -181,6 +225,9 @@ class _FakeSignalLibraryRepository extends SignalLibraryRepository {
   }) async {
     lastLanguage = language;
     requestedLanguages.add(language);
+    if (includeCategorySet && language == 'en') {
+      return [_pattern, _recoveryPattern, _relationshipPattern];
+    }
     return [language == 'zh-Hans' ? _simplifiedChinesePattern : _pattern];
   }
 
@@ -236,6 +283,39 @@ final _simplifiedChinesePattern = LibraryPatternModel(
   gentleReflection: '这也许不是需要做得更多，而是这一周哪里少了一点柔软的边界。',
   suggestedSmallExperiment: '可以试着在最密的一段前后，留一个很小的缓冲。',
   language: 'zh-Hans',
+  createdAt: DateTime.utc(2026, 5, 29),
+  updatedAt: DateTime.utc(2026, 5, 29),
+);
+
+final _recoveryPattern = LibraryPatternModel(
+  id: 'recovery_debt',
+  title: 'Recovery debt',
+  abstractPattern:
+      'Some people notice rest starts feeling like something to catch up on after several demanding days.',
+  commonScenes: const ['body', 'rest'],
+  commonFrictions: const ['recovery debt'],
+  energyLoadHint: 'recovery',
+  possiblePositiveSignal: 'sleep recovery',
+  gentleReflection: 'Recovery may need a little more room this week.',
+  suggestedSmallExperiment: 'Try setting one small stop time before bed.',
+  language: 'en',
+  createdAt: DateTime.utc(2026, 5, 29),
+  updatedAt: DateTime.utc(2026, 5, 29),
+);
+
+final _relationshipPattern = LibraryPatternModel(
+  id: 'unclear_expectation_relationship_friction',
+  title: 'Unclear expectations',
+  abstractPattern:
+      'Sometimes the tiring part is not the relationship itself, but the unclear expectation around it.',
+  commonScenes: const ['relationships', 'communication'],
+  commonFrictions: const ['boundary', 'expectations'],
+  energyLoadHint: 'mixed',
+  possiblePositiveSignal: 'clear connection',
+  gentleReflection: 'This can be observed without deciding anything yet.',
+  suggestedSmallExperiment:
+      'Try naming one small expectation before responding.',
+  language: 'en',
   createdAt: DateTime.utc(2026, 5, 29),
   updatedAt: DateTime.utc(2026, 5, 29),
 );

@@ -3,9 +3,8 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../app/app_router.dart';
-import '../../core/state/app_bootstrap_state.dart';
 import '../../core/i18n/app_locale_text.dart';
-import '../../shared/widgets/signal_illustration_kit.dart';
+import '../../core/state/app_bootstrap_state.dart';
 import 'onboarding_view_model.dart';
 
 class OnboardingPage extends StatefulWidget {
@@ -19,7 +18,11 @@ class _OnboardingPageState extends State<OnboardingPage> {
   final PageController _pageController = PageController();
   int _currentStep = 0;
 
-  static const int _stepCount = 3;
+  static const List<String> _assets = [
+    'assets/onboarding/onboarding-welcome.png',
+    'assets/onboarding/onboarding-input.png',
+    'assets/onboarding/onboarding-experiment.png',
+  ];
 
   @override
   void dispose() {
@@ -28,38 +31,34 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }
 
   Future<void> _next(OnboardingViewModel vm) async {
-    if (_currentStep < _stepCount - 1) {
+    if (_currentStep < _assets.length - 1) {
       await _pageController.nextPage(
-        duration: const Duration(milliseconds: 260),
+        duration: const Duration(milliseconds: 320),
         curve: Curves.easeOutCubic,
       );
       return;
     }
+    await _complete(vm);
+  }
 
+  Future<void> _complete(OnboardingViewModel vm) async {
     try {
       await vm.complete();
       if (!mounted) return;
-
       await context.read<AppBootstrapState>().markOnboardingCompleted();
       if (!mounted) return;
-
       context.go(AppRoutes.today);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_submitErrorText(context, vm.errorCode)),
-        ),
+        SnackBar(content: Text(_submitErrorText(context, vm.errorCode))),
       );
     }
   }
 
   Future<void> _skip() async {
-    if (!mounted) return;
-
     await context.read<AppBootstrapState>().markOnboardingCompleted();
     if (!mounted) return;
-
     context.go(AppRoutes.today);
   }
 
@@ -87,99 +86,39 @@ class _OnboardingPageState extends State<OnboardingPage> {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<OnboardingViewModel>();
-    final theme = Theme.of(context);
+    final isLast = _currentStep == _assets.length - 1;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          AppLocaleText.tr(
-            context,
-            en: 'Welcome',
-            zhHans: '欢迎使用',
-            zhHant: '歡迎使用',
-            ja: 'ようこそ',
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: PageView.builder(
+              controller: _pageController,
+              itemCount: _assets.length,
+              onPageChanged: (value) => setState(() => _currentStep = value),
+              itemBuilder: (context, index) {
+                return _OnboardingArtwork(asset: _assets[index]);
+              },
+            ),
           ),
-        ),
-        automaticallyImplyLeading: false,
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-              child: Row(
-                children: List.generate(_stepCount, (index) {
-                  final active = index <= _currentStep;
-                  return Expanded(
-                    child: Container(
-                      margin: EdgeInsets.only(
-                          right: index == _stepCount - 1 ? 0 : 8),
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: active
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.outlineVariant
-                                .withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            ),
-            Expanded(
-              child: PageView(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                onPageChanged: (value) {
-                  setState(() => _currentStep = value);
-                },
-                children: const [
-                  _HeroIntroStep(),
-                  _SignalInputStep(),
-                  _SignalOutputStep(),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-              child: Column(
-                children: [
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: vm.submitting ? null : () => _next(vm),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(54),
-                      ),
-                      child: vm.submitting
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text(
-                              _currentStep == _stepCount - 1
-                                  ? AppLocaleText.tr(
-                                      context,
-                                      en: 'Start',
-                                      zhHans: '开始使用',
-                                      zhHant: '開始使用',
-                                      ja: 'はじめる',
-                                    )
-                                  : AppLocaleText.tr(
-                                      context,
-                                      en: 'Continue',
-                                      zhHans: '继续',
-                                      zhHant: '繼續',
-                                      ja: '続ける',
-                                    ),
-                            ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextButton(
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topRight,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 10, right: 18),
+                child: AnimatedOpacity(
+                  opacity: isLast ? 0 : 1,
+                  duration: const Duration(milliseconds: 180),
+                  child: TextButton(
                     onPressed: vm.submitting ? null : _skip,
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF7D8397),
+                      textStyle: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                     child: Text(
                       AppLocaleText.tr(
                         context,
@@ -190,294 +129,152 @@ class _OnboardingPageState extends State<OnboardingPage> {
                       ),
                     ),
                   ),
-                ],
+                ),
               ),
+            ),
+          ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 48),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AnimatedOpacity(
+                      opacity: isLast ? 1 : 0,
+                      duration: const Duration(milliseconds: 220),
+                      child: IgnorePointer(
+                        ignoring: !isLast,
+                        child: _StartButton(
+                          submitting: vm.submitting,
+                          onPressed: () => _complete(vm),
+                        ),
+                      ),
+                    ),
+                    if (!isLast) ...[
+                      const SizedBox(height: 8),
+                      _SwipeHint(onTap: vm.submitting ? null : () => _next(vm)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OnboardingArtwork extends StatelessWidget {
+  final String asset;
+
+  const _OnboardingArtwork({required this.asset});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(color: Colors.white),
+      child: Center(
+        child: Image.asset(
+          asset,
+          width: double.infinity,
+          height: double.infinity,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.high,
+        ),
+      ),
+    );
+  }
+}
+
+class _StartButton extends StatelessWidget {
+  final bool submitting;
+  final VoidCallback onPressed;
+
+  const _StartButton({required this.submitting, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 320),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF7168F6).withValues(alpha: 0.18),
+              blurRadius: 28,
+              offset: const Offset(0, 12),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _HeroIntroStep extends StatelessWidget {
-  const _HeroIntroStep();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 42, 24, 24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Image.asset(
-            'assets/icon-1024-noalpha.png',
-            width: 210,
-            height: 210,
-            fit: BoxFit.contain,
-          ),
-          const SizedBox(height: 28),
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Signal Path',
-              zhHans: 'Signal Path',
-              zhHant: 'Signal Path',
-              ja: 'Signal Path',
+        child: FilledButton(
+          onPressed: submitting ? null : onPressed,
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF7168F6),
+            foregroundColor: Colors.white,
+            disabledBackgroundColor:
+                const Color(0xFF7168F6).withValues(alpha: 0.55),
+            minimumSize: const Size.fromHeight(48),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(999),
             ),
-            style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w500,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Notice the signals, adjust gently',
-              zhHans: '看见信号，轻轻调整',
-              zhHant: '看見信號，輕輕調整',
-              ja: 'シグナルに気づき、そっと整える',
-            ),
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w400,
-              height: 1.5,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Not a diagnosis. Not a score.',
-              zhHans: '不是诊断，也不是评分。',
-              zhHant: '不是診斷，也不是評分。',
-              ja: '診断でも、評価でもありません。',
-            ),
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w400,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SignalInputStep extends StatelessWidget {
-  const _SignalInputStep();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Put down one small signal from today.',
-              zhHans: '把今天的一点信号先放下来。',
-              zhHant: '把今天的一點信號先放下來。',
-              ja: '今日の小さなシグナルを、まず残しておく。',
-            ),
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w500,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Your original text is saved first. AI only helps organize it gently.',
-              zhHans: '原文会先保存，AI 只是帮你轻轻整理。',
-              zhHant: '原文會先保存，AI 只是幫你輕輕整理。',
-              ja: '原文は先に保存され、AI はそっと整えるだけです。',
-            ),
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
-          const SizedBox(height: 16),
-          const SignalDropVisual(height: 170),
-          const SizedBox(height: 16),
-          _OnboardingInfoCard(
-            number: '01',
-            title: AppLocaleText.tr(
-              context,
-              en: 'What you left',
-              zhHans: '你留下的内容',
-              zhHant: '你留下的內容',
-              ja: 'あなたが残したこと',
-            ),
-            body: AppLocaleText.tr(
-              context,
-              en: 'A sentence, a voice transcript, or even just a state can be saved as a private observation.',
-              zhHans: '一句话、语音转写，或只是一个状态，都可以先放进私人观察。',
-              zhHant: '一句話、語音轉寫，或只是一個狀態，都可以先放進私人觀察。',
-              ja: '一言でも、音声の文字起こしでも、ただの状態でも、まず個人の観察として残せます。',
+            textStyle: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0,
             ),
           ),
-          const SizedBox(height: 12),
-          _OnboardingInfoCard(
-            number: '02',
-            title: AppLocaleText.tr(
-              context,
-              en: 'Gentle organization',
-              zhHans: '轻轻整理',
-              zhHant: '輕輕整理',
-              ja: 'そっと整理',
-            ),
-            body: AppLocaleText.tr(
-              context,
-              en: 'Even if AI fails, your saved content stays. The result is only an added small observation.',
-              zhHans: 'AI 失败也不会影响保存；整理结果只是附加小观察。',
-              zhHant: 'AI 失敗也不會影響保存；整理結果只是附加小觀察。',
-              ja: 'AI の整理に失敗しても保存には影響しません。結果は追加の小さな観察にすぎません。',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SignalOutputStep extends StatelessWidget {
-  const _SignalOutputStep();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Turn scattered signals into a life path.',
-              zhHans: '把零散信号整理成生活路径',
-              zhHant: '把零散信號整理成生活路徑',
-              ja: 'ばらばらのシグナルを、生活の旅路として整える。',
-            ),
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w500,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Not a report. Not a score. It helps you see where energy is spent and where recovery is happening.',
-              zhHans: '不是报告，也不是评分。只是帮你看见这段时间哪里耗力，哪里在恢复。',
-              zhHant: '不是報告，也不是評分。只是幫你看見這段時間哪裡耗力，哪裡在恢復。',
-              ja: 'レポートでも、評価でもありません。この時期にどこで消耗し、どこで回復しているかを見るためのものです。',
-            ),
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
-          const SizedBox(height: 16),
-          const SignalToMapVisual(height: 180),
-          const SizedBox(height: 16),
-          _OnboardingInfoCard(
-            number: 'W',
-            title: AppLocaleText.tr(
-              context,
-              en: 'Weekly',
-              zhHans: '本周',
-              zhHant: '本週',
-              ja: '今週',
-            ),
-            body: AppLocaleText.tr(
-              context,
-              en: 'Start with one pattern this week, then choose one small experiment.',
-              zhHans: '先看一个模式，再选择一个很小的尝试。',
-              zhHant: '先看一個模式，再選擇一個很小的嘗試。',
-              ja: '今週はまず一つのパターンを見て、小さな試みを一つ選べます。',
-            ),
-          ),
-          const SizedBox(height: 12),
-          _OnboardingInfoCard(
-            number: 'J',
-            title: AppLocaleText.tr(
-              context,
-              en: 'Journey',
-              zhHans: '旅程',
-              zhHant: '旅程',
-              ja: '旅路',
-            ),
-            body: AppLocaleText.tr(
-              context,
-              en: 'It places repetition, recovery, and experiments on one Life Journey.',
-              zhHans: '把几周里的重复、恢复和实验轨迹，慢慢连成生活地图。',
-              zhHant: '把幾週裡的重複、恢復和實驗軌跡，慢慢連成生活地圖。',
-              ja: '繰り返し、回復、試みの軌跡を、一つの生活の旅路にまとめます。',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OnboardingInfoCard extends StatelessWidget {
-  final String number;
-  final String title;
-  final String body;
-
-  const _OnboardingInfoCard({
-    required this.number,
-    required this.title,
-    required this.body,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color:
-            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
-            child: Text(
-              number,
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
+          child: submitting
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Start Signal Path',
+                    zhHans: '开始使用 Signal Path',
+                    zhHant: '開始使用 Signal Path',
+                    ja: 'Signal Path をはじめる',
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(body),
-              ],
-            ),
-          ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SwipeHint extends StatelessWidget {
+  final VoidCallback? onTap;
+
+  const _SwipeHint({this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: onTap,
+      style: TextButton.styleFrom(
+        foregroundColor: const Color(0xFF8D92A5),
+        textStyle: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      child: Text(
+        AppLocaleText.tr(
+          context,
+          en: 'Swipe or tap to continue',
+          zhHans: '左滑或轻点继续',
+          zhHant: '左滑或輕點繼續',
+          ja: 'スワイプ、またはタップして続ける',
+        ),
       ),
     );
   }

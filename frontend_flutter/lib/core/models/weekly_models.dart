@@ -190,6 +190,71 @@ class LifeExperimentModel {
   }
 }
 
+class WeeklyActionReviewModel {
+  final int aiJudgementCount;
+  final int confirmedJudgementCount;
+  final int generatedActionCount;
+  final int triedActionCount;
+  final int helpfulActionCount;
+  final String mostHelpfulAction;
+  final String hardestAction;
+  final String nextAdjustment;
+  final List<String> linkedMicroActionIds;
+
+  const WeeklyActionReviewModel({
+    this.aiJudgementCount = 0,
+    this.confirmedJudgementCount = 0,
+    this.generatedActionCount = 0,
+    this.triedActionCount = 0,
+    this.helpfulActionCount = 0,
+    this.mostHelpfulAction = '',
+    this.hardestAction = '',
+    this.nextAdjustment = '',
+    this.linkedMicroActionIds = const [],
+  });
+
+  bool get hasData =>
+      aiJudgementCount > 0 ||
+      generatedActionCount > 0 ||
+      triedActionCount > 0 ||
+      helpfulActionCount > 0;
+
+  factory WeeklyActionReviewModel.fromMap(Map<String, dynamic>? map) {
+    if (map == null) return const WeeklyActionReviewModel();
+    return WeeklyActionReviewModel(
+      aiJudgementCount: (map['ai_judgement_count'] as num?)?.toInt() ?? 0,
+      confirmedJudgementCount:
+          (map['confirmed_judgement_count'] as num?)?.toInt() ?? 0,
+      generatedActionCount:
+          (map['generated_action_count'] as num?)?.toInt() ?? 0,
+      triedActionCount: (map['tried_action_count'] as num?)?.toInt() ?? 0,
+      helpfulActionCount: (map['helpful_action_count'] as num?)?.toInt() ?? 0,
+      mostHelpfulAction: (map['most_helpful_action'] as String?) ?? '',
+      hardestAction: (map['hardest_action'] as String?) ?? '',
+      nextAdjustment: (map['next_adjustment'] as String?) ?? '',
+      linkedMicroActionIds:
+          ((map['linked_micro_action_ids'] as List?) ?? const [])
+              .map((e) => e?.toString() ?? '')
+              .where((e) => e.trim().isNotEmpty)
+              .toList(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'ai_judgement_count': aiJudgementCount,
+      'confirmed_judgement_count': confirmedJudgementCount,
+      'generated_action_count': generatedActionCount,
+      'tried_action_count': triedActionCount,
+      'helpful_action_count': helpfulActionCount,
+      'most_helpful_action': mostHelpfulAction,
+      'hardest_action': hardestAction,
+      'next_adjustment': nextAdjustment,
+      'linked_micro_action_ids': linkedMicroActionIds,
+    };
+  }
+}
+
 class WeeklyInsightModel {
   final String weekStart;
   final String weekEnd;
@@ -261,6 +326,19 @@ class WeeklyInsightModel {
       );
     }
     return null;
+  }
+
+  WeeklyActionReviewModel get actionReview {
+    final raw = opportunitySnapshot?['_weekly_action_review'];
+    if (raw is Map<String, dynamic>) {
+      return WeeklyActionReviewModel.fromMap(raw);
+    }
+    if (raw is Map) {
+      return WeeklyActionReviewModel.fromMap(
+        raw.map((key, value) => MapEntry('$key', value)),
+      );
+    }
+    return const WeeklyActionReviewModel();
   }
 
   WeeklyV3CStructureModel deriveV3CStructure() {

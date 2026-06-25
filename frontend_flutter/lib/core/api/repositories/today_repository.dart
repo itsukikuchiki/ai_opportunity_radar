@@ -2,9 +2,13 @@ import 'dart:ui' as ui;
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../backup/cloud_backup_sync_service.dart';
 import '../../local/local_capture_repository.dart';
 import '../../local/local_daily_snapshot_repository.dart';
+import '../../local/local_phase3_plus_repository.dart';
+import '../../models/phase3_plus_models.dart';
 import '../../models/today_models.dart';
+import '../../i18n/app_locale_text.dart';
 import '../api_client.dart';
 import 'analytics_repository.dart';
 import 'ai_repository.dart';
@@ -15,20 +19,24 @@ typedef ResponseStyleLoader = Future<String?> Function();
 class TodayRepository {
   final LocalCaptureRepository localCaptureRepository;
   final LocalDailySnapshotRepository localDailySnapshotRepository;
+  final LocalPhase3PlusRepository? localPhase3PlusRepository;
   final AiRepository aiRepository;
   final ApiClient? apiClient;
   final AnalyticsRepository? analyticsRepository;
   final FocusAreaLoader? focusAreaLoader;
   final ResponseStyleLoader? responseStyleLoader;
+  final CloudBackupSyncService? cloudBackupSyncService;
 
   TodayRepository({
     required this.localCaptureRepository,
     required this.localDailySnapshotRepository,
+    this.localPhase3PlusRepository,
     required this.aiRepository,
     this.apiClient,
     this.analyticsRepository,
     this.focusAreaLoader,
     this.responseStyleLoader,
+    this.cloudBackupSyncService,
   });
 
   Future<Map<String, dynamic>> fetchToday() async {
@@ -45,8 +53,9 @@ class TodayRepository {
     final allSignals = apiClient == null
         ? await localCaptureRepository.listRecentSignals(limit: 200)
         : await localCaptureRepository.listSignalCards(limit: 200);
+    final todayKey = _dateKey(DateTime.now());
     final todaySignals = allSignals
-        .where((signal) => signal.localDateKey() == _dateKey(DateTime.now()))
+        .where((signal) => signal.localDateKey() == todayKey)
         .toList();
     final snapshot =
         await localDailySnapshotRepository.getByDate(DateTime.now());
@@ -64,6 +73,17 @@ class TodayRepository {
     final latestSignals = apiClient == null
         ? allSignals
         : await localCaptureRepository.listSignalCards(limit: 200);
+    final schedules = await localPhase3PlusRepository?.listTodaySchedules() ??
+        const <ScheduleSignalModel>[];
+    final goals = await localPhase3PlusRepository?.listActiveGoals() ??
+        const <GoalModel>[];
+    final goalTasks = await localPhase3PlusRepository?.listTodayGoalTasks() ??
+        const <GoalTaskInstanceModel>[];
+    final aiJudgement =
+        await localPhase3PlusRepository?.getAiJudgementForDate(todayKey);
+    final microActions =
+        await localPhase3PlusRepository?.listMicroActionsForDate(todayKey) ??
+            const <MicroActionModel>[];
 
     return {
       'insight': TodayInsightModel(
@@ -76,6 +96,382 @@ class TodayRepository {
             latestSnapshot?.suggestionText ?? _defaultSuggestion(todaySignals),
       ),
       'recentSignals': latestSignals,
+      'scheduleSignals': schedules,
+      'activeGoals': goals,
+      'goalTasks': goalTasks,
+      'aiJudgement': aiJudgement,
+      'microActions': microActions,
+    };
+  }
+
+  Future<AiJudgementModel?> createAiJudgementForToday({
+    AppLanguage language = AppLanguage.english,
+  }) async {
+    final repo = localPhase3PlusRepository;
+    if (repo == null) return null;
+
+    final todayKey = _dateKey(DateTime.now());
+    final allSignals = await localCaptureRepository.listSignalCards(limit: 200);
+    final eligibleSignals = allSignals
+        .where((signal) => _isEligibleForAiJudgement(signal, todayKey))
+        .toList();
+    final schedules = await repo.listTodaySchedules();
+    final goalTasks = await repo.listTodayGoalTasks();
+
+    if (eligibleSignals.isEmpty && schedules.isEmpty && goalTasks.isEmpty) {
+      return null;
+    }
+
+    final existing = await repo.getAiJudgementForDate(todayKey);
+    final generated =
+        _buildAiJudgementCopy(eligibleSignals, schedules, goalTasks, language);
+    final now = DateTime.now();
+    final judgement = AiJudgementModel(
+      id: existing?.id ?? repo.createId('aj'),
+      sourceSignalCardIds: eligibleSignals
+          .map((signal) => signal.signalCardId ?? signal.id ?? '')
+          .where((id) => id.isNotEmpty)
+          .take(5)
+          .toList(),
+      sourceScheduleSignalIds:
+          schedules.map((schedule) => schedule.id).take(3).toList(),
+      sourceGoalTaskInstanceIds:
+          goalTasks.map((task) => task.id).take(3).toList(),
+      localDate: todayKey,
+      judgementText: generated[0],
+      evidenceText: generated[1],
+      suggestedPattern: generated[2],
+      suggestedLifeChainStage: generated[3],
+      confidenceLevel:
+          eligibleSignals.length + schedules.length + goalTasks.length >= 3
+              ? 'medium'
+              : 'low',
+      status: existing?.status == 'inaccurate'
+          ? 'pending'
+          : existing?.status ?? 'pending',
+      userAdjustmentText: existing?.userAdjustmentText,
+      linkedMicroActionId: existing?.linkedMicroActionId,
+      includedInWeekly: existing?.includedInWeekly ?? false,
+      includedInJourney: existing?.includedInJourney ?? false,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    );
+    await repo.upsertAiJudgement(judgement);
+    cloudBackupSyncService?.markDataChanged();
+    return judgement;
+  }
+
+  Future<Map<String, dynamic>> respondToAiJudgement({
+    required String judgementId,
+    required String status,
+    String? userAdjustmentText,
+    AppLanguage language = AppLanguage.english,
+  }) async {
+    final repo = localPhase3PlusRepository;
+    if (repo == null) return fetchToday();
+
+    final judgement = await repo.getAiJudgementById(judgementId);
+    if (judgement == null) return fetchToday();
+
+    final normalizedStatus = status == 'supplemented' ? 'adjusted' : status;
+    String? linkedMicroActionId = judgement.linkedMicroActionId;
+    final shouldCreateAction =
+        normalizedStatus == 'confirmed' || normalizedStatus == 'adjusted';
+
+    if (shouldCreateAction) {
+      final existingAction = linkedMicroActionId == null
+          ? null
+          : await repo.getMicroActionById(linkedMicroActionId);
+      final action =
+          existingAction ?? _microActionForJudgement(repo, judgement, language);
+      await repo.upsertMicroAction(action);
+      linkedMicroActionId = action.id;
+    }
+
+    await repo.updateAiJudgementStatus(
+      id: judgementId,
+      status: normalizedStatus,
+      userAdjustmentText: userAdjustmentText,
+      linkedMicroActionId: linkedMicroActionId,
+      includedInWeekly: shouldCreateAction,
+      includedInJourney: shouldCreateAction,
+    );
+    cloudBackupSyncService?.markDataChanged();
+    return fetchToday();
+  }
+
+  Future<Map<String, dynamic>> chooseMicroAction({
+    required String microActionId,
+    required String choice,
+    AppLanguage language = AppLanguage.english,
+  }) async {
+    final repo = localPhase3PlusRepository;
+    if (repo == null) return fetchToday();
+
+    final action = await repo.getMicroActionById(microActionId);
+    if (action == null) return fetchToday();
+
+    final updated = switch (choice) {
+      'today_try' => _copyMicroAction(
+          action,
+          status: 'accepted',
+          actionType: 'today_try',
+        ),
+      'weekly_experiment' => _copyMicroAction(
+          action,
+          status: 'active',
+          actionType: 'weekly_experiment',
+        ),
+      'lighter' => _copyMicroAction(
+          action,
+          title: _lighterMicroActionTitle(language),
+          difficulty: 'very_light',
+          status: 'adjusted',
+        ),
+      'skip' => _copyMicroAction(action, status: 'skipped'),
+      _ => action,
+    };
+
+    await repo.upsertMicroAction(updated);
+    cloudBackupSyncService?.markDataChanged();
+    return fetchToday();
+  }
+
+  Future<Map<String, dynamic>> submitMicroActionFeedback({
+    required String microActionId,
+    required String feedback,
+    String? userNote,
+  }) async {
+    final repo = localPhase3PlusRepository;
+    if (repo == null) return fetchToday();
+
+    final action = await repo.getMicroActionById(microActionId);
+    if (action == null) return fetchToday();
+
+    final now = DateTime.now();
+    final happened = switch (feedback) {
+      'happened' => 'yes',
+      'not_happened' => 'no',
+      _ => 'unknown',
+    };
+    final effect = feedback == 'helpful' ? 'helpful' : 'unclear';
+    final difficulty = feedback == 'too_hard' ? 'too_hard' : 'okay';
+    final nextAdjustment = feedback == 'too_hard' ? 'make_lighter' : 'continue';
+
+    await repo.insertMicroActionFeedback(
+      MicroActionFeedbackModel(
+        id: repo.createId('maf'),
+        microActionId: microActionId,
+        localDate: _dateKey(now),
+        happened: happened,
+        effect: effect,
+        difficulty: difficulty,
+        userNote: userNote,
+        nextAdjustment: nextAdjustment,
+        createdAt: now,
+      ),
+    );
+    await repo.updateMicroActionStatus(
+      id: microActionId,
+      status: feedback == 'not_happened' ? action.status : 'done',
+      feedbackStatus: feedback,
+    );
+    cloudBackupSyncService?.markDataChanged();
+    return fetchToday();
+  }
+
+  bool _isEligibleForAiJudgement(RecentSignalModel signal, String todayKey) {
+    if (signal.localDateKey() != todayKey) return false;
+    if (signal.isLocalDraft || signal.syncFailed) return false;
+    if (signal.userConfirmation == 'inaccurate') return false;
+    if (signal.privacyLevel == 'excluded' ||
+        signal.privacyLevel == 'do_not_analyze' ||
+        signal.privacyLevel == 'sensitive') {
+      return false;
+    }
+    if (signal.sourceType == 'ai_predicted') return false;
+    if (signal.sourceType == 'library_saved') {
+      return signal.userCorrectionJson.values.any(
+        (value) => value?.toString().trim().isNotEmpty ?? false,
+      );
+    }
+    return signal.content.trim().isNotEmpty;
+  }
+
+  List<String> _buildAiJudgementCopy(
+    List<RecentSignalModel> signals,
+    List<ScheduleSignalModel> schedules,
+    List<GoalTaskInstanceModel> goalTasks,
+    AppLanguage language,
+  ) {
+    final haystack = signals
+        .map((signal) => [
+              signal.content,
+              signal.scene,
+              signal.friction,
+              signal.energyLoad,
+              signal.positiveSignal,
+              ...signal.sceneTags,
+              ...signal.intentTags,
+            ].whereType<String>().join(' '))
+        .join(' ')
+        .toLowerCase();
+    final hasSwitching = haystack.contains('切换') ||
+        haystack.contains('消息') ||
+        haystack.contains('switch') ||
+        haystack.contains('interrupt') ||
+        schedules.length >= 2;
+    final hasRecovery = haystack.contains('累') ||
+        haystack.contains('睡') ||
+        haystack.contains('恢复') ||
+        haystack.contains('tired') ||
+        haystack.contains('recovery');
+    final hasBoundary = haystack.contains('边界') ||
+        haystack.contains('关系') ||
+        haystack.contains('拒绝') ||
+        haystack.contains('boundary') ||
+        haystack.contains('relationship');
+
+    final sample = signals.isEmpty ? '' : signals.first.content.trim();
+    switch (language) {
+      case AppLanguage.simplifiedChinese:
+        if (hasSwitching) {
+          return [
+            '今天更值得确认的，可能不是事情多，而是切换之后没有留下恢复空隙。',
+            sample.isEmpty ? '线索来自今天的安排和记录密度。' : '线索来自「$sample」以及今天的安排节奏。',
+            '高切换后的恢复空隙',
+            'attention_switching',
+          ];
+        }
+        if (hasBoundary) {
+          return [
+            '今天可以确认一下：消耗可能来自边界被反复拉扯，而不只是某件事本身。',
+            sample.isEmpty ? '线索来自今天的关系或边界相关记录。' : '线索来自「$sample」这类边界感记录。',
+            '边界被拉扯后的能量消耗',
+            'boundary_load',
+          ];
+        }
+        if (hasRecovery) {
+          return [
+            '今天可以先看一个恢复线索：身体或注意力可能在提醒你留一点缓冲。',
+            sample.isEmpty ? '线索来自今天的恢复和能量记录。' : '线索来自「$sample」这类恢复信号。',
+            '恢复信号偏弱',
+            'recovery_gap',
+          ];
+        }
+        return [
+          '今天可以先确认一个小结构：几条信号可能正在指向同一个生活节奏。',
+          sample.isEmpty ? '线索来自今天保存的信号。' : '线索来自「$sample」。',
+          '正在形成的生活节奏',
+          'daily_pattern',
+        ];
+      case AppLanguage.traditionalChinese:
+        return [
+          '今天可以先確認一個小結構：幾條信號可能正在指向同一個生活節奏。',
+          sample.isEmpty ? '線索來自今天保存的信號。' : '線索來自「$sample」。',
+          '正在形成的生活節奏',
+          'daily_pattern',
+        ];
+      case AppLanguage.japanese:
+        return [
+          '今日はまず、小さな構造を一つ確認してもよさそうです。いくつかのシグナルが同じ生活リズムを指しているかもしれません。',
+          sample.isEmpty ? '今日保存されたシグナルからの小さな観察です。' : '「$sample」から見える小さな観察です。',
+          '形成されつつある生活リズム',
+          'daily_pattern',
+        ];
+      case AppLanguage.english:
+        return [
+          'A small structure may be worth checking today: a few signals may be pointing to the same life rhythm.',
+          sample.isEmpty
+              ? 'This comes from signals saved today.'
+              : 'This comes from “$sample”.',
+          'emerging life rhythm',
+          'daily_pattern',
+        ];
+    }
+  }
+
+  MicroActionModel _microActionForJudgement(
+    LocalPhase3PlusRepository repo,
+    AiJudgementModel judgement,
+    AppLanguage language,
+  ) {
+    final now = DateTime.now();
+    return MicroActionModel(
+      id: repo.createId('ma'),
+      judgementId: judgement.id,
+      title: _microActionTitle(judgement, language),
+      reason: _microActionReason(language),
+      actionType: 'today_try',
+      difficulty: 'very_light',
+      plannedDate: judgement.localDate,
+      status: 'suggested',
+      feedbackStatus: 'none',
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
+  MicroActionModel _copyMicroAction(
+    MicroActionModel action, {
+    String? title,
+    String? reason,
+    String? actionType,
+    String? difficulty,
+    String? status,
+    String? feedbackStatus,
+  }) {
+    return MicroActionModel(
+      id: action.id,
+      judgementId: action.judgementId,
+      title: title ?? action.title,
+      reason: reason ?? action.reason,
+      actionType: actionType ?? action.actionType,
+      difficulty: difficulty ?? action.difficulty,
+      plannedDate: action.plannedDate,
+      plannedTime: action.plannedTime,
+      linkedScheduleSignalId: action.linkedScheduleSignalId,
+      linkedGoalId: action.linkedGoalId,
+      linkedLifeExperimentId: action.linkedLifeExperimentId,
+      status: status ?? action.status,
+      feedbackStatus: feedbackStatus ?? action.feedbackStatus,
+      createdAt: action.createdAt,
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  String _microActionTitle(AiJudgementModel judgement, AppLanguage language) {
+    final stage = judgement.suggestedLifeChainStage;
+    switch (language) {
+      case AppLanguage.simplifiedChinese:
+        return stage == 'attention_switching'
+            ? '高切换后，留 8 分钟无输入恢复'
+            : '今天先留 8 分钟，观察这个线索';
+      case AppLanguage.traditionalChinese:
+        return '今天先留 8 分鐘，觀察這個線索';
+      case AppLanguage.japanese:
+        return '今日は8分だけ余白を残して、このシグナルを見てみる';
+      case AppLanguage.english:
+        return 'Leave 8 quiet minutes and notice this signal';
+    }
+  }
+
+  String _lighterMicroActionTitle(AppLanguage language) {
+    return switch (language) {
+      AppLanguage.simplifiedChinese => '先用 2 分钟补一句场景',
+      AppLanguage.traditionalChinese => '先用 2 分鐘補一句情境',
+      AppLanguage.japanese => 'まず2分だけ状況を一言足す',
+      AppLanguage.english => 'Add one line of context for 2 minutes',
+    };
+  }
+
+  String _microActionReason(AppLanguage language) {
+    return switch (language) {
+      AppLanguage.simplifiedChinese => '把确认过的线索变成一个很小的尝试，不是必须完成的任务。',
+      AppLanguage.traditionalChinese => '把確認過的線索變成一個很小的嘗試，不是必須完成的任務。',
+      AppLanguage.japanese => '確認したシグナルを、小さな試みに変えます。完了すべきタスクではありません。',
+      AppLanguage.english =>
+        'Turn the checked signal into a tiny experiment, not a task you must complete.',
     };
   }
 
@@ -171,6 +567,7 @@ class TodayRepository {
         await localCaptureRepository.listTodaySignals();
 
     await _regenerateTodaySummary(refreshedTodaySignals);
+    cloudBackupSyncService?.markDataChanged();
 
     return {
       'acknowledgement': aiReply.acknowledgement,
@@ -221,6 +618,7 @@ class TodayRepository {
           draftId: draftId,
           remoteSignalCardId: remoteSignalId,
         );
+        cloudBackupSyncService?.markDataChanged();
       } catch (e) {
         await localCaptureRepository.markDraftFailed(
           draftId: draftId,
@@ -240,6 +638,7 @@ class TodayRepository {
       userConfirmation: userConfirmation,
       userCorrectionJson: userCorrectionJson,
     );
+    cloudBackupSyncService?.markDataChanged();
 
     final client = apiClient;
     if (client == null || signalCardId.startsWith('draft_')) return;
@@ -255,6 +654,196 @@ class TodayRepository {
     } catch (_) {
       // 确认动作先落本地；下一轮同步基础版不阻塞用户操作。
     }
+  }
+
+  Future<ScheduleSignalModel> createScheduleSignal({
+    required String title,
+    DateTime? date,
+    DateTime? time,
+    DateTime? endTime,
+    String? scene,
+    String? note,
+    String? expectedEnergyLoad,
+    bool reminderEnabled = false,
+  }) async {
+    final repo = localPhase3PlusRepository;
+    if (repo == null) throw StateError('phase3_plus_repository_missing');
+    final schedule = await repo.createScheduleSignal(
+      title: title,
+      date: date,
+      time: time,
+      endTime: endTime,
+      scene: scene,
+      note: note,
+      expectedEnergyLoad: expectedEnergyLoad,
+      reminderEnabled: reminderEnabled,
+    );
+    cloudBackupSyncService?.markDataChanged();
+    return schedule;
+  }
+
+  Future<ScheduleSignalModel?> updateScheduleSignal({
+    required String id,
+    required String title,
+    DateTime? date,
+    DateTime? time,
+    DateTime? endTime,
+    String? scene,
+    String? note,
+    String? expectedEnergyLoad,
+    bool reminderEnabled = false,
+  }) async {
+    final repo = localPhase3PlusRepository;
+    if (repo == null) throw StateError('phase3_plus_repository_missing');
+    final schedule = await repo.updateScheduleSignal(
+      id: id,
+      title: title,
+      date: date,
+      time: time,
+      endTime: endTime,
+      scene: scene,
+      note: note,
+      expectedEnergyLoad: expectedEnergyLoad,
+      reminderEnabled: reminderEnabled,
+    );
+    cloudBackupSyncService?.markDataChanged();
+    return schedule;
+  }
+
+  Future<void> deleteScheduleSignal(String id) async {
+    final repo = localPhase3PlusRepository;
+    if (repo == null) throw StateError('phase3_plus_repository_missing');
+    await repo.deleteScheduleSignal(id);
+    cloudBackupSyncService?.markDataChanged();
+  }
+
+  Future<void> recordScheduleFeeling({
+    required ScheduleSignalModel schedule,
+    required String feelingText,
+  }) async {
+    final text = feelingText.trim();
+    if (text.isEmpty) return;
+    final result = await submitCapture(
+      content: text,
+      sourceType: 'text',
+      rawPayloadJson: {
+        'linked_schedule_signal_id': schedule.id,
+        'schedule_title': schedule.title,
+      },
+    );
+    final signals =
+        (result['updatedRecentSignals'] as List<RecentSignalModel>? ??
+            const []);
+    final linkedSignal = signals.firstWhere(
+      (signal) => signal.content.trim() == text,
+      orElse: () =>
+          signals.isEmpty ? RecentSignalModel(content: text) : signals.first,
+    );
+    await localPhase3PlusRepository?.updateScheduleFeedback(
+      scheduleId: schedule.id,
+      feedbackStatus: 'recorded',
+      actualEnergyLoad: _guessScheduleEnergy(text),
+      friction: _guessScheduleFriction(text),
+      recoverySignal: _guessScheduleRecovery(text),
+      linkedSignalCardId: linkedSignal.signalCardId ?? linkedSignal.id,
+    );
+    cloudBackupSyncService?.markDataChanged();
+  }
+
+  Future<GoalModel> createGoalWithPlan({
+    required String title,
+    String goalType = 'personal',
+    String period = 'weekly',
+    String? desiredFrequency,
+    int? desiredDurationMinutes,
+    DateTime? deadline,
+  }) async {
+    final repo = localPhase3PlusRepository;
+    if (repo == null) throw StateError('phase3_plus_repository_missing');
+    final goal = await repo.createGoalWithPlan(
+      title: title,
+      goalType: goalType,
+      period: period,
+      desiredFrequency: desiredFrequency,
+      desiredDurationMinutes: desiredDurationMinutes,
+      deadline: deadline,
+    );
+    cloudBackupSyncService?.markDataChanged();
+    return goal;
+  }
+
+  Future<void> submitGoalFeedback({
+    required String goalId,
+    String? goalTaskInstanceId,
+    required String happened,
+    String? effect,
+    String? taskTitle,
+  }) async {
+    await localPhase3PlusRepository?.submitGoalFeedback(
+      goalId: goalId,
+      goalTaskInstanceId: goalTaskInstanceId,
+      happened: happened,
+      effect: effect,
+    );
+    final title = taskTitle?.trim();
+    if (title != null && title.isNotEmpty) {
+      await submitCapture(
+        content: happened == 'yes'
+            ? '目标练习反馈：$title，今天发生了。'
+            : '目标练习反馈：$title，今天还没有发生。',
+        sourceType: 'one_tap',
+        rawPayloadJson: {
+          'goal_id': goalId,
+          'goal_task_instance_id': goalTaskInstanceId,
+          'goal_feedback_happened': happened,
+          'goal_feedback_effect': effect,
+        },
+      );
+    }
+    cloudBackupSyncService?.markDataChanged();
+  }
+
+  String? _guessScheduleEnergy(String text) {
+    final value = text.toLowerCase();
+    if (value.contains('累') ||
+        value.contains('耗') ||
+        value.contains('烦') ||
+        value.contains('tired') ||
+        value.contains('drain')) {
+      return 'draining';
+    }
+    if (value.contains('恢复') ||
+        value.contains('轻') ||
+        value.contains('relief') ||
+        value.contains('recover')) {
+      return 'restoring';
+    }
+    return null;
+  }
+
+  String? _guessScheduleFriction(String text) {
+    final value = text.toLowerCase();
+    if (value.contains('打断') ||
+        value.contains('切换') ||
+        value.contains('插入') ||
+        value.contains('interrupt') ||
+        value.contains('switch')) {
+      return 'switching_or_interruption';
+    }
+    return null;
+  }
+
+  String? _guessScheduleRecovery(String text) {
+    final value = text.toLowerCase();
+    if (value.contains('散步') ||
+        value.contains('睡') ||
+        value.contains('休息') ||
+        value.contains('walk') ||
+        value.contains('sleep') ||
+        value.contains('rest')) {
+      return 'recovery_after_schedule';
+    }
+    return null;
   }
 
   Future<Map<String, dynamic>> _submitCaptureViaSignalCard({
@@ -306,12 +895,14 @@ class TodayRepository {
     }
 
     final allSignals = await localCaptureRepository.listSignalCards(limit: 200);
+    final todayKey = _dateKey(DateTime.now());
     final todaySignals = allSignals
-        .where((signal) => signal.localDateKey() == _dateKey(DateTime.now()))
+        .where((signal) => signal.localDateKey() == todayKey)
         .toList();
     await _regenerateTodaySummary(todaySignals);
     final latestSignals =
         await localCaptureRepository.listSignalCards(limit: 200);
+    cloudBackupSyncService?.markDataChanged();
 
     return {
       'acknowledgement': latestSignals

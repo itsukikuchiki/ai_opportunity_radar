@@ -3,10 +3,12 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:ai_opportunity_radar/core/api/repositories/energy_budget_repository.dart';
 import 'package:ai_opportunity_radar/core/models/advanced_energy_boundary_models.dart';
+import 'package:ai_opportunity_radar/core/local/external_energy_hint_store.dart';
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
@@ -435,6 +437,47 @@ void main() {
 
       await harness.close();
     });
+
+    test('设置页保存的 abstract hints 会被 Energy Budget 自动读取', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final hintStore = ExternalEnergyHintStore(prefs);
+      await hintStore.saveCalendarHints(const {
+        'schedule_density_hint': 'This period may be somewhat dense.',
+        'event_title': 'Private meeting title',
+      });
+      await hintStore.saveHealthHints(const {
+        'low_recovery_hint': 'Recovery signals may be a little weak.',
+        'raw_sleep_samples': 'private health sample',
+      });
+      final harness = await _createHarness(dbPath, hintStore: hintStore);
+
+      await harness.seedSignalCard(
+        id: 'stored_hint_internal',
+        content: '今天真正耗力的是消息切换。',
+        energyLoad: 'draining',
+        friction: 'message_switch',
+        userConfirmation: 'accurate',
+      );
+
+      final budget = await harness.repository.fetchBasicEnergyBudget();
+
+      expect(budget.scheduleDensityHint, contains('日程密度提示'));
+      expect(budget.recoverySignalHint, contains('恢复信号提示'));
+      expect(
+        budget.abstractExternalHints.keys,
+        contains('schedule_density_hint'),
+      );
+      expect(budget.abstractExternalHints.keys, contains('low_recovery_hint'));
+      expect(budget.abstractExternalHints.keys, isNot(contains('event_title')));
+      expect(
+        budget.abstractExternalHints.keys,
+        isNot(contains('raw_sleep_samples')),
+      );
+      expect(budget.mostDrainingSource, contains('message_switch'));
+
+      await harness.close();
+    });
   });
 }
 
@@ -539,7 +582,10 @@ class _Harness {
   }
 }
 
-Future<_Harness> _createHarness(String dbPath) async {
+Future<_Harness> _createHarness(
+  String dbPath, {
+  ExternalEnergyHintStore? hintStore,
+}) async {
   final localDatabase = LocalDatabase(
     dbPathOverride: dbPath,
     databaseFactoryOverride: databaseFactoryFfi,
@@ -553,6 +599,7 @@ Future<_Harness> _createHarness(String dbPath) async {
   final repository = EnergyBudgetRepository(
     localCaptureRepository: localCaptureRepository,
     localLifeExperimentRepository: localLifeExperimentRepository,
+    externalEnergyHintStore: hintStore,
     localUserId: 'test-user',
   );
 

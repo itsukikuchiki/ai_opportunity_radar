@@ -28,6 +28,14 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Signal Path only reads local schedule density to create gentle Energy Budget hints. Event titles, locations, attendees, and notes are not stored or uploaded.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Signal Path only reads local schedule density to create gentle Energy Budget hints. Event titles, locations, attendees, and notes are not stored or uploaded.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Signal Path uses abstract recovery signals from sleep, steps, and workouts to support Energy Budget. Raw health samples are not shown, stored as diary content, or uploaded.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Signal Path may save app-created recovery summaries to support Energy Budget. Raw health samples are not uploaded or shared.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

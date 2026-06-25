@@ -185,10 +185,10 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
               icon: Icons.auto_graph_outlined,
               text: AppLocaleText.tr(
                 context,
-                en: 'Open Deep Weekly and Monthly reviews',
-                zhHans: '打开 Deep Weekly 和 Monthly 回看',
-                zhHant: '打開 Deep Weekly 和 Monthly 回看',
-                ja: 'Deep Weekly と Monthly レビューを開く',
+                en: 'Open Deep Weekly and Journey monthly life maps',
+                zhHans: '打开 Deep Weekly 和 Journey 月度生活地图',
+                zhHant: '打開 Deep Weekly 和 Journey 月度生活地圖',
+                ja: 'Deep Weekly と Journey の月次生活マップを開く',
               ),
             ),
             _BenefitRow(
@@ -352,7 +352,7 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
             if (purchase?.errorMessage != null) ...[
               const SizedBox(height: 8),
               Text(
-                purchase!.errorMessage!,
+                _localizedPurchaseMessage(context, purchase!.errorMessage!),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.error,
                 ),
@@ -399,6 +399,19 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
       zhHant: '$source 屬於 Pro 的深度層，用來做更長週期的回看和追問。',
       ja: '$source は、より深い振り返りとフォローアップのための Pro 機能です。',
     );
+  }
+
+  String _localizedPurchaseMessage(BuildContext context, String message) {
+    if (message == PurchaseController.noRestorableSubscriptionMessage) {
+      return AppLocaleText.tr(
+        context,
+        en: 'No active Pro subscription was found for this Apple ID.',
+        zhHans: '没有找到这个 Apple ID 下可恢复的 Pro 订阅。',
+        zhHant: '沒有找到這個 Apple ID 下可恢復的 Pro 訂閱。',
+        ja: 'この Apple ID で復元できる Pro サブスクリプションは見つかりませんでした。',
+      );
+    }
+    return message;
   }
 
   String _effectiveProductId(PurchaseController? purchase) {
