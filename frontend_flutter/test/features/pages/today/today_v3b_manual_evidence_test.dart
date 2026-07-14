@@ -16,12 +16,14 @@ import '../../../helpers/widget_test_helpers.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const evidenceDir = '/private/tmp/signalpath_v3b_evidence';
+  late final Directory evidenceDir;
 
   setUpAll(() async {
-    final dir = Directory(evidenceDir);
-    if (!dir.existsSync()) {
-      dir.createSync(recursive: true);
+    evidenceDir = Directory.fromUri(
+      Directory.systemTemp.uri.resolve('signalpath_v3b_evidence/'),
+    );
+    if (!evidenceDir.existsSync()) {
+      evidenceDir.createSync(recursive: true);
     }
   });
 
@@ -438,10 +440,10 @@ Future<void> _settleEvidenceFrame(WidgetTester tester) async {
 
 Future<void> _writeEvidenceNote(
   String filename,
-  String evidenceDir,
+  Directory evidenceDir,
   String body,
 ) async {
-  final file = File('$evidenceDir/$filename');
+  final file = File.fromUri(evidenceDir.uri.resolve(filename));
   file.writeAsStringSync(body);
 }
 

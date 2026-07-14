@@ -103,11 +103,15 @@ jobs:
       - name: Install Flutter dependencies
         working-directory: frontend_flutter
         run: flutter pub get
-      - name: Migration and cache tests
+      - name: Rebuild DB migration fixtures
         working-directory: frontend_flutter
         run: >
           flutter test
           test/fixtures/db_migrations/build_db_migration_fixtures.dart
+      - name: Migration and cache tests
+        working-directory: frontend_flutter
+        run: >
+          flutter test
           test/core/local/db_migration_fixtures_test.dart
           test/core/local/device_test_accounts_fixture_test.dart
           test/core/local/local_legacy_migration_test.dart
