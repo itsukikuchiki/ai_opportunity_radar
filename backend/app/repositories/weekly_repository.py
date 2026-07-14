@@ -4,6 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import WeeklyInsight
+from app.repositories.pipeline_run_repository import PipelineRunRepository
+from app.repositories.reflection_result_repository import ReflectionResultRepository
 
 
 class WeeklyRepository:
@@ -29,6 +31,8 @@ class WeeklyRepository:
             existing.best_action = payload.get("best_action")
             existing.opportunity_snapshot_json = payload.get("opportunity_snapshot")
             existing.chart_data_json = payload.get("chart_data", [])
+            self._record_pipeline_run(user_id, week_start, payload)
+            self._save_reflection_result(user_id, week_start, payload)
             self.db.flush()
             return existing
 
@@ -46,6 +50,8 @@ class WeeklyRepository:
             chart_data_json=payload.get("chart_data", []),
         )
         self.db.add(row)
+        self._record_pipeline_run(user_id, week_start, payload)
+        self._save_reflection_result(user_id, week_start, payload)
         self.db.flush()
         return row
 
@@ -55,3 +61,40 @@ class WeeklyRepository:
             weekly.feedback_value = feedback_value
             self.db.flush()
         return weekly
+
+    def _save_reflection_result(
+        self,
+        user_id: str,
+        week_start: date,
+        payload: dict,
+    ) -> None:
+        ReflectionResultRepository(self.db).save_current(
+            user_id=user_id,
+            source_type="weekly_snapshot",
+            source_id=week_start.isoformat(),
+            reflection_type="reflect",
+            ai_level="L3",
+            content={
+                "key_insight": payload.get("key_insight"),
+                "patterns": payload.get("patterns", []),
+                "frictions": payload.get("frictions", []),
+                "best_action": payload.get("best_action"),
+                "opportunity_snapshot": payload.get("opportunity_snapshot"),
+            },
+            source_hash=payload.get("source_hash"),
+        )
+
+    def _record_pipeline_run(
+        self,
+        user_id: str,
+        week_start: date,
+        payload: dict,
+    ) -> None:
+        PipelineRunRepository(self.db).record_completed(
+            user_id=user_id,
+            pipeline_type="weekly_aggregation",
+            source_type="weekly_snapshot",
+            source_id=week_start.isoformat(),
+            input_hash=payload.get("source_hash"),
+            output_hash=payload.get("source_hash"),
+        )

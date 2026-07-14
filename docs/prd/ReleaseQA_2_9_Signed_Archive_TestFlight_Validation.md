@@ -2,6 +2,25 @@
 
 Status: Archive, upload, internal TestFlight distribution, and user-confirmed real-device TestFlight validation succeeded.
 
+## Erratum — Restore Purchase Blocker Reopened
+
+Reported in post-release real-device testing on 2026-07-10; documented
+2026-07-12.
+
+- The historical `Restore purchase | Passed` result below is preserved because
+  it describes the `3.0.0` validation stage.
+- Current real-device evidence shows Restore Purchase still fails even though
+  the user confirmed the Apple ID and an active Signal Path subscription.
+- Current status is therefore **Blocker reopened / Pending** for the next
+  candidate. The historical pass must not be reused as current release evidence.
+- Revalidation must use the same purchase environment as the subscription:
+  TestFlight Sandbox restores TestFlight/Sandbox purchases; an App Store
+  Production subscription must be validated in the App Store production build.
+- The next QA run must capture product IDs returned, transaction/environment,
+  entitlement propagation, delayed transaction-stream behavior, and the exact
+  user-facing error. Do not mark the blocker closed from a mock or StoreKit
+  configuration test alone.
+
 Scope: verify the real iOS release chain after ReleaseQA-2.8 and the 2.7H visual lock. This stage does not add product features and does not change the visual baseline except for release-blocking fixes.
 
 ## 1. Visual Lock Boundary
@@ -195,7 +214,9 @@ Final real-device QA summary supplied by the user before ReleaseQA-2.10:
 
 Blockers:
 
-- None reported by user after TestFlight real-device validation.
+- Historical stage: none reported after the original `3.0.0` validation.
+- Current erratum: Restore Purchase blocker reopened; Pending for the next
+  user-requested TestFlight/App Store candidate.
 
 Non-blockers:
 

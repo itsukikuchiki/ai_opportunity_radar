@@ -1,5 +1,12 @@
 # ReleaseQA-2.7F: Brand / Language / Onboarding Final Adjustments
 
+> **Superseded historical onboarding record — 2026-07-12.** The three-page
+> onboarding and pink-coral visual statements below describe an earlier build.
+> They must not override the current four-page onboarding, Signal Path icon
+> background treatment, or focus-domain persistence specified by the current
+> product documents under [`../active/`](../active/). Keep the content below as
+> release history.
+
 Status: Engineering implemented and validated.
 
 Scope: final copy and brand alignment only. This round does not change Phase 3 data chains, privacy boundaries, purchase, Pro gating, quota logic, EventKit, or HealthKit integration.

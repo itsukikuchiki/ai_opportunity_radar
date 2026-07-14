@@ -14,6 +14,47 @@ class AuroraColors {
   static const gold = Color(0xFFF7C85E);
 }
 
+/// Shared density and typography contract for the five primary tab pages.
+///
+/// Today is the reference surface. Weekly, Experiment, Journey and Me use
+/// these values so their information hierarchy and viewport density stay
+/// consistent instead of drifting independently.
+abstract final class AuroraMainPageSpec {
+  static const double horizontalPadding = 18;
+  static const double topPadding = 14;
+  static const double bottomNavigationClearance = 96;
+  static const double heroGap = 14;
+  static const double sectionGap = 10;
+  static const double cardRadius = 18;
+  static const double cardRadiusLarge = 20;
+  static const double heroTitleSize = 36;
+  static const double compactHeroTitleSize = 34;
+  static const double heroSubtitleSize = 13.5;
+  static const double sectionTitleSize = 16;
+  static const double bodySize = 14;
+  static const double supportingSize = 12;
+  static const double compactBreakpoint = 360;
+  static const double mobileSingleColumnBreakpoint = 600;
+  static const EdgeInsets cardPadding = EdgeInsets.all(12);
+  static const EdgeInsets comfortableCardPadding =
+      EdgeInsets.fromLTRB(16, 14, 16, 16);
+
+  static EdgeInsets scrollPadding(BuildContext context) {
+    return EdgeInsets.fromLTRB(
+      horizontalPadding,
+      topPadding,
+      horizontalPadding,
+      MediaQuery.paddingOf(context).bottom + bottomNavigationClearance,
+    );
+  }
+
+  static double responsiveHeroTitleSize(BuildContext context) {
+    return MediaQuery.sizeOf(context).width < compactBreakpoint
+        ? compactHeroTitleSize
+        : heroTitleSize;
+  }
+}
+
 class AuroraPage extends StatelessWidget {
   final Widget child;
 
@@ -29,62 +70,64 @@ class AuroraPage extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
+              stops: [0, 0.34, 0.7, 1],
               colors: [
-                Color(0xFFFFFEFC),
-                Color(0xFFF9FAFF),
-                Color(0xFFFFFCF8),
+                Color(0xFFFFF1E3),
+                Color(0xFFF7F1FF),
+                Color(0xFFEAF3FF),
+                Color(0xFFF4F8FF),
               ],
             ),
           ),
         ),
         Positioned(
-          left: -140,
-          top: -150,
-          width: 360,
-          height: 360,
+          left: -126,
+          top: -132,
+          width: 382,
+          height: 382,
           child: _AuroraGlow(
             colors: [
-              const Color(0xFFFFDABD).withValues(alpha: 0.24),
-              const Color(0xFFFFF7EF).withValues(alpha: 0.16),
+              const Color(0xFFFFCFAF).withValues(alpha: 0.42),
+              const Color(0xFFFFEAD8).withValues(alpha: 0.28),
               Colors.transparent,
             ],
           ),
         ),
         Positioned(
-          right: -130,
-          top: -120,
-          width: 390,
-          height: 390,
+          right: -116,
+          top: -106,
+          width: 410,
+          height: 410,
           child: _AuroraGlow(
             colors: [
-              const Color(0xFFD6E3FF).withValues(alpha: 0.30),
-              const Color(0xFFECE6FF).withValues(alpha: 0.20),
+              const Color(0xFFCDC5FF).withValues(alpha: 0.42),
+              const Color(0xFFE6E4FF).withValues(alpha: 0.32),
               Colors.transparent,
             ],
           ),
         ),
         Positioned(
-          right: -170,
-          bottom: 80,
-          width: 430,
-          height: 430,
+          right: -156,
+          bottom: 42,
+          width: 446,
+          height: 446,
           child: _AuroraGlow(
             colors: [
-              const Color(0xFFF2EEFF).withValues(alpha: 0.18),
-              const Color(0xFFE4F0FF).withValues(alpha: 0.10),
+              const Color(0xFFD7DCFF).withValues(alpha: 0.30),
+              const Color(0xFFDDEEFF).withValues(alpha: 0.24),
               Colors.transparent,
             ],
           ),
         ),
         Positioned(
-          left: -180,
-          bottom: -110,
-          width: 420,
-          height: 420,
+          left: -164,
+          bottom: -88,
+          width: 438,
+          height: 438,
           child: _AuroraGlow(
             colors: [
-              const Color(0xFFFFECD8).withValues(alpha: 0.12),
-              const Color(0xFFEAF8F3).withValues(alpha: 0.10),
+              const Color(0xFFFFE2CF).withValues(alpha: 0.22),
+              const Color(0xFFDDF4EA).withValues(alpha: 0.20),
               Colors.transparent,
             ],
           ),
@@ -133,8 +176,8 @@ class AuroraSafeTopMask extends StatelessWidget {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                const Color(0xFFFFFEFC),
-                const Color(0xFFFFFEFC).withValues(alpha: 0.94),
+                const Color(0xFFFFF4E9),
+                const Color(0xFFFFF4E9).withValues(alpha: 0.92),
                 AuroraColors.surface.withValues(alpha: 0.0),
               ],
             ),
@@ -158,7 +201,7 @@ class AuroraCard extends StatelessWidget {
     required this.child,
     this.padding = const EdgeInsets.all(20),
     this.gradient,
-    this.borderRadius = const BorderRadius.all(Radius.circular(28)),
+    this.borderRadius = const BorderRadius.all(Radius.circular(20)),
     this.color,
     this.border,
   });
@@ -169,27 +212,27 @@ class AuroraCard extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         color: gradient == null
-            ? color ?? Colors.white.withValues(alpha: 0.76)
+            ? color ?? const Color(0xFFFEFDFF).withValues(alpha: 0.82)
             : null,
         gradient: gradient,
         borderRadius: borderRadius,
         border: border ??
             Border.all(
-              color: Colors.white.withValues(alpha: 0.86),
+              color: const Color(0xFFDCDDF0).withValues(alpha: 0.52),
               width: 1.1,
             ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF675D8A).withValues(alpha: 0.09),
-            blurRadius: 34,
-            spreadRadius: -10,
-            offset: const Offset(0, 18),
+            color: const Color(0xFF675D8A).withValues(alpha: 0.10),
+            blurRadius: 28,
+            spreadRadius: -12,
+            offset: const Offset(0, 14),
           ),
           BoxShadow(
-            color: const Color(0xFFFFB277).withValues(alpha: 0.05),
-            blurRadius: 30,
-            spreadRadius: -12,
-            offset: const Offset(-8, 12),
+            color: const Color(0xFFFFB277).withValues(alpha: 0.07),
+            blurRadius: 26,
+            spreadRadius: -14,
+            offset: const Offset(-6, 10),
           ),
           BoxShadow(
             color: Colors.white.withValues(alpha: 0.82),

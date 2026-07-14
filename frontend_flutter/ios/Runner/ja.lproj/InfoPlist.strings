@@ -1,0 +1,7 @@
+"NSCalendarsFullAccessUsageDescription" = "Signal Path は、あなたが日程ヒントを明示的に有効にした場合のみ、デバイス上で予定の密度を読み取り、Energy Budget の穏やかな参考情報を作成します。予定のタイトル、場所、参加者、メモは保存・アップロードしません。";
+"NSCalendarsUsageDescription" = "Signal Path は、あなたが日程ヒントを明示的に有効にした場合のみ、デバイス上で予定の密度を読み取り、Energy Budget の穏やかな参考情報を作成します。予定のタイトル、場所、参加者、メモは保存・アップロードしません。";
+"NSHealthShareUsageDescription" = "Signal Path は、あなたが共有を選んだ睡眠、歩数、ワークアウトのデータを読み取り、デバイス上で Energy Budget 用の抽象的な回復ヒントを作成します。元のヘルスデータはアップロードしません。";
+"NSHealthUpdateUsageDescription" = "Signal Path はヘルスケアデータを追加・変更しません。ヘルスケアへのアクセスは読み取り専用で、任意の Energy Budget 回復ヒントにのみ使用します。";
+"NSMicrophoneUsageDescription" = "Signal Path は、音声を編集可能なシグナルのテキストに変換するためにマイクを使用します。音声は認識中のみ処理され、保存・アップロードされません。";
+"NSPhotoLibraryUsageDescription" = "Signal Path は、「マイページ」のプロフィール画像を選ぶときのみ写真にアクセスします。画像は、あなたが自分で共有しない限り、このデバイスに保存されます。";
+"NSSpeechRecognitionUsageDescription" = "Signal Path は、音声を編集可能なシグナルのテキストに変換するため、デバイス上の音声認識のみを使用します。デバイス上の認識が利用できない場合でも、手動で入力できます。音声は保存・アップロードされません。";

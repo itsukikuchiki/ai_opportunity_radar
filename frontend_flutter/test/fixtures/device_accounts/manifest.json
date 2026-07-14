@@ -1,0 +1,76 @@
+{
+  "generated_at": "2026-07-05T11:39:20.415076Z",
+  "stage": "P2.1-17",
+  "accounts": [
+    {
+      "account_id": "fresh_user",
+      "db_file": "fresh_user.db",
+      "description": "New user with an empty current-schema database.",
+      "highlights": [
+        "empty current schema",
+        "no fallback expected"
+      ]
+    },
+    {
+      "account_id": "legacy_user",
+      "db_file": "legacy_user.db",
+      "description": "Legacy compatibility account covering old mirrors.",
+      "highlights": [
+        "old captures",
+        "old weekly snapshot",
+        "embedded _life_experiment",
+        "old DeepWeekly result",
+        "old life experiment feedback",
+        "snapshot AI mirror",
+        "SignalCard mirror fields",
+        "Journey data without trace_links"
+      ]
+    },
+    {
+      "account_id": "heavy_user",
+      "db_file": "heavy_user.db",
+      "description": "Large local dataset for period query and UI load tests.",
+      "highlights": [
+        "2000 signal_cards",
+        "weekly cache",
+        "monthly journey"
+      ]
+    },
+    {
+      "account_id": "offline_user",
+      "db_file": "offline_user.db",
+      "description": "Offline and retry identity scenarios.",
+      "highlights": [
+        "local draft client_id",
+        "sync_failed signal",
+        "retry-safe identity"
+      ]
+    },
+    {
+      "account_id": "experiment_user",
+      "db_file": "experiment_user.db",
+      "description": "Candidate to experiment to feedback to rollup chain.",
+      "highlights": [
+        "experiment_candidate adopted",
+        "life_experiment lifecycle",
+        "life_experiment_feedback",
+        "rollup consumed by Journey",
+        "four feedback source types",
+        "active trace_links"
+      ]
+    },
+    {
+      "account_id": "privacy_user",
+      "db_file": "privacy_user.db",
+      "description": "Privacy exclusion, inaccurate signal, deletion, and stale propagation.",
+      "highlights": [
+        "do_not_analyze signal",
+        "inaccurate signal",
+        "privacy excluded signal",
+        "signal tombstone",
+        "inactive trace_links",
+        "stale reflection and candidate"
+      ]
+    }
+  ]
+}

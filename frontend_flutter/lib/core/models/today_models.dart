@@ -54,6 +54,8 @@ class DailyBestActionModel {
 class RecentSignalModel {
   final String? id;
   final String? signalCardId;
+  final String? clientId;
+  final String? serverId;
   final String sourceType;
   final String content;
   final DateTime? createdAt;
@@ -86,6 +88,8 @@ class RecentSignalModel {
   RecentSignalModel({
     this.id,
     this.signalCardId,
+    this.clientId,
+    this.serverId,
     this.sourceType = 'text',
     required this.content,
     this.createdAt,
@@ -121,6 +125,8 @@ class RecentSignalModel {
       id: json['id'] as String?,
       signalCardId: (json['signal_card_id'] as String?) ??
           (json['signalCardId'] as String?),
+      clientId: (json['client_id'] as String?) ?? (json['clientId'] as String?),
+      serverId: (json['server_id'] as String?) ?? (json['serverId'] as String?),
       sourceType: (json['source_type'] as String?) ??
           (json['sourceType'] as String?) ??
           'text',
@@ -264,6 +270,7 @@ class RecentSignalModel {
 
   bool get hasUserConfirmedLibrarySaved {
     if (!isLibrarySaved) return true;
+    if (_isExplicitlyConfirmed) return true;
     if (userConfirmation != 'edited' && userConfirmation != 'supplemented') {
       return false;
     }
@@ -279,10 +286,16 @@ class RecentSignalModel {
 
   bool get hasUserConfirmedAiPrediction {
     if (!isAiPredicted) return true;
+    if (_isExplicitlyConfirmed) return true;
     if (userConfirmation == 'edited' || userConfirmation == 'supplemented') {
       return _hasPersonalContext;
     }
     return false;
+  }
+
+  bool get _isExplicitlyConfirmed {
+    final value = userConfirmation.trim().toLowerCase();
+    return value == 'confirmed' || value == 'accurate' || value == 'partial';
   }
 
   String? get libraryPatternTitle {

@@ -188,163 +188,6 @@ class ScheduleSignalModel {
   }
 }
 
-class GoalModel {
-  final String id;
-  final String title;
-  final String goalType;
-  final String period;
-  final String? desiredFrequency;
-  final int? desiredDurationMinutes;
-  final DateTime? deadline;
-  final bool reminderEnabled;
-  final String status;
-  final DateTime? createdAt;
-  final DateTime? updatedAt;
-
-  const GoalModel({
-    required this.id,
-    required this.title,
-    this.goalType = 'personal',
-    this.period = 'weekly',
-    this.desiredFrequency,
-    this.desiredDurationMinutes,
-    this.deadline,
-    this.reminderEnabled = false,
-    this.status = 'active',
-    this.createdAt,
-    this.updatedAt,
-  });
-
-  factory GoalModel.fromDb(Map<String, Object?> row) => GoalModel(
-        id: row['id'] as String? ?? '',
-        title: row['title'] as String? ?? '',
-        goalType: row['goal_type'] as String? ?? 'personal',
-        period: row['period'] as String? ?? 'weekly',
-        desiredFrequency: row['desired_frequency'] as String?,
-        desiredDurationMinutes: row['desired_duration_minutes'] as int?,
-        deadline: ScheduleSignalModel._parseDate(row['deadline']),
-        reminderEnabled: ScheduleSignalModel._bool(row['reminder_enabled']),
-        status: row['status'] as String? ?? 'active',
-        createdAt: ScheduleSignalModel._parseDate(row['created_at']),
-        updatedAt: ScheduleSignalModel._parseDate(row['updated_at']),
-      );
-}
-
-class GoalPlanModel {
-  final String id;
-  final String goalId;
-  final String planLevel;
-  final String minimumTask;
-  final String standardTask;
-  final String fullTask;
-  final String? frequency;
-  final String? timeSuggestion;
-  final String? userAdjustment;
-  final bool adopted;
-
-  const GoalPlanModel({
-    required this.id,
-    required this.goalId,
-    this.planLevel = 'standard',
-    required this.minimumTask,
-    required this.standardTask,
-    required this.fullTask,
-    this.frequency,
-    this.timeSuggestion,
-    this.userAdjustment,
-    this.adopted = false,
-  });
-
-  factory GoalPlanModel.fromDb(Map<String, Object?> row) => GoalPlanModel(
-        id: row['id'] as String? ?? '',
-        goalId: row['goal_id'] as String? ?? '',
-        planLevel: row['plan_level'] as String? ?? 'standard',
-        minimumTask: row['minimum_task'] as String? ?? '',
-        standardTask: row['standard_task'] as String? ?? '',
-        fullTask: row['full_task'] as String? ?? '',
-        frequency: row['frequency'] as String?,
-        timeSuggestion: row['time_suggestion'] as String?,
-        userAdjustment: row['user_adjustment'] as String?,
-        adopted: ScheduleSignalModel._bool(row['adopted']),
-      );
-}
-
-class GoalTaskInstanceModel {
-  final String id;
-  final String goalId;
-  final String? goalPlanId;
-  final String title;
-  final String localDate;
-  final DateTime? plannedTime;
-  final int? durationMinutes;
-  final String? scheduleSignalId;
-  final String status;
-
-  const GoalTaskInstanceModel({
-    required this.id,
-    required this.goalId,
-    this.goalPlanId,
-    required this.title,
-    required this.localDate,
-    this.plannedTime,
-    this.durationMinutes,
-    this.scheduleSignalId,
-    this.status = 'suggested',
-  });
-
-  factory GoalTaskInstanceModel.fromDb(Map<String, Object?> row) =>
-      GoalTaskInstanceModel(
-        id: row['id'] as String? ?? '',
-        goalId: row['goal_id'] as String? ?? '',
-        goalPlanId: row['goal_plan_id'] as String?,
-        title: row['title'] as String? ?? '',
-        localDate: row['local_date'] as String? ?? '',
-        plannedTime: ScheduleSignalModel._parseDate(row['planned_time']),
-        durationMinutes: row['duration_minutes'] as int?,
-        scheduleSignalId: row['schedule_signal_id'] as String?,
-        status: row['status'] as String? ?? 'suggested',
-      );
-}
-
-class Phase3PlusSummary {
-  final int scheduleKnownCount;
-  final int pendingScheduleCount;
-  final int unexpectedScheduleCount;
-  final int feedbackCount;
-  final int highExpectedLoadCount;
-  final int highActualDrainCount;
-  final int recoveryScheduleCount;
-  final int activeGoalCount;
-  final int todayGoalTaskCount;
-  final int goalFeedbackCount;
-
-  const Phase3PlusSummary({
-    this.scheduleKnownCount = 0,
-    this.pendingScheduleCount = 0,
-    this.unexpectedScheduleCount = 0,
-    this.feedbackCount = 0,
-    this.highExpectedLoadCount = 0,
-    this.highActualDrainCount = 0,
-    this.recoveryScheduleCount = 0,
-    this.activeGoalCount = 0,
-    this.todayGoalTaskCount = 0,
-    this.goalFeedbackCount = 0,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'schedule_known_count': scheduleKnownCount,
-        'pending_schedule_count': pendingScheduleCount,
-        'unexpected_schedule_count': unexpectedScheduleCount,
-        'feedback_count': feedbackCount,
-        'high_expected_load_count': highExpectedLoadCount,
-        'high_actual_drain_count': highActualDrainCount,
-        'recovery_schedule_count': recoveryScheduleCount,
-        'active_goal_count': activeGoalCount,
-        'today_goal_task_count': todayGoalTaskCount,
-        'goal_feedback_count': goalFeedbackCount,
-      };
-}
-
 class AiJudgementModel {
   final String id;
   final List<String> sourceSignalCardIds;
@@ -353,11 +196,14 @@ class AiJudgementModel {
   final String localDate;
   final String judgementText;
   final String evidenceText;
+  final String predictionKind;
+  final String predictedSignalText;
   final String suggestedPattern;
   final String suggestedLifeChainStage;
   final String confidenceLevel;
   final String status;
   final String? userAdjustmentText;
+  final String? confirmationNote;
   final String? linkedMicroActionId;
   final bool includedInWeekly;
   final bool includedInJourney;
@@ -372,21 +218,33 @@ class AiJudgementModel {
     required this.localDate,
     required this.judgementText,
     required this.evidenceText,
+    this.predictionKind = 'inferred_signal',
+    String? predictedSignalText,
     required this.suggestedPattern,
     required this.suggestedLifeChainStage,
     this.confidenceLevel = 'medium',
     this.status = 'pending',
     this.userAdjustmentText,
+    this.confirmationNote,
     this.linkedMicroActionId,
     this.includedInWeekly = false,
     this.includedInJourney = false,
     this.createdAt,
     this.updatedAt,
-  });
+  }) : predictedSignalText = predictedSignalText ?? judgementText;
 
   bool get isPending => status == 'pending';
-  bool get isConfirmed => status == 'confirmed' || status == 'adjusted';
-  bool get isInaccurate => status == 'inaccurate';
+  bool get isConfirmed => const {
+        'confirmed',
+        'adjusted',
+        'accurate',
+        'partial',
+      }.contains(status);
+  bool get isDismissed => const {
+        'inaccurate',
+        'ignored',
+        'dismissed',
+      }.contains(status);
 
   Map<String, Object?> toDb() {
     final created = createdAt ?? DateTime.now();
@@ -400,11 +258,14 @@ class AiJudgementModel {
       'local_date': localDate,
       'judgement_text': judgementText,
       'evidence_text': evidenceText,
+      'prediction_kind': predictionKind,
+      'predicted_signal_text': predictedSignalText,
       'suggested_pattern': suggestedPattern,
       'suggested_life_chain_stage': suggestedLifeChainStage,
       'confidence_level': confidenceLevel,
       'status': status,
       'user_adjustment_text': userAdjustmentText,
+      'confirmation_note': confirmationNote,
       'linked_micro_action_id': linkedMicroActionId,
       'included_in_weekly': includedInWeekly ? 1 : 0,
       'included_in_journey': includedInJourney ? 1 : 0,
@@ -416,8 +277,8 @@ class AiJudgementModel {
   factory AiJudgementModel.fromDb(Map<String, Object?> row) {
     return AiJudgementModel(
       id: row['id'] as String? ?? '',
-      sourceSignalCardIds:
-          ScheduleSignalModel._decodeStringList(row['source_signal_card_ids_json']),
+      sourceSignalCardIds: ScheduleSignalModel._decodeStringList(
+          row['source_signal_card_ids_json']),
       sourceScheduleSignalIds: ScheduleSignalModel._decodeStringList(
           row['source_schedule_signal_ids_json']),
       sourceGoalTaskInstanceIds: ScheduleSignalModel._decodeStringList(
@@ -425,12 +286,17 @@ class AiJudgementModel {
       localDate: row['local_date'] as String? ?? '',
       judgementText: row['judgement_text'] as String? ?? '',
       evidenceText: row['evidence_text'] as String? ?? '',
+      predictionKind: row['prediction_kind'] as String? ?? 'inferred_signal',
+      predictedSignalText: row['predicted_signal_text'] as String? ??
+          row['judgement_text'] as String? ??
+          '',
       suggestedPattern: row['suggested_pattern'] as String? ?? '',
       suggestedLifeChainStage:
           row['suggested_life_chain_stage'] as String? ?? '',
       confidenceLevel: row['confidence_level'] as String? ?? 'medium',
       status: row['status'] as String? ?? 'pending',
       userAdjustmentText: row['user_adjustment_text'] as String?,
+      confirmationNote: row['confirmation_note'] as String?,
       linkedMicroActionId: row['linked_micro_action_id'] as String?,
       includedInWeekly: ScheduleSignalModel._bool(row['included_in_weekly']),
       includedInJourney: ScheduleSignalModel._bool(row['included_in_journey']),
@@ -454,6 +320,14 @@ class MicroActionModel {
   final String? linkedLifeExperimentId;
   final String status;
   final String feedbackStatus;
+  final String localUserId;
+  final String? originCandidateId;
+  final DateTime? adoptedAt;
+  final String? progressStartDate;
+  final String? progressEndDate;
+  final List<String> linkedSignalCardIds;
+  final bool sourceChanged;
+  final String? sourceChangeReason;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -471,6 +345,14 @@ class MicroActionModel {
     this.linkedLifeExperimentId,
     this.status = 'suggested',
     this.feedbackStatus = 'none',
+    this.localUserId = 'local',
+    this.originCandidateId,
+    this.adoptedAt,
+    this.progressStartDate,
+    this.progressEndDate,
+    this.linkedSignalCardIds = const [],
+    this.sourceChanged = false,
+    this.sourceChangeReason,
     this.createdAt,
     this.updatedAt,
   });
@@ -495,6 +377,14 @@ class MicroActionModel {
       'linked_life_experiment_id': linkedLifeExperimentId,
       'status': status,
       'feedback_status': feedbackStatus,
+      'local_user_id': localUserId,
+      'origin_candidate_id': originCandidateId,
+      'adopted_at': adoptedAt?.toUtc().toIso8601String(),
+      'progress_start_date': progressStartDate,
+      'progress_end_date': progressEndDate,
+      'linked_signal_card_ids_json': jsonEncode(linkedSignalCardIds),
+      'source_changed': sourceChanged ? 1 : 0,
+      'source_change_reason': sourceChangeReason,
       'created_at': created.toUtc().toIso8601String(),
       'updated_at': updated.toUtc().toIso8601String(),
     };
@@ -515,6 +405,16 @@ class MicroActionModel {
       linkedLifeExperimentId: row['linked_life_experiment_id'] as String?,
       status: row['status'] as String? ?? 'suggested',
       feedbackStatus: row['feedback_status'] as String? ?? 'none',
+      localUserId: row['local_user_id'] as String? ?? 'local',
+      originCandidateId: row['origin_candidate_id'] as String?,
+      adoptedAt: ScheduleSignalModel._parseDate(row['adopted_at']),
+      progressStartDate: row['progress_start_date'] as String?,
+      progressEndDate: row['progress_end_date'] as String?,
+      linkedSignalCardIds: ScheduleSignalModel._decodeStringList(
+        row['linked_signal_card_ids_json'],
+      ),
+      sourceChanged: ScheduleSignalModel._bool(row['source_changed']),
+      sourceChangeReason: row['source_change_reason'] as String?,
       createdAt: ScheduleSignalModel._parseDate(row['created_at']),
       updatedAt: ScheduleSignalModel._parseDate(row['updated_at']),
     );
@@ -531,6 +431,8 @@ class MicroActionFeedbackModel {
   final String? userNote;
   final String nextAdjustment;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final bool isValid;
 
   const MicroActionFeedbackModel({
     required this.id,
@@ -542,6 +444,8 @@ class MicroActionFeedbackModel {
     this.userNote,
     this.nextAdjustment = 'continue',
     this.createdAt,
+    this.updatedAt,
+    this.isValid = true,
   });
 
   Map<String, Object?> toDb() {
@@ -556,6 +460,8 @@ class MicroActionFeedbackModel {
       'user_note': userNote,
       'next_adjustment': nextAdjustment,
       'created_at': created.toUtc().toIso8601String(),
+      'updated_at': (updatedAt ?? created).toUtc().toIso8601String(),
+      'is_valid': isValid ? 1 : 0,
     };
   }
 
@@ -570,6 +476,10 @@ class MicroActionFeedbackModel {
       userNote: row['user_note'] as String?,
       nextAdjustment: row['next_adjustment'] as String? ?? 'continue',
       createdAt: ScheduleSignalModel._parseDate(row['created_at']),
+      updatedAt: ScheduleSignalModel._parseDate(row['updated_at']),
+      isValid: row['is_valid'] == null
+          ? true
+          : ScheduleSignalModel._bool(row['is_valid']),
     );
   }
 }

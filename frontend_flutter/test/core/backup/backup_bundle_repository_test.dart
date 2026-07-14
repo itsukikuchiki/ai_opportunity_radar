@@ -112,6 +112,122 @@ void main() {
     await targetDatabase.close();
   });
 
+  test('roundtrips AI judgement and Observation feedback, then deletes it',
+      () async {
+    final sourceDatabase = await _openDatabase(tempDir, 'feedback-source.db');
+    final prefs = await SharedPreferences.getInstance();
+    final sourceRepository = BackupBundleRepository(
+      localDatabase: sourceDatabase,
+      preferences: prefs,
+    );
+    await _insertSignalCard(
+      sourceDatabase,
+      id: 'sig-feedback-source',
+      rawText: '用于预判的信号',
+      privacyLevel: 'private',
+    );
+    await _insertPredictionFeedback(sourceDatabase);
+
+    final bundle = await sourceRepository.exportBundle(
+      localUserId: 'local-user',
+      deviceId: 'device-a',
+    );
+    expect(((bundle['tables'] as Map)['ai_judgements'] as List), hasLength(1));
+    expect(((bundle['tables'] as Map)['observations'] as List), hasLength(1));
+    expect(
+      ((bundle['tables'] as Map)['observation_signal_links'] as List),
+      hasLength(1),
+    );
+    expect(((bundle['tables'] as Map)['trace_links'] as List), hasLength(1));
+    await sourceDatabase.close();
+
+    final targetDatabase = await _openDatabase(tempDir, 'feedback-target.db');
+    final targetRepository = BackupBundleRepository(
+      localDatabase: targetDatabase,
+      preferences: prefs,
+    );
+    await targetRepository.importBundle(bundle);
+    final db = await targetDatabase.database;
+    expect(await db.query('ai_judgements'), hasLength(1));
+    expect(await db.query('observations'), hasLength(1));
+    expect(await db.query('observation_signal_links'), hasLength(1));
+    expect(await db.query('trace_links'), hasLength(1));
+
+    await targetRepository.deleteAllLocalData();
+    expect(await db.query('ai_judgements'), isEmpty);
+    expect(await db.query('observations'), isEmpty);
+    expect(await db.query('observation_signal_links'), isEmpty);
+    expect(await db.query('trace_links'), isEmpty);
+    await targetDatabase.close();
+  });
+
+  test('roundtrips and deletes canonical SignalCard control-plane tables',
+      () async {
+    final sourceDatabase = await _openDatabase(tempDir, 'control-source.db');
+    final prefs = await SharedPreferences.getInstance();
+    final sourceRepository = BackupBundleRepository(
+      localDatabase: sourceDatabase,
+      preferences: prefs,
+    );
+    await _insertSignalCard(
+      sourceDatabase,
+      id: 'sig-control',
+      rawText: '用于控制面备份的信号',
+      privacyLevel: 'private',
+    );
+    await _insertCanonicalControlPlaneRows(sourceDatabase);
+
+    final bundle = await sourceRepository.exportBundle(
+      localUserId: 'local-user',
+      deviceId: 'device-a',
+    );
+    final tables = bundle['tables'] as Map;
+    for (final table in const [
+      'signal_tombstones',
+      'signal_sync_identity',
+      'signal_processing_state',
+      'signal_analysis_policy',
+      'reflection_results',
+      'pipeline_runs',
+    ]) {
+      expect(tables[table], hasLength(1), reason: '$table must be backed up');
+    }
+    await sourceDatabase.close();
+
+    final targetDatabase = await _openDatabase(tempDir, 'control-target.db');
+    final targetRepository = BackupBundleRepository(
+      localDatabase: targetDatabase,
+      preferences: prefs,
+    );
+    await targetRepository.importBundle(bundle);
+    final db = await targetDatabase.database;
+    for (final table in const [
+      'signal_tombstones',
+      'signal_sync_identity',
+      'signal_processing_state',
+      'signal_analysis_policy',
+      'reflection_results',
+      'pipeline_runs',
+    ]) {
+      expect(await db.query(table), hasLength(1),
+          reason: '$table must be restored');
+    }
+
+    await targetRepository.deleteAllLocalData();
+    for (final table in const [
+      'signal_tombstones',
+      'signal_sync_identity',
+      'signal_processing_state',
+      'signal_analysis_policy',
+      'reflection_results',
+      'pipeline_runs',
+    ]) {
+      expect(await db.query(table), isEmpty,
+          reason: '$table must be removed on account deletion');
+    }
+    await targetDatabase.close();
+  });
+
   test('deletes local account data and account preferences', () async {
     final localDatabase = await _openDatabase(tempDir, 'delete.db');
     SharedPreferences.setMockInitialValues({
@@ -122,6 +238,17 @@ void main() {
       'device_id': 'device-a',
       'onboarding_completed': true,
       'response_style_preference': 'gentle',
+      'selected_focus_domains': <String>['growth_plan'],
+      'external_health_abstract_hints_json': '{"low_recovery_hint":"low"}',
+      'external_calendar_abstract_hints_json':
+          '{"schedule_density_hint":"dense"}',
+      'installation_date': '2026-07-01T00:00:00.000',
+      'local_app_started_date': '2026-07-01T00:00:00.000',
+      'me_profile_display_name': 'Mina',
+      'me_life_direction': '给恢复和创造留空间',
+      'me_life_direction_created_at': '2026-07-13T00:00:00Z',
+      'premium_entitlement_active': true,
+      'premium_entitlement_product_id': 'pro.yearly',
     });
     final prefs = await SharedPreferences.getInstance();
     final repository = BackupBundleRepository(
@@ -147,6 +274,16 @@ void main() {
     expect(prefs.getString('cloud_account_id'), isNull);
     expect(prefs.getString('local_user_id'), isNull);
     expect(prefs.getBool('onboarding_completed'), isNull);
+    expect(prefs.getString('me_profile_display_name'), isNull);
+    expect(prefs.getString('me_life_direction'), isNull);
+    expect(prefs.getStringList('selected_focus_domains'), isNull);
+    expect(prefs.getString('external_health_abstract_hints_json'), isNull);
+    expect(prefs.getString('external_calendar_abstract_hints_json'), isNull);
+    expect(prefs.getString('installation_date'), isNull);
+    expect(prefs.getString('local_app_started_date'), isNull);
+    expect(prefs.getBool('premium_entitlement_active'), isTrue,
+        reason: 'StoreKit entitlement is independent from diary deletion');
+    expect(prefs.getString('premium_entitlement_product_id'), 'pro.yearly');
 
     await localDatabase.close();
   });
@@ -199,6 +336,7 @@ Future<void> _insertDraft(LocalDatabase localDatabase) async {
   final db = await localDatabase.database;
   await db.insert('signal_card_drafts', {
     'draft_id': 'draft-delete',
+    'client_id': 'draft-delete-client',
     'raw_text': '还没同步的草稿',
     'source_type': 'text',
     'created_at': now,
@@ -207,6 +345,113 @@ Future<void> _insertDraft(LocalDatabase localDatabase) async {
     'language': 'zh-Hans',
     'status': 'pending',
     'retry_count': 0,
+    'updated_at': now,
+  });
+}
+
+Future<void> _insertCanonicalControlPlaneRows(
+  LocalDatabase localDatabase,
+) async {
+  const now = '2026-07-13T01:00:00.000Z';
+  final db = await localDatabase.database;
+  await db.insert('signal_tombstones', {
+    'signal_id': 'sig-deleted',
+    'signal_card_id': 'sig-deleted',
+    'reason': 'user_deleted',
+    'status': 'active',
+    'deleted_at': now,
+    'updated_at': now,
+  });
+  await db.insert('signal_sync_identity', {
+    'client_id': 'client-control',
+    'server_id': 'server-control',
+    'local_signal_id': 'sig-control',
+    'sync_status': 'synced',
+    'last_synced_at': now,
+    'created_at': now,
+    'updated_at': now,
+  });
+  await db.insert('signal_processing_state', {
+    'signal_id': 'sig-control',
+    'sync_status': 'synced',
+    'created_at': now,
+    'updated_at': now,
+  });
+  await db.insert('signal_analysis_policy', {
+    'signal_id': 'sig-control',
+    'privacy_level': 'private',
+    'confirmed_by_user': 1,
+    'updated_at': now,
+  });
+  await db.insert('reflection_results', {
+    'id': 'reflection-control',
+    'source_type': 'signal_card',
+    'source_id': 'sig-control',
+    'reflection_type': 'l1_attune',
+    'ai_level': 'l1',
+    'content_json': '{"text":"收到"}',
+    'generated_at': now,
+    'created_at': now,
+    'updated_at': now,
+  });
+  await db.insert('pipeline_runs', {
+    'id': 'pipeline-control',
+    'local_user_id': 'local-user',
+    'pipeline_type': 'daily_reflection',
+    'source_type': 'signal_card',
+    'source_id': 'sig-control',
+    'status': 'completed',
+    'started_at': now,
+    'finished_at': now,
+    'created_at': now,
+    'updated_at': now,
+  });
+}
+
+Future<void> _insertPredictionFeedback(LocalDatabase localDatabase) async {
+  final now = DateTime.utc(2026, 6, 14, 9).toIso8601String();
+  final db = await localDatabase.database;
+  await db.insert('ai_judgements', {
+    'id': 'aj-feedback',
+    'source_signal_card_ids_json': '["sig-feedback-source"]',
+    'local_date': '2026-06-14',
+    'judgement_text': '连续安排后需要一点恢复。',
+    'status': 'partial',
+    'user_adjustment_text': '更接近连续切换后的疲惫。',
+    'created_at': now,
+    'updated_at': now,
+  });
+  await db.insert('observations', {
+    'id': 'obs-feedback',
+    'local_user_id': 'local-user',
+    'observation_text': '更接近连续切换后的疲惫。',
+    'observation_type': 'inferred_signal',
+    'confidence': 'low',
+    'status': 'confirmed',
+    'source_ai_judgement_id': 'aj-feedback',
+    'created_at': now,
+    'updated_at': now,
+    'confirmed_at': now,
+  });
+  await db.insert('observation_signal_links', {
+    'observation_id': 'obs-feedback',
+    'signal_id': 'sig-feedback-source',
+    'weight': 1.0,
+    'reason': 'source_signal',
+    'created_at': now,
+  });
+  await db.insert('trace_links', {
+    'id': 'trace-feedback',
+    'local_user_id': 'local-user',
+    'source_type': 'observation',
+    'source_id': 'obs-feedback',
+    'target_type': 'signal_card',
+    'target_id': 'sig-feedback-source',
+    'relation_type': 'evidence_signal',
+    'weight': 1.0,
+    'status': 'active',
+    'metadata_json': '{}',
+    'created_at': now,
     'updated_at': now,
   });
 }

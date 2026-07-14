@@ -2,6 +2,26 @@
 
 Status: App Review submitted successfully for `3.0.0 (3)`.
 
+## Erratum — Restore Purchase Blocker Reopened
+
+Reported in post-submission real-device testing on 2026-07-10; documented
+2026-07-12.
+
+- The submission and historical `Restore purchase | Passed per user
+  confirmation` entries below are not deleted; they remain evidence of what was
+  known when `3.0.0 (3)` was submitted.
+- Current real-device evidence shows Restore Purchase fails despite the user
+  confirming the Apple ID and an active Signal Path subscription.
+- Current readiness for a new candidate is **Blocked / Pending** until Restore
+  Purchase succeeds in the matching StoreKit environment and Pro entitlement is
+  rehydrated in the app.
+- App Store Production and TestFlight Sandbox purchase histories are isolated.
+  QA must not expect a Production subscription to appear in TestFlight, or use
+  a StoreKit configuration/mock pass as proof of production restoration.
+- The next release record must capture the returned product ID(s), transaction
+  environment, delayed restore-stream outcome, persisted entitlement, and the
+  exact failure message before this erratum can be closed.
+
 Candidate:
 
 | Item | Value |
@@ -59,7 +79,10 @@ Source: user confirmed that TestFlight real-device testing has completed before 
 
 Blocker summary:
 
-- Blockers: none reported by user after TestFlight real-device testing.
+- Historical `3.0.0 (3)` submission blocker state: none reported at submission
+  time.
+- Current blocker: Restore Purchase reopened and Pending for the next
+  user-requested candidate.
 - Non-blockers: Flutter / iOS Swift Package + CocoaPods advisory remains non-blocking.
 - Deferrable items: real EventKit permission integration and real HealthKit permission integration remain future advanced enhancements; current shipped build uses abstract hint prototypes / internal signal fallback.
 

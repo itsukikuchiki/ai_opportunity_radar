@@ -1,4 +1,4 @@
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -67,4 +67,26 @@ class AiUsage(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         index=True,
+    )
+
+
+class LegacyEndpointTelemetry(Base):
+    __tablename__ = "legacy_endpoint_telemetry"
+    __table_args__ = (
+        Index("idx_legacy_endpoint_counter", "counter_name", "created_at"),
+        Index("idx_legacy_endpoint_endpoint", "endpoint", "created_at"),
+        Index("idx_legacy_endpoint_user_hash", "user_id_hash"),
+        Index("idx_legacy_endpoint_account_hash", "account_id_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    counter_name: Mapped[str] = mapped_column(String)
+    endpoint: Mapped[str] = mapped_column(String)
+    client_version: Mapped[str | None] = mapped_column(String)
+    platform: Mapped[str | None] = mapped_column(String)
+    user_id_hash: Mapped[str | None] = mapped_column(String)
+    account_id_hash: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
     )

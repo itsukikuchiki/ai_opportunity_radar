@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../api/api_client.dart';
-import '../api/repositories/cloud_backup_repository.dart';
 import '../api/repositories/analytics_repository.dart';
 import '../api/repositories/ai_repository.dart';
 import '../api/repositories/energy_budget_repository.dart';
@@ -14,12 +13,12 @@ import '../api/repositories/self_review_repository.dart';
 import '../api/repositories/signal_library_repository.dart';
 import '../api/repositories/today_repository.dart';
 import '../api/repositories/weekly_repository.dart';
-import '../backup/backup_bundle_repository.dart';
-import '../backup/cloud_backup_sync_service.dart';
 import '../local/external_energy_hint_store.dart';
 import '../local/local_capture_repository.dart';
+import '../local/local_candidate_planning_repository.dart';
 import '../local/local_daily_snapshot_repository.dart';
 import '../local/local_database.dart';
+import '../local/local_feedback_event_repository.dart';
 import '../local/local_journey_snapshot_repository.dart';
 import '../local/local_life_experiment_repository.dart';
 import '../local/local_monthly_snapshot_repository.dart';
@@ -39,10 +38,9 @@ class AppDependencies {
   final MonthlyRepository monthlyRepository;
   final SelfReviewRepository selfReviewRepository;
   final SignalLibraryRepository signalLibraryRepository;
-  final BackupBundleRepository backupBundleRepository;
-  final CloudBackupRepository cloudBackupRepository;
   final LocalDatabase localDatabase;
   final LocalCaptureRepository localCaptureRepository;
+  final LocalCandidatePlanningRepository localCandidatePlanningRepository;
   final LocalDailySnapshotRepository localDailySnapshotRepository;
   final LocalWeeklySnapshotRepository localWeeklySnapshotRepository;
   final LocalJourneySnapshotRepository localJourneySnapshotRepository;
@@ -63,10 +61,9 @@ class AppDependencies {
     required this.monthlyRepository,
     required this.selfReviewRepository,
     required this.signalLibraryRepository,
-    required this.backupBundleRepository,
-    required this.cloudBackupRepository,
     required this.localDatabase,
     required this.localCaptureRepository,
+    required this.localCandidatePlanningRepository,
     required this.localDailySnapshotRepository,
     required this.localWeeklySnapshotRepository,
     required this.localJourneySnapshotRepository,
@@ -75,7 +72,10 @@ class AppDependencies {
     required this.localPhase3PlusRepository,
   });
 
-  static Future<AppDependencies> create() async {
+  static Future<AppDependencies> create({
+    LocalDatabase? localDatabaseOverride,
+    bool trackNewUserRegistration = true,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
 
     var createdNewUser = false;
@@ -93,11 +93,11 @@ class AppDependencies {
 
     final apiClient = ApiClient(userId: localUserId);
     final analyticsRepository = AnalyticsRepository(apiClient);
-    if (createdNewUser) {
+    if (createdNewUser && trackNewUserRegistration) {
       unawaited(analyticsRepository.track('user_registered'));
     }
 
-    final localDatabase = LocalDatabase();
+    final localDatabase = localDatabaseOverride ?? LocalDatabase();
     await localDatabase.init();
 
     final localCaptureRepository = LocalCaptureRepository(localDatabase);
@@ -111,24 +111,29 @@ class AppDependencies {
         LocalMonthlySnapshotRepository(localDatabase);
     final localLifeExperimentRepository =
         LocalLifeExperimentRepository(localDatabase);
-    final localPhase3PlusRepository = LocalPhase3PlusRepository(localDatabase);
-    final externalEnergyHintStore = ExternalEnergyHintStore(prefs);
-    final backupBundleRepository = BackupBundleRepository(
-      localDatabase: localDatabase,
-      preferences: prefs,
-    );
-    final cloudBackupRepository = CloudBackupRepository(apiClient);
-    final cloudBackupSyncService = CloudBackupSyncService(
-      backupBundleRepository: backupBundleRepository,
-      cloudBackupRepository: cloudBackupRepository,
-      preferences: prefs,
-      localUserId: localUserId,
-      deviceId: deviceId,
-    );
-    final signalLibraryRepository = SignalLibraryRepository(
+    final localPhase3PlusRepository = LocalPhase3PlusRepository(
       localDatabase,
-      cloudBackupSyncService: cloudBackupSyncService,
+      localUserId: localUserId,
     );
+    final externalEnergyHintStore = ExternalEnergyHintStore(prefs);
+    final localFeedbackEventRepository =
+        LocalFeedbackEventRepository(localDatabase);
+    final energyBudgetRepository = EnergyBudgetRepository(
+      localCaptureRepository: localCaptureRepository,
+      localLifeExperimentRepository: localLifeExperimentRepository,
+      externalEnergyHintStore: externalEnergyHintStore,
+      feedbackEventRepository: localFeedbackEventRepository,
+      localUserId: localUserId,
+    );
+    final localCandidatePlanningRepository = LocalCandidatePlanningRepository(
+      localDatabase: localDatabase,
+      localCaptureRepository: localCaptureRepository,
+      localLifeExperimentRepository: localLifeExperimentRepository,
+      feedbackEventRepository: localFeedbackEventRepository,
+      energyBudgetRepository: energyBudgetRepository,
+      localUserId: localUserId,
+    );
+    final signalLibraryRepository = SignalLibraryRepository(localDatabase);
 
     final aiRepository = AiRepository(apiClient);
 
@@ -146,6 +151,7 @@ class AppDependencies {
       aiRepository: aiRepository,
       localDatabase: localDatabase,
       localCaptureRepository: localCaptureRepository,
+      localCandidatePlanningRepository: localCandidatePlanningRepository,
       localDailySnapshotRepository: localDailySnapshotRepository,
       localWeeklySnapshotRepository: localWeeklySnapshotRepository,
       localJourneySnapshotRepository: localJourneySnapshotRepository,
@@ -155,11 +161,12 @@ class AppDependencies {
       todayRepository: TodayRepository(
         localCaptureRepository: localCaptureRepository,
         localDailySnapshotRepository: localDailySnapshotRepository,
+        localLifeExperimentRepository: localLifeExperimentRepository,
         localPhase3PlusRepository: localPhase3PlusRepository,
         aiRepository: aiRepository,
         apiClient: apiClient,
         analyticsRepository: analyticsRepository,
-        cloudBackupSyncService: cloudBackupSyncService,
+        localUserId: localUserId,
       ),
       weeklyRepository: WeeklyRepository(
         localCaptureRepository: localCaptureRepository,
@@ -168,31 +175,24 @@ class AppDependencies {
         localPhase3PlusRepository: localPhase3PlusRepository,
         aiRepository: aiRepository,
         localUserId: localUserId,
-        cloudBackupSyncService: cloudBackupSyncService,
       ),
       memoryRepository: MemoryRepository(
         localCaptureRepository: localCaptureRepository,
         localJourneySnapshotRepository: localJourneySnapshotRepository,
         localLifeExperimentRepository: localLifeExperimentRepository,
         localPhase3PlusRepository: localPhase3PlusRepository,
+        localWeeklySnapshotRepository: localWeeklySnapshotRepository,
         aiRepository: aiRepository,
         monthlyRepository: monthlyRepository,
         localUserId: localUserId,
       ),
-      energyBudgetRepository: EnergyBudgetRepository(
-        localCaptureRepository: localCaptureRepository,
-        localLifeExperimentRepository: localLifeExperimentRepository,
-        externalEnergyHintStore: externalEnergyHintStore,
-        localUserId: localUserId,
-      ),
+      energyBudgetRepository: energyBudgetRepository,
       monthlyRepository: monthlyRepository,
       selfReviewRepository: SelfReviewRepository(
         localCaptureRepository: localCaptureRepository,
         apiClient: apiClient,
       ),
       signalLibraryRepository: signalLibraryRepository,
-      backupBundleRepository: backupBundleRepository,
-      cloudBackupRepository: cloudBackupRepository,
     );
   }
 }

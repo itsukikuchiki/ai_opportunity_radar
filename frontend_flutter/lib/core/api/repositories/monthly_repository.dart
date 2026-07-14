@@ -1,9 +1,11 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../eligibility/signal_eligibility_service.dart';
 import '../../local/local_capture_repository.dart';
 import '../../local/local_monthly_snapshot_repository.dart';
 import '../../models/monthly_models.dart';
 import '../../models/today_models.dart';
+import '../../preferences/focus_domains.dart';
 import 'ai_repository.dart';
 
 typedef MonthlyFocusAreaLoader = Future<String?> Function();
@@ -15,6 +17,7 @@ class MonthlyRepository {
   final AiRepository aiRepository;
   final MonthlyFocusAreaLoader? focusAreaLoader;
   final MonthlyInstallationDateLoader? installationDateLoader;
+  final SignalEligibilityService eligibilityService;
 
   MonthlyRepository({
     required this.localCaptureRepository,
@@ -22,7 +25,9 @@ class MonthlyRepository {
     required this.aiRepository,
     this.focusAreaLoader,
     this.installationDateLoader,
-  });
+    SignalEligibilityService? eligibilityService,
+  }) : eligibilityService =
+            eligibilityService ?? const SignalEligibilityService();
 
   Future<MonthlyReviewModel> fetchCurrentMonthly() async {
     final installationDate = await _readOrCreateInstallationDate();
@@ -31,10 +36,14 @@ class MonthlyRepository {
     final isFirstMonth = installationDate.year == today.year &&
         installationDate.month == today.month;
 
-    final recentSignals =
-        await localCaptureRepository.listRecentSignals(limit: 4000);
+    final range = _currentMonthRange();
+    final rangeSignals = await localCaptureRepository.listSignalCardsBetween(
+      startDate: _dateKey(range.start),
+      endDate: _dateKey(range.end),
+      limit: 4000,
+    );
 
-    if (isFirstMonth && recentSignals.isEmpty) {
+    if (isFirstMonth && rangeSignals.isEmpty) {
       return MonthlyReviewModel(
         monthStart: _dateKey(DateTime(today.year, today.month, 1)),
         monthEnd: _dateKey(_monthEnd(today)),
@@ -42,11 +51,9 @@ class MonthlyRepository {
       );
     }
 
-    final range = _currentMonthRange();
-    final monthSignals = _filterSignalsForRange(
-      recentSignals,
-      range.start,
-      range.end,
+    final monthSignals = eligibilityService.filter(
+      rangeSignals,
+      SignalEligibilityStage.aiReflect,
     );
 
     if (monthSignals.isEmpty) {
@@ -103,25 +110,6 @@ class MonthlyRepository {
     );
 
     return generated;
-  }
-
-  List<RecentSignalModel> _filterSignalsForRange(
-    List<RecentSignalModel> signals,
-    DateTime start,
-    DateTime end,
-  ) {
-    final endExclusive = end.add(const Duration(days: 1));
-
-    return signals.where((signal) {
-      final time = signal.createdAt?.toLocal();
-      if (time == null) return false;
-      return !time.isBefore(start) && time.isBefore(endExclusive);
-    }).toList()
-      ..sort((a, b) {
-        final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return aTime.compareTo(bTime);
-      });
   }
 
   _MonthlyStats _buildMonthlyStats(List<RecentSignalModel> signals) {
@@ -290,6 +278,14 @@ class MonthlyRepository {
     }
 
     final prefs = await SharedPreferences.getInstance();
+    final focusDomainIds = FocusDomains.normalizeIds(
+      prefs.getStringList(FocusDomains.productPreferenceKey) ??
+          prefs.getStringList(FocusDomains.preferenceKey) ??
+          const [],
+    );
+    if (focusDomainIds.isNotEmpty) {
+      return focusDomainIds.join(',');
+    }
     return prefs.getString('repeat_area_preference') ??
         prefs.getString('selected_repeat_area');
   }

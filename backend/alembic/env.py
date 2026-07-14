@@ -19,8 +19,13 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 优先使用 settings 里的数据库地址
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# 优先使用 settings 里的数据库地址。Alembic 的 Config 经过
+# configparser 插值，因此合法 URL 中的 percent-encoded 查询参数必须
+# 先转义；否则像 libpq ``options=-csearch_path%3D...`` 会在连接前失败。
+config.set_main_option(
+    "sqlalchemy.url",
+    settings.database_url.replace("%", "%%"),
+)
 
 target_metadata = Base.metadata
 

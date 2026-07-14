@@ -1,13 +1,23 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 
-from app.models import Capture, RawMemory, SignalCard
+from app.models import (
+    Capture,
+    ExperimentCandidate,
+    RawMemory,
+    ReflectionResult,
+    SignalAnalysisPolicy,
+    SignalCard,
+    SignalProcessingState,
+    TraceLink,
+    WeeklyInsight,
+)
 from app.repositories.core_repository import ensure_demo_user
 
 
@@ -53,17 +63,75 @@ class CaptureRepository:
         tag_hint: str | None = None,
         language: str = "en",
         timezone_name: str = "UTC",
+        client_id: str | None = None,
         raw_payload: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> dict[str, Any]:
         ensure_demo_user(self.db, user_id)
 
+        normalized_client_id = (client_id or "").strip() or None
+        if normalized_client_id:
+            existing_stmt = select(SignalCard).where(
+                SignalCard.user_id == user_id,
+                SignalCard.client_id == normalized_client_id,
+            )
+            existing = self.db.scalars(existing_stmt).first()
+            if existing is not None:
+                if existing.deleted_at is not None:
+                    return {
+                        "capture_id": existing.capture_id,
+                        "raw_memory_id": existing.raw_memory_id,
+                        "signal_card_id": existing.id,
+                        "client_id": normalized_client_id,
+                        "server_id": existing.server_id or existing.id,
+                        "created_at": existing.created_at,
+                        "local_date": existing.local_date,
+                        "acknowledgement": existing.ai_reply or "",
+                        "deleted": True,
+                    }
+                metadata = dict(existing.metadata_json or {})
+                metadata["client_id"] = normalized_client_id
+                metadata["server_id"] = existing.server_id or existing.id
+                existing.metadata_json = metadata
+                existing.server_id = existing.server_id or existing.id
+                self._ensure_processing_state(
+                    signal_card_id=existing.id,
+                    sync_status="synced",
+                    daily_status="included" if existing.included_in_summary else "not_started",
+                    weekly_status="included" if existing.included_in_weekly else "not_started",
+                    journey_status="included" if existing.included_in_journey else "not_started",
+                )
+                self._ensure_analysis_policy(
+                    signal_card_id=existing.id,
+                    privacy_level=existing.privacy_level,
+                    user_confirmation=existing.user_confirmation,
+                )
+                if commit:
+                    self.db.commit()
+                else:
+                    self.db.flush()
+                return {
+                    "id": existing.raw_memory_id,
+                    "capture_id": existing.capture_id,
+                    "raw_memory_id": existing.raw_memory_id,
+                    "signal_card_id": existing.id,
+                    "content": existing.raw_text,
+                    "created_at": existing.created_at,
+                    "local_date": existing.local_date,
+                    "acknowledgement": existing.ai_reply,
+                }
+
         created_at = datetime.now(timezone.utc)
         capture_id = f"cap_{uuid4().hex[:12]}"
         raw_id = f"raw_{uuid4().hex[:12]}"
         signal_card_id = f"sig_{uuid4().hex[:12]}"
+        server_id = signal_card_id
         source_type = self._source_type_from_input_mode(input_mode)
         local_date = self._local_date(created_at, timezone_name)
+        payload = dict(raw_payload or {})
+        if normalized_client_id:
+            payload["client_id"] = normalized_client_id
+            payload["server_id"] = server_id
 
         capture = Capture(
             id=capture_id,
@@ -104,7 +172,9 @@ class CaptureRepository:
             raw_memory_id=raw_id,
             source_type=source_type,
             raw_text=content,
-            raw_payload_json=raw_payload or {},
+            raw_payload_json=payload,
+            client_id=normalized_client_id,
+            server_id=server_id,
             ai_reply=None,
             created_at=created_at,
             local_date=local_date,
@@ -132,9 +202,29 @@ class CaptureRepository:
             schema_version=1,
             is_legacy=False,
             migration_status="native",
-            metadata_json={"tag_hint": tag_hint} if tag_hint else {},
+            metadata_json={
+                **({"tag_hint": tag_hint} if tag_hint else {}),
+                **({"client_id": normalized_client_id} if normalized_client_id else {}),
+                "server_id": server_id,
+            },
         )
         self.db.add(signal_card)
+        # These split tables reference SignalCard without ORM relationships.
+        # Flush the parent first so strict FK backends cannot schedule either
+        # child INSERT ahead of its SignalCard INSERT.
+        self.db.flush()
+        self._ensure_processing_state(
+            signal_card_id=signal_card_id,
+            sync_status="synced",
+            daily_status="not_started",
+            weekly_status="not_started",
+            journey_status="not_started",
+        )
+        self._ensure_analysis_policy(
+            signal_card_id=signal_card_id,
+            privacy_level="private",
+            user_confirmation="unconfirmed",
+        )
         if commit:
             self.db.commit()
         else:
@@ -235,6 +325,46 @@ class CaptureRepository:
             raw_metadata["ai_reply_status"] = metadata["ai_reply_status"]
             raw_metadata["quota_decision"] = quota_decision
             raw_memory.metadata_json = raw_metadata
+
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
+        return signal_card
+
+    def mark_signal_card_immediate_safety_risk(
+        self,
+        *,
+        signal_card_id: str,
+        commit: bool = True,
+    ) -> SignalCard | None:
+        signal_card = self.db.get(SignalCard, signal_card_id)
+        if signal_card is None:
+            return None
+
+        signal_card.privacy_level = "sensitive"
+        metadata = dict(signal_card.metadata_json or {})
+        metadata["safety_branch"] = "immediate_risk"
+        signal_card.metadata_json = metadata
+
+        policy = self._ensure_analysis_policy(
+            signal_card_id=signal_card_id,
+            privacy_level="sensitive",
+            user_confirmation=signal_card.user_confirmation,
+        )
+        policy.is_sensitive = True
+        policy.is_excluded = True
+        policy.do_not_analyze = True
+        policy.exclusion_reason = "immediate_safety_risk"
+
+        state = self._ensure_processing_state(
+            signal_card_id=signal_card_id,
+            sync_status="synced",
+            daily_status="excluded",
+            weekly_status="excluded",
+            journey_status="excluded",
+        )
+        state.reason_status = "excluded"
 
         if commit:
             self.db.commit()
@@ -400,6 +530,20 @@ class CaptureRepository:
                 },
             )
             self.db.add(signal_card)
+            # Keep the same parent-before-child guarantee for legacy backfill.
+            self.db.flush()
+            self._ensure_processing_state(
+                signal_card_id=signal_card.id,
+                sync_status="synced",
+                daily_status="not_started",
+                weekly_status="not_started",
+                journey_status="not_started",
+            )
+            self._ensure_analysis_policy(
+                signal_card_id=signal_card.id,
+                privacy_level="private",
+                user_confirmation="unconfirmed",
+            )
             created_count += 1
             partial_count += 1
 
@@ -459,13 +603,137 @@ class CaptureRepository:
         limit: int = 50,
     ) -> list[SignalCard]:
         self.migrate_legacy_signal_cards(user_id=user_id, commit=True)
+        self._backfill_split_tables(user_id=user_id, commit=True)
         stmt = (
             select(SignalCard)
             .where(SignalCard.user_id == user_id)
+            .where(SignalCard.deleted_at.is_(None))
             .order_by(SignalCard.created_at.desc())
             .limit(limit)
         )
         return list(self.db.scalars(stmt))
+
+    def soft_delete_signal_card(
+        self,
+        *,
+        user_id: str,
+        signal_card_id: str,
+        reason: str = "user_deleted",
+        commit: bool = True,
+    ) -> SignalCard | None:
+        signal_card = self._find_signal_card_for_user(
+            user_id=user_id,
+            signal_card_id=signal_card_id,
+            include_deleted=True,
+        )
+        if signal_card is None:
+            return None
+
+        now = datetime.now(timezone.utc)
+        ids = self._signal_identity_ids(signal_card)
+        signal_card.deleted_at = signal_card.deleted_at or now
+        signal_card.deletion_reason = (reason or "user_deleted").strip() or "user_deleted"
+        signal_card.tombstone_version = (signal_card.tombstone_version or 0) + 1
+        signal_card.restored_at = None
+        signal_card.included_in_summary = False
+        signal_card.included_in_weekly = False
+        signal_card.included_in_journey = False
+        metadata = dict(signal_card.metadata_json or {})
+        metadata["tombstone"] = {
+            "deleted_at": signal_card.deleted_at.isoformat(),
+            "reason": signal_card.deletion_reason,
+            "version": signal_card.tombstone_version,
+        }
+        signal_card.metadata_json = metadata
+
+        state = self._ensure_processing_state(
+            signal_card_id=signal_card.id,
+            sync_status="deleted",
+            daily_status="excluded",
+            weekly_status="excluded",
+            journey_status="excluded",
+            last_error=None,
+        )
+        state.assist_status = "excluded"
+        state.reason_status = "excluded"
+
+        policy = self._ensure_analysis_policy(
+            signal_card_id=signal_card.id,
+            privacy_level=signal_card.privacy_level,
+            user_confirmation=signal_card.user_confirmation,
+        )
+        policy.is_excluded = True
+        policy.do_not_analyze = True
+        policy.exclusion_reason = "signal_deleted"
+
+        self._propagate_signal_tombstone(
+            user_id=user_id,
+            signal_ids=ids,
+            reason="signal_deleted",
+        )
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
+        return signal_card
+
+    def restore_signal_card(
+        self,
+        *,
+        user_id: str,
+        signal_card_id: str,
+        commit: bool = True,
+    ) -> SignalCard | None:
+        signal_card = self._find_signal_card_for_user(
+            user_id=user_id,
+            signal_card_id=signal_card_id,
+            include_deleted=True,
+        )
+        if signal_card is None:
+            return None
+
+        now = datetime.now(timezone.utc)
+        ids = self._signal_identity_ids(signal_card)
+        signal_card.deleted_at = None
+        signal_card.deletion_reason = None
+        signal_card.restored_at = now
+        metadata = dict(signal_card.metadata_json or {})
+        metadata.pop("tombstone", None)
+        metadata["restored_at"] = now.isoformat()
+        signal_card.metadata_json = metadata
+
+        self._ensure_processing_state(
+            signal_card_id=signal_card.id,
+            sync_status="synced",
+            daily_status="not_started",
+            weekly_status="not_started",
+            journey_status="not_started",
+            last_error=None,
+        )
+        self._ensure_analysis_policy(
+            signal_card_id=signal_card.id,
+            privacy_level=signal_card.privacy_level,
+            user_confirmation=signal_card.user_confirmation,
+        )
+        self._mark_trace_links_for_signal(
+            user_id=user_id,
+            signal_ids=ids,
+            status="active",
+        )
+        self._mark_related_cache_stale(
+            user_id=user_id,
+            affected_sources=self._affected_trace_sources(
+                user_id=user_id,
+                signal_ids=ids,
+            ),
+            signal_ids=ids,
+            reason="signal_restored",
+        )
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
+        return signal_card
 
     def update_signal_card_confirmation(
         self,
@@ -486,11 +754,294 @@ class CaptureRepository:
 
         signal_card.user_confirmation = user_confirmation
         signal_card.user_correction_json = user_correction or {}
+        self._ensure_analysis_policy(
+            signal_card_id=signal_card.id,
+            privacy_level=signal_card.privacy_level,
+            user_confirmation=user_confirmation,
+        )
         if commit:
             self.db.commit()
         else:
             self.db.flush()
         return signal_card
+
+    def _find_signal_card_for_user(
+        self,
+        *,
+        user_id: str,
+        signal_card_id: str,
+        include_deleted: bool = False,
+    ) -> SignalCard | None:
+        stmt = select(SignalCard).where(
+            SignalCard.user_id == user_id,
+            (
+                (SignalCard.id == signal_card_id)
+                | (SignalCard.client_id == signal_card_id)
+                | (SignalCard.server_id == signal_card_id)
+            ),
+        )
+        if not include_deleted:
+            stmt = stmt.where(SignalCard.deleted_at.is_(None))
+        return self.db.scalars(stmt).first()
+
+    def _signal_identity_ids(self, signal_card: SignalCard) -> set[str]:
+        return {
+            value
+            for value in {
+                signal_card.id,
+                signal_card.client_id,
+                signal_card.server_id,
+                signal_card.raw_memory_id,
+                signal_card.capture_id,
+            }
+            if value
+        }
+
+    def _propagate_signal_tombstone(
+        self,
+        *,
+        user_id: str,
+        signal_ids: set[str],
+        reason: str,
+    ) -> None:
+        affected_sources = self._affected_trace_sources(
+            user_id=user_id,
+            signal_ids=signal_ids,
+        )
+        self._mark_trace_links_for_signal(
+            user_id=user_id,
+            signal_ids=signal_ids,
+            status="inactive",
+        )
+        self._mark_related_cache_stale(
+            user_id=user_id,
+            affected_sources=affected_sources,
+            signal_ids=signal_ids,
+            reason=reason,
+        )
+
+    def _affected_trace_sources(
+        self,
+        *,
+        user_id: str,
+        signal_ids: set[str],
+    ) -> set[tuple[str, str]]:
+        if not signal_ids:
+            return set()
+        stmt = select(TraceLink).where(
+            TraceLink.user_id == user_id,
+            (
+                ((TraceLink.target_type == "signal_card") & TraceLink.target_id.in_(signal_ids))
+                | ((TraceLink.source_type == "signal_card") & TraceLink.source_id.in_(signal_ids))
+            ),
+        )
+        links = list(self.db.scalars(stmt))
+        sources = {
+            (link.source_type, link.source_id)
+            for link in links
+            if not (link.source_type == "signal_card" and link.source_id in signal_ids)
+        }
+        return sources
+
+    def _mark_trace_links_for_signal(
+        self,
+        *,
+        user_id: str,
+        signal_ids: set[str],
+        status: str,
+    ) -> None:
+        if not signal_ids:
+            return
+        now = datetime.now(timezone.utc)
+        stmt = select(TraceLink).where(
+            TraceLink.user_id == user_id,
+            (
+                ((TraceLink.target_type == "signal_card") & TraceLink.target_id.in_(signal_ids))
+                | ((TraceLink.source_type == "signal_card") & TraceLink.source_id.in_(signal_ids))
+            ),
+        )
+        for link in self.db.scalars(stmt):
+            link.status = status
+            link.updated_at = now
+
+    def _mark_related_cache_stale(
+        self,
+        *,
+        user_id: str,
+        affected_sources: set[tuple[str, str]],
+        signal_ids: set[str],
+        reason: str,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        for source_type, source_id in affected_sources:
+            for reflection in self.db.scalars(
+                select(ReflectionResult).where(
+                    ReflectionResult.user_id == user_id,
+                    ReflectionResult.source_type == source_type,
+                    ReflectionResult.source_id == source_id,
+                    ReflectionResult.status.in_(("generated", "confirmed")),
+                )
+            ):
+                reflection.dirty = 1
+                reflection.is_stale = 1
+                reflection.stale_reason = reason
+                reflection.invalidated_at = now
+
+            if source_type == "weekly_snapshot":
+                week_start = self._parse_date(source_id)
+                if week_start is not None:
+                    weekly = self.db.scalars(
+                        select(WeeklyInsight).where(
+                            WeeklyInsight.user_id == user_id,
+                            WeeklyInsight.week_start == week_start,
+                        )
+                    ).first()
+                    if weekly is not None:
+                        weekly.status = "stale"
+
+        for candidate in self.db.scalars(
+            select(ExperimentCandidate).where(ExperimentCandidate.user_id == user_id)
+        ):
+            linked_ids = set(candidate.linked_signal_card_ids or [])
+            if linked_ids.intersection(signal_ids):
+                candidate.status = "stale"
+                metadata = dict(candidate.metadata_json or {})
+                metadata["stale_reason"] = reason
+                metadata["invalidated_at"] = now.isoformat()
+                metadata["affected_signal_card_ids"] = sorted(linked_ids.intersection(signal_ids))
+                candidate.metadata_json = metadata
+
+    def _parse_date(self, value: str) -> date | None:
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def _ensure_processing_state(
+        self,
+        *,
+        signal_card_id: str,
+        sync_status: str = "synced",
+        daily_status: str = "not_started",
+        weekly_status: str = "not_started",
+        journey_status: str = "not_started",
+        last_error: str | None = None,
+    ) -> SignalProcessingState:
+        state = self.db.get(SignalProcessingState, signal_card_id)
+        if state is None:
+            state = SignalProcessingState(
+                signal_id=signal_card_id,
+                sync_status=sync_status,
+                daily_status=daily_status,
+                weekly_status=weekly_status,
+                journey_status=journey_status,
+                last_error=last_error,
+                processing_version="v4_p0_02",
+            )
+            self.db.add(state)
+            return state
+
+        state.sync_status = sync_status
+        state.daily_status = daily_status
+        state.weekly_status = weekly_status
+        state.journey_status = journey_status
+        state.last_error = last_error
+        state.processing_version = "v4_p0_02"
+        return state
+
+    def _ensure_analysis_policy(
+        self,
+        *,
+        signal_card_id: str,
+        privacy_level: str = "private",
+        user_confirmation: str = "unconfirmed",
+    ) -> SignalAnalysisPolicy:
+        privacy = (privacy_level or "private").strip().lower()
+        confirmation = (user_confirmation or "unconfirmed").strip().lower()
+        policy = self.db.get(SignalAnalysisPolicy, signal_card_id)
+        if policy is None:
+            policy = SignalAnalysisPolicy(signal_id=signal_card_id)
+            self.db.add(policy)
+
+        policy.privacy_level = privacy
+        policy.is_sensitive = privacy == "sensitive"
+        policy.is_excluded = privacy in {
+            "sensitive",
+            "excluded",
+            "do_not_analyze",
+        }
+        policy.do_not_analyze = privacy in {
+            "sensitive",
+            "excluded",
+            "do_not_analyze",
+        }
+        policy.confirmed_by_user = confirmation in {
+            "confirmed",
+            "edited",
+            "supplemented",
+        }
+        policy.inaccurate = confirmation == "inaccurate"
+        if policy.exclusion_reason != "immediate_safety_risk":
+            policy.exclusion_reason = "inaccurate" if policy.inaccurate else (
+                privacy
+                if privacy in {"sensitive", "excluded", "do_not_analyze"}
+                else None
+            )
+        return policy
+
+    def _backfill_split_tables(self, user_id: str, commit: bool = True) -> None:
+        stmt = select(SignalCard).where(SignalCard.user_id == user_id)
+        for signal_card in self.db.scalars(stmt):
+            is_deleted = signal_card.deleted_at is not None
+            is_analysis_excluded = (
+                is_deleted
+                or signal_card.privacy_level
+                in {"sensitive", "excluded", "do_not_analyze"}
+                or signal_card.user_confirmation == "inaccurate"
+            )
+            daily_status = (
+                "excluded"
+                if is_analysis_excluded
+                else "included" if signal_card.included_in_summary else "not_started"
+            )
+            weekly_status = (
+                "excluded"
+                if is_analysis_excluded
+                else "included" if signal_card.included_in_weekly else "not_started"
+            )
+            journey_status = (
+                "excluded"
+                if is_analysis_excluded
+                else "included" if signal_card.included_in_journey else "not_started"
+            )
+            # This runs from a read path.  It may repair rows missing because
+            # they predate the split tables, but it must never reset an
+            # existing in-flight/failed state or a user-modified policy.
+            state = self.db.get(SignalProcessingState, signal_card.id)
+            if state is None:
+                self._ensure_processing_state(
+                    signal_card_id=signal_card.id,
+                    sync_status="deleted" if is_deleted else "synced",
+                    daily_status=daily_status,
+                    weekly_status=weekly_status,
+                    journey_status=journey_status,
+                )
+
+            policy = self.db.get(SignalAnalysisPolicy, signal_card.id)
+            if policy is None:
+                policy = self._ensure_analysis_policy(
+                    signal_card_id=signal_card.id,
+                    privacy_level=signal_card.privacy_level,
+                    user_confirmation=signal_card.user_confirmation,
+                )
+                if is_deleted:
+                    policy.is_excluded = True
+                    policy.do_not_analyze = True
+                    policy.exclusion_reason = "signal_deleted"
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
     def _source_type_from_input_mode(self, input_mode: str | None) -> str:
         value = (input_mode or "").strip().lower()

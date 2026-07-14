@@ -8,6 +8,7 @@ from app.schemas.capture_schema import (
 )
 from app.services.classification_service import ClassificationService
 from app.repositories.capture_repository import CaptureRepository
+from app.services.ai_orchestrator import AiOrchestrator
 from app.services.usage_service import UsageService
 
 
@@ -21,6 +22,8 @@ class CaptureService:
         self.capture_repository = capture_repository
         self.classification_service = classification_service
         self.usage_service = usage_service
+        self.parse_profile = AiOrchestrator.L1_ASSIST_DAILY_FLOW
+        self.attune_profile = AiOrchestrator.L1_ATTUNE_DIALOGUE
 
     def submit_capture(
         self,
@@ -30,6 +33,8 @@ class CaptureService:
         tag_hint: str | None = None,
         language: str = "en",
         timezone_name: str = "UTC",
+        client_id: str | None = None,
+        raw_payload_json: dict | None = None,
     ) -> CaptureSubmitResponseSchema:
         content = (content or "").strip()
         if not content:
@@ -42,9 +47,60 @@ class CaptureService:
             tag_hint=tag_hint,
             language=language,
             timezone_name=timezone_name,
+            client_id=client_id,
+            raw_payload=raw_payload_json,
             commit=True,
         )
+        if created.get("deleted"):
+            return CaptureSubmitResponseSchema(
+                acknowledgement=created.get("acknowledgement") or "This SignalCard was deleted.",
+                followup=None,
+                recent_signals=self.list_recent_signal_cards(user_id=user_id, limit=50),
+            )
         signal_card_id = created["signal_card_id"]
+
+        risk_checker = getattr(
+            self.classification_service,
+            "is_immediate_safety_risk",
+            lambda _: False,
+        )
+        if risk_checker(content):
+            acknowledgement = (
+                self.classification_service.immediate_safety_acknowledgement()
+            )
+            self.capture_repository.mark_signal_card_immediate_safety_risk(
+                signal_card_id=signal_card_id,
+                commit=True,
+            )
+            self.capture_repository.update_signal_card_ai_result(
+                signal_card_id=signal_card_id,
+                acknowledgement=acknowledgement,
+                model_used="local_safety_rules",
+                fallback_used=False,
+                quota_decision="safety_bypass",
+                token_usage={},
+                commit=True,
+            )
+            self._log_model_usage(
+                user_id=user_id,
+                feature_key=self.attune_profile.feature_key,
+                model_used="local_safety_rules",
+                request_payload={"source_type": input_mode, "safety_branch": True},
+                response_payload={"safety_response": True},
+                source_event_id=signal_card_id,
+                started_at=perf_counter(),
+                fallback_used=False,
+                quota_decision="safety_bypass",
+                metadata={"reply_status": "safety"},
+            )
+            return CaptureSubmitResponseSchema(
+                acknowledgement=acknowledgement,
+                followup=None,
+                recent_signals=self.list_recent_signal_cards(
+                    user_id=user_id,
+                    limit=50,
+                ),
+            )
 
         parser_started_at = perf_counter()
         parsed_signal = None
@@ -62,7 +118,7 @@ class CaptureService:
             )
             self._log_model_usage(
                 user_id=user_id,
-                feature_key="signal_parser",
+                feature_key=self.parse_profile.feature_key,
                 model_used="local_rules_parser",
                 request_payload={"source_type": input_mode, "tag_hint": tag_hint},
                 response_payload=parsed_signal,
@@ -83,7 +139,7 @@ class CaptureService:
             )
             self._log_model_usage(
                 user_id=user_id,
-                feature_key="signal_parser",
+                feature_key=self.parse_profile.feature_key,
                 model_used="local_rules_parser",
                 request_payload={"source_type": input_mode, "tag_hint": tag_hint},
                 response_payload={"error": "parser_failed"},
@@ -94,14 +150,14 @@ class CaptureService:
                 metadata={"parser_status": "failed", "error_type": type(exc).__name__},
             )
 
-        previous_recent = self.capture_repository.list_recent_raw_memories(
+        previous_recent_cards = self.capture_repository.list_recent_signal_cards(
             user_id=user_id,
             limit=10,
         )
         recent_assistant_texts = [
-            item.get("acknowledgement")
-            for item in previous_recent
-            if item.get("acknowledgement")
+            card.ai_reply
+            for card in previous_recent_cards
+            if card.ai_reply
         ]
 
         quota_decision = self._check_quota(
@@ -139,7 +195,7 @@ class CaptureService:
         )
         self._log_model_usage(
             user_id=user_id,
-            feature_key="today_high_quality_reply",
+            feature_key=self.attune_profile.feature_key,
             model_used=model_used,
             request_payload={"source_type": input_mode, "language": language},
             response_payload={"fallback_used": fallback_used},
@@ -168,19 +224,7 @@ class CaptureService:
         user_id: str,
         limit: int = 200,
     ) -> list[RecentSignalSchema]:
-        recent = self.capture_repository.list_recent_raw_memories(
-            user_id=user_id,
-            limit=limit,
-        )
-        return [
-            RecentSignalSchema(
-                id=item.get("id"),
-                content=item.get("content") or "",
-                created_at=item.get("created_at"),
-                acknowledgement=item.get("acknowledgement"),
-            )
-            for item in recent
-        ]
+        return self.list_recent_signal_cards(user_id=user_id, limit=limit)
 
     def list_recent_signal_cards(
         self,
@@ -193,8 +237,12 @@ class CaptureService:
         )
         return [
             RecentSignalSchema(
-                id=card.raw_memory_id,
+                id=card.id,
                 signal_card_id=card.id,
+                client_id=card.client_id,
+                server_id=card.server_id or card.id,
+                source_type=card.source_type,
+                raw_payload_json=card.raw_payload_json or {},
                 content=card.raw_text or "",
                 created_at=card.created_at,
                 local_date=card.local_date,
@@ -214,6 +262,9 @@ class CaptureService:
                 included_in_journey=card.included_in_journey,
                 is_legacy=card.is_legacy,
                 migration_status=card.migration_status,
+                deleted_at=card.deleted_at,
+                deletion_reason=card.deletion_reason,
+                tombstone_version=card.tombstone_version or 0,
             )
             for card in cards
         ]
@@ -256,7 +307,7 @@ class CaptureService:
             return "allowed"
         decision = self.usage_service.check_quota(
             user_id=user_id,
-            feature_key="today_high_quality_reply",
+            feature_key=self.attune_profile.feature_key,
             local_date=local_date,
             source_event_id=source_event_id,
             commit=True,
@@ -275,7 +326,7 @@ class CaptureService:
             return
         self.usage_service.consume_quota(
             user_id=user_id,
-            feature_key="today_high_quality_reply",
+            feature_key=self.attune_profile.feature_key,
             local_date=local_date,
             model_used=model_used,
             source_event_id=source_event_id,
@@ -302,7 +353,7 @@ class CaptureService:
             user_id=user_id,
             feature_key=feature_key,
             model_used=model_used,
-            parser_version="v3_rules_1" if feature_key == "signal_parser" else None,
+            parser_version="v3_rules_1" if model_used == "local_rules_parser" else None,
             prompt_version="today_reply_v3_local",
             request_payload=request_payload,
             response_payload=response_payload,

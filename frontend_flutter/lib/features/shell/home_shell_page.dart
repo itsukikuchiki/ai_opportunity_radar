@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 import '../../app/app_router.dart';
 import '../../core/i18n/app_locale_text.dart';
+import '../../core/state/app_data_refresh_coordinator.dart';
 import '../../shared/widgets/aurora_ui.dart';
 
-class HomeShellPage extends StatelessWidget {
+class HomeShellPage extends StatefulWidget {
   final Widget child;
 
   const HomeShellPage({
@@ -13,12 +17,63 @@ class HomeShellPage extends StatelessWidget {
     required this.child,
   });
 
+  @override
+  State<HomeShellPage> createState() => _HomeShellPageState();
+}
+
+class _HomeShellPageState extends State<HomeShellPage>
+    with WidgetsBindingObserver {
+  String? _activeLocation;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final location = GoRouterState.of(context).matchedLocation;
+    if (_activeLocation == location) return;
+    final isFirstActivation = _activeLocation == null;
+    _activeLocation = location;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _activeLocation != location) return;
+      // Long-lived ViewModels already perform their initial load. Every later
+      // route activation refreshes once, while the coordinator coalesces a
+      // simultaneous explicit return refresh or lifecycle refresh.
+      _refreshActiveRoute(force: !isFirstActivation);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    _refreshActiveRoute(force: true);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void _refreshActiveRoute({bool force = false}) {
+    final location = _activeLocation;
+    if (location == null || !mounted) return;
+    final coordinator =
+        Provider.of<AppDataRefreshCoordinator?>(context, listen: false);
+    if (coordinator == null) return;
+    unawaited(coordinator.refreshRoute(location, force: force));
+  }
+
   int _selectedIndex(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
 
     if (location == AppRoutes.weekly) return 1;
-    if (location == AppRoutes.memory) return 2;
-    if (location == AppRoutes.signalLibrary) return 3;
+    if (location == AppRoutes.experiment) return 2;
+    if (location == AppRoutes.memory) return 3;
     if (location == AppRoutes.me) return 4;
     return 0;
   }
@@ -32,10 +87,10 @@ class HomeShellPage extends StatelessWidget {
         context.go(AppRoutes.weekly);
         break;
       case 2:
-        context.go(AppRoutes.memory);
+        context.go(AppRoutes.experiment);
         break;
       case 3:
-        context.go(AppRoutes.signalLibrary);
+        context.go(AppRoutes.memory);
         break;
       case 4:
         context.go(AppRoutes.me);
@@ -46,27 +101,36 @@ class HomeShellPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final index = _selectedIndex(context);
-    final theme = Theme.of(context);
 
     return Scaffold(
       extendBody: true,
-      body: child,
+      body: widget.child,
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Container(
-            height: 62,
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+            height: MediaQuery.textScalerOf(context).scale(12) > 14 ? 78 : 72,
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.94),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFFFFFBF7).withValues(alpha: 0.94),
+                  const Color(0xFFF4F1FF).withValues(alpha: 0.92),
+                  const Color(0xFFEDF5FF).withValues(alpha: 0.94),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(
+                color: const Color(0xFFDCDDF0).withValues(alpha: 0.64),
+              ),
               boxShadow: [
                 BoxShadow(
                   blurRadius: 28,
                   offset: const Offset(0, 12),
-                  color: theme.shadowColor.withValues(alpha: 0.10),
+                  color: AuroraColors.purple.withValues(alpha: 0.14),
                 ),
               ],
             ),
@@ -74,8 +138,8 @@ class HomeShellPage extends StatelessWidget {
               children: [
                 _NavPill(
                   selected: index == 0,
-                  icon: Icons.wb_sunny_outlined,
-                  selectedIcon: Icons.wb_sunny,
+                  icon: Icons.chat_bubble_outline_rounded,
+                  selectedIcon: Icons.chat_bubble_rounded,
                   label: AppLocaleText.tr(
                     context,
                     en: 'Today',
@@ -87,40 +151,40 @@ class HomeShellPage extends StatelessWidget {
                 ),
                 _NavPill(
                   selected: index == 1,
-                  icon: Icons.bar_chart_rounded,
-                  selectedIcon: Icons.bar_chart_rounded,
+                  icon: Icons.calendar_month_outlined,
+                  selectedIcon: Icons.calendar_month_rounded,
                   label: AppLocaleText.tr(
                     context,
                     en: 'Weekly',
-                    zhHans: '洞察',
-                    zhHant: '洞察',
-                    ja: '洞察',
+                    zhHans: '每周',
+                    zhHant: '每週',
+                    ja: 'Weekly',
                   ),
                   onTap: () => _onTap(context, 1),
                 ),
                 _NavPill(
                   selected: index == 2,
-                  icon: Icons.history_rounded,
-                  selectedIcon: Icons.history_rounded,
+                  icon: Icons.science_outlined,
+                  selectedIcon: Icons.science_rounded,
                   label: AppLocaleText.tr(
                     context,
-                    en: 'Journey',
-                    zhHans: '回顾',
-                    zhHant: '回顧',
-                    ja: '回顧',
+                    en: 'Experiment',
+                    zhHans: '小实验',
+                    zhHant: '小實驗',
+                    ja: '実験',
                   ),
                   onTap: () => _onTap(context, 2),
                 ),
                 _NavPill(
                   selected: index == 3,
-                  icon: Icons.menu_book_outlined,
-                  selectedIcon: Icons.menu_book,
+                  icon: Icons.location_on_outlined,
+                  selectedIcon: Icons.location_on_rounded,
                   label: AppLocaleText.tr(
                     context,
-                    en: 'Library',
-                    zhHans: '信号库',
-                    zhHant: '信號庫',
-                    ja: 'ライブラリ',
+                    en: 'Journey',
+                    zhHans: '旅程',
+                    zhHant: '旅程',
+                    ja: 'Journey',
                   ),
                   onTap: () => _onTap(context, 3),
                 ),
@@ -164,40 +228,67 @@ class _NavPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: InkWell(
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: label,
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
-          decoration: BoxDecoration(
-            color: selected
-                ? AuroraColors.purple.withValues(alpha: 0.10)
-                : Colors.transparent,
+        child: ExcludeSemantics(
+          child: InkWell(
+            onTap: onTap,
             borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                selected ? selectedIcon : icon,
-                size: 18,
-                color: selected ? AuroraColors.purple : const Color(0xFF858895),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(20),
               ),
-              const SizedBox(height: 1),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: selected
-                          ? AuroraColors.purple
-                          : const Color(0xFF858895),
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                      fontSize: 10,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color:
+                          selected ? AuroraColors.purple : Colors.transparent,
+                      boxShadow: selected
+                          ? [
+                              BoxShadow(
+                                color:
+                                    AuroraColors.purple.withValues(alpha: 0.30),
+                                blurRadius: 18,
+                                offset: const Offset(0, 7),
+                              ),
+                            ]
+                          : null,
                     ),
+                    child: Icon(
+                      selected ? selectedIcon : icon,
+                      size: 22,
+                      color: selected ? Colors.white : const Color(0xFF9A9CAF),
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: selected
+                              ? AuroraColors.purple
+                              : const Color(0xFF858895),
+                          fontWeight:
+                              selected ? FontWeight.w800 : FontWeight.w600,
+                          fontSize: 11,
+                        ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

@@ -27,3 +27,26 @@ class Opportunity(Base):
     status: Mapped[str] = mapped_column(String, default="open", nullable=False)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class OpportunityFeedback(Base):
+    """Legacy feedback rows retained for lossless historical upgrades.
+
+    New product flows no longer write this table, but it was part of the 0001
+    schema.  Keeping it in metadata makes the preservation decision explicit
+    and prevents reconciliation from silently dropping user history.
+    """
+
+    __tablename__ = "opportunity_feedbacks"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        ForeignKey("opportunities.id", ondelete="CASCADE")
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE")
+    )
+    feedback_value: Mapped[str] = mapped_column(String)
+    created_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

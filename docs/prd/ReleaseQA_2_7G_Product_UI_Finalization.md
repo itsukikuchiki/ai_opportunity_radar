@@ -1,5 +1,11 @@
 # ReleaseQA-2.7G: Product UI Finalization
 
+> **Superseded historical UI record — 2026-07-12.** This file records an older
+> release surface and timing model. Current page responsibilities and user-facing
+> states are defined in [`../active/app_design.md`](../active/app_design.md);
+> current visual rules are defined in
+> [`../active/main_tab_ui_standard.md`](../active/main_tab_ui_standard.md).
+
 Status: Engineering implemented and validated.
 
 Scope: product-facing copy, launch/onboarding polish, and Product Review screenshots only. This round does not change purchase, Pro, quota, privacy boundaries, EventKit / HealthKit integration, or Phase 3 data-chain logic.

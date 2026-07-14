@@ -1,4 +1,13 @@
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -7,15 +16,25 @@ from app.models.common import JsonType
 
 class UsageCounter(Base):
     __tablename__ = "usage_counters"
+    __table_args__ = (
+        Index(
+            "uq_usage_counters_user_feature_period",
+            "user_id",
+            "feature_key",
+            "period_type",
+            "period_start",
+            unique=True,
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )
-    feature_key: Mapped[str] = mapped_column(String, index=True)
-    period_type: Mapped[str] = mapped_column(String, index=True)
-    period_start: Mapped[str] = mapped_column(String, index=True)
+    feature_key: Mapped[str] = mapped_column(String)
+    period_type: Mapped[str] = mapped_column(String)
+    period_start: Mapped[str] = mapped_column(String)
     count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     token_input: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     token_output: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

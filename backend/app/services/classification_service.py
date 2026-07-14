@@ -4,8 +4,40 @@ from app.rules.classify_rules import classify_capture
 
 
 class ClassificationService:
+    immediate_risk_phrases = {
+        "想自杀",
+        "要自杀",
+        "不想活了",
+        "结束生命",
+        "伤害自己",
+        "杀了自己",
+        "想杀人",
+        "伤害别人",
+        "今すぐ死にたい",
+        "自殺したい",
+        "自分を傷つける",
+        "kill myself",
+        "suicide now",
+        "end my life",
+        "hurt myself",
+        "hurt someone",
+    }
+
     def classify_capture(self, content: str, tag_hint: str | None = None) -> dict:
         return classify_capture(content, tag_hint)
+
+    def is_immediate_safety_risk(self, content: str) -> bool:
+        normalized = (content or "").strip().lower()
+        return bool(normalized) and any(
+            phrase in normalized for phrase in self.immediate_risk_phrases
+        )
+
+    def immediate_safety_acknowledgement(self) -> str:
+        return (
+            "我很在意你刚才这句话。若你现在可能马上伤害自己或他人，"
+            "请先离开危险物品并联系当地紧急服务，或立刻联系一个能到你身边的可信任的人。"
+            "如果可以，只回复我：你现在是否处于立即危险中？"
+        )
 
     def generate_acknowledgement(
         self,

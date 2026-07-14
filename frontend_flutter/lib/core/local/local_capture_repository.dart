@@ -3,8 +3,11 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
+import '../debug/legacy_fallback_monitor.dart';
 import '../models/today_models.dart';
+import 'local_cache_invalidation_repository.dart';
 import 'local_database.dart';
+import 'local_trace_link_repository.dart';
 
 class LocalCaptureRepository {
   final LocalDatabase localDatabase;
@@ -150,13 +153,12 @@ class LocalCaptureRepository {
   Future<List<RecentSignalModel>> listTodaySignalCards() async {
     final db = await localDatabase.database;
     await mirrorLegacyCapturesToSignalCards();
+    await _backfillSplitTablesFromSignalCards(db);
 
     final todayKey = _dateKey(DateTime.now());
-    final rows = await db.query(
-      'signal_cards',
-      where: 'local_date = ?',
-      whereArgs: [todayKey],
-      orderBy: 'created_at DESC',
+    final rows = await db.rawQuery(
+      '${_signalCardSelectSql()} WHERE sc.local_date = ? ORDER BY sc.created_at DESC',
+      [todayKey],
     );
 
     return rows.map(_mapSignalCardRowToSignal).toList();
@@ -165,11 +167,33 @@ class LocalCaptureRepository {
   Future<List<RecentSignalModel>> listSignalCards({int limit = 200}) async {
     final db = await localDatabase.database;
     await mirrorLegacyCapturesToSignalCards();
+    await _backfillSplitTablesFromSignalCards(db);
 
-    final rows = await db.query(
-      'signal_cards',
-      orderBy: 'local_date DESC, created_at DESC',
-      limit: limit,
+    final rows = await db.rawQuery(
+      '${_signalCardSelectSql()} ORDER BY sc.local_date DESC, sc.created_at DESC LIMIT ?',
+      [limit],
+    );
+
+    return rows.map(_mapSignalCardRowToSignal).toList();
+  }
+
+  Future<List<RecentSignalModel>> listSignalCardsBetween({
+    required String startDate,
+    required String endDate,
+    int limit = 2000,
+  }) async {
+    final db = await localDatabase.database;
+    await mirrorLegacyCapturesToSignalCards();
+    await _backfillSplitTablesFromSignalCards(db);
+
+    final rows = await db.rawQuery(
+      '''
+      ${_signalCardSelectSql()}
+      WHERE sc.local_date >= ? AND sc.local_date <= ?
+      ORDER BY sc.local_date ASC, sc.created_at ASC
+      LIMIT ?
+      ''',
+      [startDate, endDate, limit],
     );
 
     return rows.map(_mapSignalCardRowToSignal).toList();
@@ -187,6 +211,7 @@ class LocalCaptureRepository {
     final now = DateTime.now();
     final nowUtc = now.toUtc();
     final draftId = 'draft_${_uuid.v4().replaceAll('-', '').substring(0, 12)}';
+    final clientId = draftId;
     final localDate = _dateKey(now);
     final tz = timezone ?? now.timeZoneName;
 
@@ -194,6 +219,7 @@ class LocalCaptureRepository {
       'signal_card_drafts',
       {
         'draft_id': draftId,
+        'client_id': clientId,
         'raw_text': content,
         'source_type': sourceType,
         'tag_hint': tagHint,
@@ -205,6 +231,7 @@ class LocalCaptureRepository {
         'retry_count': 0,
         'last_error': null,
         'remote_signal_card_id': null,
+        'server_id': null,
         'updated_at': nowUtc.toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -215,6 +242,8 @@ class LocalCaptureRepository {
       {
         'id': draftId,
         'signal_card_id': null,
+        'client_id': clientId,
+        'server_id': null,
         'raw_memory_id': null,
         'capture_id': null,
         'source_type': sourceType,
@@ -223,7 +252,7 @@ class LocalCaptureRepository {
         'local_date': localDate,
         'timezone': tz,
         'language': language,
-        'ai_reply': _localDraftReply(language),
+        'ai_reply': _localDraftReply(language, content),
         'observation': null,
         'try_next': null,
         'emotion': null,
@@ -253,6 +282,29 @@ class LocalCaptureRepository {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    await _upsertProcessingState(
+      db,
+      signalId: draftId,
+      syncStatus: 'pending',
+      isLocalDraft: true,
+      syncFailed: false,
+      updatedAt: nowUtc.toIso8601String(),
+    );
+    await _upsertAnalysisPolicy(
+      db,
+      signalId: draftId,
+      privacyLevel: 'private',
+      userConfirmation: 'unconfirmed',
+      updatedAt: nowUtc.toIso8601String(),
+    );
+    await _upsertSyncIdentity(
+      db,
+      clientId: clientId,
+      serverId: null,
+      localSignalId: draftId,
+      syncStatus: 'pending',
+      updatedAt: nowUtc.toIso8601String(),
+    );
 
     final rows = await db.query(
       'signal_cards',
@@ -263,45 +315,299 @@ class LocalCaptureRepository {
     return _mapSignalCardRowToSignal(rows.first);
   }
 
-  String _localDraftReply(String language) {
-    switch (language) {
-      case 'zh-Hans':
-        return '已先保存在本机，网络恢复后会同步。';
-      case 'zh-Hant':
-        return '已先保存在本機，網路恢復後會同步。';
-      case 'ja':
-        return '端末に保存しました。ネットワークが戻ると同期できます。';
-      default:
-        return 'Saved on this device. It can sync when the network returns.';
-    }
-  }
-
-  Future<void> upsertRemoteSignalCards(List<RecentSignalModel> signals) async {
+  Future<RecentSignalModel> insertConfirmedSignalCard({
+    required String content,
+    String? signalCardId,
+    String sourceType = 'ai_predicted',
+    String language = 'en',
+    String? acknowledgement,
+    String? observation,
+    String? tryNext,
+    String? scene,
+    String? friction,
+    String? positiveSignal,
+    String? energyLoad,
+    List<String> sceneTags = const [],
+    List<String> intentTags = const [],
+    Map<String, dynamic> rawPayloadJson = const {},
+    String userConfirmation = 'confirmed',
+    Map<String, dynamic> userCorrectionJson = const {},
+    bool includedInSummary = true,
+    bool includedInWeekly = true,
+    bool includedInJourney = true,
+  }) async {
     final db = await localDatabase.database;
-    final batch = db.batch();
-    final now = DateTime.now().toUtc().toIso8601String();
+    final now = DateTime.now();
+    final nowUtc = now.toUtc();
+    final id = signalCardId?.trim().isNotEmpty == true
+        ? signalCardId!.trim()
+        : 'sig_${_uuid.v4().replaceAll('-', '').substring(0, 12)}';
+    final localDate = _dateKey(now);
+    final existing = await db.query(
+      'signal_cards',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    final createdAt = existing.isEmpty
+        ? nowUtc.toIso8601String()
+        : existing.first['created_at'] as String? ?? nowUtc.toIso8601String();
 
-    for (final signal in signals) {
-      final stableId = signal.signalCardId ?? signal.id;
-      if (stableId == null || stableId.trim().isEmpty) continue;
-      batch.insert(
-        'signal_cards',
-        _signalToDbRow(signal, stableId, now),
-        conflictAlgorithm: ConflictAlgorithm.replace,
+    await db.insert(
+      'signal_cards',
+      {
+        'id': id,
+        'signal_card_id': id,
+        'client_id': id,
+        'server_id': id,
+        'raw_memory_id': null,
+        'capture_id': null,
+        'source_type': sourceType,
+        'raw_text': content,
+        'created_at': createdAt,
+        'local_date': localDate,
+        'timezone': now.timeZoneName,
+        'language': language,
+        'ai_reply': acknowledgement,
+        'observation': observation,
+        'try_next': tryNext,
+        'emotion': null,
+        'intensity': null,
+        'scene': scene,
+        'friction': friction,
+        'positive_signal': positiveSignal,
+        'energy_load': energyLoad,
+        'linked_life_chain_stage': '[]',
+        'raw_payload_json':
+            rawPayloadJson.isEmpty ? null : jsonEncode(rawPayloadJson),
+        'scene_tags_json': sceneTags.isEmpty ? null : jsonEncode(sceneTags),
+        'intent_tags_json': intentTags.isEmpty ? null : jsonEncode(intentTags),
+        'user_confirmation': userConfirmation,
+        'user_correction_json': jsonEncode(userCorrectionJson),
+        'included_in_summary': includedInSummary ? 1 : 0,
+        'included_in_weekly': includedInWeekly ? 1 : 0,
+        'included_in_journey': includedInJourney ? 1 : 0,
+        'privacy_level': 'private',
+        'is_legacy': 0,
+        'migration_status': 'native',
+        'is_local_draft': 0,
+        'sync_failed': 0,
+        'sync_status': 'local_only',
+        'last_error': null,
+        'updated_at': nowUtc.toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await _upsertProcessingState(
+      db,
+      signalId: id,
+      syncStatus: 'local_only',
+      isLocalDraft: false,
+      syncFailed: false,
+      includedInSummary: includedInSummary,
+      includedInWeekly: includedInWeekly,
+      includedInJourney: includedInJourney,
+      updatedAt: nowUtc.toIso8601String(),
+    );
+    await _upsertAnalysisPolicy(
+      db,
+      signalId: id,
+      privacyLevel: 'private',
+      userConfirmation: userConfirmation,
+      updatedAt: nowUtc.toIso8601String(),
+    );
+    await _upsertSyncIdentity(
+      db,
+      clientId: id,
+      serverId: id,
+      localSignalId: id,
+      syncStatus: 'local_only',
+      updatedAt: nowUtc.toIso8601String(),
+    );
+
+    final changed = existing.isEmpty ||
+        _candidateSourceFingerprint(existing.first) !=
+            _candidateSourceFingerprint({
+              'id': id,
+              'signal_card_id': id,
+              'raw_text': content,
+              'local_date': localDate,
+              'user_confirmation': userConfirmation,
+              'privacy_level': 'private',
+              'is_local_draft': 0,
+              'sync_failed': 0,
+            });
+    if (changed) {
+      await _propagateSignalChanges(
+        [
+          if (existing.isNotEmpty) existing.first,
+          {
+            'id': id,
+            'signal_card_id': id,
+            'local_date': localDate,
+          },
+        ],
+        reason: existing.isEmpty ? 'signal_added' : 'signal_content_changed',
       );
     }
 
-    await batch.commit(noResult: true);
+    final rows = await db.query(
+      'signal_cards',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    return _mapSignalCardRowToSignal(rows.first);
+  }
+
+  String _localDraftReply(String language, String content) {
+    final trimmed = content.trim();
+    final isZhHans = language == 'zh-Hans';
+    final isZhHant = language == 'zh-Hant';
+    if (trimmed.contains('累') ||
+        trimmed.contains('疲') ||
+        trimmed.contains('耗')) {
+      if (isZhHans) return '这更像一条能量信号，今天先把动作放轻一点。';
+      if (isZhHant) return '這更像一條能量信號，今天先把動作放輕一點。';
+    }
+    if (trimmed.contains('睡') || trimmed.contains('休息')) {
+      if (isZhHans) return '这可能在指向恢复，可以留意它是否反复出现。';
+      if (isZhHant) return '這可能在指向恢復，可以留意它是否反覆出現。';
+    }
+    switch (language) {
+      case 'zh-Hans':
+        return '这是今天的一条生活信号。';
+      case 'zh-Hant':
+        return '這是今天的一條生活信號。';
+      case 'ja':
+        return 'これは今日の小さな生活シグナルです。';
+      default:
+        return 'This is one small signal from today.';
+    }
+  }
+
+  Future<void> upsertRemoteSignalCards(
+    List<RecentSignalModel> signals, {
+    bool restoreTombstoned = false,
+  }) async {
+    final db = await localDatabase.database;
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    for (final signal in signals) {
+      final serverId = (signal.signalCardId ?? signal.id)?.trim();
+      if (serverId == null || serverId.isEmpty) continue;
+      final clientId = _clientIdForRemoteSignal(signal) ?? serverId;
+      final stableId = await _resolveLocalSignalIdForRemote(
+        db,
+        clientId: clientId,
+        serverId: serverId,
+      );
+      final tombstoneRows = await _activeTombstonesForRemote(
+        db,
+        stableId: stableId,
+        serverId: serverId,
+        clientId: clientId,
+      );
+      if (tombstoneRows.isNotEmpty && !restoreTombstoned) {
+        continue;
+      }
+      final existing = await db.query(
+        'signal_cards',
+        where: 'id = ?',
+        whereArgs: [stableId],
+        limit: 1,
+      );
+      final row = _mergeRemoteSignalRow(
+        existing.isEmpty ? null : existing.first,
+        _signalToDbRow(signal, stableId, now,
+            clientId: clientId, serverId: serverId),
+      );
+      final sourceChanged = existing.isEmpty ||
+          _candidateSourceFingerprint(existing.first) !=
+              _candidateSourceFingerprint(row);
+      await db.insert(
+        'signal_cards',
+        row,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await _upsertProcessingState(
+        db,
+        signalId: stableId,
+        syncStatus: 'synced',
+        isLocalDraft: false,
+        syncFailed: false,
+        includedInSummary: signal.includedInSummary,
+        includedInWeekly: signal.includedInWeekly,
+        includedInJourney: signal.includedInJourney,
+        updatedAt: now,
+      );
+      await _upsertAnalysisPolicy(
+        db,
+        signalId: stableId,
+        privacyLevel: signal.privacyLevel,
+        userConfirmation: signal.userConfirmation,
+        updatedAt: now,
+      );
+      await _upsertSyncIdentity(
+        db,
+        clientId: clientId,
+        serverId: serverId,
+        localSignalId: stableId,
+        syncStatus: 'synced',
+        updatedAt: now,
+      );
+      if (tombstoneRows.isNotEmpty) {
+        await _restoreTombstones(
+          db,
+          tombstoneRows: tombstoneRows,
+          restoredAt: now,
+        );
+        await _propagateSignalChanges(
+          [
+            {
+              'id': stableId,
+              'signal_card_id': serverId,
+              'local_date': signal.localDateKey(),
+            }
+          ],
+          reason: 'signal_restored',
+        );
+      } else if (sourceChanged) {
+        await _propagateSignalChanges(
+          [
+            if (existing.isNotEmpty) existing.first,
+            {
+              'id': stableId,
+              'signal_card_id': serverId,
+              'local_date': signal.localDateKey(),
+            },
+          ],
+          reason: existing.isEmpty ? 'signal_added' : 'signal_content_changed',
+        );
+      }
+    }
   }
 
   Future<List<Map<String, Object?>>> listPendingDraftRows() async {
     final db = await localDatabase.database;
-    return db.query(
-      'signal_card_drafts',
-      where: 'status = ? OR status = ?',
-      whereArgs: ['pending', 'failed'],
-      orderBy: 'created_at ASC',
+    final rows = await db.rawQuery(
+      '''
+      SELECT d.*, sc.raw_payload_json AS raw_payload_json
+      FROM signal_card_drafts d
+      LEFT JOIN signal_cards sc ON sc.id = d.draft_id
+      WHERE d.status = ? OR d.status = ?
+      ORDER BY d.created_at ASC
+      ''',
+      ['pending', 'failed'],
     );
+    return rows
+        .map(
+          (row) => <String, Object?>{
+            ...row,
+            'raw_payload_json': _decodeJsonMap(row['raw_payload_json']),
+          },
+        )
+        .toList(growable: false);
   }
 
   Future<void> markDraftSynced({
@@ -315,6 +621,7 @@ class LocalCaptureRepository {
       {
         'status': 'synced',
         'remote_signal_card_id': remoteSignalCardId,
+        'server_id': remoteSignalCardId,
         'last_error': null,
         'updated_at': now,
       },
@@ -332,6 +639,44 @@ class LocalCaptureRepository {
       },
       where: 'id = ?',
       whereArgs: [draftId],
+    );
+    await _upsertSyncIdentity(
+      db,
+      clientId: draftId,
+      serverId: null,
+      localSignalId: draftId,
+      syncStatus: 'failed',
+      updatedAt: now,
+    );
+    await _upsertProcessingState(
+      db,
+      signalId: draftId,
+      syncStatus: 'synced',
+      isLocalDraft: remoteSignalCardId == null,
+      syncFailed: false,
+      lastError: null,
+      updatedAt: now,
+    );
+    final draftRows = await db.query(
+      'signal_card_drafts',
+      columns: ['client_id'],
+      where: 'draft_id = ?',
+      whereArgs: [draftId],
+      limit: 1,
+    );
+    final clientId = (draftRows.isEmpty
+            ? null
+            : draftRows.first['client_id']?.toString().trim()) ??
+        draftId;
+    await _upsertSyncIdentity(
+      db,
+      clientId: clientId.isEmpty ? draftId : clientId,
+      serverId: remoteSignalCardId,
+      localSignalId: remoteSignalCardId?.trim().isNotEmpty == true
+          ? remoteSignalCardId!.trim()
+          : draftId,
+      syncStatus: remoteSignalCardId == null ? 'pending' : 'synced',
+      updatedAt: now,
     );
     if (remoteSignalCardId != null && remoteSignalCardId.trim().isNotEmpty) {
       await db.delete(
@@ -367,6 +712,15 @@ class LocalCaptureRepository {
       where: 'id = ?',
       whereArgs: [draftId],
     );
+    await _upsertProcessingState(
+      db,
+      signalId: draftId,
+      syncStatus: 'failed',
+      isLocalDraft: true,
+      syncFailed: true,
+      lastError: error,
+      updatedAt: now,
+    );
   }
 
   Future<void> updateSignalCardConfirmation({
@@ -375,6 +729,7 @@ class LocalCaptureRepository {
     required Map<String, dynamic> userCorrectionJson,
   }) async {
     final db = await localDatabase.database;
+    final affectedBefore = await _affectedSignalRows(db, [signalCardId]);
     await db.update(
       'signal_cards',
       {
@@ -384,6 +739,122 @@ class LocalCaptureRepository {
       },
       where: 'id = ? OR signal_card_id = ?',
       whereArgs: [signalCardId, signalCardId],
+    );
+    final resolvedIds = await _resolveSignalIds(db, [signalCardId]);
+    final now = DateTime.now().toUtc().toIso8601String();
+    for (final id in resolvedIds) {
+      await _upsertAnalysisPolicy(
+        db,
+        signalId: id,
+        userConfirmation: userConfirmation,
+        updatedAt: now,
+      );
+      if (userConfirmation == 'inaccurate') {
+        await LocalTraceLinkRepository(localDatabase).markInactiveForTarget(
+          targetType: 'signal_card',
+          targetId: id,
+        );
+      }
+    }
+    await _propagateSignalChanges(
+      affectedBefore,
+      reason: userConfirmation == 'inaccurate'
+          ? 'signal_marked_inaccurate'
+          : 'signal_confirmation_changed',
+    );
+  }
+
+  Future<void> updateSignalCardPrivacy({
+    required String signalCardId,
+    required String privacyLevel,
+  }) async {
+    final normalized = privacyLevel.trim().isEmpty
+        ? 'private'
+        : privacyLevel.trim().toLowerCase();
+    final db = await localDatabase.database;
+    final affectedBefore = await _affectedSignalRows(db, [signalCardId]);
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.update(
+      'signal_cards',
+      {
+        'privacy_level': normalized,
+        'updated_at': now,
+      },
+      where: 'id = ? OR signal_card_id = ?',
+      whereArgs: [signalCardId, signalCardId],
+    );
+    final resolvedIds = await _resolveSignalIds(db, [signalCardId]);
+    for (final id in resolvedIds) {
+      await _upsertAnalysisPolicy(
+        db,
+        signalId: id,
+        privacyLevel: normalized,
+        updatedAt: now,
+      );
+      if (_isPrivacyExcluded(normalized)) {
+        await LocalTraceLinkRepository(localDatabase).markInactiveForTarget(
+          targetType: 'signal_card',
+          targetId: id,
+        );
+      }
+    }
+    await _propagateSignalChanges(
+      affectedBefore,
+      reason: _isPrivacyExcluded(normalized)
+          ? 'signal_privacy_excluded'
+          : 'signal_privacy_changed',
+    );
+  }
+
+  Future<void> deleteSignalCard(
+    String signalCardId, {
+    String reason = 'user_deleted',
+  }) async {
+    final db = await localDatabase.database;
+    final affectedBefore = await _affectedSignalRows(db, [signalCardId]);
+    final resolvedIds = await _resolveSignalIds(db, [signalCardId]);
+    final idsToDelete = {
+      signalCardId,
+      for (final row in affectedBefore) ...[
+        if ((row['id'] as String?)?.trim().isNotEmpty == true)
+          row['id'] as String,
+        if ((row['signal_card_id'] as String?)?.trim().isNotEmpty == true)
+          row['signal_card_id'] as String,
+      ],
+      ...resolvedIds,
+    };
+    await _writeTombstones(
+      db,
+      affectedRows: affectedBefore,
+      fallbackSignalId: signalCardId,
+      reason: reason,
+    );
+    for (final id in idsToDelete) {
+      await LocalTraceLinkRepository(localDatabase).markInactiveForTarget(
+        targetType: 'signal_card',
+        targetId: id,
+      );
+    }
+    await db.delete(
+      'signal_cards',
+      where: 'id = ? OR signal_card_id = ?',
+      whereArgs: [signalCardId, signalCardId],
+    );
+    await db.delete(
+      'signal_processing_state',
+      where:
+          'signal_id IN (${List.filled(idsToDelete.length, '?').join(', ')})',
+      whereArgs: idsToDelete.toList(),
+    );
+    await db.delete(
+      'signal_analysis_policy',
+      where:
+          'signal_id IN (${List.filled(idsToDelete.length, '?').join(', ')})',
+      whereArgs: idsToDelete.toList(),
+    );
+    await _propagateSignalChanges(
+      affectedBefore,
+      reason: 'signal_deleted',
     );
   }
 
@@ -422,11 +893,25 @@ class LocalCaptureRepository {
       where: 'id IN ($placeholders) OR signal_card_id IN ($placeholders)',
       whereArgs: [...ids, ...ids],
     );
+    final resolvedIds = await _resolveSignalIds(db, ids);
+    for (final id in resolvedIds) {
+      await _upsertProcessingState(
+        db,
+        signalId: id,
+        includedInSummary: includedInSummary,
+        includedInWeekly: includedInWeekly,
+        includedInJourney: includedInJourney,
+        updatedAt: values['updated_at'] as String,
+      );
+    }
   }
 
   Future<void> mirrorLegacyCapturesToSignalCards() async {
     final db = await localDatabase.database;
     final rows = await db.query('captures', orderBy: 'created_at DESC');
+    if (rows.isNotEmpty) {
+      LegacyFallbackMonitor.record(LegacyFallbackMonitor.capturesMirror);
+    }
     final batch = db.batch();
     for (final row in rows) {
       final id = row['id'] as String?;
@@ -439,6 +924,8 @@ class LocalCaptureRepository {
         {
           'id': 'legacy_$id',
           'signal_card_id': null,
+          'client_id': 'legacy_$id',
+          'server_id': null,
           'raw_memory_id': id,
           'capture_id': id,
           'source_type': _sourceTypeFromInputMode(row['input_mode'] as String?),
@@ -478,6 +965,8 @@ class LocalCaptureRepository {
       );
     }
     await batch.commit(noResult: true);
+    await _backfillSplitTablesFromSignalCards(db);
+    await _backfillSyncIdentityFromSignalCards(db);
   }
 
   Future<List<RecentSignalModel>> listRecentSignals({int limit = 10}) async {
@@ -488,6 +977,9 @@ class LocalCaptureRepository {
       orderBy: 'created_at DESC',
       limit: limit,
     );
+    if (rows.isNotEmpty) {
+      LegacyFallbackMonitor.record(LegacyFallbackMonitor.capturesRawRead);
+    }
 
     return rows.map(_mapRowToSignal).toList();
   }
@@ -531,6 +1023,8 @@ class LocalCaptureRepository {
     return RecentSignalModel(
       id: row['raw_memory_id'] as String? ?? row['id'] as String?,
       signalCardId: row['signal_card_id'] as String? ?? row['id'] as String?,
+      clientId: row['client_id'] as String?,
+      serverId: row['server_id'] as String? ?? row['signal_card_id'] as String?,
       sourceType: (row['source_type'] as String?) ?? 'text',
       content: (row['raw_text'] as String?) ?? '',
       createdAt:
@@ -553,25 +1047,631 @@ class LocalCaptureRepository {
       intentTags: _decodeJsonStringList(row['intent_tags_json']),
       userConfirmation: (row['user_confirmation'] as String?) ?? 'unconfirmed',
       userCorrectionJson: _decodeJsonMap(row['user_correction_json']),
-      includedInSummary: _intBool(row['included_in_summary']),
-      includedInWeekly: _intBool(row['included_in_weekly']),
-      includedInJourney: _intBool(row['included_in_journey']),
-      privacyLevel: (row['privacy_level'] as String?) ?? 'private',
+      includedInSummary: _stageIncluded(
+        row['processing_daily_status'],
+        row['included_in_summary'],
+      ),
+      includedInWeekly: _stageIncluded(
+        row['processing_weekly_status'],
+        row['included_in_weekly'],
+      ),
+      includedInJourney: _stageIncluded(
+        row['processing_journey_status'],
+        row['included_in_journey'],
+      ),
+      privacyLevel: _privacyLevelFromRow(row),
       isLegacy: _intBool(row['is_legacy']),
       migrationStatus: (row['migration_status'] as String?) ?? 'native',
-      isLocalDraft: _intBool(row['is_local_draft']),
-      syncFailed: _intBool(row['sync_failed']),
+      isLocalDraft:
+          _intBool(row['processing_is_local_draft'] ?? row['is_local_draft']),
+      syncFailed: _intBool(row['processing_sync_failed'] ?? row['sync_failed']),
     );
+  }
+
+  String _signalCardSelectSql() {
+    return '''
+      SELECT
+        sc.*,
+        sps.sync_status AS processing_sync_status,
+        sps.daily_status AS processing_daily_status,
+        sps.weekly_status AS processing_weekly_status,
+        sps.journey_status AS processing_journey_status,
+        sps.is_local_draft AS processing_is_local_draft,
+        sps.sync_failed AS processing_sync_failed,
+        sap.privacy_level AS policy_privacy_level,
+        sap.inaccurate AS policy_inaccurate
+      FROM signal_cards sc
+      LEFT JOIN signal_processing_state sps ON sps.signal_id = sc.id
+      LEFT JOIN signal_analysis_policy sap ON sap.signal_id = sc.id
+    ''';
+  }
+
+  bool _stageIncluded(Object? stageStatus, Object? legacyIncluded) {
+    final status = stageStatus?.toString().trim().toLowerCase();
+    if (status == 'included' || status == 'processed') return true;
+    if (status == 'excluded' || status == 'dirty') return false;
+    if (legacyIncluded != null) {
+      LegacyFallbackMonitor.record(
+        LegacyFallbackMonitor.signalInclusionField,
+      );
+    }
+    return _intBool(legacyIncluded);
+  }
+
+  String _privacyLevelFromRow(Map<String, Object?> row) {
+    final policyPrivacy = (row['policy_privacy_level'] as String?)?.trim();
+    if (policyPrivacy != null && policyPrivacy.isNotEmpty) {
+      return policyPrivacy;
+    }
+    final legacyPrivacy = (row['privacy_level'] as String?)?.trim();
+    if (legacyPrivacy != null && legacyPrivacy.isNotEmpty) {
+      LegacyFallbackMonitor.record(LegacyFallbackMonitor.signalPrivacyField);
+      return legacyPrivacy;
+    }
+    return 'private';
+  }
+
+  Future<void> _backfillSplitTablesFromSignalCards(Database db) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.rawInsert(
+      '''
+      INSERT OR IGNORE INTO signal_processing_state (
+        signal_id,
+        sync_status,
+        daily_status,
+        weekly_status,
+        journey_status,
+        is_local_draft,
+        sync_failed,
+        last_error,
+        created_at,
+        updated_at
+      )
+      SELECT
+        id,
+        COALESCE(sync_status, 'synced'),
+        CASE WHEN included_in_summary = 1 THEN 'included' ELSE 'not_started' END,
+        CASE WHEN included_in_weekly = 1 THEN 'included' ELSE 'not_started' END,
+        CASE WHEN included_in_journey = 1 THEN 'included' ELSE 'not_started' END,
+        COALESCE(is_local_draft, 0),
+        COALESCE(sync_failed, 0),
+        last_error,
+        ?,
+        COALESCE(updated_at, ?)
+      FROM signal_cards
+      ''',
+      [now, now],
+    );
+    await db.rawInsert(
+      '''
+      INSERT OR IGNORE INTO signal_analysis_policy (
+        signal_id,
+        privacy_level,
+        is_sensitive,
+        is_excluded,
+        do_not_analyze,
+        confirmed_by_user,
+        inaccurate,
+        exclusion_reason,
+        updated_at
+      )
+      SELECT
+        id,
+        COALESCE(privacy_level, 'private'),
+        CASE WHEN privacy_level = 'sensitive' THEN 1 ELSE 0 END,
+        CASE WHEN privacy_level = 'excluded' THEN 1 ELSE 0 END,
+        CASE WHEN privacy_level = 'do_not_analyze' THEN 1 ELSE 0 END,
+        CASE WHEN user_confirmation IN ('confirmed', 'edited', 'supplemented') THEN 1 ELSE 0 END,
+        CASE WHEN user_confirmation = 'inaccurate' THEN 1 ELSE 0 END,
+        CASE
+          WHEN user_confirmation = 'inaccurate' THEN 'inaccurate'
+          WHEN privacy_level IN ('sensitive', 'excluded', 'do_not_analyze') THEN privacy_level
+          ELSE NULL
+        END,
+        COALESCE(updated_at, ?)
+      FROM signal_cards
+      ''',
+      [now],
+    );
+  }
+
+  Future<void> _backfillSyncIdentityFromSignalCards(Database db) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.rawUpdate('''
+      UPDATE signal_cards
+      SET
+        client_id = COALESCE(client_id, id),
+        server_id = COALESCE(server_id, signal_card_id)
+      WHERE client_id IS NULL OR server_id IS NULL
+    ''');
+    await db.rawInsert(
+      '''
+      INSERT OR IGNORE INTO signal_sync_identity (
+        client_id,
+        server_id,
+        local_signal_id,
+        sync_status,
+        last_synced_at,
+        created_at,
+        updated_at
+      )
+      SELECT
+        COALESCE(client_id, id),
+        COALESCE(server_id, signal_card_id),
+        id,
+        COALESCE(sync_status, 'synced'),
+        CASE WHEN COALESCE(sync_status, 'synced') = 'synced' THEN COALESCE(updated_at, ?) ELSE NULL END,
+        COALESCE(created_at, ?),
+        COALESCE(updated_at, ?)
+      FROM signal_cards
+      ''',
+      [now, now, now],
+    );
+  }
+
+  Future<Set<String>> _resolveSignalIds(
+    Database db,
+    Iterable<String> signalCardIds,
+  ) async {
+    final ids = signalCardIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (ids.isEmpty) return {};
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final rows = await db.query(
+      'signal_cards',
+      columns: ['id'],
+      where: 'id IN ($placeholders) OR signal_card_id IN ($placeholders)',
+      whereArgs: [...ids, ...ids],
+    );
+    return rows
+        .map((row) => row['id']?.toString().trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+  }
+
+  Future<List<Map<String, Object?>>> _activeTombstonesForRemote(
+    Database db, {
+    required String stableId,
+    required String serverId,
+    required String clientId,
+  }) {
+    return db.query(
+      'signal_tombstones',
+      where: '''
+        status = ?
+        AND (
+          signal_id = ?
+          OR signal_card_id = ?
+          OR server_id = ?
+          OR client_id = ?
+        )
+      ''',
+      whereArgs: ['active', stableId, serverId, serverId, clientId],
+    );
+  }
+
+  Future<void> _writeTombstones(
+    Database db, {
+    required Iterable<Map<String, Object?>> affectedRows,
+    required String fallbackSignalId,
+    required String reason,
+  }) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final rows = affectedRows.toList(growable: false);
+    if (rows.isEmpty) {
+      await db.insert(
+        'signal_tombstones',
+        {
+          'signal_id': fallbackSignalId,
+          'signal_card_id': fallbackSignalId,
+          'client_id': null,
+          'server_id': fallbackSignalId,
+          'local_date': null,
+          'reason': reason,
+          'status': 'active',
+          'deleted_at': now,
+          'restored_at': null,
+          'updated_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      return;
+    }
+
+    for (final row in rows) {
+      final signalId = (row['id'] as String?)?.trim();
+      if (signalId == null || signalId.isEmpty) continue;
+      await db.insert(
+        'signal_tombstones',
+        {
+          'signal_id': signalId,
+          'signal_card_id': row['signal_card_id'] as String?,
+          'client_id': row['client_id'] as String?,
+          'server_id': row['server_id'] as String?,
+          'local_date': row['local_date'] as String?,
+          'reason': reason,
+          'status': 'active',
+          'deleted_at': now,
+          'restored_at': null,
+          'updated_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+  }
+
+  Future<void> _restoreTombstones(
+    Database db, {
+    required Iterable<Map<String, Object?>> tombstoneRows,
+    required String restoredAt,
+  }) async {
+    final ids = tombstoneRows
+        .map((row) => (row['signal_id'] as String?)?.trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (ids.isEmpty) return;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.update(
+      'signal_tombstones',
+      {
+        'status': 'restored',
+        'restored_at': restoredAt,
+        'updated_at': restoredAt,
+      },
+      where: 'signal_id IN ($placeholders)',
+      whereArgs: ids.toList(),
+    );
+  }
+
+  Future<List<Map<String, Object?>>> _affectedSignalRows(
+    Database db,
+    Iterable<String> signalCardIds,
+  ) async {
+    final ids = signalCardIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (ids.isEmpty) return const [];
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    return db.query(
+      'signal_cards',
+      columns: ['id', 'signal_card_id', 'client_id', 'server_id', 'local_date'],
+      where: 'id IN ($placeholders) OR signal_card_id IN ($placeholders)',
+      whereArgs: [...ids, ...ids],
+    );
+  }
+
+  Future<void> _propagateSignalChanges(
+    Iterable<Map<String, Object?>> affectedRows, {
+    required String reason,
+  }) async {
+    final rows = affectedRows.toList(growable: false);
+    if (rows.isEmpty) return;
+    final ids = <String>{
+      for (final row in rows)
+        if ((row['id'] as String?)?.trim().isNotEmpty == true)
+          row['id'] as String,
+      for (final row in rows)
+        if ((row['signal_card_id'] as String?)?.trim().isNotEmpty == true)
+          row['signal_card_id'] as String,
+    };
+    final dates = <String>{
+      for (final row in rows)
+        if ((row['local_date'] as String?)?.trim().isNotEmpty == true)
+          row['local_date'] as String,
+    };
+    for (final localDate in dates) {
+      await LocalCacheInvalidationRepository(localDatabase).markSignalChanged(
+        localDate: localDate,
+        reason: reason,
+        signalIds: ids,
+      );
+    }
+  }
+
+  String _candidateSourceFingerprint(Map<String, Object?> row) {
+    return [
+      row['raw_text']?.toString().trim() ?? '',
+      row['local_date']?.toString().trim() ?? '',
+      row['user_confirmation']?.toString().trim() ?? '',
+      row['privacy_level']?.toString().trim() ?? '',
+      row['is_local_draft']?.toString() ?? '0',
+      row['sync_failed']?.toString() ?? '0',
+    ].join('|');
+  }
+
+  bool _isPrivacyExcluded(String privacyLevel) {
+    return privacyLevel == 'sensitive' ||
+        privacyLevel == 'excluded' ||
+        privacyLevel == 'do_not_analyze';
+  }
+
+  Future<void> _upsertProcessingState(
+    Database db, {
+    required String signalId,
+    String? syncStatus,
+    bool? isLocalDraft,
+    bool? syncFailed,
+    bool? includedInSummary,
+    bool? includedInWeekly,
+    bool? includedInJourney,
+    String? lastError,
+    required String updatedAt,
+  }) async {
+    final existing = await db.query(
+      'signal_processing_state',
+      where: 'signal_id = ?',
+      whereArgs: [signalId],
+      limit: 1,
+    );
+    String stage(bool? included) {
+      if (included == null) return 'not_started';
+      return included ? 'included' : 'not_started';
+    }
+
+    final values = <String, Object?>{
+      'signal_id': signalId,
+      'sync_status': syncStatus ?? 'synced',
+      'assist_status': 'not_started',
+      'reason_status': 'not_started',
+      'daily_status': stage(includedInSummary),
+      'weekly_status': stage(includedInWeekly),
+      'journey_status': stage(includedInJourney),
+      'is_local_draft': (isLocalDraft ?? false) ? 1 : 0,
+      'sync_failed': (syncFailed ?? false) ? 1 : 0,
+      'last_error': lastError,
+      'retry_count': 0,
+      'processing_version': 'v4_p0_02',
+      'last_processed_at': null,
+      'created_at': updatedAt,
+      'updated_at': updatedAt,
+    };
+
+    if (existing.isEmpty) {
+      await db.insert(
+        'signal_processing_state',
+        values,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      return;
+    }
+
+    final updates = <String, Object?>{
+      'updated_at': updatedAt,
+    };
+    if (syncStatus != null) updates['sync_status'] = syncStatus;
+    if (isLocalDraft != null) updates['is_local_draft'] = isLocalDraft ? 1 : 0;
+    if (syncFailed != null) updates['sync_failed'] = syncFailed ? 1 : 0;
+    if (lastError != null || syncFailed == false) {
+      updates['last_error'] = lastError;
+    }
+    if (includedInSummary != null) {
+      updates['daily_status'] = stage(includedInSummary);
+    }
+    if (includedInWeekly != null) {
+      updates['weekly_status'] = stage(includedInWeekly);
+    }
+    if (includedInJourney != null) {
+      updates['journey_status'] = stage(includedInJourney);
+    }
+
+    await db.update(
+      'signal_processing_state',
+      updates,
+      where: 'signal_id = ?',
+      whereArgs: [signalId],
+    );
+  }
+
+  Future<void> _upsertAnalysisPolicy(
+    Database db, {
+    required String signalId,
+    String? privacyLevel,
+    String? userConfirmation,
+    required String updatedAt,
+  }) async {
+    final existing = await db.query(
+      'signal_analysis_policy',
+      where: 'signal_id = ?',
+      whereArgs: [signalId],
+      limit: 1,
+    );
+    final signalRows = await db.query(
+      'signal_cards',
+      columns: ['privacy_level', 'user_confirmation'],
+      where: 'id = ? OR signal_card_id = ?',
+      whereArgs: [signalId, signalId],
+      limit: 1,
+    );
+    final existingPolicy = existing.isEmpty ? null : existing.first;
+    final signalRow = signalRows.isEmpty ? null : signalRows.first;
+    final resolvedPrivacy = privacyLevel ??
+        existingPolicy?['privacy_level'] as String? ??
+        signalRow?['privacy_level'] as String? ??
+        'private';
+    final resolvedConfirmation = userConfirmation ??
+        signalRow?['user_confirmation'] as String? ??
+        (existingPolicy?['confirmed_by_user'] == 1 ? 'confirmed' : null);
+    final inaccurate = resolvedConfirmation == 'inaccurate';
+    final confirmed = const {
+      'confirmed',
+      'edited',
+      'supplemented',
+    }.contains(resolvedConfirmation);
+    final exclusionReason = inaccurate
+        ? 'inaccurate'
+        : _isPrivacyExcluded(resolvedPrivacy)
+            ? resolvedPrivacy
+            : null;
+
+    final insertValues = <String, Object?>{
+      'signal_id': signalId,
+      'privacy_level': resolvedPrivacy,
+      'is_sensitive': resolvedPrivacy == 'sensitive' ? 1 : 0,
+      'is_excluded': resolvedPrivacy == 'excluded' ? 1 : 0,
+      'do_not_analyze': resolvedPrivacy == 'do_not_analyze' ? 1 : 0,
+      'requires_user_confirmation': 0,
+      'confirmed_by_user': confirmed ? 1 : 0,
+      'inaccurate': inaccurate ? 1 : 0,
+      'exclusion_reason': exclusionReason,
+      'updated_at': updatedAt,
+    };
+
+    if (existing.isEmpty) {
+      await db.insert(
+        'signal_analysis_policy',
+        insertValues,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      return;
+    }
+
+    final updates = <String, Object?>{
+      'updated_at': updatedAt,
+    };
+    if (privacyLevel != null) {
+      updates.addAll({
+        'privacy_level': resolvedPrivacy,
+        'is_sensitive': resolvedPrivacy == 'sensitive' ? 1 : 0,
+        'is_excluded': resolvedPrivacy == 'excluded' ? 1 : 0,
+        'do_not_analyze': resolvedPrivacy == 'do_not_analyze' ? 1 : 0,
+      });
+    }
+    if (userConfirmation != null) {
+      updates.addAll({
+        'confirmed_by_user': confirmed ? 1 : 0,
+        'inaccurate': inaccurate ? 1 : 0,
+        'exclusion_reason': exclusionReason,
+      });
+    }
+    if (privacyLevel != null && userConfirmation == null) {
+      updates['exclusion_reason'] = exclusionReason;
+    }
+
+    await db.update(
+      'signal_analysis_policy',
+      updates,
+      where: 'signal_id = ?',
+      whereArgs: [signalId],
+    );
+  }
+
+  Future<void> _upsertSyncIdentity(
+    Database db, {
+    required String clientId,
+    required String? serverId,
+    required String localSignalId,
+    required String syncStatus,
+    required String updatedAt,
+  }) async {
+    await db.insert(
+      'signal_sync_identity',
+      {
+        'client_id': clientId,
+        'server_id': serverId,
+        'local_signal_id': localSignalId,
+        'sync_status': syncStatus,
+        'last_synced_at': syncStatus == 'synced' ? updatedAt : null,
+        'created_at': updatedAt,
+        'updated_at': updatedAt,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<String> _resolveLocalSignalIdForRemote(
+    Database db, {
+    required String clientId,
+    required String serverId,
+  }) async {
+    final byServer = await db.query(
+      'signal_sync_identity',
+      columns: ['local_signal_id'],
+      where: 'server_id = ?',
+      whereArgs: [serverId],
+      limit: 1,
+    );
+    if (byServer.isNotEmpty) {
+      return byServer.first['local_signal_id']?.toString() ?? serverId;
+    }
+
+    final byClient = await db.query(
+      'signal_sync_identity',
+      columns: ['local_signal_id'],
+      where: 'client_id = ?',
+      whereArgs: [clientId],
+      limit: 1,
+    );
+    if (byClient.isNotEmpty) {
+      final localId = byClient.first['local_signal_id']?.toString();
+      if (localId != null && localId.startsWith('draft_')) {
+        return serverId;
+      }
+      return localId ?? serverId;
+    }
+
+    return serverId;
+  }
+
+  String? _clientIdForRemoteSignal(RecentSignalModel signal) {
+    final explicit = signal.rawPayloadJson['client_id'] ??
+        signal.rawPayloadJson['clientId'] ??
+        signal.rawPayloadJson['_client_id'];
+    final text = explicit?.toString().trim();
+    if (text != null && text.isNotEmpty) return text;
+    final modelClientId = signal.clientId?.trim();
+    if (modelClientId != null && modelClientId.isNotEmpty) {
+      return modelClientId;
+    }
+    return null;
+  }
+
+  Map<String, Object?> _mergeRemoteSignalRow(
+    Map<String, Object?>? existing,
+    Map<String, Object?> remote,
+  ) {
+    if (existing == null) return remote;
+    final merged = Map<String, Object?>.from(remote);
+    final localUpdatedAt =
+        DateTime.tryParse(existing['updated_at']?.toString() ?? '');
+    final remoteUpdatedAt =
+        DateTime.tryParse(remote['updated_at']?.toString() ?? '');
+    final localIsNewer = localUpdatedAt != null &&
+        remoteUpdatedAt != null &&
+        localUpdatedAt.isAfter(remoteUpdatedAt);
+    final localConfirmation =
+        existing['user_confirmation']?.toString().trim() ?? '';
+    final hasLocalCorrection =
+        (existing['user_correction_json']?.toString().trim().isNotEmpty ??
+                false) &&
+            existing['user_correction_json'] != '{}';
+
+    if (localIsNewer &&
+        (localConfirmation == 'edited' ||
+            localConfirmation == 'supplemented' ||
+            localConfirmation == 'inaccurate' ||
+            hasLocalCorrection)) {
+      merged['user_confirmation'] = existing['user_confirmation'];
+      merged['user_correction_json'] = existing['user_correction_json'];
+      merged['privacy_level'] = existing['privacy_level'];
+    }
+    return merged;
   }
 
   Map<String, Object?> _signalToDbRow(
     RecentSignalModel signal,
     String stableId,
-    String updatedAt,
-  ) {
+    String updatedAt, {
+    required String clientId,
+    required String serverId,
+  }) {
     return {
       'id': stableId,
-      'signal_card_id': signal.signalCardId,
+      'signal_card_id': serverId,
+      'client_id': clientId,
+      'server_id': serverId,
       'raw_memory_id': signal.id,
       'capture_id': null,
       'source_type': signal.sourceType,

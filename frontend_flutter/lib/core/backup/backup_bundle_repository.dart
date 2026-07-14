@@ -1,10 +1,11 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../debug/legacy_fallback_monitor.dart';
 import '../local/local_database.dart';
 
 class BackupBundleRepository {
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   final LocalDatabase localDatabase;
   final SharedPreferences preferences;
@@ -18,6 +19,7 @@ class BackupBundleRepository {
     required String localUserId,
     required String deviceId,
   }) async {
+    LegacyFallbackMonitor.record(LegacyFallbackMonitor.backupExport);
     final db = await localDatabase.database;
     final tables = <String, List<Map<String, Object?>>>{};
     for (final table in _backupTables) {
@@ -44,6 +46,7 @@ class BackupBundleRepository {
     Map<String, dynamic> bundle, {
     BackupRestoreMode mode = BackupRestoreMode.merge,
   }) async {
+    LegacyFallbackMonitor.record(LegacyFallbackMonitor.backupImport);
     final db = await localDatabase.database;
     final rawTables = bundle['tables'];
     if (rawTables is! Map) {
@@ -116,9 +119,14 @@ class BackupBundleRepository {
 
   Map<String, Object?> _exportPreferences() {
     const keys = [
+      'focus_domain_ids',
+      'selected_focus_domains',
       'repeat_area_preference',
       'selected_repeat_area',
       'response_style_preference',
+      'me_profile_display_name',
+      'me_life_direction',
+      'me_life_direction_created_at',
       'onboarding_completed',
     ];
     return {
@@ -156,10 +164,21 @@ class BackupBundleRepository {
       'cloud_latest_backup_version',
       'local_user_id',
       'device_id',
+      'focus_domain_ids',
+      'selected_focus_domains',
       'repeat_area_preference',
       'selected_repeat_area',
       'response_style_preference',
+      'external_calendar_abstract_hints_json',
+      'external_health_abstract_hints_json',
+      'installation_date',
+      'local_app_started_date',
+      'me_profile_photo_path',
+      'me_profile_display_name',
+      'me_life_direction',
+      'me_life_direction_created_at',
       'onboarding_completed',
+      'onboardingCompleted',
     ];
     for (final key in keys) {
       await preferences.remove(key);
@@ -185,35 +204,69 @@ class BackupRestoreResult {
 const _backupTables = [
   'captures',
   'signal_cards',
+  'signal_tombstones',
+  'signal_sync_identity',
+  'signal_processing_state',
+  'signal_analysis_policy',
   'daily_snapshots',
   'weekly_snapshots',
   'journey_snapshots',
   'monthly_snapshots',
+  'reflection_results',
+  'pipeline_runs',
+  'candidate_groups',
+  'micro_action_candidates',
+  'micro_actions',
+  'micro_action_feedback',
+  'experiment_candidates',
   'life_experiments',
   'life_experiment_strategies',
   'life_experiment_feedback',
+  'life_experiment_lifecycle_events',
+  'life_experiment_rollups',
   'schedule_signals',
   'goals',
   'goal_plans',
   'goal_task_instances',
   'goal_feedback',
+  'ai_judgements',
+  'observations',
+  'observation_signal_links',
+  'trace_links',
   'signal_library_actions',
 ];
 
 const _localDeleteTables = [
   'signal_library_actions',
+  'trace_links',
+  'observation_signal_links',
+  'observations',
+  'ai_judgements',
   'goal_feedback',
   'goal_task_instances',
   'goal_plans',
   'goals',
   'schedule_signals',
+  'life_experiment_rollups',
+  'life_experiment_lifecycle_events',
   'life_experiment_feedback',
   'life_experiment_strategies',
   'life_experiments',
+  'experiment_candidates',
+  'micro_action_feedback',
+  'micro_actions',
+  'micro_action_candidates',
+  'candidate_groups',
+  'pipeline_runs',
+  'reflection_results',
   'monthly_snapshots',
   'journey_snapshots',
   'weekly_snapshots',
   'daily_snapshots',
+  'signal_analysis_policy',
+  'signal_processing_state',
+  'signal_sync_identity',
+  'signal_tombstones',
   'signal_card_drafts',
   'signal_cards',
   'captures',

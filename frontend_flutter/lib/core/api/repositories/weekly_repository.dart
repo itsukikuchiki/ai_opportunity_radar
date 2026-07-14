@@ -1,16 +1,24 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../backup/cloud_backup_sync_service.dart';
+import '../../eligibility/signal_eligibility_service.dart';
 import '../../local/local_capture_repository.dart';
+import '../../local/local_experiment_candidate_repository.dart';
+import '../../local/local_feedback_event_repository.dart';
 import '../../local/local_life_experiment_repository.dart';
+import '../../local/local_pipeline_run_repository.dart';
 import '../../local/local_phase3_plus_repository.dart';
 import '../../local/local_weekly_snapshot_repository.dart';
+import '../../models/feedback_event_models.dart';
 import '../../models/today_models.dart';
 import '../../models/weekly_models.dart';
+import '../../preferences/focus_domains.dart';
+import '../../readiness/report_readiness.dart';
 import 'ai_repository.dart';
 
 typedef WeeklyFocusAreaLoader = Future<String?> Function();
 typedef InstallationDateLoader = Future<DateTime> Function();
+typedef WeeklyNowLoader = DateTime Function();
 
 class WeeklyRepository {
   final LocalCaptureRepository localCaptureRepository;
@@ -22,6 +30,8 @@ class WeeklyRepository {
   final InstallationDateLoader? installationDateLoader;
   final CloudBackupSyncService? cloudBackupSyncService;
   final String localUserId;
+  final SignalEligibilityService eligibilityService;
+  final WeeklyNowLoader nowLoader;
 
   WeeklyRepository({
     required this.localCaptureRepository,
@@ -33,48 +43,58 @@ class WeeklyRepository {
     this.installationDateLoader,
     this.cloudBackupSyncService,
     this.localUserId = 'local',
-  });
+    SignalEligibilityService? eligibilityService,
+    WeeklyNowLoader? nowLoader,
+  })  : eligibilityService =
+            eligibilityService ?? const SignalEligibilityService(),
+        nowLoader = nowLoader ?? DateTime.now;
 
   Future<WeeklyInsightModel> fetchCurrentWeekly() async {
     final installationDate = await _readOrCreateInstallationDate();
-    final today = _dateOnly(DateTime.now());
+    final today = _dateOnly(nowLoader());
     final isFirstDay = _sameDay(installationDate, today);
+    final range = _currentWeekRange();
 
-    final recentSignals = await localCaptureRepository.listSignalCards(
-      limit: 500,
+    final weekRangeSignals =
+        await localCaptureRepository.listSignalCardsBetween(
+      startDate: _dateKey(range.start),
+      endDate: _dateKey(range.end),
     );
 
-    if (isFirstDay && recentSignals.isEmpty) {
+    if (isFirstDay && weekRangeSignals.isEmpty) {
+      final readiness = ReportReadiness.empty(
+        ReportReadinessEvaluator.weeklyRule,
+      );
       return WeeklyInsightModel(
-        weekStart: _dateKey(today.subtract(const Duration(days: 6))),
-        weekEnd: _dateKey(today),
+        weekStart: _dateKey(range.start),
+        weekEnd: _dateKey(range.end),
         status: 'first_day_gate',
         keyInsight: null,
         patterns: const [],
         frictions: const [],
         bestAction: null,
-        opportunitySnapshot: null,
+        opportunitySnapshot: {
+          '_report_readiness': readiness.toMap(),
+        },
         feedbackSubmitted: false,
         chartData: _buildChartDataForEmptyRange(
-          start: today.subtract(const Duration(days: 6)),
-          end: today,
+          start: range.start,
+          end: range.end,
         ),
       );
     }
 
-    final range = _currentWeekRange();
-    final weekRangeSignals = _filterSignalsForRange(
-      recentSignals,
-      range.start,
-      range.end,
-    );
     final weekSignals = _weeklyEligibleSignals(weekRangeSignals);
+    final readiness = const ReportReadinessEvaluator().evaluate(
+      weekSignals,
+      ReportReadinessEvaluator.weeklyRule,
+    );
     final inclusionSummary = _buildInclusionSummary(
       weekRangeSignals: weekRangeSignals,
       eligibleSignals: weekSignals,
     );
 
-    if (weekSignals.isEmpty) {
+    if (!readiness.isReady) {
       return WeeklyInsightModel(
         weekStart: _dateKey(range.start),
         weekEnd: _dateKey(range.end),
@@ -83,7 +103,10 @@ class WeeklyRepository {
         patterns: const [],
         frictions: const [],
         bestAction: null,
-        opportunitySnapshot: null,
+        opportunitySnapshot: {
+          '_weekly_inclusion': inclusionSummary,
+          '_report_readiness': readiness.toMap(),
+        },
         feedbackSubmitted: false,
         chartData: _buildChartDataForEmptyRange(
           start: range.start,
@@ -93,21 +116,29 @@ class WeeklyRepository {
     }
 
     final stats = _buildWeeklyStats(weekSignals);
+    final weekStartKey = _dateKey(range.start);
+    final weekEndKey = _dateKey(range.end);
+    final feedbackEvents = await LocalFeedbackEventRepository(
+      localWeeklySnapshotRepository.localDatabase,
+    ).listActiveBetween(
+      localUserId: localUserId,
+      startDate: weekStartKey,
+      endDate: weekEndKey,
+    );
+    final sourceEntries = [
+      ...stats.entries,
+      ..._feedbackEventEntries(feedbackEvents),
+    ];
     final sourceHash = localWeeklySnapshotRepository.buildSourceHash(
-      entries: stats.entries,
+      entries: sourceEntries,
       dayCounts: stats.dayCounts,
       topTokens: stats.topTokens,
     );
 
-    final weekStartKey = _dateKey(range.start);
-    final phase3PlusSummary = await localPhase3PlusRepository?.summarizeRange(
-      startDate: weekStartKey,
-      endDate: _dateKey(range.end),
-    );
     final phase3ActionReview =
         await localPhase3PlusRepository?.summarizeActionLoop(
       startDate: weekStartKey,
-      endDate: _dateKey(range.end),
+      endDate: weekEndKey,
     );
     final cached = await localWeeklySnapshotRepository.getByWeekStart(
       weekStartKey,
@@ -117,13 +148,21 @@ class WeeklyRepository {
     );
 
     if (cached != null && cachedHash == sourceHash) {
-      return _attachSuggestedExperiment(
-        _withActionReview(
-          _withPhase3PlusSummary(cached, phase3PlusSummary?.toJson()),
-          phase3ActionReview,
+      final hydrated = _withActionReview(
+        _withWeeklySignalEntries(
+          _withFeedbackEventSummary(
+            cached,
+            feedbackEvents,
+          ),
+          stats.entries,
         ),
+        phase3ActionReview,
+      );
+      await _ensureSuggestedExperimentCandidate(
+        hydrated,
         weekSignals: weekSignals,
       );
+      return hydrated;
     }
 
     final focusArea = await _readFocusArea();
@@ -137,8 +176,8 @@ class WeeklyRepository {
     try {
       generated = await aiRepository.generateWeeklySummary(
         weekStart: weekStartKey,
-        weekEnd: _dateKey(range.end),
-        entries: stats.entries,
+        weekEnd: weekEndKey,
+        entries: sourceEntries,
         dayCounts: stats.dayCounts,
         topTokens: stats.topTokens,
         focusArea: focusArea,
@@ -149,7 +188,14 @@ class WeeklyRepository {
         isLightWeekly: isLightWeekly,
         inclusionSummary: inclusionSummary,
       );
-    } catch (_) {
+    } catch (error) {
+      await _recordPipelineFailure(
+        pipelineType: 'reflect_generation',
+        sourceType: 'weekly_snapshot',
+        sourceId: weekStartKey,
+        inputHash: sourceHash,
+        error: error,
+      );
       generated = _buildFallbackWeeklyInsight(
         weekStart: weekStartKey,
         weekEnd: _dateKey(range.end),
@@ -161,10 +207,16 @@ class WeeklyRepository {
 
     await _markIncludedInWeekly(weekSignals);
     generated = _withActionReview(
-      _withPhase3PlusSummary(generated, phase3PlusSummary?.toJson()),
+      _withWeeklySignalEntries(
+        _withFeedbackEventSummary(
+          generated,
+          feedbackEvents,
+        ),
+        stats.entries,
+      ),
       phase3ActionReview,
     );
-    generated = await _attachSuggestedExperiment(
+    await _ensureSuggestedExperimentCandidate(
       generated,
       weekSignals: weekSignals,
     );
@@ -176,13 +228,158 @@ class WeeklyRepository {
     return generated;
   }
 
-  Future<DeepWeeklyModel> fetchDeepWeekly() async {
+  List<Map<String, dynamic>> _feedbackEventEntries(
+    List<FeedbackEventModel> events,
+  ) {
+    return events.map((event) {
+      final content = [
+        event.status,
+        event.effect,
+        event.note,
+        event.metadata['title']?.toString(),
+        event.metadata['next_adjustment']?.toString(),
+      ]
+          .whereType<String>()
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .join(' · ');
+
+      return {
+        'id': event.id,
+        'source_type': event.sourceType,
+        'subject_type': event.subjectType,
+        'subject_id': event.subjectId,
+        'content': content,
+        'created_at': event.createdAt?.toUtc().toIso8601String() ??
+            event.occurredAt?.toUtc().toIso8601String(),
+        'local_date': event.localDate,
+        'feedback_status': event.status,
+        'effect': event.effect,
+        'metadata': event.metadata,
+      };
+    }).toList(growable: false);
+  }
+
+  WeeklyInsightModel _withFeedbackEventSummary(
+    WeeklyInsightModel weekly,
+    List<FeedbackEventModel> feedbackEvents,
+  ) {
+    if (feedbackEvents.isEmpty) return weekly;
+
+    final sourceCounts = <String, int>{};
+    for (final event in feedbackEvents) {
+      sourceCounts[event.sourceType] =
+          (sourceCounts[event.sourceType] ?? 0) + 1;
+    }
+
+    return WeeklyInsightModel(
+      weekStart: weekly.weekStart,
+      weekEnd: weekly.weekEnd,
+      status: weekly.status,
+      keyInsight: weekly.keyInsight,
+      patterns: weekly.patterns,
+      frictions: weekly.frictions,
+      bestAction: weekly.bestAction,
+      opportunitySnapshot: {
+        ...?weekly.opportunitySnapshot,
+        '_feedback_event_summary': {
+          'total_count': feedbackEvents.length,
+          'source_counts': sourceCounts,
+          'helpful_count': feedbackEvents
+              .where(
+                (event) =>
+                    _isHelpfulFeedbackText(event.status) ||
+                    _isHelpfulFeedbackText(event.effect),
+              )
+              .length,
+          'events': feedbackEvents
+              .take(12)
+              .map((event) => event.toJson())
+              .toList(growable: false),
+        },
+      },
+      feedbackSubmitted: weekly.feedbackSubmitted,
+      chartData: weekly.chartData,
+    );
+  }
+
+  bool _isHelpfulFeedbackText(String? value) {
+    final normalized = value?.trim().toLowerCase();
+    return normalized == 'helpful' ||
+        normalized == 'very_helpful' ||
+        normalized == 'yes' ||
+        normalized == 'positive' ||
+        normalized == 'recovery' ||
+        normalized == 'energizing';
+  }
+
+  Future<void> _recordPipelineFailure({
+    required String pipelineType,
+    required String sourceType,
+    required String sourceId,
+    required String inputHash,
+    required Object error,
+  }) async {
+    final repository = LocalPipelineRunRepository(
+      localWeeklySnapshotRepository.localDatabase,
+    );
+    final runId = await repository.start(
+      pipelineType: pipelineType,
+      sourceType: sourceType,
+      sourceId: sourceId,
+      inputHash: inputHash,
+    );
+    await repository.fail(
+      runId: runId,
+      errorCode: error.runtimeType.toString(),
+      errorMessage: error.toString(),
+    );
+  }
+
+  Future<WeeklyReflectModel> fetchWeeklyReflect() async {
     final weekly = await fetchCurrentWeekly();
     final focusArea = await _readFocusArea();
-    return aiRepository.generateDeepWeekly(
+    return aiRepository.generateWeeklyReflect(
       weekly: weekly,
       focusArea: focusArea,
     );
+  }
+
+  Future<LifeExperimentModel?> fetchWeeklyExperimentCandidate({
+    required String weekStart,
+  }) {
+    return _experimentCandidateRepository.getWeeklyCandidate(
+      localUserId: localUserId,
+      weekStart: weekStart,
+    );
+  }
+
+  Future<LifeExperimentModel?> fetchCurrentWeekLifeExperiment({
+    required String weekStart,
+  }) {
+    final start = DateTime.tryParse(weekStart);
+    final repository = localLifeExperimentRepository;
+    if (repository == null || start == null) return Future.value(null);
+    return repository.getSavedForToday(
+      localUserId: localUserId,
+      today: start,
+    );
+  }
+
+  Future<LifeExperimentModel?> fetchNextWeekExperiment({
+    required String weekStart,
+  }) async {
+    final candidate = await fetchWeeklyExperimentCandidate(
+      weekStart: weekStart,
+    );
+    if (candidate == null) return null;
+    final repository = localLifeExperimentRepository;
+    if (repository == null) return candidate;
+    return await _experimentCandidateRepository.getAdoptedExperiment(
+          candidateId: candidate.id,
+          lifeExperimentRepository: repository,
+        ) ??
+        candidate;
   }
 
   Future<void> submitWeeklyFeedback({
@@ -193,12 +390,20 @@ class WeeklyRepository {
   }
 
   Future<LifeExperimentModel?> saveLifeExperiment(String experimentId) async {
-    final experiment = await localLifeExperimentRepository?.updateStatus(
-      experimentId: experimentId,
-      status: 'saved',
-    );
+    final lifeRepo = localLifeExperimentRepository;
+    if (lifeRepo == null) return null;
+
+    final experiment = experimentId.startsWith('cand_')
+        ? await _experimentCandidateRepository.adoptCandidate(
+            candidateId: experimentId,
+            lifeExperimentRepository: lifeRepo,
+          )
+        : await lifeRepo.updateStatus(
+            experimentId: experimentId,
+            status: 'saved',
+          );
     if (experiment != null) {
-      await localLifeExperimentRepository?.linkSignalCards(
+      await lifeRepo.linkSignalCards(
         experimentId: experiment.id,
         signalCardIds: experiment.linkedSignalCardIds,
       );
@@ -208,11 +413,19 @@ class WeeklyRepository {
   }
 
   Future<LifeExperimentModel?> skipLifeExperiment(String experimentId) async {
-    final experiment = await localLifeExperimentRepository?.updateStatus(
-      experimentId: experimentId,
-      status: 'skipped',
-      feedbackText: 'Skipped for now',
-    );
+    final lifeRepo = localLifeExperimentRepository;
+    if (lifeRepo == null) return null;
+
+    final experiment = experimentId.startsWith('cand_')
+        ? await _experimentCandidateRepository.updateStatus(
+            candidateId: experimentId,
+            status: 'skipped',
+          )
+        : await lifeRepo.updateStatus(
+            experimentId: experimentId,
+            status: 'skipped',
+            feedbackText: 'Skipped for now',
+          );
     if (experiment != null) cloudBackupSyncService?.markDataChanged();
     return experiment;
   }
@@ -222,60 +435,51 @@ class WeeklyRepository {
     required String status,
     required String feedbackText,
   }) async {
-    final experiment = await localLifeExperimentRepository?.updateStatus(
-      experimentId: experimentId,
-      status: status,
+    if (experimentId.startsWith('cand_')) {
+      // A next-week candidate cannot receive progress feedback and feedback
+      // must never implicitly adopt it. Adoption is an explicit user action.
+      return _experimentCandidateRepository.getById(experimentId);
+    }
+    final resolvedExperimentId = experimentId;
+    final feedback = await localLifeExperimentRepository?.recordFeedback(
+      experimentId: resolvedExperimentId,
+      completionStatus: status,
       feedbackText: feedbackText,
+    );
+    if (feedback != null) cloudBackupSyncService?.markDataChanged();
+    return localLifeExperimentRepository?.updateDetails(
+      experimentId: resolvedExperimentId,
+      feedbackText: feedbackText,
+    );
+  }
+
+  Future<LifeExperimentModel?> updateLifeExperimentDetails({
+    required String experimentId,
+    required String title,
+    required String hypothesis,
+    required String suggestedAction,
+  }) async {
+    final adopted = experimentId.startsWith('cand_')
+        ? await saveLifeExperiment(experimentId)
+        : null;
+    final resolvedExperimentId = adopted?.id ?? experimentId;
+    final experiment = await localLifeExperimentRepository?.updateDetails(
+      experimentId: resolvedExperimentId,
+      title: title,
+      hypothesis: hypothesis,
+      suggestedAction: suggestedAction,
     );
     if (experiment != null) cloudBackupSyncService?.markDataChanged();
     return experiment;
   }
 
-  List<RecentSignalModel> _filterSignalsForRange(
-    List<RecentSignalModel> signals,
-    DateTime start,
-    DateTime end,
-  ) {
-    final startKey = _dateKey(start);
-    final endKey = _dateKey(end);
-
-    return signals.where((signal) {
-      final localDate = signal.localDateKey();
-      if (localDate.isEmpty) return false;
-      return localDate.compareTo(startKey) >= 0 &&
-          localDate.compareTo(endKey) <= 0;
-    }).toList()
-      ..sort((a, b) {
-        final dateCompare = a.localDateKey().compareTo(b.localDateKey());
-        if (dateCompare != 0) return dateCompare;
-        final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return aTime.compareTo(bTime);
-      });
-  }
-
   List<RecentSignalModel> _weeklyEligibleSignals(
     List<RecentSignalModel> signals,
   ) {
-    return signals.where(_isWeeklyEligible).toList();
-  }
-
-  bool _isWeeklyEligible(RecentSignalModel signal) {
-    if (signal.isLocalDraft || signal.syncFailed) return false;
-    if (signal.userConfirmation == 'inaccurate') return false;
-    if (signal.isLibrarySaved && !signal.hasUserConfirmedLibrarySaved) {
-      return false;
-    }
-    if (signal.isAiPredicted && !signal.hasUserConfirmedAiPrediction) {
-      return false;
-    }
-    final privacy = signal.privacyLevel.trim().toLowerCase();
-    if (privacy == 'do_not_analyze' ||
-        privacy == 'excluded' ||
-        privacy == 'sensitive') {
-      return false;
-    }
-    return true;
+    return eligibilityService.filter(
+      signals,
+      SignalEligibilityStage.weekly,
+    );
   }
 
   Future<void> _markIncludedInWeekly(List<RecentSignalModel> signals) async {
@@ -291,12 +495,12 @@ class WeeklyRepository {
     );
   }
 
-  Future<WeeklyInsightModel> _attachSuggestedExperiment(
+  Future<void> _ensureSuggestedExperimentCandidate(
     WeeklyInsightModel weekly, {
     required List<RecentSignalModel> weekSignals,
   }) async {
     final repo = localLifeExperimentRepository;
-    if (repo == null) return weekly;
+    if (repo == null) return;
 
     final structure = weekly.deriveV3CStructure();
     final linkedIds = weekSignals
@@ -305,6 +509,7 @@ class WeeklyRepository {
         .where((id) => id.trim().isNotEmpty)
         .toSet()
         .toList();
+    if (linkedIds.length < 3) return;
     final previous = await repo.getPreviousForWeek(
       localUserId: localUserId,
       beforeWeekStart: weekly.weekStart,
@@ -314,7 +519,7 @@ class WeeklyRepository {
         ? ''
         : ' 上一轮反馈会作为下次调整的背景：$feedbackNote';
 
-    final experiment = await repo.ensureSuggested(
+    await _experimentCandidateRepository.ensureWeeklyCandidate(
       localUserId: localUserId,
       weekStart: weekly.weekStart,
       weekEnd: weekly.weekEnd,
@@ -324,50 +529,11 @@ class WeeklyRepository {
       suggestedAction: structure.oneExperiment,
       linkedSignalCardIds: linkedIds,
     );
-
-    return _withLifeExperiment(weekly, experiment);
   }
 
-  WeeklyInsightModel _withLifeExperiment(
-    WeeklyInsightModel weekly,
-    LifeExperimentModel experiment,
-  ) {
-    return WeeklyInsightModel(
-      weekStart: weekly.weekStart,
-      weekEnd: weekly.weekEnd,
-      status: weekly.status,
-      keyInsight: weekly.keyInsight,
-      patterns: weekly.patterns,
-      frictions: weekly.frictions,
-      bestAction: weekly.bestAction,
-      opportunitySnapshot: {
-        ...?weekly.opportunitySnapshot,
-        '_life_experiment': experiment.toJson(),
-      },
-      feedbackSubmitted: weekly.feedbackSubmitted,
-      chartData: weekly.chartData,
-    );
-  }
-
-  WeeklyInsightModel _withPhase3PlusSummary(
-    WeeklyInsightModel weekly,
-    Map<String, dynamic>? summary,
-  ) {
-    if (summary == null) return weekly;
-    return WeeklyInsightModel(
-      weekStart: weekly.weekStart,
-      weekEnd: weekly.weekEnd,
-      status: weekly.status,
-      keyInsight: weekly.keyInsight,
-      patterns: weekly.patterns,
-      frictions: weekly.frictions,
-      bestAction: weekly.bestAction,
-      opportunitySnapshot: {
-        ...?weekly.opportunitySnapshot,
-        '_schedule_goal_summary': summary,
-      },
-      feedbackSubmitted: weekly.feedbackSubmitted,
-      chartData: weekly.chartData,
+  LocalExperimentCandidateRepository get _experimentCandidateRepository {
+    return LocalExperimentCandidateRepository(
+      localWeeklySnapshotRepository.localDatabase,
     );
   }
 
@@ -387,6 +553,27 @@ class WeeklyRepository {
       opportunitySnapshot: {
         ...?weekly.opportunitySnapshot,
         '_weekly_action_review': actionReview,
+      },
+      feedbackSubmitted: weekly.feedbackSubmitted,
+      chartData: weekly.chartData,
+    );
+  }
+
+  WeeklyInsightModel _withWeeklySignalEntries(
+    WeeklyInsightModel weekly,
+    List<Map<String, dynamic>> entries,
+  ) {
+    return WeeklyInsightModel(
+      weekStart: weekly.weekStart,
+      weekEnd: weekly.weekEnd,
+      status: weekly.status,
+      keyInsight: weekly.keyInsight,
+      patterns: weekly.patterns,
+      frictions: weekly.frictions,
+      bestAction: weekly.bestAction,
+      opportunitySnapshot: {
+        ...?weekly.opportunitySnapshot,
+        '_weekly_signal_entries': entries,
       },
       feedbackSubmitted: weekly.feedbackSubmitted,
       chartData: weekly.chartData,
@@ -646,6 +833,14 @@ class WeeklyRepository {
     }
 
     final prefs = await SharedPreferences.getInstance();
+    final focusDomainIds = FocusDomains.normalizeIds(
+      prefs.getStringList(FocusDomains.productPreferenceKey) ??
+          prefs.getStringList(FocusDomains.preferenceKey) ??
+          const [],
+    );
+    if (focusDomainIds.isNotEmpty) {
+      return focusDomainIds.join(',');
+    }
     return prefs.getString('repeat_area_preference') ??
         prefs.getString('selected_repeat_area');
   }
@@ -664,15 +859,18 @@ class WeeklyRepository {
       }
     }
 
-    final today = _dateOnly(DateTime.now());
+    final today = _dateOnly(nowLoader());
     await prefs.setString('local_app_started_date', today.toIso8601String());
     return today;
   }
 
   _WeekRange _currentWeekRange() {
-    final now = DateTime.now();
-    final end = DateTime(now.year, now.month, now.day);
-    final start = end.subtract(const Duration(days: 6));
+    final now = nowLoader();
+    final today = DateTime(now.year, now.month, now.day);
+    final start = today.subtract(
+      Duration(days: today.weekday - DateTime.monday),
+    );
+    final end = start.add(const Duration(days: 6));
     return _WeekRange(start: start, end: end);
   }
 
@@ -703,6 +901,11 @@ class WeeklyRepository {
   }) {
     final topToken = stats.topTokens.isEmpty ? '本周记录' : stats.topTokens.first;
     final peakDay = _resolvePeakDay(stats.dayCounts);
+    final patternHint = _deriveWeeklyIllustrationHint(topToken);
+    final frictionHint = _deriveWeeklyIllustrationHint(
+      '$topToken $peakDay 消耗 负担',
+      fallback: '任务堆积，开始变困难',
+    );
 
     if (isLightWeekly) {
       return WeeklyInsightModel(
@@ -714,12 +917,14 @@ class WeeklyRepository {
           {
             'name': '这周先冒头的线索',
             'summary': '记录还不多，但已经能看见一个开始重复的方向。',
+            'illustration_hint': patternHint,
           },
         ],
         frictions: [
           {
             'name': '这周先看到的消耗点',
             'summary': '现在更适合先轻轻看着，还不急着下太重的判断。',
+            'illustration_hint': frictionHint,
           },
         ],
         bestAction: '下周先试一个很小的方向：同类场景再出现时，只补一句它发生在哪里。',
@@ -727,6 +932,7 @@ class WeeklyRepository {
           const {
             'name': '先把线索留住',
             'summary': '也可以留意一下哪些时刻让你稍微恢复一点，它们可能是下周的小线索。',
+            'illustration_hint': '只是观察也有帮助',
           },
           inclusionSummary: inclusionSummary,
         ),
@@ -744,12 +950,14 @@ class WeeklyRepository {
         {
           'name': '围绕“$topToken”的重复模式',
           'summary': '这周先只看这个最明显的方向，其他线索可以继续留在时间线里。',
+          'illustration_hint': patternHint,
         },
       ],
       frictions: [
         {
           'name': '本周的主要消耗',
           'summary': '当前最大的摩擦，更像是同类事情反复回来，而不是单次事件。',
+          'illustration_hint': frictionHint,
         },
       ],
       bestAction: '下周只试一个小实验：同类情况出现时，用一句话补记它发生在什么场景。',
@@ -757,6 +965,7 @@ class WeeklyRepository {
         const {
           'name': '把重复信号固定下来',
           'summary': '也留意一下哪些时刻让状态稍微往回收一点，它们可能是恢复线索。',
+          'illustration_hint': '只是观察也有帮助',
         },
         inclusionSummary: inclusionSummary,
       ),
@@ -775,33 +984,58 @@ class WeeklyRepository {
     return '这周已经开始有线索冒出来了，不过现在更适合先轻轻看着。';
   }
 
-  List<dynamic> _lightenItems(List<dynamic> items,
-      {required String fallbackName}) {
+  List<dynamic> _lightenItems(
+    List<dynamic> items, {
+    required String fallbackName,
+  }) {
     if (items.isEmpty) {
       return [
         {
           'name': fallbackName,
           'summary': '记录还不多，但已经能看见一个开始重复的方向。',
+          'illustration_hint': _deriveWeeklyIllustrationHint(fallbackName),
         },
       ];
     }
 
     return items.take(2).map((item) {
       if (item is Map<String, dynamic>) {
+        final name = (item['name'] as String?) ?? fallbackName;
+        final summary = (item['summary'] as String?) ?? '线索已经出现了，但还不适合下太重的判断。';
         return {
-          'name': (item['name'] as String?) ?? fallbackName,
-          'summary': (item['summary'] as String?) ?? '线索已经出现了，但还不适合下太重的判断。',
+          ...item,
+          'name': name,
+          'summary': summary,
+          'illustration_hint': _textFromDynamic(
+                item['illustration_hint'] ??
+                    item['illustrationHint'] ??
+                    item['visual_hint'] ??
+                    item['visualHint'],
+              ) ??
+              _deriveWeeklyIllustrationHint('$name $summary'),
         };
       }
       if (item is Map) {
+        final normalized = item.map((key, value) => MapEntry('$key', value));
+        final name = item['name']?.toString() ?? fallbackName;
+        final summary = item['summary']?.toString() ?? '线索已经出现了，但还不适合下太重的判断。';
         return {
-          'name': (item['name']?.toString()) ?? fallbackName,
-          'summary': (item['summary']?.toString()) ?? '线索已经出现了，但还不适合下太重的判断。',
+          ...normalized,
+          'name': name,
+          'summary': summary,
+          'illustration_hint': _textFromDynamic(
+                normalized['illustration_hint'] ??
+                    normalized['illustrationHint'] ??
+                    normalized['visual_hint'] ??
+                    normalized['visualHint'],
+              ) ??
+              _deriveWeeklyIllustrationHint('$name $summary'),
         };
       }
       return {
         'name': fallbackName,
         'summary': '线索已经出现了，但还不适合下太重的判断。',
+        'illustration_hint': _deriveWeeklyIllustrationHint(fallbackName),
       };
     }).toList();
   }
@@ -816,24 +1050,47 @@ class WeeklyRepository {
         {
           'name': fallbackName,
           'summary': fallbackSummary,
+          'illustration_hint':
+              _deriveWeeklyIllustrationHint('$fallbackName $fallbackSummary'),
         },
       ];
     }
 
     final item = items.first;
     if (item is Map<String, dynamic>) {
+      final name = (item['name'] as String?) ?? fallbackName;
+      final summary = (item['summary'] as String?) ?? fallbackSummary;
       return [
         {
-          'name': (item['name'] as String?) ?? fallbackName,
-          'summary': (item['summary'] as String?) ?? fallbackSummary,
+          ...item,
+          'name': name,
+          'summary': summary,
+          'illustration_hint': _textFromDynamic(
+                item['illustration_hint'] ??
+                    item['illustrationHint'] ??
+                    item['visual_hint'] ??
+                    item['visualHint'],
+              ) ??
+              _deriveWeeklyIllustrationHint('$name $summary'),
         },
       ];
     }
     if (item is Map) {
+      final normalized = item.map((key, value) => MapEntry('$key', value));
+      final name = item['name']?.toString() ?? fallbackName;
+      final summary = item['summary']?.toString() ?? fallbackSummary;
       return [
         {
-          'name': item['name']?.toString() ?? fallbackName,
-          'summary': item['summary']?.toString() ?? fallbackSummary,
+          ...normalized,
+          'name': name,
+          'summary': summary,
+          'illustration_hint': _textFromDynamic(
+                normalized['illustration_hint'] ??
+                    normalized['illustrationHint'] ??
+                    normalized['visual_hint'] ??
+                    normalized['visualHint'],
+              ) ??
+              _deriveWeeklyIllustrationHint('$name $summary'),
         },
       ];
     }
@@ -841,8 +1098,87 @@ class WeeklyRepository {
       {
         'name': fallbackName,
         'summary': fallbackSummary,
+        'illustration_hint':
+            _deriveWeeklyIllustrationHint('$fallbackName $fallbackSummary'),
       },
     ];
+  }
+
+  String? _textFromDynamic(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
+  }
+
+  String _deriveWeeklyIllustrationHint(
+    String text, {
+    String fallback = '只是观察也有帮助',
+  }) {
+    if (_containsAny(text, const ['任务', '堆', '太多', 'todo'])) {
+      return '任务堆积，开始变困难';
+    }
+    if (_containsAny(text, const ['会议', '开会'])) {
+      return '会议密集，注意力被切碎';
+    }
+    if (_containsAny(text, const ['临时', '变化', '打断'])) {
+      return '临时变化打断原本节奏';
+    }
+    if (_containsAny(text, const ['休息', '恢复', '挤'])) {
+      return '休息时间被任务挤掉';
+    }
+    if (_containsAny(text, const ['空转', '停不下来'])) {
+      return '想休息，但停下来后反而空转';
+    }
+    if (_containsAny(text, const ['手机', '短视频', '刷'])) {
+      return '晚上刷手机变多';
+    }
+    if (_containsAny(text, const ['早上', '启动'])) return '早上启动困难';
+    if (_containsAny(text, const ['中午', '午后', '下午', '精力'])) {
+      return '中午以后精力明显下降';
+    }
+    if (_containsAny(text, const ['日程', '安排', '密度'])) {
+      return '情绪被日程密度带着走';
+    }
+    if (_containsAny(text, const ['焦虑', '紧张', '还没开始'])) {
+      return '焦虑提前出现，还没开始就紧张';
+    }
+    if (_containsAny(text, const ['完成', '做完', '更累'])) {
+      return '做完事后更累，不是更轻松';
+    }
+    if (_containsAny(text, const ['计划', '目标', '太大'])) {
+      return '计划越大，越容易不开始';
+    }
+    if (_containsAny(text, const ['分散', '目标太多'])) {
+      return '目标太多，注意力分散';
+    }
+    if (_containsAny(text, const ['创作', '创造', '工作'])) {
+      return '创作被工作挤掉';
+    }
+    if (_containsAny(text, const ['拒绝', '边界', '自己的时间'])) {
+      return '不敢拒绝，自己的时间被挤占';
+    }
+    if (_containsAny(text, const ['迎合', '疲惫'])) {
+      return '过度迎合后感到疲惫';
+    }
+    if (_containsAny(text, const ['表达', '说不清'])) return '想表达，但说不清';
+    if (_containsAny(text, const ['独处'])) return '独处不足，恢复变慢';
+    if (_containsAny(text, const ['环境', '房间', '混乱'])) {
+      return '生活环境混乱，心情也乱';
+    }
+    if (_containsAny(text, const ['关系', '对话', '内耗'])) {
+      return '关系对话后反复内耗';
+    }
+    if (_containsAny(text, const ['金钱', '钱', '现实压力'])) {
+      return '金钱或现实压力牵动安全感';
+    }
+    if (_containsAny(text, const ['身体', '累'])) return '身体信号先出现，才意识到累';
+    if (_containsAny(text, const ['有效', '稳定'])) return '小行动有效，节奏开始稳定';
+    if (_containsAny(text, const ['兴趣', '爱好'])) return '兴趣活动带来恢复感';
+    return fallback;
+  }
+
+  bool _containsAny(String text, List<String> tokens) {
+    final lower = text.toLowerCase();
+    return tokens.any((token) => lower.contains(token.toLowerCase()));
   }
 
   String _softExperimentText(String? input) {

@@ -1,10 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/api/repositories/cloud_backup_repository.dart';
 import '../../../core/backup/backup_bundle_repository.dart';
+import '../../../core/backup/cloud_backup_sync_service.dart';
+import '../../../core/local/local_database.dart';
+import '../../../core/preferences/focus_domains.dart';
+import '../../../core/state/app_data_refresh_coordinator.dart';
 import '../../onboarding/onboarding_view_model.dart';
 
 class UsageQuotaViewData {
@@ -27,46 +32,38 @@ class MeViewModel extends ChangeNotifier {
   static const String repeatAreaPreferenceKey = 'repeat_area_preference';
   static const String fallbackRepeatAreaPreferenceKey = 'selected_repeat_area';
   static const String responseStylePreferenceKey = 'response_style_preference';
-  static const String accountSessionTokenKey = 'cloud_account_session_token';
-  static const String accountIdKey = 'cloud_account_id';
-  static const String latestBackupVersionKey = 'cloud_latest_backup_version';
+  static const String profilePhotoPathPreferenceKey = 'me_profile_photo_path';
+  static const String profileDisplayNamePreferenceKey =
+      'me_profile_display_name';
+  static const String lifeDirectionPreferenceKey = 'me_life_direction';
+  static const String lifeDirectionCreatedAtPreferenceKey =
+      'me_life_direction_created_at';
+  static const int maxProfilePhotoBytes = 2 * 1024 * 1024;
 
   final ApiClient? apiClient;
-  final BackupBundleRepository? backupBundleRepository;
-  final CloudBackupRepository? cloudBackupRepository;
-  final String? localUserId;
-  final String? deviceId;
+  final LocalDatabase? localDatabase;
 
   String? selectedRepeatArea;
+  List<String> selectedFocusDomainIds = const [];
   String selectedResponseStyle = 'gentle';
   Map<String, UsageQuotaViewData> usageQuotas = const {};
-  String? cloudAccountId;
-  String? cloudSessionToken;
-  String? latestBackupVersion;
+  String? profilePhotoPath;
+  String? profileDisplayName;
+  String? lifeDirection;
+  DateTime? lifeDirectionCreatedAt;
+  String? usageEntitlement;
+  DateTime? usageLastUpdatedAt;
+  bool hasCloudAccount = false;
   bool loading = true;
   bool saving = false;
   bool usageLoading = false;
-  bool cloudLoading = false;
+  bool deletingData = false;
+  bool usageLoadFailed = false;
   String? errorMessage;
-  String? cloudMessage;
 
-  MeViewModel([
-    this.apiClient,
-    this.backupBundleRepository,
-    this.cloudBackupRepository,
-    this.localUserId,
-    this.deviceId,
-  ]) {
+  MeViewModel([this.apiClient, this.localDatabase]) {
     load();
   }
-
-  bool get cloudBackupAvailable =>
-      backupBundleRepository != null &&
-      cloudBackupRepository != null &&
-      (localUserId ?? '').trim().isNotEmpty &&
-      (deviceId ?? '').trim().isNotEmpty;
-
-  bool get cloudSignedIn => (cloudSessionToken ?? '').trim().isNotEmpty;
 
   Future<void> load() async {
     loading = true;
@@ -75,17 +72,33 @@ class MeViewModel extends ChangeNotifier {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      selectedRepeatArea = prefs.getString(repeatAreaPreferenceKey) ??
+      final rawFocusIds =
+          prefs.getStringList(FocusDomains.productPreferenceKey) ??
+              prefs.getStringList(FocusDomains.preferenceKey);
+      final rawRepeatArea = prefs.getString(repeatAreaPreferenceKey) ??
           prefs.getString(OnboardingViewModel.repeatAreaPreferenceKey) ??
           prefs.getString(fallbackRepeatAreaPreferenceKey);
+      _setFocusDomains([
+        ...?rawFocusIds,
+        rawRepeatArea,
+      ]);
       selectedResponseStyle =
           prefs.getString(responseStylePreferenceKey) ?? 'gentle';
-      cloudAccountId = prefs.getString(accountIdKey);
-      cloudSessionToken = prefs.getString(accountSessionTokenKey);
-      latestBackupVersion = prefs.getString(latestBackupVersionKey);
+      profilePhotoPath = prefs.getString(profilePhotoPathPreferenceKey);
+      profileDisplayName = _nonEmpty(
+        prefs.getString(profileDisplayNamePreferenceKey),
+      );
+      lifeDirection = _nonEmpty(prefs.getString(lifeDirectionPreferenceKey));
+      lifeDirectionCreatedAt = DateTime.tryParse(
+        prefs.getString(lifeDirectionCreatedAtPreferenceKey) ?? '',
+      );
+      hasCloudAccount = _nonEmpty(
+            prefs.getString(CloudBackupSyncService.accountSessionTokenKey),
+          ) !=
+          null;
       await _loadUsageSummary();
-    } catch (e) {
-      errorMessage = e.toString();
+    } catch (_) {
+      errorMessage = 'profile_load_failed';
     } finally {
       loading = false;
       notifyListeners();
@@ -94,14 +107,29 @@ class MeViewModel extends ChangeNotifier {
 
   Future<void> reload() => load();
 
+  /// Keeps the long-lived Me page state aligned after onboarding persists a
+  /// new selection, without reloading usage data or writing preferences twice.
+  void applyPersistedFocusDomains(List<String> values) {
+    _setFocusDomains(values);
+    notifyListeners();
+  }
+
+  void _setFocusDomains(Iterable<String?> values) {
+    selectedFocusDomainIds = FocusDomains.normalizeIds(values);
+    selectedRepeatArea =
+        selectedFocusDomainIds.isEmpty ? null : selectedFocusDomainIds.first;
+  }
+
   Future<void> _loadUsageSummary() async {
     final client = apiClient;
     if (client == null) return;
     usageLoading = true;
+    usageLoadFailed = false;
     notifyListeners();
     try {
       final response = await client.getJson('/api/v1/usage/summary');
       final data = (response['data'] as Map<String, dynamic>?) ?? response;
+      usageEntitlement = data['entitlement']?.toString();
       final rawQuotas = (data['quotas'] as List?) ?? const [];
       final parsed = <String, UsageQuotaViewData>{};
       for (final item in rawQuotas.whereType<Map>()) {
@@ -115,12 +143,23 @@ class MeViewModel extends ChangeNotifier {
         );
       }
       usageQuotas = parsed;
+      usageLastUpdatedAt = DateTime.now();
     } catch (_) {
-      usageQuotas = const {};
+      // Keep the last known values visible; a network error must not turn
+      // real usage into a misleading zero/empty state.
+      usageLoadFailed = true;
     } finally {
       usageLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<void> reloadUsage() => _loadUsageSummary();
+
+  bool usageMatchesLocalEntitlement(bool localPremium) {
+    final remote = usageEntitlement;
+    if (remote == null || remote.isEmpty) return true;
+    return (remote == 'pro') == localPremium;
   }
 
   Future<bool> updateResponseStyle(String value) async {
@@ -133,8 +172,8 @@ class MeViewModel extends ChangeNotifier {
       await prefs.setString(responseStylePreferenceKey, value);
       selectedResponseStyle = value;
       return true;
-    } catch (e) {
-      errorMessage = e.toString();
+    } catch (_) {
+      errorMessage = 'response_style_save_failed';
       return false;
     } finally {
       saving = false;
@@ -143,18 +182,39 @@ class MeViewModel extends ChangeNotifier {
   }
 
   Future<bool> updateRepeatArea(String value) async {
+    return updateFocusDomains([value]);
+  }
+
+  Future<bool> updateFocusDomains(List<String> values) async {
     saving = true;
     errorMessage = null;
     notifyListeners();
 
     try {
+      final normalized = FocusDomains.normalizeIds(values);
+      final nextValues = normalized;
+      final primary = nextValues.isEmpty ? null : nextValues.first;
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(repeatAreaPreferenceKey, value);
-      await prefs.setString(OnboardingViewModel.repeatAreaPreferenceKey, value);
-      selectedRepeatArea = value;
+      await prefs.setStringList(FocusDomains.productPreferenceKey, nextValues);
+      await prefs.setStringList(FocusDomains.preferenceKey, nextValues);
+      if (primary == null) {
+        await prefs.remove(repeatAreaPreferenceKey);
+        await prefs.remove(OnboardingViewModel.repeatAreaPreferenceKey);
+      } else {
+        await prefs.setString(repeatAreaPreferenceKey, primary);
+        await prefs.setString(
+          OnboardingViewModel.repeatAreaPreferenceKey,
+          primary,
+        );
+      }
+      _setFocusDomains(nextValues);
+      AppDataMutationBus.publish(
+        kind: AppDataMutationKind.focusDomains,
+        reason: 'me_focus_domains_changed',
+      );
       return true;
-    } catch (e) {
-      errorMessage = e.toString();
+    } catch (_) {
+      errorMessage = 'focus_domains_save_failed';
       return false;
     } finally {
       saving = false;
@@ -162,170 +222,138 @@ class MeViewModel extends ChangeNotifier {
     }
   }
 
-  Future<bool> signInWithAppleAndBackupNow() async {
-    if (!cloudBackupAvailable) {
-      cloudMessage = 'cloud_backup_unavailable';
-      notifyListeners();
-      return false;
-    }
-
-    cloudLoading = true;
-    cloudMessage = null;
+  Future<bool> updateProfilePhotoPath({
+    required String path,
+    required int sizeBytes,
+  }) async {
+    saving = true;
+    errorMessage = null;
     notifyListeners();
 
     try {
-      final credential = await SignInWithApple.getAppleIDCredential(
-        scopes: const [
-          AppleIDAuthorizationScopes.email,
-        ],
-      );
-      final appleSubject =
-          credential.userIdentifier ?? credential.identityToken ?? '';
-      if (appleSubject.trim().isEmpty) {
-        throw StateError('Missing Apple account identifier');
-      }
-
-      final session = await cloudBackupRepository!.signInWithApple(
-        appleUserId: appleSubject,
-        identityToken: credential.identityToken,
-        localUserId: localUserId!,
-        deviceId: deviceId!,
-      );
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(accountIdKey, session.accountId);
-      await prefs.setString(accountSessionTokenKey, session.sessionToken);
-      cloudAccountId = session.accountId;
-      cloudSessionToken = session.sessionToken;
-
-      final uploaded = await _uploadBackupWithSession(session.sessionToken);
-      cloudMessage = uploaded ? 'cloud_backup_uploaded' : 'cloud_backup_failed';
-      return uploaded;
-    } catch (e) {
-      cloudMessage = e.toString();
-      return false;
-    } finally {
-      cloudLoading = false;
-      notifyListeners();
-    }
-  }
-
-  Future<bool> uploadCloudBackupNow() async {
-    final session = cloudSessionToken;
-    if (!cloudBackupAvailable || session == null || session.trim().isEmpty) {
-      cloudMessage = 'cloud_backup_sign_in_required';
-      notifyListeners();
-      return false;
-    }
-
-    cloudLoading = true;
-    cloudMessage = null;
-    notifyListeners();
-
-    try {
-      final uploaded = await _uploadBackupWithSession(session);
-      cloudMessage = uploaded ? 'cloud_backup_uploaded' : 'cloud_backup_failed';
-      return uploaded;
-    } catch (e) {
-      cloudMessage = e.toString();
-      return false;
-    } finally {
-      cloudLoading = false;
-      notifyListeners();
-    }
-  }
-
-  Future<bool> restoreLatestCloudBackup() async {
-    final session = cloudSessionToken;
-    if (!cloudBackupAvailable || session == null || session.trim().isEmpty) {
-      cloudMessage = 'cloud_backup_sign_in_required';
-      notifyListeners();
-      return false;
-    }
-
-    cloudLoading = true;
-    cloudMessage = null;
-    notifyListeners();
-
-    try {
-      final latest = await cloudBackupRepository!.fetchLatestBackup(
-        sessionToken: session,
-      );
-      if (latest == null || latest.payload.isEmpty) {
-        cloudMessage = 'cloud_backup_empty';
+      if (sizeBytes > maxProfilePhotoBytes) {
+        errorMessage = 'profile_photo_too_large';
         return false;
       }
-      final result = await backupBundleRepository!.importBundle(latest.payload);
-      await cloudBackupRepository!.confirmRestore(
-        sessionToken: session,
-        backupId: latest.id,
-        deviceId: deviceId!,
-      );
-      cloudMessage = result.importedRows > 0
-          ? 'cloud_backup_restored'
-          : 'cloud_backup_empty';
-      return result.importedRows > 0;
-    } catch (e) {
-      cloudMessage = e.toString();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(profilePhotoPathPreferenceKey, path);
+      profilePhotoPath = path;
+      return true;
+    } catch (_) {
+      errorMessage = 'profile_photo_save_failed';
       return false;
     } finally {
-      cloudLoading = false;
+      saving = false;
       notifyListeners();
     }
   }
 
-  Future<bool> deleteAccountAndAllData() async {
-    if (backupBundleRepository == null) {
-      cloudMessage = 'account_delete_unavailable';
+  Future<bool> updateProfile({
+    required String displayName,
+    required String direction,
+  }) async {
+    saving = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final normalizedName = displayName.trim();
+      final normalizedDirection = direction.trim();
+      if (normalizedName.isEmpty) {
+        await prefs.remove(profileDisplayNamePreferenceKey);
+      } else {
+        await prefs.setString(profileDisplayNamePreferenceKey, normalizedName);
+      }
+      if (normalizedDirection.isEmpty) {
+        await prefs.remove(lifeDirectionPreferenceKey);
+        await prefs.remove(lifeDirectionCreatedAtPreferenceKey);
+        lifeDirectionCreatedAt = null;
+      } else {
+        final createdAt = lifeDirectionCreatedAt ?? DateTime.now();
+        await prefs.setString(lifeDirectionPreferenceKey, normalizedDirection);
+        await prefs.setString(
+          lifeDirectionCreatedAtPreferenceKey,
+          createdAt.toUtc().toIso8601String(),
+        );
+        lifeDirectionCreatedAt = createdAt;
+      }
+      profileDisplayName = normalizedName.isEmpty ? null : normalizedName;
+      lifeDirection = normalizedDirection.isEmpty ? null : normalizedDirection;
+      return true;
+    } catch (_) {
+      errorMessage = 'profile_save_failed';
+      return false;
+    } finally {
+      saving = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> deleteMyData() async {
+    if (deletingData) return false;
+    final database = localDatabase;
+    if (database == null) {
+      errorMessage = 'local_delete_unavailable';
       notifyListeners();
       return false;
     }
 
-    cloudLoading = true;
-    cloudMessage = null;
+    deletingData = true;
+    errorMessage = null;
     notifyListeners();
-
     try {
-      final session = cloudSessionToken;
-      if (cloudBackupRepository != null &&
-          session != null &&
-          session.trim().isNotEmpty) {
-        await cloudBackupRepository!.deleteAccount(sessionToken: session);
+      final prefs = await SharedPreferences.getInstance();
+      final session = _nonEmpty(
+        prefs.getString(CloudBackupSyncService.accountSessionTokenKey),
+      );
+      if (session != null) {
+        final client = apiClient;
+        if (client == null) {
+          errorMessage = 'account_delete_unavailable';
+          return false;
+        }
+        await CloudBackupRepository(client).deleteAccount(
+          sessionToken: session,
+        );
       }
 
-      await backupBundleRepository!.deleteAllLocalData();
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(accountIdKey);
-      await prefs.remove(accountSessionTokenKey);
-      await prefs.remove(latestBackupVersionKey);
-      cloudAccountId = null;
-      cloudSessionToken = null;
-      latestBackupVersion = null;
-      usageQuotas = const {};
+      final oldPhotoPath = profilePhotoPath;
+      await BackupBundleRepository(
+        localDatabase: database,
+        preferences: prefs,
+      ).deleteAllLocalData();
+      if (oldPhotoPath != null && oldPhotoPath.trim().isNotEmpty) {
+        final file = File(oldPhotoPath);
+        if (await file.exists()) await file.delete();
+      }
+
       selectedRepeatArea = null;
+      selectedFocusDomainIds = const [];
       selectedResponseStyle = 'gentle';
-      cloudMessage = 'account_deleted';
+      usageQuotas = const {};
+      usageEntitlement = null;
+      profilePhotoPath = null;
+      profileDisplayName = null;
+      lifeDirection = null;
+      lifeDirectionCreatedAt = null;
+      hasCloudAccount = false;
+      AppDataMutationBus.publish(
+        kind: AppDataMutationKind.signalCard,
+        reason: 'all_user_data_deleted',
+      );
       return true;
-    } catch (e) {
-      cloudMessage = e.toString();
+    } catch (_) {
+      errorMessage =
+          hasCloudAccount ? 'account_delete_failed' : 'local_delete_failed';
       return false;
     } finally {
-      cloudLoading = false;
+      deletingData = false;
       notifyListeners();
     }
   }
 
-  Future<bool> _uploadBackupWithSession(String sessionToken) async {
-    final bundle = await backupBundleRepository!.exportBundle(
-      localUserId: localUserId!,
-      deviceId: deviceId!,
-    );
-    final uploaded = await cloudBackupRepository!.uploadBackup(
-      sessionToken: sessionToken,
-      bundle: bundle,
-    );
-    latestBackupVersion = uploaded.backupVersion;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(latestBackupVersionKey, uploaded.backupVersion);
-    return true;
+  String? _nonEmpty(String? value) {
+    final normalized = value?.trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
   }
 }

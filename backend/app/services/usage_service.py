@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import ModelUsageLog, QuotaGateEvent, UsageCounter, UserSubscription
 from app.repositories.core_repository import ensure_demo_user
+from app.services.ai_orchestrator import AiOrchestrator
 
 
 @dataclass(frozen=True)
@@ -27,18 +28,20 @@ class QuotaDecision:
 
 class UsageService:
     free_limits = {
-        "today_high_quality_reply": ("daily", 3),
-        "weekly_basic": ("weekly", 1),
-        "life_experiment_light": ("weekly", 1),
+        "l1_assist_daily_flow": ("daily", None),
+        "l1_attune_dialogue": ("daily", None),
+        "l2_reason_pattern_check": ("daily", 3),
+        "l3_reflect_weekly": ("weekly", 1),
+        "l3_reflect_life_experiment": ("monthly", 1),
     }
 
     pro_limits = {
-        "today_high_quality_reply": ("monthly", 150),
-        "light_dialogue_turn": ("monthly", 60),
-        "deep_weekly": ("monthly", 4),
-        "journey_monthly_life_map": ("monthly", 2),
-        "misunderstanding_check": ("monthly", 12),
-        "gpt55_deep_upgrade": ("monthly", 10),
+        "l1_assist_daily_flow": ("monthly", None),
+        "l1_attune_dialogue": ("monthly", None),
+        "l2_reason_pattern_check": ("monthly", 150),
+        "l3_reflect_weekly": ("monthly", 10),
+        "l3_reflect_journey": ("monthly", 4),
+        "l3_reflect_life_experiment": ("monthly", 10),
     }
 
     def __init__(self, db: Session):
@@ -53,6 +56,8 @@ class UsageService:
         source_event_id: str | None = None,
         commit: bool = True,
     ) -> QuotaDecision:
+        profile = AiOrchestrator.from_feature_key(feature_key)
+        feature_key = profile.feature_key
         ensure_demo_user(self.db, user_id)
         entitlement = self._entitlement(user_id)
         limits = self.pro_limits if entitlement == "pro" else self.free_limits
@@ -80,7 +85,7 @@ class UsageService:
             used_value=used_value,
             decision=decision,
             source_event_id=source_event_id,
-            metadata_json={},
+            metadata_json=AiOrchestrator.metadata(profile),
         ))
         if commit:
             self.db.commit()
@@ -110,6 +115,9 @@ class UsageService:
         token_cached_input: int = 0,
         commit: bool = True,
     ) -> UsageCounter:
+        profile = AiOrchestrator.from_feature_key(feature_key)
+        feature_key = profile.feature_key
+        model_used = model_used or profile.model_label
         entitlement = self._entitlement(user_id)
         limits = self.pro_limits if entitlement == "pro" else self.free_limits
         period_type, _ = limits.get(feature_key, ("monthly", None))
@@ -166,6 +174,9 @@ class UsageService:
         metadata: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> ModelUsageLog:
+        profile = AiOrchestrator.from_feature_key(feature_key)
+        feature_key = profile.feature_key
+        model_used = model_used or profile.model_label
         input_tokens = self._estimate_tokens(request_payload)
         output_tokens = self._estimate_tokens(response_payload)
         latency_ms = None
@@ -187,7 +198,10 @@ class UsageService:
             quota_decision=quota_decision,
             cache_hit=cache_hit,
             source_event_id=source_event_id,
-            metadata_json=self._privacy_safe_metadata(metadata or {}),
+            metadata_json=self._privacy_safe_metadata({
+                **AiOrchestrator.metadata(profile),
+                **(metadata or {}),
+            }),
             estimated_cost_usd=0.0,
         )
         self.db.add(log)

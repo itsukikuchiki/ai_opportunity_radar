@@ -17,6 +17,7 @@ void main() {
 
       expect(result.status, 'healthkit_consent_denied_internal_only');
       expect(result.usesInternalEnergyBudgetFallback, isTrue);
+      expect(result.permissionStatus, ExternalEnergyPermissionStatus.denied);
       expect(result.externalDataIsAuxiliary, isTrue);
       expect(result.canContributeToSignalLibrary, isFalse);
       expect(result.containsRawHealthData, isFalse);
@@ -62,6 +63,8 @@ void main() {
       );
 
       expect(result.status, 'healthkit_recovery_signal_ready');
+      expect(
+          result.permissionStatus, ExternalEnergyPermissionStatus.authorized);
       expect(result.usesInternalEnergyBudgetFallback, isFalse);
       expect(result.abstractHints.keys, contains('sleep_recovery_hint'));
       expect(result.abstractHints.keys, contains('movement_recovery_hint'));

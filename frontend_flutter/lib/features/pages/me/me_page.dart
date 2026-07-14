@@ -1,20 +1,30 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
+import '../../../core/preferences/focus_domains.dart';
 import '../../../core/purchases/purchase_controller.dart';
+import '../../../core/state/app_bootstrap_state.dart';
+import '../../../app/app_router.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../../paywall/paywall_sheet.dart';
-import '../../../shared/widgets/section_header.dart';
 import 'me_view_model.dart';
 
 class MePage extends StatelessWidget {
   const MePage({super.key});
 
   static final Uri _privacyPolicyUri = Uri.parse(
+    'https://itsukikuchiki.github.io/signalpath-support/',
+  );
+  static final Uri _supportUri = Uri.parse(
     'https://itsukikuchiki.github.io/signalpath-support/',
   );
 
@@ -31,166 +41,87 @@ class MePage extends StatelessWidget {
             child: SafeArea(
               bottom: false,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 2, 20, 172),
+                key: const ValueKey('me-scroll-view'),
+                padding: AuroraMainPageSpec.scrollPadding(context),
                 children: [
-                  AuroraCard(
-                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Colors.white.withValues(alpha: 0.88),
-                        const Color(0xFFF6F2FF),
-                        const Color(0xFFFFFBF7),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        const AuroraBrandMark(size: 78),
-                        const SizedBox(width: 20),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                AppLocaleText.tr(
-                                  context,
-                                  en: 'Welcome back',
-                                  zhHans: '欢迎回来',
-                                  zhHant: '歡迎回來',
-                                  ja: 'おかえりなさい',
-                                ),
-                                style: theme.textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 27,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                AppLocaleText.tr(
-                                  context,
-                                  en: 'Organize life signals into a calmer order.',
-                                  zhHans: '把生活的信号，慢慢整理成秩序。',
-                                  zhHant: '把生活的信號，慢慢整理成秩序。',
-                                  ja: '生活のシグナルを、少しずつ整えていきます。',
-                                ),
-                                style: theme.textTheme.bodyLarge?.copyWith(
-                                  color: AuroraColors.muted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(Icons.chevron_right,
-                            color: AuroraColors.muted),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  SectionHeader(
-                    title: AppLocaleText.tr(
-                      context,
-                      en: 'My usage style',
-                      zhHans: '我的使用方式',
-                      zhHant: '我的使用方式',
-                      ja: '自分の使い方',
-                    ),
-                    subtitle: AppLocaleText.tr(
-                      context,
-                      en: 'These settings are not fixed forever. You can adjust them later anytime.',
-                      zhHans: '这些设置不会把你固定住，之后随时都可以调整。',
-                      zhHant: '這些設定不會把你固定住，之後隨時都可以調整。',
-                      ja: 'これらの設定は固定ではなく、あとからいつでも変えられます。',
-                    ),
-                  ),
-                  const SizedBox(height: 10),
+                  _MeHeroHeader(vm: vm),
+                  const SizedBox(height: AuroraMainPageSpec.heroGap),
                   if (vm.loading)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 32),
                       child: Center(child: CircularProgressIndicator()),
                     )
-                  else
-                    _MeGroupedCard(
-                      title: AppLocaleText.tr(
-                        context,
-                        en: 'My usage style',
-                        zhHans: '我的使用方式',
-                        zhHant: '我的使用方式',
-                        ja: '自分の使い方',
-                      ),
-                      icon: Icons.auto_awesome_motion_rounded,
-                      iconColor: AuroraColors.purple,
-                      rows: [
-                        _MeGroupedRowData(
-                          icon: Icons.track_changes_rounded,
-                          iconColor: AuroraColors.purple,
-                          title: AppLocaleText.tr(
-                            context,
-                            en: 'Focus area',
-                            zhHans: '关注方向',
-                            zhHant: '關注方向',
-                            ja: '注目方向',
-                          ),
-                          onTap: vm.saving
-                              ? null
-                              : () => _showFocusAreaSheet(context, vm),
-                        ),
-                        _MeGroupedRowData(
-                          icon: Icons.language_rounded,
-                          iconColor: AuroraColors.blue,
-                          title: AppLocaleText.tr(
-                            context,
-                            en: 'Language',
-                            zhHans: '语言',
-                            zhHant: '語言',
-                            ja: '言語',
-                          ),
-                        ),
-                        _MeGroupedRowData(
-                          icon: Icons.auto_awesome_rounded,
-                          iconColor: AuroraColors.purple,
-                          title: AppLocaleText.tr(
-                            context,
-                            en: 'AI response style',
-                            zhHans: 'AI 回应风格',
-                            zhHant: 'AI 回應風格',
-                            ja: 'AI の返答スタイル',
-                          ),
-                          onTap: vm.saving
-                              ? null
-                              : () {
-                                  if (purchase?.isPremium ?? false) {
-                                    _showResponseStyleSheet(context, vm);
-                                  } else {
-                                    showPremiumPaywall(
-                                      context,
-                                      source: AppLocaleText.tr(
-                                        context,
-                                        en: 'AI response style',
-                                        zhHans: 'AI 回应风格',
-                                        zhHant: 'AI 回應風格',
-                                        ja: 'AI の返答スタイル',
-                                      ),
-                                    );
-                                  }
-                                },
-                        ),
-                      ],
+                  else ...[
+                    _LifeDirectionCard(
+                      vm: vm,
+                      onEdit: vm.saving
+                          ? null
+                          : () => _showProfileSheet(context, vm),
                     ),
-                  const SizedBox(height: 24),
-                  _MeDataSection(
-                    onOpenJournal: () => context.go(AppRoutes.journal),
-                    onOpenAdvancedSignals: () =>
-                        context.go(AppRoutes.advancedSignals),
-                    onDeleteAccount: () => _confirmDeleteAccount(context, vm),
-                    onOpenPrivacy: _openPrivacyPolicy,
-                  ),
-                  const SizedBox(height: 12),
-                  _CloudBackupCard(vm: vm),
-                  const SizedBox(height: 24),
+                    const SizedBox(height: AuroraMainPageSpec.sectionGap),
+                    _FocusDomainsCard(
+                      selectedIds: vm.selectedFocusDomainIds,
+                      onTap: vm.saving
+                          ? null
+                          : () => _showFocusAreaSheet(context, vm),
+                    ),
+                    const SizedBox(height: AuroraMainPageSpec.sectionGap),
+                  ],
                   _PremiumStatusCard(purchase: purchase, vm: vm),
-                  const SizedBox(height: 24),
-                  const _MeHelpSection(),
+                  if (vm.usageLoading ||
+                      vm.usageLoadFailed ||
+                      !vm.usageMatchesLocalEntitlement(
+                        purchase?.isPremium ?? false,
+                      )) ...[
+                    const SizedBox(height: AuroraMainPageSpec.sectionGap),
+                    _UsageSyncCard(
+                      vm: vm,
+                      localPremium: purchase?.isPremium ?? false,
+                    ),
+                  ] else if (vm.usageQuotas.isNotEmpty) ...[
+                    const SizedBox(height: AuroraMainPageSpec.sectionGap),
+                    _MonthlyUsageCard(
+                      quotas: vm.usageQuotas.values.toList(growable: false),
+                    ),
+                  ],
+                  const SizedBox(height: AuroraMainPageSpec.sectionGap),
+                  _MePreferenceSection(
+                    selectedResponseStyle: vm.selectedResponseStyle,
+                    onOpenSelfReview: () => context.push(AppRoutes.selfReview),
+                    onOpenResponseStyle: vm.saving
+                        ? null
+                        : () {
+                            if (purchase?.isPremium ?? false) {
+                              _showResponseStyleSheet(context, vm);
+                            } else {
+                              showPremiumPaywall(
+                                context,
+                                source: AppLocaleText.tr(
+                                  context,
+                                  en: 'AI response style',
+                                  zhHans: 'AI 回应风格',
+                                  zhHant: 'AI 回應風格',
+                                  ja: 'AI の返答スタイル',
+                                ),
+                              );
+                            }
+                          },
+                  ),
+                  const SizedBox(height: AuroraMainPageSpec.sectionGap),
+                  _MeDataSection(
+                    onOpenAdvancedSignals: () =>
+                        context.push(AppRoutes.advancedSignals),
+                    onOpenPrivacy: () => _openPrivacyPolicy(context),
+                    onOpenSupport: () => _openSupport(context),
+                    onDeleteData: vm.deletingData
+                        ? null
+                        : () => _confirmDeleteData(context, vm),
+                    hasCloudAccount: vm.hasCloudAccount,
+                  ),
+                  if (kDebugMode) ...[
+                    const SizedBox(height: AuroraMainPageSpec.sectionGap),
+                    const _MeDebugSection(),
+                  ],
                   if (vm.errorMessage != null &&
                       vm.errorMessage!.trim().isNotEmpty) ...[
                     const SizedBox(height: 16),
@@ -199,7 +130,7 @@ class MePage extends StatelessWidget {
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Text(
-                          vm.errorMessage!,
+                          _meErrorLabel(context, vm.errorMessage!),
                           style: TextStyle(
                             color: theme.colorScheme.onErrorContainer,
                           ),
@@ -211,27 +142,57 @@ class MePage extends StatelessWidget {
               ),
             ),
           ),
-          const AuroraSafeTopMask(),
+          const AuroraSafeTopMask(extraHeight: 4),
         ],
       ),
     );
   }
 
-  Future<void> _showFocusAreaSheet(BuildContext context, MeViewModel vm) async {
-    final selected = await showModalBottomSheet<String>(
+  Future<void> _showProfileSheet(BuildContext context, MeViewModel vm) async {
+    final draft = await showModalBottomSheet<_ProfileDraft>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (sheetContext) {
-        return _FocusAreaPickerSheet(
-          currentValue: vm.selectedRepeatArea,
-        );
-      },
+      builder: (_) => _ProfileEditSheet(
+        displayName: vm.profileDisplayName ?? '',
+        direction: vm.lifeDirection ?? '',
+      ),
+    );
+    if (draft == null) return;
+    final success = await vm.updateProfile(
+      displayName: draft.displayName,
+      direction: draft.direction,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          success
+              ? AppLocaleText.tr(
+                  context,
+                  en: 'Profile updated.',
+                  zhHans: '个人资料已更新。',
+                  zhHant: '個人資料已更新。',
+                  ja: 'プロフィールを更新しました。',
+                )
+              : _meErrorLabel(context, vm.errorMessage),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showFocusAreaSheet(BuildContext context, MeViewModel vm) async {
+    final selected = await Navigator.of(context).push<List<String>>(
+      MaterialPageRoute(
+        builder: (_) => _FocusAreaSettingsPage(
+          currentValues: vm.selectedFocusDomainIds,
+        ),
+      ),
     );
 
-    if (selected == null || selected == vm.selectedRepeatArea) return;
+    if (selected == null) return;
 
-    final success = await vm.updateRepeatArea(selected);
+    final success = await vm.updateFocusDomains(selected);
     if (!context.mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -294,106 +255,590 @@ class MePage extends StatelessWidget {
     );
   }
 
-  Future<void> _confirmDeleteAccount(
+  Future<void> _openPrivacyPolicy(BuildContext context) async {
+    try {
+      final opened = await launchUrl(
+        _privacyPolicyUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (opened || !context.mounted) return;
+    } catch (_) {
+      if (!context.mounted) return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocaleText.tr(
+            context,
+            en: 'Could not open the privacy page.',
+            zhHans: '暂时无法打开隐私页面。',
+            zhHant: '暫時無法打開隱私頁面。',
+            ja: 'プライバシーページを開けませんでした。',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSupport(BuildContext context) async {
+    try {
+      final opened = await launchUrl(
+        _supportUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (opened || !context.mounted) return;
+    } catch (_) {
+      if (!context.mounted) return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocaleText.tr(
+            context,
+            en: 'Could not open support right now.',
+            zhHans: '暂时无法打开支持页面。',
+            zhHant: '暫時無法打開支援頁面。',
+            ja: 'サポートページを開けませんでした。',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteData(
     BuildContext context,
     MeViewModel vm,
   ) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Delete account and all data?',
-              zhHans: '删除账户和所有数据？',
-              zhHant: '刪除帳戶和所有資料？',
-              ja: 'アカウントとすべてのデータを削除しますか？',
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          vm.hasCloudAccount
+              ? AppLocaleText.tr(
+                  context,
+                  en: 'Delete account and all data?',
+                  zhHans: '删除账户与所有数据？',
+                  zhHant: '刪除帳戶與所有資料？',
+                  ja: 'アカウントと全データを削除しますか？',
+                )
+              : AppLocaleText.tr(
+                  context,
+                  en: 'Clear all data on this device?',
+                  zhHans: '清除本机全部数据？',
+                  zhHant: '清除此裝置上的全部資料？',
+                  ja: 'この端末の全データを消去しますか？',
+                ),
+        ),
+        content: Text(
+          AppLocaleText.tr(
+            context,
+            en: 'This cannot be undone. StoreKit purchase rights are managed separately by Apple.',
+            zhHans: '此操作无法撤销。StoreKit 购买权益仍由 Apple 单独管理。',
+            zhHant: '此操作無法撤銷。StoreKit 購買權益仍由 Apple 單獨管理。',
+            ja: 'この操作は取り消せません。StoreKit の購入権利は Apple が別途管理します。',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(
+              MaterialLocalizations.of(context).cancelButtonLabel,
             ),
           ),
-          content: Text(
-            AppLocaleText.tr(
-              context,
-              en: 'This deletes local records, cloud backup snapshots, and the Apple-linked Signal Path account. Pro purchases remain managed by the App Store and can be restored separately.',
-              zhHans:
-                  '这会删除本机记录、云备份快照，以及与 Apple 登录关联的 Signal Path 账户。Pro 购买仍由 App Store 管理，可单独恢复。',
-              zhHant:
-                  '這會刪除本機記錄、雲端備份快照，以及與 Apple 登入關聯的 Signal Path 帳戶。Pro 購買仍由 App Store 管理，可另外恢復。',
-              ja: '端末内の記録、クラウドバックアップ、Apple ログインに紐づく Signal Path アカウントを削除します。Pro 購入は App Store 側で管理され、別途復元できます。',
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Delete',
+                zhHans: '删除',
+                zhHant: '刪除',
+                ja: '削除',
+              ),
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'Cancel',
-                  zhHans: '取消',
-                  zhHant: '取消',
-                  ja: 'キャンセル',
-                ),
-              ),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFB94A48),
-              ),
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'Delete',
-                  zhHans: '删除',
-                  zhHant: '刪除',
-                  ja: '削除',
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+        ],
+      ),
     );
-
     if (confirmed != true) return;
-    final ok = await vm.deleteAccountAndAllData();
+    if (!context.mounted) return;
+    AppBootstrapState? bootstrap;
+    try {
+      bootstrap = context.read<AppBootstrapState>();
+    } on ProviderNotFoundException {
+      bootstrap = null;
+    }
+    final success = await vm.deleteMyData();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-          content: Text(_CloudBackupCard._cloudMessageText(
-        context,
-        vm.cloudMessage,
-        ok: ok,
-      ))),
+        content: Text(
+          success
+              ? AppLocaleText.tr(
+                  context,
+                  en: 'Your Signal Path data was deleted.',
+                  zhHans: 'Signal Path 数据已删除。',
+                  zhHant: 'Signal Path 資料已刪除。',
+                  ja: 'Signal Path のデータを削除しました。',
+                )
+              : _meErrorLabel(context, vm.errorMessage),
+        ),
+      ),
     );
-  }
-
-  Future<void> _openPrivacyPolicy() async {
-    await launchUrl(_privacyPolicyUri, mode: LaunchMode.externalApplication);
+    if (success && bootstrap != null) {
+      await bootstrap.resetAfterDataDeletion();
+    }
   }
 }
 
-class _CloudBackupCard extends StatelessWidget {
+class _MeHeroHeader extends StatelessWidget {
   final MeViewModel vm;
 
-  const _CloudBackupCard({required this.vm});
+  const _MeHeroHeader({required this.vm});
 
   @override
   Widget build(BuildContext context) {
-    final signedIn = vm.cloudSignedIn;
-    return AuroraCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+    return ConstrainedBox(
+      key: const ValueKey('me-hero-header'),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.textScalerOf(context).scale(14) > 20
+            ? double.infinity
+            : 170,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Me',
+              zhHans: '我的',
+              zhHant: '我的',
+              ja: '私',
+            ),
+            key: const ValueKey('me-hero-title'),
+            style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                  color: const Color(0xFF071D5E),
+                  fontSize: AuroraMainPageSpec.responsiveHeroTitleSize(context),
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+          ),
+          const SizedBox(height: 10),
+          _MeProfileIntro(vm: vm),
+        ],
+      ),
+    );
+  }
+}
+
+class _MeProfileIntro extends StatelessWidget {
+  final MeViewModel vm;
+
+  const _MeProfileIntro({required this.vm});
+
+  @override
+  Widget build(BuildContext context) {
+    final photoPath = vm.profilePhotoPath;
+    return Row(
+      children: [
+        InkWell(
+          customBorder: const CircleBorder(),
+          onTap: vm.saving ? null : () => _pickAvatar(context, vm),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                key: const ValueKey('me-profile-avatar'),
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 3),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AuroraColors.purple.withValues(alpha: 0.18),
+                      blurRadius: 22,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: ClipOval(
+                  child: photoPath == null || photoPath.trim().isEmpty
+                      ? Image.asset(
+                          'assets/me/me-avatar-landscape.png',
+                          fit: BoxFit.cover,
+                        )
+                      : Image.file(
+                          File(photoPath),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Image.asset(
+                            'assets/me/me-avatar-landscape.png',
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                ),
+              ),
+              Positioned(
+                right: -2,
+                bottom: 2,
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: AuroraColors.purple,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(
+                    Icons.photo_camera_rounded,
+                    color: Colors.white,
+                    size: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                vm.profileDisplayName == null
+                    ? AppLocaleText.tr(
+                        context,
+                        en: 'Hello',
+                        zhHans: '你好',
+                        zhHant: '你好',
+                        ja: 'こんにちは',
+                      )
+                    : AppLocaleText.tr(
+                        context,
+                        en: 'Hello, ${vm.profileDisplayName}',
+                        zhHans: '你好，${vm.profileDisplayName}',
+                        zhHant: '你好，${vm.profileDisplayName}',
+                        ja: 'こんにちは、${vm.profileDisplayName}',
+                      ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: const Color(0xFF071D5E),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                vm.lifeDirection ??
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Add a life direction when you are ready.',
+                      zhHans: '准备好时，再写下你想靠近的生活。',
+                      zhHant: '準備好時，再寫下你想靠近的生活。',
+                      ja: '準備ができたら、目指す暮らしを記せます。',
+                    ),
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: const Color(0xFF60749E),
+                      fontSize: AuroraMainPageSpec.heroSubtitleSize,
+                      height: 1.3,
+                      fontWeight: FontWeight.w600,
+                    ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickAvatar(BuildContext context, MeViewModel vm) async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 88,
+    );
+    if (picked == null) return;
+
+    final sourceFile = File(picked.path);
+    final size = await sourceFile.length();
+    if (!context.mounted) return;
+    if (size > MeViewModel.maxProfilePhotoBytes) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Photo is too large. Please choose one under 2 MB.',
+              zhHans: '照片太大了，请选择 2 MB 以下的图片。',
+              zhHant: '照片太大了，請選擇 2 MB 以下的圖片。',
+              ja: '写真が大きすぎます。2MB 未満の画像を選んでください。',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final directory = await getApplicationDocumentsDirectory();
+    final extension =
+        p.extension(picked.path).isEmpty ? '.jpg' : p.extension(picked.path);
+    final target = File(p.join(directory.path, 'me_avatar$extension'));
+    await sourceFile.copy(target.path);
+    final ok = await vm.updateProfilePhotoPath(
+      path: target.path,
+      sizeBytes: await target.length(),
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? AppLocaleText.tr(
+                  context,
+                  en: 'Profile photo updated.',
+                  zhHans: '头像已更新。',
+                  zhHant: '頭像已更新。',
+                  ja: 'プロフィール写真を更新しました。',
+                )
+              : AppLocaleText.tr(
+                  context,
+                  en: 'Could not update the photo.',
+                  zhHans: '无法更新头像。',
+                  zhHant: '無法更新頭像。',
+                  ja: '写真を更新できませんでした。',
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LifeDirectionCard extends StatelessWidget {
+  final MeViewModel vm;
+  final VoidCallback? onEdit;
+
+  const _LifeDirectionCard({required this.vm, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('me-life-direction-card'),
+      constraints: const BoxConstraints(minHeight: 158),
+      decoration: _meCardDecoration(),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.bottomRight,
+              child: Opacity(
+                opacity: 0.82,
+                child: Image.asset(
+                  'assets/me/me-direction-landscape.png',
+                  width: 190,
+                  height: 96,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    Colors.white.withValues(alpha: 0.98),
+                    Colors.white.withValues(alpha: 0.84),
+                    Colors.white.withValues(alpha: 0.24),
+                  ],
+                  stops: const [0, 0.58, 1],
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        AppLocaleText.tr(
+                          context,
+                          en: 'My life direction',
+                          zhHans: '我的人生方向',
+                          zhHant: '我的人生方向',
+                          ja: '私の人生の方向',
+                        ),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: const Color(0xFF071D5E),
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.82),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: AuroraColors.purple.withValues(alpha: 0.18),
+                        ),
+                      ),
+                      child: Text(
+                        vm.lifeDirection == null
+                            ? AppLocaleText.tr(
+                                context,
+                                en: 'Not set',
+                                zhHans: '未设置',
+                                zhHant: '未設定',
+                                ja: '未設定',
+                              )
+                            : AppLocaleText.tr(
+                                context,
+                                en: 'Active',
+                                zhHans: '进行中',
+                                zhHant: '進行中',
+                                ja: '進行中',
+                              ),
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              color: AuroraColors.purple,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  vm.lifeDirection ??
+                      AppLocaleText.tr(
+                        context,
+                        en: 'No life direction has been set yet.',
+                        zhHans: '还没有设置人生方向。',
+                        zhHant: '還沒有設定人生方向。',
+                        ja: '人生の方向はまだ設定されていません。',
+                      ),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: const Color(0xFF071D5E),
+                        fontSize: AuroraMainPageSpec.bodySize,
+                        height: 1.35,
+                        fontWeight: FontWeight.w800,
+                      ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(
+                      vm.lifeDirectionCreatedAt == null
+                          ? Icons.edit_outlined
+                          : Icons.calendar_month_outlined,
+                      color: const Color(0xFF7F8CB7),
+                      size: 17,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        vm.lifeDirectionCreatedAt == null
+                            ? AppLocaleText.tr(
+                                context,
+                                en: 'Tap to add your own words',
+                                zhHans: '用自己的话写下来',
+                                zhHant: '用自己的話寫下來',
+                                ja: '自分の言葉で追加',
+                              )
+                            : MaterialLocalizations.of(context).formatFullDate(
+                                vm.lifeDirectionCreatedAt!.toLocal(),
+                              ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFF7F8CB7),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: AppLocaleText.tr(
+                        context,
+                        en: 'Edit',
+                        zhHans: '编辑',
+                        zhHant: '編輯',
+                        ja: '編集',
+                      ),
+                      onPressed: onEdit,
+                      icon: const Icon(Icons.edit_rounded, size: 19),
+                      color: AuroraColors.purple,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FocusDomainsCard extends StatelessWidget {
+  final List<String> selectedIds;
+  final VoidCallback? onTap;
+
+  const _FocusDomainsCard({
+    required this.selectedIds,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = FocusDomains.normalizeIds(selectedIds);
+    final visibleIds = normalized.take(3).toList();
+    final hiddenCount = normalized.length - visibleIds.length;
+
+    return Container(
+      decoration: _meCardDecoration(),
+      padding: AuroraMainPageSpec.comfortableCardPadding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const AuroraSoftIconCircle(
-                icon: Icons.cloud_done_outlined,
-                color: AuroraColors.blue,
-                size: 42,
+              const _MeRoundedIcon(
+                icon: Icons.tune_rounded,
+                color: AuroraColors.purple,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -401,449 +846,469 @@ class _CloudBackupCard extends StatelessWidget {
                     Text(
                       AppLocaleText.tr(
                         context,
-                        en: 'Apple sign-in and record backup',
-                        zhHans: 'Apple 登录与记录备份',
-                        zhHant: 'Apple 登入與記錄備份',
-                        ja: 'Apple ログインと記録バックアップ',
+                        en: 'My focus areas',
+                        zhHans: '我的关注重点',
+                        zhHant: '我的關注重點',
+                        ja: '私の注目領域',
                       ),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: const Color(0xFF071D5E),
                             fontSize: 17,
+                            fontWeight: FontWeight.w900,
                           ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Text(
-                      signedIn
-                          ? AppLocaleText.tr(
-                              context,
-                              en: 'Signed in. Records can be restored on a new device.',
-                              zhHans: '已登录。换手机时可以恢复之前的记录。',
-                              zhHant: '已登入。換手機時可以恢復之前的記錄。',
-                              ja: 'ログイン済み。新しい端末で記録を復元できます。',
-                            )
-                          : AppLocaleText.tr(
-                              context,
-                              en: 'Local-first stays on. Apple sign-in only adds a private backup snapshot.',
-                              zhHans: '本地优先不变。Apple 登录只用于保存一份私人备份快照。',
-                              zhHant: '本地優先不變。Apple 登入只用於保存一份私人備份快照。',
-                              ja: 'ローカル優先のまま、Apple ログインで個人用バックアップを追加します。',
-                            ),
+                      AppLocaleText.tr(
+                        context,
+                        en: 'These areas guide AI ranking; they never hide other records. Without an account, they stay on this device.',
+                        zhHans: '这些领域只影响 AI 的优先理解，不会隐藏其他记录。未登录账户时仅保存在本机。',
+                        zhHant: '這些領域只影響 AI 的優先理解，不會隱藏其他記錄。未登入帳戶時只保存在本機。',
+                        ja: 'これらは AI の優先順位だけに影響し、他の記録を隠しません。アカウント未設定時はこの端末だけに保存されます。',
+                      ),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AuroraColors.muted,
+                            color: const Color(0xFF6E7FA9),
+                            fontSize: AuroraMainPageSpec.bodySize,
+                            fontWeight: FontWeight.w600,
                             height: 1.35,
                           ),
                     ),
                   ],
                 ),
               ),
+              TextButton(
+                onPressed: onTap,
+                style: TextButton.styleFrom(
+                  foregroundColor: AuroraColors.purple,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(44, 44),
+                  tapTargetSize: MaterialTapTargetSize.padded,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      normalized.isEmpty
+                          ? AppLocaleText.tr(
+                              context,
+                              en: 'Set',
+                              zhHans: '去设置',
+                              zhHant: '去設定',
+                              ja: '設定',
+                            )
+                          : AppLocaleText.tr(
+                              context,
+                              en: 'Edit',
+                              zhHans: '调整',
+                              zhHant: '調整',
+                              ja: '調整',
+                            ),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AuroraColors.purple,
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    const Icon(Icons.chevron_right_rounded, size: 20),
+                  ],
+                ),
+              ),
             ],
           ),
-          if ((vm.latestBackupVersion ?? '').trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
+          const SizedBox(height: 10),
+          if (normalized.isEmpty)
             Text(
               AppLocaleText.tr(
                 context,
-                en: 'Latest backup: ${vm.latestBackupVersion}',
-                zhHans: '最近备份：${vm.latestBackupVersion}',
-                zhHant: '最近備份：${vm.latestBackupVersion}',
-                ja: '最新バックアップ：${vm.latestBackupVersion}',
+                en: 'No focus areas selected yet.',
+                zhHans: '还没有选择关注重点',
+                zhHant: '還沒有選擇關注重點',
+                ja: '注目領域はまだ選ばれていません。',
               ),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AuroraColors.muted,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: const Color(0xFF7F8CB7),
+                    fontWeight: FontWeight.w700,
                   ),
-            ),
-          ],
-          if ((vm.cloudMessage ?? '').trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              _cloudMessageText(context, vm.cloudMessage!),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AuroraColors.blue,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          if (vm.cloudLoading)
-            const LinearProgressIndicator(minHeight: 3)
+            )
           else
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 9,
+              runSpacing: 10,
               children: [
-                AuroraPillButton(
-                  filled: !signedIn,
-                  icon: Icons.apple,
-                  label: signedIn
-                      ? AppLocaleText.tr(
-                          context,
-                          en: 'Backup now',
-                          zhHans: '立即备份',
-                          zhHant: '立即備份',
-                          ja: '今すぐバックアップ',
-                        )
-                      : AppLocaleText.tr(
-                          context,
-                          en: 'Sign in with Apple',
-                          zhHans: '使用 Apple 登录',
-                          zhHant: '使用 Apple 登入',
-                          ja: 'Apple でログイン',
-                        ),
-                  onPressed: () async {
-                    final ok = signedIn
-                        ? await vm.uploadCloudBackupNow()
-                        : await vm.signInWithAppleAndBackupNow();
-                    if (!context.mounted) return;
-                    _showCloudSnack(context, ok, vm.cloudMessage);
-                  },
-                ),
-                AuroraPillButton(
-                  icon: Icons.restore_rounded,
-                  label: AppLocaleText.tr(
-                    context,
-                    en: 'Restore records',
-                    zhHans: '恢复记录',
-                    zhHant: '恢復記錄',
-                    ja: '記録を復元',
-                  ),
-                  onPressed: signedIn
-                      ? () async {
-                          final ok = await vm.restoreLatestCloudBackup();
-                          if (!context.mounted) return;
-                          _showCloudSnack(context, ok, vm.cloudMessage);
-                        }
-                      : null,
-                ),
+                for (final id in visibleIds) _FocusDomainChip(id: id),
+                if (hiddenCount > 0)
+                  _FocusDomainMoreChip(totalCount: normalized.length),
               ],
             ),
-          const SizedBox(height: 10),
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'This restores records only. Pro purchase restore remains in the Pro sheet.',
-              zhHans: '这里恢复的是记录。Pro 购买恢复仍在 Pro 订阅页。',
-              zhHant: '這裡恢復的是記錄。Pro 購買恢復仍在 Pro 訂閱頁。',
-              ja: 'ここで復元するのは記録だけです。Pro 購入の復元は Pro 画面にあります。',
-            ),
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AuroraColors.muted,
-                  height: 1.35,
-                ),
-          ),
         ],
       ),
     );
   }
+}
 
-  static void _showCloudSnack(
-    BuildContext context,
-    bool ok,
-    String? message,
-  ) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(_cloudMessageText(context, message, ok: ok))),
+class _FocusDomainChip extends StatelessWidget {
+  final String id;
+
+  const _FocusDomainChip({required this.id});
+
+  @override
+  Widget build(BuildContext context) {
+    final option = FocusDomains.optionFor(id);
+    final color = option?.color ?? AuroraColors.purple;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.sizeOf(context).width - 68,
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withValues(alpha: 0.22)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              option?.icon ?? Icons.auto_awesome_rounded,
+              size: 17,
+              color: color,
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                FocusDomains.labelFor(context, id),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: const Color(0xFF071D5E),
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
+}
 
-  static String _cloudMessageText(
-    BuildContext context,
-    String? raw, {
-    bool? ok,
-  }) {
-    switch (raw) {
-      case 'cloud_backup_uploaded':
-        return AppLocaleText.tr(
+class _FocusDomainMoreChip extends StatelessWidget {
+  final int totalCount;
+
+  const _FocusDomainMoreChip({required this.totalCount});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: AuroraColors.purple.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AuroraColors.purple.withValues(alpha: 0.18),
+        ),
+      ),
+      child: Text(
+        AppLocaleText.tr(
           context,
-          en: 'Backup saved.',
-          zhHans: '备份已保存。',
-          zhHant: '備份已保存。',
-          ja: 'バックアップを保存しました。',
-        );
-      case 'cloud_backup_restored':
-        return AppLocaleText.tr(
-          context,
-          en: 'Records restored. Reopen pages to refresh the view.',
-          zhHans: '记录已恢复。重新打开页面后会刷新显示。',
-          zhHant: '記錄已恢復。重新打開頁面後會刷新顯示。',
-          ja: '記録を復元しました。ページを開き直すと反映されます。',
-        );
-      case 'cloud_backup_empty':
-        return AppLocaleText.tr(
-          context,
-          en: 'No backup found yet.',
-          zhHans: '还没有找到可恢复的备份。',
-          zhHant: '還沒有找到可恢復的備份。',
-          ja: '復元できるバックアップはまだありません。',
-        );
-      case 'cloud_backup_sign_in_required':
-        return AppLocaleText.tr(
-          context,
-          en: 'Sign in with Apple first.',
-          zhHans: '请先使用 Apple 登录。',
-          zhHant: '請先使用 Apple 登入。',
-          ja: '先に Apple でログインしてください。',
-        );
-      case 'cloud_backup_unavailable':
-        return AppLocaleText.tr(
-          context,
-          en: 'Cloud backup is not available in this build.',
-          zhHans: '这个版本暂时无法使用云备份。',
-          zhHant: '這個版本暫時無法使用雲備份。',
-          ja: 'このビルドではクラウドバックアップを利用できません。',
-        );
-      case 'account_deleted':
-        return AppLocaleText.tr(
-          context,
-          en: 'Account and local records deleted. Reopen the app to start fresh.',
-          zhHans: '账户和本机记录已删除。重新打开 App 后会从新状态开始。',
-          zhHant: '帳戶和本機記錄已刪除。重新打開 App 後會從新狀態開始。',
-          ja: 'アカウントと端末内の記録を削除しました。アプリを開き直すと新しい状態で始まります。',
-        );
-      case 'account_delete_unavailable':
-        return AppLocaleText.tr(
-          context,
-          en: 'Account deletion is not available in this build.',
-          zhHans: '这个版本暂时无法删除账户。',
-          zhHant: '這個版本暫時無法刪除帳戶。',
-          ja: 'このビルドではアカウント削除を利用できません。',
-        );
-      default:
-        if (ok == true) {
-          return AppLocaleText.tr(
-            context,
-            en: 'Done.',
-            zhHans: '已完成。',
-            zhHant: '已完成。',
-            ja: '完了しました。',
-          );
-        }
-        return AppLocaleText.tr(
-          context,
-          en: 'Cloud backup could not finish. Your local records are still safe.',
-          zhHans: '云备份没有完成，但本机记录仍然安全。',
-          zhHant: '雲備份沒有完成，但本機記錄仍然安全。',
-          ja: 'クラウドバックアップは完了しませんでしたが、端末内の記録は安全です。',
-        );
-    }
+          en: 'and $totalCount total',
+          zhHans: '等 $totalCount 个',
+          zhHant: '等 $totalCount 個',
+          ja: '全$totalCount件',
+        ),
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: AuroraColors.purple,
+              fontWeight: FontWeight.w900,
+            ),
+      ),
+    );
   }
 }
 
 class _MeDataSection extends StatelessWidget {
-  final VoidCallback onOpenJournal;
   final VoidCallback onOpenAdvancedSignals;
-  final VoidCallback onDeleteAccount;
   final VoidCallback onOpenPrivacy;
+  final VoidCallback onOpenSupport;
+  final VoidCallback? onDeleteData;
+  final bool hasCloudAccount;
 
   const _MeDataSection({
-    required this.onOpenJournal,
     required this.onOpenAdvancedSignals,
-    required this.onDeleteAccount,
     required this.onOpenPrivacy,
+    required this.onOpenSupport,
+    required this.onDeleteData,
+    required this.hasCloudAccount,
   });
 
   @override
   Widget build(BuildContext context) {
-    return _MeGroupedCard(
+    return _MeListCard(
       title: AppLocaleText.tr(
         context,
-        en: 'My data',
-        zhHans: '我的数据',
-        zhHant: '我的資料',
-        ja: '自分のデータ',
+        en: 'Data and privacy',
+        zhHans: '数据与隐私',
+        zhHant: '資料與隱私',
+        ja: 'データとプライバシー',
       ),
-      icon: Icons.lock_outline_rounded,
-      iconColor: AuroraColors.purple,
       rows: [
-        _MeGroupedRowData(
-          icon: Icons.menu_book_rounded,
-          iconColor: AuroraColors.mint,
+        _MeListRowData(
+          icon: Icons.monitor_heart_outlined,
+          iconColor: const Color(0xFF59BFA5),
           title: AppLocaleText.tr(
             context,
-            en: 'Journal and reviews',
-            zhHans: '手帐与回顾',
-            zhHant: '手帳與回顧',
-            ja: '手帳と振り返り',
+            en: 'Advanced signals',
+            zhHans: '高级信号',
+            zhHant: '進階信號',
+            ja: '高度なシグナル',
           ),
-          onTap: onOpenJournal,
-        ),
-        _MeGroupedRowData(
-          icon: Icons.verified_user_outlined,
-          iconColor: AuroraColors.orange,
-          title: AppLocaleText.tr(
+          subtitle: AppLocaleText.tr(
             context,
-            en: 'Advanced signal settings',
-            zhHans: '高级线索设置',
-            zhHant: '進階線索設定',
-            ja: '高度なシグナル設定',
+            en: 'Manage abstract energy and recovery hints',
+            zhHans: '管理能量与恢复的抽象提示',
+            zhHant: '管理能量與恢復的抽象提示',
+            ja: 'エネルギーと回復の抽象ヒントを管理',
           ),
           onTap: onOpenAdvancedSignals,
         ),
-        _MeGroupedRowData(
+        _MeListRowData(
           icon: Icons.privacy_tip_outlined,
-          iconColor: AuroraColors.blue,
+          iconColor: AuroraColors.purple,
           title: AppLocaleText.tr(
             context,
-            en: 'Privacy notes',
-            zhHans: '隐私说明',
-            zhHant: '隱私說明',
-            ja: 'プライバシー',
+            en: 'Privacy and security',
+            zhHans: '隐私与安全',
+            zhHant: '隱私與安全',
+            ja: 'プライバシーと安全',
+          ),
+          subtitle: AppLocaleText.tr(
+            context,
+            en: 'Review how Signal Path handles your data',
+            zhHans: '查看 Signal Path 如何处理你的数据',
+            zhHant: '查看 Signal Path 如何處理你的資料',
+            ja: 'Signal Path のデータ取り扱いを確認',
           ),
           onTap: onOpenPrivacy,
         ),
-        _MeGroupedRowData(
-          icon: Icons.download_rounded,
-          iconColor: AuroraColors.purple,
+        _MeListRowData(
+          icon: Icons.support_agent_rounded,
+          iconColor: const Color(0xFF5E8DF5),
           title: AppLocaleText.tr(
             context,
-            en: 'Export data',
-            zhHans: '导出数据',
-            zhHant: '匯出資料',
-            ja: 'データを書き出す',
+            en: 'Help and support',
+            zhHans: '帮助与支持',
+            zhHant: '幫助與支援',
+            ja: 'ヘルプとサポート',
           ),
+          subtitle: AppLocaleText.tr(
+            context,
+            en: 'Restore-purchase help and contact information',
+            zhHans: '恢复购买帮助与联系方式',
+            zhHant: '恢復購買協助與聯絡方式',
+            ja: '購入復元のヘルプと連絡先',
+          ),
+          onTap: onOpenSupport,
         ),
-        _MeGroupedRowData(
-          icon: Icons.delete_outline_rounded,
-          iconColor: const Color(0xFFB94A48),
-          title: AppLocaleText.tr(
+        _MeListRowData(
+          icon: Icons.delete_forever_outlined,
+          iconColor: const Color(0xFFD95858),
+          title: hasCloudAccount
+              ? AppLocaleText.tr(
+                  context,
+                  en: 'Delete account and all data',
+                  zhHans: '删除账户与所有数据',
+                  zhHant: '刪除帳戶與所有資料',
+                  ja: 'アカウントと全データを削除',
+                )
+              : AppLocaleText.tr(
+                  context,
+                  en: 'Clear data on this device',
+                  zhHans: '清除本机数据',
+                  zhHant: '清除此裝置資料',
+                  ja: 'この端末のデータを消去',
+                ),
+          subtitle: AppLocaleText.tr(
             context,
-            en: 'Delete account and all data',
-            zhHans: '删除账户和所有数据',
-            zhHant: '刪除帳戶和所有資料',
-            ja: 'アカウントとすべてのデータを削除',
+            en: 'Permanently remove Signal Path content and preferences',
+            zhHans: '永久删除 Signal Path 内容与偏好',
+            zhHant: '永久刪除 Signal Path 內容與偏好',
+            ja: 'Signal Path の内容と設定を完全に削除',
           ),
-          onTap: onDeleteAccount,
+          onTap: onDeleteData,
         ),
       ],
     );
   }
 }
 
-class _MeHelpSection extends StatelessWidget {
-  const _MeHelpSection();
+class _MePreferenceSection extends StatelessWidget {
+  final String? selectedResponseStyle;
+  final VoidCallback onOpenSelfReview;
+  final VoidCallback? onOpenResponseStyle;
+
+  const _MePreferenceSection({
+    required this.selectedResponseStyle,
+    required this.onOpenSelfReview,
+    required this.onOpenResponseStyle,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return _MeGroupedCard(
+    return _MeListCard(
       title: AppLocaleText.tr(
         context,
-        en: 'Help and notes',
-        zhHans: '帮助与说明',
-        zhHant: '幫助與說明',
-        ja: 'ヘルプと説明',
+        en: 'Reflection and AI',
+        zhHans: '复盘与 AI',
+        zhHant: '復盤與 AI',
+        ja: '振り返りと AI',
       ),
-      icon: Icons.help_outline_rounded,
-      iconColor: AuroraColors.purple,
       rows: [
-        _MeGroupedRowData(
+        _MeListRowData(
           icon: Icons.auto_stories_outlined,
+          iconColor: const Color(0xFF5E8DF5),
+          title: AppLocaleText.tr(
+            context,
+            en: 'Structured self-review',
+            zhHans: '结构化自我复盘',
+            zhHant: '結構化自我復盤',
+            ja: '構造化セルフレビュー',
+          ),
+          subtitle: AppLocaleText.tr(
+            context,
+            en: 'Turn signals into an evidence-based reflection',
+            zhHans: '把信号整理成有证据的回看',
+            zhHant: '把信號整理成有證據的回看',
+            ja: 'シグナルを根拠のある振り返りに整理',
+          ),
+          onTap: onOpenSelfReview,
+        ),
+        _MeListRowData(
+          icon: Icons.auto_awesome_rounded,
           iconColor: AuroraColors.purple,
           title: AppLocaleText.tr(
             context,
-            en: 'How Signal Path works',
-            zhHans: 'Signal Path 如何工作',
-            zhHant: 'Signal Path 如何運作',
-            ja: 'Signal Path のしくみ',
+            en: 'AI response style',
+            zhHans: 'AI 回应风格',
+            zhHant: 'AI 回應風格',
+            ja: 'AI の返答スタイル',
           ),
-        ),
-        const _MeGroupedRowData(
-          icon: Icons.chat_bubble_outline_rounded,
-          iconColor: AuroraColors.mint,
-          title: 'FAQ',
-        ),
-        _MeGroupedRowData(
-          icon: Icons.headset_mic_outlined,
-          iconColor: AuroraColors.orange,
-          title: AppLocaleText.tr(
-            context,
-            en: 'Contact support',
-            zhHans: '联系支持',
-            zhHant: '聯絡支援',
-            ja: 'サポートに連絡',
-          ),
+          subtitle: _responseStyleLabel(context, selectedResponseStyle),
+          onTap: onOpenResponseStyle,
         ),
       ],
     );
   }
 }
 
-class _MeGroupedCard extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final Color iconColor;
-  final List<_MeGroupedRowData> rows;
+String _responseStyleLabel(BuildContext context, String? value) {
+  return switch (value) {
+    'clear' => AppLocaleText.tr(
+        context,
+        en: 'Clear · structured and to the point',
+        zhHans: '清晰 · 更有结构，更快到重点',
+        zhHant: '清晰 · 更有結構，更快到重點',
+        ja: 'クリア · 整理されていて要点が早い',
+      ),
+    'direct' => AppLocaleText.tr(
+        context,
+        en: 'Direct · shorter and sharper',
+        zhHans: '直接 · 更短，更直接',
+        zhHant: '直接 · 更短，更直接',
+        ja: '率直 · 短く率直',
+      ),
+    _ => AppLocaleText.tr(
+        context,
+        en: 'Gentle · softer and companion-like',
+        zhHans: '温和 · 更柔和、更像陪伴',
+        zhHant: '溫和 · 更柔和、更像陪伴',
+        ja: 'やわらかめ · やさしく寄り添う',
+      ),
+  };
+}
 
-  const _MeGroupedCard({
+class _MeDebugSection extends StatelessWidget {
+  const _MeDebugSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return _MeListCard(
+      title: 'Developer',
+      rows: [
+        _MeListRowData(
+          icon: Icons.account_tree_rounded,
+          iconColor: AuroraColors.purple,
+          title: 'Trace / Debug',
+          subtitle: 'Inspect Signal -> Weekly / Journey / Experiment',
+          onTap: () => context.push(AppRoutes.debugTrace),
+        ),
+      ],
+    );
+  }
+}
+
+class _MeListCard extends StatelessWidget {
+  final String title;
+  final List<_MeListRowData> rows;
+
+  const _MeListCard({
     required this.title,
-    required this.icon,
-    required this.iconColor,
     required this.rows,
   });
 
   @override
   Widget build(BuildContext context) {
-    return AuroraCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 22, color: iconColor),
-              const SizedBox(width: 10),
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 17,
-                    ),
-              ),
+    return Container(
+      decoration: _meCardDecoration(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: const Color(0xFF071D5E),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            for (var index = 0; index < rows.length; index++) ...[
+              _MeListRow(data: rows[index]),
+              if (index < rows.length - 1)
+                Divider(
+                  height: 1,
+                  indent: 58,
+                  color: const Color(0xFFE2E5F3).withValues(alpha: 0.78),
+                ),
             ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.58),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.78)),
-            ),
-            child: Column(
-              children: [
-                for (var index = 0; index < rows.length; index++) ...[
-                  _MeGroupedRow(data: rows[index]),
-                  if (index < rows.length - 1)
-                    Divider(
-                      height: 1,
-                      indent: 56,
-                      color: AuroraColors.line.withValues(alpha: 0.70),
-                    ),
-                ],
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _MeGroupedRowData {
+class _MeListRowData {
   final IconData icon;
   final Color iconColor;
   final String title;
+  final String subtitle;
   final VoidCallback? onTap;
 
-  const _MeGroupedRowData({
+  const _MeListRowData({
     required this.icon,
     required this.iconColor,
     required this.title,
+    required this.subtitle,
     this.onTap,
   });
 }
 
-class _MeGroupedRow extends StatelessWidget {
-  final _MeGroupedRowData data;
+class _MeListRow extends StatelessWidget {
+  final _MeListRowData data;
 
-  const _MeGroupedRow({required this.data});
+  const _MeListRow({required this.data});
 
   @override
   Widget build(BuildContext context) {
@@ -851,28 +1316,45 @@ class _MeGroupedRow extends StatelessWidget {
       borderRadius: BorderRadius.circular(18),
       onTap: data.onTap,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
         child: Row(
           children: [
-            AuroraSoftIconCircle(
-              icon: data.icon,
-              color: data.iconColor,
-              size: 34,
-              iconSize: 18,
-            ),
-            const SizedBox(width: 12),
+            _MeRoundedIcon(icon: data.icon, color: data.iconColor),
+            const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                data.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: AuroraColors.ink,
-                      fontWeight: FontWeight.w600,
-                    ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    data.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: const Color(0xFF071D5E),
+                          fontSize: AuroraMainPageSpec.bodySize,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    data.subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF7F8CB7),
+                          fontSize: AuroraMainPageSpec.supportingSize,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: AuroraColors.muted),
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: Color(0xFF667DAF),
+              size: 21,
+            ),
           ],
         ),
       ),
@@ -891,418 +1373,135 @@ class _PremiumStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final isPremium = purchase?.isPremium ?? false;
+    final loading = purchase?.loading ?? false;
+    final verificationPending =
+        purchase?.entitlementReconciliationPending ?? false;
+    final reflectQuota = vm.usageQuotas['l3_reflect_weekly'];
 
-    return AuroraCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          const Color(0xFFF0EAFF).withValues(alpha: 0.94),
-          Colors.white.withValues(alpha: 0.92),
-          const Color(0xFFFFFBF5).withValues(alpha: 0.80),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              AuroraSoftIconCircle(
-                icon: isPremium
-                    ? Icons.workspace_premium
-                    : Icons.workspace_premium_outlined,
-                color: AuroraColors.purple,
-                size: 46,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  isPremium
-                      ? AppLocaleText.tr(
-                          context,
-                          en: 'Pro is active',
-                          zhHans: 'Pro 已开通',
-                          zhHant: 'Pro 已開通',
-                          ja: 'Pro が有効です',
-                        )
-                      : AppLocaleText.tr(
-                          context,
-                          en: 'Signal Path Pro',
-                          zhHans: 'Signal Path Pro',
-                          zhHant: 'Signal Path Pro',
-                          ja: 'Signal Path Pro',
-                        ),
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    color: AuroraColors.ink,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 22,
-                  ),
-                ),
-              ),
-              const AuroraCrystalIllustration(width: 92, height: 72),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _QuotaTile(
-                  label: AppLocaleText.tr(
-                    context,
-                    en: 'Deep Weekly',
-                    zhHans: '本月 Deep Weekly',
-                    zhHant: '本月 Deep Weekly',
-                    ja: '今月 Deep Weekly',
-                  ),
-                  value: _quotaValue(
-                    context,
-                    'deep_weekly',
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _QuotaTile(
-                  label: AppLocaleText.tr(
-                    context,
-                    en: 'Deep analysis',
-                    zhHans: '本月深度分析',
-                    zhHant: '本月深度分析',
-                    ja: '今月の深い分析',
-                  ),
-                  value: _quotaValue(
-                    context,
-                    'gpt55_deep_upgrade',
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            isPremium
-                ? AppLocaleText.tr(
-                    context,
-                    en: 'Deeper weekly reads, Life Journey, journal view, self-review, and response style switching are available.',
-                    zhHans: '更深的本周回看、生活地图、手帐视图、自我梳理和回应风格都已可用。',
-                    zhHant: '更深的本週回看、生活地圖、手帳視圖、自我梳理和回應風格都已可用。',
-                    ja: 'より深い Weekly、生活の旅路、手帳ビュー、Self-Review、返答スタイルが使えます。',
-                  )
-                : AppLocaleText.tr(
-                    context,
-                    en: 'Unlock deeper weekly reads, Life Journey, and a calmer way to look back.',
-                    zhHans: '解锁更深的本周回看、生活地图和更安静的长期回顾。',
-                    zhHant: '解鎖更深的本週回看、生活地圖和更安靜的長期回顧。',
-                    ja: 'より深い Weekly、生活の旅路、静かな振り返りを開きます。',
-                  ),
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: AuroraColors.muted,
-              height: 1.35,
-            ),
-          ),
-          if (!isPremium) ...[
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: AuroraPillButton(
-                onPressed: () => showPremiumPaywall(context, source: 'Pro'),
-                filled: true,
-                icon: Icons.auto_awesome_rounded,
-                label: AppLocaleText.tr(
-                  context,
-                  en: 'Upgrade',
-                  zhHans: '升级',
-                  zhHant: '升級',
-                  ja: 'Upgrade',
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  String _quotaValue(BuildContext context, String featureKey) {
-    final quota = vm.usageQuotas[featureKey];
-    if (quota != null) return quota.displayValue;
-    if (vm.usageLoading) {
-      return AppLocaleText.tr(
-        context,
-        en: 'Syncing',
-        zhHans: '同步中',
-        zhHant: '同步中',
-        ja: '同期中',
-      );
-    }
-    return AppLocaleText.tr(
-      context,
-      en: 'Not synced',
-      zhHans: '未同步',
-      zhHant: '未同步',
-      ja: '未同期',
-    );
-  }
-}
-
-class _QuotaTile extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _QuotaTile({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.58),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.80)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: AuroraColors.muted,
-                ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: AuroraColors.ink,
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FocusAreaPickerSheet extends StatelessWidget {
-  final String? currentValue;
-
-  const _FocusAreaPickerSheet({
-    required this.currentValue,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final options = <_FocusAreaOption>[
-      _FocusAreaOption(
-        value: 'work_tasks',
-        title: AppLocaleText.tr(context,
-            en: 'Work and tasks',
-            zhHans: '工作与任务',
-            zhHant: '工作與任務',
-            ja: '仕事とタスク'),
-        subtitle: AppLocaleText.tr(context,
-            en: 'Progress, priorities, collaboration, communication, and repeated workflows',
-            zhHans: '推进事情、安排优先级、合作沟通、反复消耗你的流程',
-            zhHant: '推進事情、安排優先級、合作溝通、反覆消耗你的流程',
-            ja: '物事の進め方、優先順位、協働や連絡、繰り返し消耗する流れ'),
-      ),
-      _FocusAreaOption(
-        value: 'emotion_stress',
-        title: AppLocaleText.tr(context,
-            en: 'Emotions and stress',
-            zhHans: '情绪与压力',
-            zhHant: '情緒與壓力',
-            ja: '感情とストレス'),
-        subtitle: AppLocaleText.tr(context,
-            en: 'Frustration, hurt, joy, tension, and lingering feelings',
-            zhHans: '烦躁、委屈、开心、紧绷，或者总放不下的时刻',
-            zhHant: '煩躁、委屈、開心、緊繃，或者總放不下的時刻',
-            ja: 'イライラ、しんどさ、うれしさ、張りつめた感じ、引きずる瞬間'),
-      ),
-      _FocusAreaOption(
-        value: 'relationships',
-        title: AppLocaleText.tr(context,
-            en: 'Relationships and interaction',
-            zhHans: '关系与相处',
-            zhHant: '關係與相處',
-            ja: '人間関係と付き合い方'),
-        subtitle: AppLocaleText.tr(context,
-            en: 'Family, friends, coworkers, partners, friction, and what matters to you',
-            zhHans: '家人、朋友、同事、伴侣之间的互动、摩擦和在意',
-            zhHant: '家人、朋友、同事、伴侶之間的互動、摩擦和在意',
-            ja: '家族、友人、同僚、パートナーとのやり取り、摩擦、気になること'),
-      ),
-      _FocusAreaOption(
-        value: 'time_rhythm',
-        title: AppLocaleText.tr(context,
-            en: 'Time and daily rhythm',
-            zhHans: '时间与生活节奏',
-            zhHant: '時間與生活節奏',
-            ja: '時間と生活リズム'),
-        subtitle: AppLocaleText.tr(context,
-            en: 'Commutes, routines, procrastination, rest, and interruptions',
-            zhHans: '通勤、作息、拖延、休息不够，或者一天总被打断的地方',
-            zhHant: '通勤、作息、拖延、休息不夠，或者一天總被打斷的地方',
-            ja: '通勤、生活リズム、先延ばし、休めなさ、中断される場面'),
-      ),
-      _FocusAreaOption(
-        value: 'health_body',
-        title: AppLocaleText.tr(context,
-            en: 'Health and physical state',
-            zhHans: '健康与身体状态',
-            zhHant: '健康與身體狀態',
-            ja: '健康と身体の状態'),
-        subtitle: AppLocaleText.tr(context,
-            en: 'Fatigue, sleep, food, exercise, recovery, and body signals',
-            zhHans: '疲惫、睡眠、饮食、运动、恢复感，或者身体给你的提醒',
-            zhHant: '疲憊、睡眠、飲食、運動、恢復感，或者身體給你的提醒',
-            ja: '疲れ、睡眠、食事、運動、回復感、身体からのシグナル'),
-      ),
-      _FocusAreaOption(
-        value: 'money_spending',
-        title: AppLocaleText.tr(context,
-            en: 'Money and spending',
-            zhHans: '金钱与消费',
-            zhHant: '金錢與消費',
-            ja: 'お金と消費'),
-        subtitle: AppLocaleText.tr(context,
-            en: 'Spending, habits, pressure, budgeting, and hesitant purchases',
-            zhHans: '花销、消费习惯、金钱压力、预算安排，或者总让你犹豫的支出',
-            zhHant: '花銷、消費習慣、金錢壓力、預算安排，或者總讓你猶豫的支出',
-            ja: '支出、買い方の癖、お金のプレッシャー、予算、迷いやすい出費'),
-      ),
-      _FocusAreaOption(
-        value: 'learning_growth_expression',
-        title: AppLocaleText.tr(context,
-            en: 'Learning, growth, and expression',
-            zhHans: '学习、成长与表达',
-            zhHant: '學習、成長與表達',
-            ja: '学び・成長・表現'),
-        subtitle: AppLocaleText.tr(context,
-            en: 'Things you want to learn, express clearly, improve, or keep moving forward',
-            zhHans: '想学的东西、想写清楚的内容、想变好的部分，或者一直在努力推进的方向',
-            zhHant: '想學的東西、想寫清楚的內容、想變好的部分，或者一直在努力推進的方向',
-            ja: '学びたいこと、言葉にしたいこと、伸ばしたい部分、少しずつ進めたい方向'),
-      ),
-      _FocusAreaOption(
-        value: 'open',
-        title: AppLocaleText.tr(context,
-            en: 'Keep it open for now',
-            zhHans: '先不限定，想到什么记什么',
-            zhHant: '先不限定，想到什麼記什麼',
-            ja: 'まだ決めず、思いついたことから記録する'),
-        subtitle: AppLocaleText.tr(context,
-            en: 'Capture what really happens first, and sort the direction out later',
-            zhHans: '先把真实发生的事情留下来，之后再慢慢看它更接近哪些方向',
-            zhHant: '先把真實發生的事情留下來，之後再慢慢看它更接近哪些方向',
-            ja: 'まずは実際に起きたことを残して、方向はあとから少しずつ見ていく'),
-      ),
-    ];
-
-    final theme = Theme.of(context);
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => showPremiumPaywall(context, source: 'Pro'),
+      child: Container(
+        decoration: _meCardDecoration(accent: const Color(0xFF9B78F8)),
+        padding: AuroraMainPageSpec.comfortableCardPadding,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              AppLocaleText.tr(
-                context,
-                en: 'Change focus area',
-                zhHans: '修改关注方向',
-                zhHant: '修改關注方向',
-                ja: '注目方向を変更する',
-              ),
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              AppLocaleText.tr(
-                context,
-                en: 'Pick the one that feels closest to where you want the system to start noticing first.',
-                zhHans: '选一个现在最接近你、也最希望系统先开始留意的方向。',
-                zhHant: '選一個現在最接近你、也最希望系統先開始留意的方向。',
-                ja: '今の自分に近く、システムにまず見てほしい方向を一つ選んでください。',
-              ),
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: options.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final option = options[index];
-                  final selected = option.value == currentValue;
-
-                  return InkWell(
-                    borderRadius: BorderRadius.circular(18),
-                    onTap: () => Navigator.of(context).pop(option.value),
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? theme.colorScheme.primaryContainer
-                                .withValues(alpha: 0.65)
-                            : theme.colorScheme.surfaceContainerHighest
-                                .withValues(alpha: 0.26),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(
-                          color: selected
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.outlineVariant
-                                  .withValues(alpha: 0.55),
-                          width: selected ? 1.6 : 1,
-                        ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            selected
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_off,
-                            color: selected
-                                ? theme.colorScheme.primary
-                                : theme.colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  option.title,
-                                  style: theme.textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w800,
+            Row(
+              children: [
+                _MeCrownBadge(active: isPremium),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        loading
+                            ? AppLocaleText.tr(
+                                context,
+                                en: 'Checking Pro status',
+                                zhHans: '正在确认 Pro 状态',
+                                zhHant: '正在確認 Pro 狀態',
+                                ja: 'Pro 状態を確認中',
+                              )
+                            : isPremium
+                                ? AppLocaleText.tr(
+                                    context,
+                                    en: 'Signal Path Pro',
+                                    zhHans: 'Signal Path Pro',
+                                    zhHant: 'Signal Path Pro',
+                                    ja: 'Signal Path Pro',
+                                  )
+                                : AppLocaleText.tr(
+                                    context,
+                                    en: 'Upgrade to Pro',
+                                    zhHans: '升级到 Pro',
+                                    zhHant: '升級到 Pro',
+                                    ja: 'Pro にアップグレード',
                                   ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(option.subtitle),
-                              ],
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: const Color(0xFF071D5E),
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
                             ),
-                          ),
-                        ],
                       ),
-                    ),
-                  );
-                },
-              ),
+                      const SizedBox(height: 4),
+                      Text(
+                        loading
+                            ? AppLocaleText.tr(
+                                context,
+                                en: 'Syncing purchase access…',
+                                zhHans: '正在同步购买权益…',
+                                zhHant: '正在同步購買權益…',
+                                ja: '購入権利を同期しています…',
+                              )
+                            : isPremium
+                                ? verificationPending
+                                    ? AppLocaleText.tr(
+                                        context,
+                                        en: 'Unlocked · verification continues in the background',
+                                        zhHans: '已解锁 · 后台继续验证',
+                                        zhHant: '已解鎖 · 後台繼續驗證',
+                                        ja: '解除済み · バックグラウンドで検証中',
+                                      )
+                                    : AppLocaleText.tr(
+                                        context,
+                                        en: 'Active · manage or restore purchases',
+                                        zhHans: '已启用 · 管理或恢复购买',
+                                        zhHant: '已啟用 · 管理或恢復購買',
+                                        ja: '有効 · 購入の管理・復元',
+                                      )
+                                : AppLocaleText.tr(
+                                    context,
+                                    en: 'Unlock deeper weekly, journey and self-review insights',
+                                    zhHans: '解锁每周、旅程与自我复盘的深度洞察',
+                                    zhHant: '解鎖每週、旅程與自我復盤的深度洞察',
+                                    ja: '週・旅程・セルフレビューの深い洞察を解放',
+                                  ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFF6E7FA9),
+                              fontWeight: FontWeight.w600,
+                              height: 1.35,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (loading)
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  )
+                else ...[
+                  Text(
+                    isPremium
+                        ? 'PRO'
+                        : AppLocaleText.tr(
+                            context,
+                            en: 'Benefits',
+                            zhHans: '查看权益',
+                            zhHant: '查看權益',
+                            ja: '特典',
+                          ),
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: AuroraColors.purple,
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: AuroraColors.purple,
+                    size: 21,
+                  ),
+                ],
+              ],
             ),
+            if (!loading && !isPremium && reflectQuota != null)
+              _ReflectQuotaSummary(quota: reflectQuota),
           ],
         ),
       ),
@@ -1310,16 +1509,755 @@ class _FocusAreaPickerSheet extends StatelessWidget {
   }
 }
 
-class _FocusAreaOption {
-  final String value;
-  final String title;
-  final String subtitle;
+class _ReflectQuotaSummary extends StatelessWidget {
+  final UsageQuotaViewData quota;
 
-  const _FocusAreaOption({
-    required this.value,
-    required this.title,
-    required this.subtitle,
+  const _ReflectQuotaSummary({required this.quota});
+
+  @override
+  Widget build(BuildContext context) {
+    final limit = quota.limit;
+    final progress = limit == null || limit <= 0
+        ? null
+        : (quota.used / limit).clamp(0.0, 1.0);
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        children: [
+          if (progress != null) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                minHeight: 8,
+                value: progress,
+                backgroundColor: Colors.white.withValues(alpha: 0.68),
+                valueColor: const AlwaysStoppedAnimation(AuroraColors.purple),
+              ),
+            ),
+            const SizedBox(height: 7),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'L3 Reflect quota',
+                    zhHans: 'L3 深度反思额度',
+                    zhHant: 'L3 深度反思額度',
+                    ja: 'L3 Reflect 枠',
+                  ),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF7F8CB7),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              Text(
+                quota.displayValue,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: AuroraColors.purple,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UsageSyncCard extends StatelessWidget {
+  final MeViewModel vm;
+  final bool localPremium;
+
+  const _UsageSyncCard({required this.vm, required this.localPremium});
+
+  @override
+  Widget build(BuildContext context) {
+    final mismatch = !vm.usageMatchesLocalEntitlement(localPremium);
+    return Container(
+      key: const ValueKey('me-usage-sync-state'),
+      decoration: _meCardDecoration(accent: const Color(0xFF76A9F8)),
+      padding: AuroraMainPageSpec.comfortableCardPadding,
+      child: Row(
+        children: [
+          if (vm.usageLoading)
+            const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 2.4),
+            )
+          else
+            const _MeRoundedIcon(
+              icon: Icons.sync_rounded,
+              color: Color(0xFF5E8DF5),
+            ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  vm.usageLoading
+                      ? AppLocaleText.tr(
+                          context,
+                          en: 'Checking usage',
+                          zhHans: '正在核对用量',
+                          zhHant: '正在核對用量',
+                          ja: '利用状況を確認中',
+                        )
+                      : mismatch
+                          ? AppLocaleText.tr(
+                              context,
+                              en: 'Pro access is unlocked; usage is reconciling',
+                              zhHans: 'Pro 已解锁，用量正在对账',
+                              zhHant: 'Pro 已解鎖，用量正在對帳',
+                              ja: 'Pro は解除済み、利用状況を照合中',
+                            )
+                          : AppLocaleText.tr(
+                              context,
+                              en: 'Usage is temporarily unavailable',
+                              zhHans: '用量暂时无法更新',
+                              zhHant: '用量暫時無法更新',
+                              ja: '利用状況を一時的に更新できません',
+                            ),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: const Color(0xFF071D5E),
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Last known values are kept; no zero value is inferred from a network error.',
+                    zhHans: '会保留上次已知值，不会把网络错误误显示为 0。',
+                    zhHant: '會保留上次已知值，不會把網路錯誤誤顯示為 0。',
+                    ja: '前回の値を保持し、通信エラーを 0 として表示しません。',
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF7F8CB7),
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          if (!vm.usageLoading)
+            IconButton(
+              tooltip: AppLocaleText.tr(
+                context,
+                en: 'Retry',
+                zhHans: '重试',
+                zhHant: '重試',
+                ja: '再試行',
+              ),
+              onPressed: vm.reloadUsage,
+              icon: const Icon(Icons.refresh_rounded),
+              color: AuroraColors.purple,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MonthlyUsageCard extends StatelessWidget {
+  final List<UsageQuotaViewData> quotas;
+
+  const _MonthlyUsageCard({required this.quotas});
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleQuotas = quotas
+        .where((quota) => quota.featureKey.trim().isNotEmpty)
+        .take(4)
+        .toList(growable: false);
+    if (visibleQuotas.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      decoration: _meCardDecoration(),
+      padding: AuroraMainPageSpec.comfortableCardPadding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'This month',
+              zhHans: '本月使用',
+              zhHant: '本月使用',
+              ja: '今月の利用',
+            ),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: const Color(0xFF071D5E),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                ),
+          ),
+          const SizedBox(height: 10),
+          for (var index = 0; index < visibleQuotas.length; index++) ...[
+            _MonthlyUsageRow(quota: visibleQuotas[index]),
+            if (index < visibleQuotas.length - 1)
+              Divider(
+                height: 18,
+                color: const Color(0xFFE2E5F3).withValues(alpha: 0.72),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MonthlyUsageRow extends StatelessWidget {
+  final UsageQuotaViewData quota;
+
+  const _MonthlyUsageRow({required this.quota});
+
+  @override
+  Widget build(BuildContext context) {
+    final limit = quota.limit;
+    final progress =
+        limit == null || limit <= 0 ? null : (quota.used / limit).clamp(0, 1);
+
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _usageFeatureLabel(context, quota.featureKey),
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: const Color(0xFF071D5E),
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              if (progress != null) ...[
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    minHeight: 7,
+                    value: progress.toDouble(),
+                    backgroundColor:
+                        AuroraColors.purple.withValues(alpha: 0.08),
+                    valueColor: const AlwaysStoppedAnimation(
+                      AuroraColors.purple,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(width: 14),
+        Text(
+          quota.displayValue,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: AuroraColors.purple,
+                fontWeight: FontWeight.w900,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
+String _usageFeatureLabel(BuildContext context, String featureKey) {
+  return switch (featureKey) {
+    'l1_assist' || 'l1_assist_daily_flow' => AppLocaleText.tr(
+        context,
+        en: 'Recording assist',
+        zhHans: '记录辅助',
+        zhHant: '記錄輔助',
+        ja: '記録アシスト',
+      ),
+    'l1_attune_dialogue' => AppLocaleText.tr(
+        context,
+        en: 'Attune dialogue',
+        zhHans: '轻回应对话',
+        zhHant: '輕回應對話',
+        ja: '寄り添い対話',
+      ),
+    'l2_reason' || 'l2_reason_pattern_check' => AppLocaleText.tr(
+        context,
+        en: 'Reason AI',
+        zhHans: '判断 AI',
+        zhHant: '判斷 AI',
+        ja: '判断 AI',
+      ),
+    'l3_reflect_weekly' => AppLocaleText.tr(
+        context,
+        en: 'Weekly Reflect',
+        zhHans: 'Weekly 深度反思',
+        zhHant: 'Weekly 深度反思',
+        ja: 'Weekly Reflect',
+      ),
+    'l3_reflect_journey' => AppLocaleText.tr(
+        context,
+        en: 'Journey Reflect',
+        zhHans: 'Journey 深度反思',
+        zhHant: 'Journey 深度反思',
+        ja: 'Journey Reflect',
+      ),
+    _ => featureKey.replaceAll('_', ' '),
+  };
+}
+
+class _MeRoundedIcon extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+
+  const _MeRoundedIcon({
+    required this.icon,
+    required this.color,
   });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: RadialGradient(
+          center: const Alignment(-0.42, -0.42),
+          colors: [
+            Colors.white.withValues(alpha: 0.94),
+            color.withValues(alpha: 0.17),
+            Colors.white.withValues(alpha: 0.60),
+          ],
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.82)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.15),
+            blurRadius: 14,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Icon(icon, color: color, size: 18),
+    );
+  }
+}
+
+class _MeCrownBadge extends StatelessWidget {
+  final bool active;
+
+  const _MeCrownBadge({required this.active});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFB490FF),
+            Color(0xFF7764F6),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AuroraColors.purple.withValues(alpha: 0.28),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Icon(
+        active ? Icons.workspace_premium : Icons.workspace_premium_outlined,
+        color: Colors.white,
+        size: 24,
+      ),
+    );
+  }
+}
+
+BoxDecoration _meCardDecoration({Color accent = const Color(0xFFBEB7F7)}) {
+  return BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Colors.white.withValues(alpha: 0.88),
+        const Color(0xFFF9F8FF).withValues(alpha: 0.78),
+        accent.withValues(alpha: 0.08),
+      ],
+      stops: const [0, 0.68, 1],
+    ),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(color: Colors.white.withValues(alpha: 0.88), width: 1.1),
+    boxShadow: [
+      BoxShadow(
+        color: const Color(0xFF6D61A1).withValues(alpha: 0.09),
+        blurRadius: 30,
+        spreadRadius: -10,
+        offset: const Offset(0, 16),
+      ),
+      BoxShadow(
+        color: Colors.white.withValues(alpha: 0.86),
+        blurRadius: 10,
+        spreadRadius: -8,
+        offset: const Offset(-4, -4),
+      ),
+    ],
+  );
+}
+
+class _ProfileDraft {
+  final String displayName;
+  final String direction;
+
+  const _ProfileDraft({required this.displayName, required this.direction});
+}
+
+class _ProfileEditSheet extends StatefulWidget {
+  final String displayName;
+  final String direction;
+
+  const _ProfileEditSheet({
+    required this.displayName,
+    required this.direction,
+  });
+
+  @override
+  State<_ProfileEditSheet> createState() => _ProfileEditSheetState();
+}
+
+class _ProfileEditSheetState extends State<_ProfileEditSheet> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _directionController;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.displayName);
+    _directionController = TextEditingController(text: widget.direction);
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _directionController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          4,
+          20,
+          20 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'Your profile',
+                  zhHans: '你的资料',
+                  zhHant: '你的資料',
+                  ja: 'プロフィール',
+                ),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: const Color(0xFF071D5E),
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                key: const ValueKey('me-profile-name-field'),
+                controller: _nameController,
+                maxLength: 40,
+                textInputAction: TextInputAction.next,
+                decoration: InputDecoration(
+                  labelText: AppLocaleText.tr(
+                    context,
+                    en: 'Name (optional)',
+                    zhHans: '称呼（可选）',
+                    zhHant: '稱呼（可選）',
+                    ja: '名前（任意）',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                key: const ValueKey('me-life-direction-field'),
+                controller: _directionController,
+                maxLength: 180,
+                minLines: 3,
+                maxLines: 5,
+                decoration: InputDecoration(
+                  labelText: AppLocaleText.tr(
+                    context,
+                    en: 'Life direction (optional)',
+                    zhHans: '人生方向（可选）',
+                    zhHant: '人生方向（可選）',
+                    ja: '人生の方向（任意）',
+                  ),
+                  hintText: AppLocaleText.tr(
+                    context,
+                    en: 'What kind of life do you want to move toward?',
+                    zhHans: '你想慢慢靠近怎样的生活？',
+                    zhHant: '你想慢慢靠近怎樣的生活？',
+                    ja: 'どんな暮らしに近づきたいですか？',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(
+                    context,
+                    _ProfileDraft(
+                      displayName: _nameController.text,
+                      direction: _directionController.text,
+                    ),
+                  ),
+                  child: Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Save',
+                      zhHans: '保存',
+                      zhHant: '儲存',
+                      ja: '保存',
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FocusAreaSettingsPage extends StatelessWidget {
+  final List<String> currentValues;
+
+  const _FocusAreaSettingsPage({
+    required this.currentValues,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final initial = FocusDomains.normalizeIds(currentValues);
+
+    return Scaffold(
+      body: Stack(
+        children: [
+          AuroraPage(
+            child: SafeArea(
+              bottom: true,
+              child: StatefulBuilder(
+                builder: (context, setPageState) {
+                  final selected = initial.toSet();
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 10, 24, 28),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        IconButton.filled(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          style: IconButton.styleFrom(
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.86),
+                            foregroundColor: const Color(0xFF071D5E),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Text(
+                          AppLocaleText.tr(
+                            context,
+                            en: 'Change focus areas',
+                            zhHans: '修改关注重点',
+                            zhHant: '修改關注重點',
+                            ja: '注目領域を変更する',
+                          ),
+                          style: theme.textTheme.displaySmall?.copyWith(
+                            color: const Color(0xFF071D5E),
+                            fontSize: 34,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          AppLocaleText.tr(
+                            context,
+                            en: 'Choose the life areas you want AI to notice first. You can pick more than one.',
+                            zhHans: '选择你希望 AI 优先留意的生活领域，可以多选。',
+                            zhHant: '選擇你希望 AI 優先留意的生活領域，可以多選。',
+                            ja: 'AIに先に見てほしい生活領域を選べます。複数選択できます。',
+                          ),
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: const Color(0xFF60749E),
+                            fontWeight: FontWeight.w600,
+                            height: 1.45,
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final textScale =
+                                  MediaQuery.textScalerOf(context).scale(14) /
+                                      14;
+                              final columns =
+                                  constraints.maxWidth < 330 || textScale > 1.35
+                                      ? 2
+                                      : 3;
+                              return GridView.builder(
+                                itemCount: FocusDomains.options.length,
+                                gridDelegate:
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: columns,
+                                  crossAxisSpacing: 10,
+                                  mainAxisSpacing: 10,
+                                  mainAxisExtent: textScale > 1.35 ? 104 : 88,
+                                ),
+                                itemBuilder: (context, index) {
+                                  final option = FocusDomains.options[index];
+                                  final isSelected =
+                                      selected.contains(option.id);
+                                  return Semantics(
+                                    button: true,
+                                    selected: isSelected,
+                                    label: option.label(context),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(16),
+                                      onTap: () {
+                                        setPageState(() {
+                                          if (isSelected) {
+                                            initial.remove(option.id);
+                                          } else {
+                                            initial.add(option.id);
+                                          }
+                                        });
+                                      },
+                                      child: AnimatedContainer(
+                                        duration:
+                                            const Duration(milliseconds: 160),
+                                        padding: const EdgeInsets.all(9),
+                                        decoration: BoxDecoration(
+                                          color: isSelected
+                                              ? option.color
+                                                  .withValues(alpha: 0.12)
+                                              : Colors.white
+                                                  .withValues(alpha: 0.62),
+                                          borderRadius:
+                                              BorderRadius.circular(16),
+                                          border: Border.all(
+                                            color: isSelected
+                                                ? option.color
+                                                : Colors.white
+                                                    .withValues(alpha: 0.88),
+                                            width: isSelected ? 1.5 : 1,
+                                          ),
+                                        ),
+                                        child: Stack(
+                                          children: [
+                                            Center(
+                                              child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    option.icon,
+                                                    color: isSelected
+                                                        ? option.color
+                                                        : const Color(
+                                                            0xFF7F8CB7),
+                                                    size: 24,
+                                                  ),
+                                                  const SizedBox(height: 7),
+                                                  Text(
+                                                    option.label(context),
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    textAlign: TextAlign.center,
+                                                    style: theme
+                                                        .textTheme.labelLarge
+                                                        ?.copyWith(
+                                                      color: isSelected
+                                                          ? option.color
+                                                          : const Color(
+                                                              0xFF071D5E),
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            if (isSelected)
+                                              Positioned(
+                                                top: 1,
+                                                right: 1,
+                                                child: Icon(
+                                                  Icons.check_circle_rounded,
+                                                  color: option.color,
+                                                  size: 18,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton(
+                            onPressed: () => Navigator.of(context).pop(initial),
+                            child: Text(
+                              AppLocaleText.tr(
+                                context,
+                                en: 'Save focus areas',
+                                zhHans: '保存关注重点',
+                                zhHant: '保存關注重點',
+                                ja: '注目領域を保存',
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          const AuroraSafeTopMask(),
+        ],
+      ),
+    );
+  }
 }
 
 class _ResponseStylePickerSheet extends StatelessWidget {
@@ -1397,4 +2335,37 @@ class _ResponseStyleOption {
     required this.title,
     required this.subtitle,
   });
+}
+
+String _meErrorLabel(BuildContext context, String? code) {
+  return switch (code) {
+    'account_delete_failed' => AppLocaleText.tr(
+        context,
+        en: 'The account could not be deleted. Nothing on this device was cleared; please retry or contact support.',
+        zhHans: '账户删除失败，本机数据尚未清除。请重试或联系支持。',
+        zhHant: '帳戶刪除失敗，此裝置資料尚未清除。請重試或聯絡支援。',
+        ja: 'アカウントを削除できませんでした。端末データは消去されていません。再試行するかサポートへご連絡ください。',
+      ),
+    'local_delete_failed' => AppLocaleText.tr(
+        context,
+        en: 'Local data could not be cleared. Please retry.',
+        zhHans: '本机数据清除失败，请重试。',
+        zhHant: '此裝置資料清除失敗，請重試。',
+        ja: '端末データを消去できませんでした。再試行してください。',
+      ),
+    'profile_photo_too_large' => AppLocaleText.tr(
+        context,
+        en: 'Please choose a photo under 2 MB.',
+        zhHans: '请选择 2 MB 以下的图片。',
+        zhHant: '請選擇 2 MB 以下的圖片。',
+        ja: '2MB 未満の写真を選んでください。',
+      ),
+    _ => AppLocaleText.tr(
+        context,
+        en: 'That change could not be saved. Please try again.',
+        zhHans: '暂时无法保存，请重试。',
+        zhHant: '暫時無法儲存，請重試。',
+        ja: '保存できませんでした。再試行してください。',
+      ),
+  };
 }

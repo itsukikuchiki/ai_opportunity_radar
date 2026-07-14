@@ -1,5 +1,7 @@
 from importlib import import_module
 
+from sqlalchemy import func, select
+
 
 def _headers(user_id: str = "test-user-e2e") -> dict[str, str]:
     return {
@@ -64,28 +66,238 @@ def test_capture_persists_and_recent_returns_acknowledgement(client, monkeypatch
     assert isinstance(recent_signals[0]["acknowledgement"], str)
     assert recent_signals[0]["acknowledgement"].strip() != ""
 
+    from app.core.db import SessionLocal
+    from app.models import LegacyEndpointTelemetry
 
-def test_capture_reply_returns_observation_and_try_next(client):
-    resp = client.post(
-        "/api/v1/ai/capture-reply",
-        headers=_headers(),
+    db = SessionLocal()
+    try:
+        counters = db.scalars(
+            select(LegacyEndpointTelemetry.counter_name).where(
+                LegacyEndpointTelemetry.counter_name
+                == "legacy_captures_endpoint_call_count"
+            )
+        ).all()
+    finally:
+        db.close()
+    assert len(counters) >= 2
+
+
+def test_saved_immediate_risk_signal_uses_safety_reply_and_is_not_analyzable(
+    client,
+    monkeypatch,
+):
+    _patch_demo_user(monkeypatch)
+    user_id = "saved-safety-signal"
+    response = client.post(
+        "/api/v1/captures",
+        headers=_headers(user_id),
         json={
-            "content": "今天上班很烦，一直被打断",
-            "recent_assistant_texts": [],
-            "focus_area": "emotion_stress",
+            "content": "我现在想伤害自己",
+            "input_mode": "text",
+            "language": "zh-Hans",
+            "timezone": "Asia/Tokyo",
         },
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()["data"]
+    assert response.status_code == 200, response.text
+    assert "立即危险" in response.json()["data"]["acknowledgement"]
+    signal_id = response.json()["data"]["recent_signals"][0]["signal_card_id"]
 
-    assert isinstance(data["acknowledgement"], str)
-    assert data["acknowledgement"].strip() != ""
-    assert isinstance(data["observation"], str)
-    assert data["observation"].strip() != ""
-    assert isinstance(data["try_next"], str)
-    assert data["try_next"].strip() != ""
-    assert data["emotion"] in {"positive", "negative", "mixed", "neutral"}
-    assert data["intensity"] in {"low", "medium", "high"}
+    from app.core.db import SessionLocal
+    from app.models import SignalAnalysisPolicy, SignalCard, SignalProcessingState
+    from app.services.signal_eligibility_service import (
+        SignalEligibilityService,
+        SignalEligibilityStage,
+    )
+
+    db = SessionLocal()
+    try:
+        signal = db.get(SignalCard, signal_id)
+        policy = db.get(SignalAnalysisPolicy, signal_id)
+        state = db.get(SignalProcessingState, signal_id)
+        assert signal.privacy_level == "sensitive"
+        assert signal.metadata_json["safety_branch"] == "immediate_risk"
+        assert policy.is_sensitive is True
+        assert policy.do_not_analyze is True
+        assert policy.exclusion_reason == "immediate_safety_risk"
+        assert state.reason_status == "excluded"
+        assert state.weekly_status == "excluded"
+        assert SignalEligibilityService().is_eligible(
+            signal,
+            SignalEligibilityStage.WEEKLY,
+        ) is False
+    finally:
+        db.close()
+
+
+def test_legacy_opportunities_endpoint_records_telemetry(client):
+    response = client.get(
+        "/api/v1/opportunities",
+        headers={
+            "X-User-Id": "test-user-opportunities-legacy",
+            "X-Client-Version": "4.0.legacy",
+            "X-Platform": "ios",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    from app.core.db import SessionLocal
+    from app.models import LegacyEndpointTelemetry
+
+    db = SessionLocal()
+    try:
+        telemetry = db.scalars(
+            select(LegacyEndpointTelemetry).where(
+                LegacyEndpointTelemetry.counter_name
+                == "legacy_opportunities_endpoint_call_count"
+            )
+        ).one()
+    finally:
+        db.close()
+
+    assert telemetry.endpoint == "/api/v1/opportunities"
+    assert telemetry.client_version == "4.0.legacy"
+    assert telemetry.platform == "ios"
+    assert telemetry.user_id_hash is not None
+
+
+def test_signal_card_soft_delete_and_restore_api(client, monkeypatch):
+    _patch_demo_user(monkeypatch)
+    headers = _headers("test-user-soft-delete-api")
+
+    create_resp = client.post(
+        "/api/v1/captures",
+        headers=headers,
+        json={
+            "content": "会议后很累，需要恢复",
+            "input_mode": "quick_capture",
+            "client_id": "client-api-soft-delete-1",
+        },
+    )
+    assert create_resp.status_code == 200, create_resp.text
+    signal = create_resp.json()["data"]["recent_signals"][0]
+    signal_card_id = signal["signal_card_id"]
+
+    delete_resp = client.request(
+        "DELETE",
+        f"/api/v1/captures/signal-cards/{signal_card_id}",
+        headers=headers,
+        json={"reason": "user_deleted"},
+    )
+    assert delete_resp.status_code == 200, delete_resp.text
+    deleted = delete_resp.json()["data"]
+    assert deleted["status"] == "deleted"
+    assert deleted["deleted_at"] is not None
+    assert deleted["tombstone_version"] == 1
+
+    recent_after_delete = client.get("/api/v1/captures/recent", headers=headers)
+    assert recent_after_delete.status_code == 200
+    assert recent_after_delete.json()["data"]["recent_signals"] == []
+
+    replay_resp = client.post(
+        "/api/v1/captures",
+        headers=headers,
+        json={
+            "content": "会议后很累，需要恢复",
+            "input_mode": "quick_capture",
+            "client_id": "client-api-soft-delete-1",
+        },
+    )
+    assert replay_resp.status_code == 200, replay_resp.text
+    assert replay_resp.json()["data"]["recent_signals"] == []
+
+    restore_resp = client.post(
+        f"/api/v1/captures/signal-cards/{signal_card_id}/restore",
+        headers=headers,
+        json={},
+    )
+    assert restore_resp.status_code == 200, restore_resp.text
+    restored = restore_resp.json()["data"]
+    assert restored["status"] == "restored"
+    assert restored["deleted_at"] is None
+
+    recent_after_restore = client.get("/api/v1/captures/recent", headers=headers)
+    assert recent_after_restore.status_code == 200
+    assert len(recent_after_restore.json()["data"]["recent_signals"]) == 1
+
+
+def test_capture_api_returns_stable_error_codes(client, monkeypatch):
+    _patch_demo_user(monkeypatch)
+
+    missing_user = client.get("/api/v1/captures/recent")
+    assert missing_user.status_code == 400
+    assert missing_user.json()["detail"]["code"] == "MISSING_USER_ID"
+    assert missing_user.json()["detail"]["message"] == "Missing X-User-Id"
+
+    missing_signal = client.request(
+        "DELETE",
+        "/api/v1/captures/signal-cards/sig_missing_contract",
+        headers=_headers("test-user-error-code"),
+        json={"reason": "user_deleted"},
+    )
+    assert missing_signal.status_code == 404
+    assert missing_signal.json()["detail"]["code"] == "SIGNAL_CARD_NOT_FOUND"
+
+
+def test_capture_api_client_id_is_idempotent_and_keeps_source_metadata(
+    client,
+    monkeypatch,
+):
+    _patch_demo_user(monkeypatch)
+    headers = _headers("test-user-api-idempotent")
+    body = {
+        "content": "同一个 client_id 重试不应该重复",
+        "input_mode": "voice",
+        "client_id": "client-api-idempotent-1",
+        "raw_payload_json": {
+            "audio_uploaded": False,
+            "source_kind": "voice_transcript",
+        },
+    }
+
+    first = client.post("/api/v1/captures", headers=headers, json=body)
+    second = client.post("/api/v1/captures", headers=headers, json=body)
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+
+    first_signal = first.json()["data"]["recent_signals"][0]
+    second_signal = second.json()["data"]["recent_signals"][0]
+    assert first_signal["signal_card_id"] == second_signal["signal_card_id"]
+    assert first_signal["client_id"] == "client-api-idempotent-1"
+    assert first_signal["source_type"] == "voice"
+    assert first_signal["raw_payload_json"]["audio_uploaded"] is False
+    assert first_signal["raw_payload_json"]["source_kind"] == "voice_transcript"
+
+    recent = client.get("/api/v1/captures/recent", headers=headers)
+    assert recent.status_code == 200, recent.text
+    recent_signal = recent.json()["data"]["recent_signals"][0]
+    assert recent_signal["source_type"] == "voice"
+    assert recent_signal["raw_payload_json"]["audio_uploaded"] is False
+    assert recent_signal["raw_payload_json"]["source_kind"] == "voice_transcript"
+
+    from app.core.db import SessionLocal
+    from app.models import SignalCard
+
+    db = SessionLocal()
+    try:
+        count = db.scalar(
+            select(func.count()).select_from(SignalCard).where(
+                SignalCard.user_id == "test-user-api-idempotent",
+                SignalCard.client_id == "client-api-idempotent-1",
+            )
+        )
+        card = db.scalars(
+            select(SignalCard).where(
+                SignalCard.user_id == "test-user-api-idempotent",
+                SignalCard.client_id == "client-api-idempotent-1",
+            )
+        ).one()
+    finally:
+        db.close()
+
+    assert count == 1
+    assert card.source_type == "voice"
+    assert card.raw_payload_json["audio_uploaded"] is False
+    assert card.raw_payload_json["source_kind"] == "voice_transcript"
 
 
 def test_capture_reply_detects_mixed_emotion(client):
@@ -307,47 +519,6 @@ def test_journey_generate_chain_with_local_style_payload(client):
     assert isinstance(data["frictions"], list) and len(data["frictions"]) > 0
     assert isinstance(data["desires"], list) and len(data["desires"]) > 0
     assert isinstance(data["experiments"], list) and len(data["experiments"]) > 0
-
-
-def test_light_dialog_chain(client):
-    resp = client.post(
-        "/api/v1/ai/light-dialog",
-        headers=_headers(),
-        json={
-            "capture_content": "今天上班很烦，一直被打断",
-            "capture_acknowledgement": "先把这条放在这里。",
-            "history": [{"role": "assistant", "text": "先把这条放在这里。"}],
-            "user_message": "那我到底为什么这么烦？",
-            "focus_area": "emotion_stress",
-        },
-    )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()["data"]
-    assert isinstance(data["reply"], str)
-    assert data["reply"].strip() != ""
-    assert isinstance(data["suggested_prompts"], list)
-
-
-def test_deep_weekly_chain(client):
-    resp = client.post(
-        "/api/v1/ai/deep-weekly",
-        headers=_headers(),
-        json={
-            "week_start": "2026-04-08",
-            "week_end": "2026-04-14",
-            "key_insight": "这周的记录开始围绕工作里的打断聚集。",
-            "patterns": [{"name": "重复出现的主题", "summary": "工作里的打断反复回来。"}],
-            "frictions": [{"name": "本周的主要消耗", "summary": "被打断时最容易烦躁。"}],
-            "best_action": "下次再出现时补一句发生在什么场景。",
-            "chart_data": [{"date": "2026-04-11", "signal_count": 3, "mood_score": -0.6, "friction_score": 0.8, "has_positive_signal": False}],
-            "focus_area": "emotion_stress",
-        },
-    )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()["data"]
-    assert data["summary"].strip() != ""
-    assert data["root_tension"].strip() != ""
-    assert isinstance(data["key_nodes"], list)
 
 
 def test_today_summary_chain_respects_response_style(client):

@@ -10,9 +10,21 @@ import 'package:ai_opportunity_radar/core/api/repositories/ai_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/memory_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
+import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_journey_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
+import 'package:ai_opportunity_radar/core/local/local_weekly_snapshot_repository.dart';
+import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 import 'package:ai_opportunity_radar/core/models/memory_models.dart';
+import 'package:ai_opportunity_radar/core/readiness/report_readiness.dart';
+
+const _testReadyJourneyRule = ReportReadinessRule(
+  surface: ReportSurface.journey,
+  minimumSignals: 1,
+  minimumDistinctDays: 1,
+  minimumDistinctWeeks: 1,
+  windowDays: 31,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -51,11 +63,13 @@ void main() {
       await harness.close();
     });
 
-    test('2) 第 1 天只要有本地记录，Journey 就正常展示', () async {
+    test('2) 未达门槛时只返回事实投影，不生成或缓存报告', () async {
+      final aiRepository = CountingJourneyAiRepository();
       final harness = await _createHarness(
         dbPath: dbPath,
-        aiRepository: FakeJourneyAiRepository(),
+        aiRepository: aiRepository,
         installationDate: DateTime.now(),
+        journeyReadinessRule: ReportReadinessEvaluator.journeyRule,
       );
 
       await harness.seedSignalCard(
@@ -67,7 +81,99 @@ void main() {
 
       expect(result.isFirstDayGate, false);
       expect(result.summary, isNotNull);
-      expect(result.summary!.patterns, isNotEmpty);
+      expect(result.summary!.patterns, isEmpty);
+      expect(result.summary!.journeyTraces, hasLength(1));
+      expect(result.journeyReadiness!.signalCount, 1);
+      expect(result.journeyReadiness!.isReady, isFalse);
+      expect(aiRepository.callCount, 0);
+      expect(
+        await harness.journeySnapshot(_dateKey(DateTime.now())),
+        isNull,
+      );
+
+      await harness.close();
+    });
+
+    test('4c) Journey 报告需 7 条有效信号并覆盖至少 3 个本地日期', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepository(),
+        installationDate: DateTime.now().subtract(const Duration(days: 5)),
+        journeyReadinessRule: ReportReadinessEvaluator.journeyRule,
+      );
+      final now = DateTime.now();
+      for (var index = 0; index < 7; index += 1) {
+        final dayOffset = index % 3;
+        await harness.seedSignalCard(
+          id: 'journey_ready_$index',
+          content: 'Journey 门槛信号 $index',
+          createdAt: now.subtract(Duration(days: dayOffset, minutes: index)),
+          userConfirmation: 'accurate',
+        );
+      }
+
+      final result = await harness.repository.fetchMemorySummaryResult();
+
+      expect(result.journeyReadiness, isNotNull);
+      expect(result.journeyReadiness!.signalCount, 7);
+      expect(result.journeyReadiness!.distinctDayCount, 3);
+      expect(result.journeyReadiness!.isReady, isTrue);
+      expect(result.proReadiness!.isReady, isFalse);
+
+      await harness.close();
+    });
+
+    test('4d) Journey Pro 需近 28 天 14 条信号、7 个日期和 2 个自然周', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepository(),
+        installationDate: DateTime.now().subtract(const Duration(days: 28)),
+      );
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final currentMonday = today.subtract(
+        Duration(days: today.weekday - DateTime.monday),
+      );
+      final previousSunday = currentMonday.subtract(const Duration(days: 1));
+      final dates = <DateTime>[
+        today,
+        for (var offset = 0; offset < 6; offset += 1)
+          previousSunday.subtract(Duration(days: offset)),
+      ];
+      for (var dayIndex = 0; dayIndex < dates.length; dayIndex += 1) {
+        for (var itemIndex = 0; itemIndex < 2; itemIndex += 1) {
+          await harness.seedSignalCard(
+            id: 'pro_ready_${dayIndex}_$itemIndex',
+            content: 'Pro 门槛信号 $dayIndex-$itemIndex',
+            createdAt: dates[dayIndex].add(Duration(hours: itemIndex + 8)),
+            localDate: _dateKey(dates[dayIndex]),
+            userConfirmation: 'accurate',
+          );
+        }
+      }
+
+      final result = await harness.repository.fetchMemorySummaryResult();
+
+      expect(result.proReadiness, isNotNull);
+      expect(result.proReadiness!.signalCount, 14);
+      expect(result.proReadiness!.distinctDayCount, 7);
+      expect(result.proReadiness!.distinctWeekCount, 2);
+      expect(result.proReadiness!.isReady, isTrue);
+
+      final proReport = await harness.repository.fetchJourneyProReport();
+      expect(proReport.isReady, isTrue);
+      expect(proReport.readiness.signalCount, 14);
+      expect(proReport.currentWeek.signalCount, 2);
+      expect(proReport.currentWeek.activeDayCount, 1);
+      expect(proReport.previousWeek.signalCount, 12);
+      expect(proReport.previousWeek.activeDayCount, 6);
+      expect(proReport.evidence, hasLength(8));
+      expect(
+        proReport.evidence.every(
+          (item) => item.signalId.startsWith('pro_ready_'),
+        ),
+        isTrue,
+      );
 
       await harness.close();
     });
@@ -87,11 +193,12 @@ void main() {
       await harness.close();
     });
 
-    test('4) 第 2 天以后只要有本地记录，Journey 就正常展示', () async {
+    test('4) 第 2 天以后未达门槛也保留事实时间线', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeJourneyAiRepository(),
         installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        journeyReadinessRule: ReportReadinessEvaluator.journeyRule,
       );
 
       await harness.seedSignalCard(
@@ -107,16 +214,18 @@ void main() {
 
       expect(result.isFirstDayGate, false);
       expect(result.summary, isNotNull);
-      expect(result.summary!.frictions, isNotEmpty);
+      expect(result.summary!.frictions, isEmpty);
+      expect(result.summary!.journeyTraces, hasLength(2));
 
       await harness.close();
     });
 
-    test('4b) 第 2 天只有前一天 1 条信号时，Journey 返回 Seed 内容', () async {
+    test('4b) 第 2 天只有 1 条信号时不伪造 Seed 结论', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeJourneyAiRepository(),
         installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        journeyReadinessRule: ReportReadinessEvaluator.journeyRule,
       );
 
       await harness.seedSignalCard(
@@ -128,8 +237,8 @@ void main() {
 
       expect(result.isFirstDayGate, false);
       expect(result.summary, isNotNull);
-      expect(result.summary!.patterns, isNotEmpty);
-      expect(result.summary!.patterns.first.signalLevel, isNotEmpty);
+      expect(result.summary!.patterns, isEmpty);
+      expect(result.summary!.journeyTraces, hasLength(1));
 
       await harness.close();
     });
@@ -243,17 +352,19 @@ void main() {
     test('8) Journey 使用 SignalCard local_date/timezone 聚合，不按 UTC 错分日期',
         () async {
       final recordingAi = RecordingJourneyAiRepository();
+      final now = DateTime.now();
+      final localDate = _dateKey(now);
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: recordingAi,
-        installationDate: DateTime.now().subtract(const Duration(days: 2)),
+        installationDate: now.subtract(const Duration(days: 2)),
       );
 
       await harness.seedSignalCard(
         id: 'tokyo_late_card',
         content: '东京深夜记录',
-        createdAt: DateTime.parse('2026-05-01T15:30:00Z'),
-        localDate: '2026-05-02',
+        createdAt: DateTime.utc(now.year, now.month, now.day, 15, 30),
+        localDate: localDate,
         timezone: 'Asia/Tokyo',
       );
 
@@ -262,14 +373,393 @@ void main() {
       expect(recordingAi.lastEntries, hasLength(1));
       expect(
           recordingAi.lastEntries.single['signal_card_id'], 'tokyo_late_card');
-      expect(recordingAi.lastEntries.single['local_date'], '2026-05-02');
+      expect(recordingAi.lastEntries.single['local_date'], localDate);
       expect(recordingAi.lastEntries.single['timezone'], 'Asia/Tokyo');
 
       await harness.close();
     });
 
+    test('8b) Journey aggregation 只读取当月窗口内的 SignalCard', () async {
+      final recordingAi = RecordingJourneyAiRepository();
+      final now = DateTime.now();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: recordingAi,
+        installationDate: DateTime(now.year, now.month, 1),
+      );
+
+      await harness.seedSignalCard(
+        id: 'previous_month_card',
+        content: '上个月的记录',
+        createdAt: DateTime(now.year, now.month, 1).subtract(
+          const Duration(days: 1),
+        ),
+        localDate: _dateKey(
+          DateTime(now.year, now.month, 1).subtract(const Duration(days: 1)),
+        ),
+      );
+      await harness.seedSignalCard(
+        id: 'current_month_card',
+        content: '这个月的记录',
+        createdAt: now,
+        localDate: _dateKey(now),
+      );
+
+      await harness.repository.fetchMemorySummaryResult();
+
+      expect(
+        recordingAi.lastEntries.map((entry) => entry['signal_card_id']),
+        contains('current_month_card'),
+      );
+      expect(
+        recordingAi.lastEntries.map((entry) => entry['signal_card_id']),
+        isNot(contains('previous_month_card')),
+      );
+
+      await harness.close();
+    });
+
+    test('8c) Journey L3 输出写入 reflection_results', () async {
+      final now = DateTime.now();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepository(),
+        installationDate: now.subtract(const Duration(days: 1)),
+      );
+
+      await harness.seedSignalCard(
+        id: 'reflection_source_card',
+        content: '今天适合做一次月内回看',
+        createdAt: now,
+        localDate: _dateKey(now),
+      );
+
+      await harness.repository.fetchMemorySummaryResult();
+      final snapshot = await harness.journeySnapshot(_dateKey(now));
+      expect(snapshot, isNotNull);
+      expect(snapshot!['snapshot_date'], _dateKey(now));
+      expect(
+          snapshot['journey_data_json'].toString(), contains('journey_traces'));
+
+      final reflection = await harness.latestJourneyReflection(_dateKey(now));
+
+      expect(reflection, isNotNull);
+      expect(reflection!['source_type'], 'journey_snapshot');
+      expect(reflection['reflection_type'], 'reflect');
+      expect(reflection['ai_level'], 'L3');
+      expect(reflection['content_json'].toString(), contains('patterns'));
+      final traceLinks = await harness.traceLinksForSource(
+        sourceType: 'journey_snapshot',
+        sourceId: _dateKey(now),
+      );
+      expect(traceLinks, isNotEmpty);
+      expect(traceLinks.map((row) => row['relation_type']).toSet(), {
+        'uses_trace',
+      });
+
+      await harness.close();
+    });
+
+    test('8c-1) Journey 保留 generated / confirmed / dismissed Observation 状态',
+        () async {
+      final now = DateTime.now();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepository(),
+        installationDate: now.subtract(const Duration(days: 1)),
+      );
+
+      await harness.seedSignalCard(
+        id: 'observation_context_signal',
+        content: '观察只能作为已纳入信号的派生背景',
+        createdAt: now,
+        localDate: _dateKey(now),
+      );
+
+      await harness.seedObservation(
+        id: 'obs_generated',
+        text: '生成中的观察',
+        status: 'generated',
+      );
+      await harness.seedObservation(
+        id: 'obs_confirmed',
+        text: '用户确认的观察',
+        status: 'confirmed',
+      );
+      await harness.seedObservation(
+        id: 'obs_dismissed',
+        text: '用户暂时否定的观察',
+        status: 'dismissed',
+      );
+
+      final result = await harness.repository.fetchMemorySummaryResult();
+      final observations = result.summary!.observations;
+
+      expect(observations.map((item) => item.id), [
+        'obs_confirmed',
+        'obs_generated',
+        'obs_dismissed',
+      ]);
+      expect(observations.map((item) => item.status), [
+        'confirmed',
+        'generated',
+        'dismissed',
+      ]);
+
+      await harness.close();
+    });
+
     test(
-        '9) Journey inclusion 排除 inaccurate / sync failed / privacy excluded，保留 legacy 与 unconfirmed 小观察',
+        '8c-2) Journey trace only uses Signal, MicroAction and LifeExperiment core inputs',
+        () async {
+      final now = DateTime.now();
+      final todayKey = _dateKey(now);
+      final weekStart =
+          now.subtract(Duration(days: now.weekday - DateTime.monday));
+      final weekStartKey = _dateKey(weekStart);
+      final weekEndKey = _dateKey(weekStart.add(const Duration(days: 6)));
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepository(),
+        installationDate: DateTime(now.year, now.month, 1),
+      );
+
+      await harness.seedSignalCard(
+        id: 'journey_input_signal',
+        content: '这个月有一条真实信号',
+        createdAt: now,
+        localDate: todayKey,
+      );
+      await harness.seedWeeklySnapshot(
+        weekStart: weekStartKey,
+        weekEnd: weekEndKey,
+        keyInsight: '本周恢复需求更清楚。',
+      );
+      await harness.phase3PlusRepository.insertMicroActionFeedback(
+        MicroActionFeedbackModel(
+          id: 'micro_journey_input',
+          microActionId: 'micro_action_journey_input',
+          localDate: todayKey,
+          happened: 'yes',
+          effect: 'helpful',
+          difficulty: 'easy',
+          userNote: '短行动有帮助',
+          createdAt: now.toUtc(),
+        ),
+      );
+      final experiment = await harness.lifeExperimentRepository.ensureSuggested(
+        localUserId: 'test-user',
+        weekStart: weekStartKey,
+        weekEnd: weekEndKey,
+        title: '午后留白',
+        hypothesis: '留白帮助恢复',
+        suggestedAction: '午后留 10 分钟',
+        linkedSignalCardIds: const ['journey_input_signal'],
+        status: 'saved',
+      );
+      await harness.lifeExperimentRepository.recordFeedback(
+        experimentId: experiment.id,
+        completionStatus: 'helpful',
+        helpfulnessScore: 5,
+        feedbackText: '确实更稳',
+        feedbackDate: now,
+      );
+      final db = await harness.localDatabase.database;
+      final timestamp = now.toUtc().toIso8601String();
+      await db.insert('schedule_signals', {
+        'id': 'legacy-journey-schedule',
+        'title': '下午会议',
+        'local_date': todayKey,
+        'anchor_date': todayKey,
+        'date_precision': 'date',
+        'time_precision': 'none',
+        'feedback_status': 'recorded',
+        'actual_energy_load': 'draining',
+        'created_at': timestamp,
+        'updated_at': timestamp,
+      });
+      await db.insert('goals', {
+        'id': 'legacy-journey-goal',
+        'title': '恢复练习',
+        'created_at': timestamp,
+        'updated_at': timestamp,
+      });
+      await harness.seedGoalFeedback(
+        id: 'goal_journey_input',
+        goalId: 'legacy-journey-goal',
+        feedbackDate: todayKey,
+      );
+
+      final result = await harness.repository.fetchMemorySummaryResult();
+      final sourceTypes = result.summary!.journeyTraces
+          .map((trace) => trace.sourceType)
+          .toSet();
+
+      expect(sourceTypes, contains('signal_card'));
+      expect(sourceTypes, contains('weekly_review'));
+      expect(sourceTypes, contains('life_experiment_rollup'));
+      expect(sourceTypes, contains('micro_action_feedback'));
+      expect(sourceTypes, contains('life_experiment_feedback'));
+      expect(sourceTypes, isNot(contains('schedule_feedback')));
+      expect(sourceTypes, isNot(contains('goal_feedback')));
+      expect(
+        result.summary!.journeyTraces
+            .firstWhere((trace) => trace.sourceType == 'weekly_review')
+            .summary,
+        contains('恢复需求'),
+      );
+      expect(
+        result.summary!.journeyTraces
+            .firstWhere((trace) => trace.sourceType == 'life_experiment_rollup')
+            .summary,
+        contains('helpful 1'),
+      );
+
+      await harness.close();
+    });
+
+    test('8d) Journey evidence drilldown 从 trace_links 解析多来源依据', () async {
+      final now = DateTime.now();
+      final snapshotDate = _dateKey(now);
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepository(),
+        installationDate: now.subtract(const Duration(days: 1)),
+      );
+
+      await harness.seedSignalCard(
+        id: 'sig_evidence',
+        content: '会议后很累，需要恢复。',
+        createdAt: now,
+        localDate: snapshotDate,
+      );
+      await harness.seedObservation(
+        id: 'obs_evidence',
+        text: '会议和恢复需求最近一起出现。',
+      );
+      await harness.seedExperimentFeedback(
+        id: 'fb_evidence',
+        feedbackText: '这个小实验有帮助。',
+        localDate: snapshotDate,
+      );
+      await harness.seedWeeklySnapshot(
+        weekStart: '2026-06-29',
+        weekEnd: snapshotDate,
+        keyInsight: '本周最大的变化是恢复需求更清楚。',
+      );
+
+      await harness.seedTraceLink(
+        snapshotDate: snapshotDate,
+        targetType: 'signal_card',
+        targetId: 'sig_evidence',
+      );
+      await harness.seedTraceLink(
+        snapshotDate: snapshotDate,
+        targetType: 'observation',
+        targetId: 'obs_evidence',
+      );
+      await harness.seedTraceLink(
+        snapshotDate: snapshotDate,
+        targetType: 'life_experiment',
+        targetId: 'fb_evidence',
+      );
+      await harness.seedTraceLink(
+        snapshotDate: snapshotDate,
+        targetType: 'weekly_review',
+        targetId: 'weekly_2026-06-29',
+      );
+
+      final evidence = await harness.repository.fetchJourneyEvidence();
+
+      expect(evidence.map((e) => e.sourceType), contains('signal_card'));
+      expect(evidence.map((e) => e.sourceType), contains('observation'));
+      expect(
+        evidence.map((e) => e.sourceType),
+        contains('life_experiment_feedback'),
+      );
+      expect(evidence.map((e) => e.sourceType), contains('weekly_review'));
+      expect(
+        evidence.map((e) => e.summary).join('\n'),
+        contains('本周最大的变化'),
+      );
+
+      await harness.close();
+    });
+
+    test('8e) 旧数据没有 trace 时返回 empty 或 trace 自身 fallback，不伪造证据', () async {
+      final now = DateTime.now();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepository(),
+        installationDate: now.subtract(const Duration(days: 1)),
+      );
+
+      final emptyEvidence = await harness.repository.fetchJourneyEvidence();
+      expect(emptyEvidence, isEmpty);
+
+      final fallbackEvidence = await harness.repository.fetchJourneyEvidence(
+        trace: JourneyTraceModel(
+          id: 'legacy_trace_without_link',
+          sourceType: 'legacy_summary',
+          title: 'Legacy Summary',
+          summary: '旧摘要里只有展示文本，没有 trace_links。',
+          localDate: _dateKey(now),
+          cluster: 'legacy',
+          intensity: 0.4,
+          signalLevel: 'weak_signal',
+        ),
+      );
+
+      expect(fallbackEvidence, hasLength(1));
+      expect(fallbackEvidence.single.relationType, 'trace_fallback');
+      expect(fallbackEvidence.single.sourceType, 'legacy_summary');
+
+      await harness.close();
+    });
+
+    test('8f) Signal 删除后 Journey evidence trace 变为 inactive', () async {
+      final now = DateTime.now();
+      final snapshotDate = _dateKey(now);
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepository(),
+        installationDate: now.subtract(const Duration(days: 1)),
+      );
+
+      await harness.seedSignalCard(
+        id: 'signal_to_delete_from_evidence',
+        content: '删除前作为证据出现',
+        createdAt: now,
+        localDate: snapshotDate,
+      );
+      await harness.seedTraceLink(
+        snapshotDate: snapshotDate,
+        targetType: 'signal_card',
+        targetId: 'signal_to_delete_from_evidence',
+      );
+
+      await harness.captureRepository.deleteSignalCard(
+        'signal_to_delete_from_evidence',
+      );
+
+      final db = await harness.localDatabase.database;
+      final traceRows = await db.query(
+        'trace_links',
+        where: 'target_type = ? AND target_id = ?',
+        whereArgs: ['signal_card', 'signal_to_delete_from_evidence'],
+      );
+      expect(traceRows, isNotEmpty);
+      expect(traceRows.every((row) => row['status'] == 'inactive'), isTrue);
+
+      final evidence = await harness.repository.fetchJourneyEvidence();
+      expect(evidence.map((item) => item.sourceId),
+          isNot(contains('signal_to_delete_from_evidence')));
+
+      await harness.close();
+    });
+
+    test(
+        '9) Journey inclusion 排除 legacy / inaccurate / sync failed / privacy excluded，保留 unconfirmed 小观察',
         () async {
       final recordingAi = RecordingJourneyAiRepository();
       final harness = await _createHarness(
@@ -313,20 +803,16 @@ void main() {
       final ids = recordingAi.lastEntries
           .map((entry) => entry['signal_card_id'] as String?)
           .toList();
-      expect(ids, containsAll(['legacy_card', 'unconfirmed_card']));
+      expect(ids, contains('unconfirmed_card'));
+      expect(ids, isNot(contains('legacy_card')));
       expect(ids, isNot(contains('inaccurate_card')));
       expect(ids, isNot(contains('failed_card')));
       expect(ids, isNot(contains('private_excluded_card')));
-      final legacy = recordingAi.lastEntries.firstWhere(
-        (entry) => entry['signal_card_id'] == 'legacy_card',
-      );
-      expect(legacy['journey_confidence'], 'legacy_context');
-      expect(legacy['user_confirmation'], 'unconfirmed');
       final cards = await harness.listSignalCards();
       expect(
         cards.firstWhere(
             (row) => row['id'] == 'legacy_card')['included_in_journey'],
-        1,
+        0,
       );
       expect(
         cards.firstWhere(
@@ -392,7 +878,6 @@ void main() {
         status: 'skipped',
         title: '晚上少接新任务',
         feedbackText: '这周先不处理，也想保留下来回看。',
-        sourceWeekStart: '2026-05-04',
       );
 
       final skipped = await harness.repository.fetchMemorySummaryResult();
@@ -409,7 +894,6 @@ void main() {
         status: 'adjusted',
         title: '只留十分钟缓冲',
         feedbackText: '调小之后更容易发生。',
-        sourceWeekStart: '2026-05-11',
       );
 
       final adjusted = await harness.repository.fetchMemorySummaryResult();
@@ -476,7 +960,7 @@ void main() {
       await harness.close();
     });
 
-    test('9b) Journey 区分 library_saved 证据等级，未确认不进入', () async {
+    test('9b) Journey 区分 library_saved 证据等级，确认后进入', () async {
       final recordingAi = RecordingJourneyAiRepository();
       final harness = await _createHarness(
         dbPath: dbPath,
@@ -531,7 +1015,7 @@ void main() {
 
       final ids = recordingAi.lastEntries.map((e) => e['signal_card_id']);
       expect(ids, isNot(contains('library_unconfirmed')));
-      expect(ids, isNot(contains('library_confirmed_without_context')));
+      expect(ids, contains('library_confirmed_without_context'));
       expect(ids, contains('library_with_context'));
       final confirmed = recordingAi.lastEntries.firstWhere(
         (entry) => entry['signal_card_id'] == 'library_with_context',
@@ -604,13 +1088,15 @@ void main() {
           containsAll([
             'text_raw',
             'voice_transcript',
+            'ai_predicted_accurate_only',
+            'library_default',
             'library_with_context',
           ]));
-      expect(ids, isNot(contains('ai_predicted_accurate_only')));
-      expect(ids, isNot(contains('library_default')));
 
       await harness.deleteSignalCard('text_raw');
       await harness.deleteSignalCard('voice_transcript');
+      await harness.deleteSignalCard('ai_predicted_accurate_only');
+      await harness.deleteSignalCard('library_default');
       await harness.deleteSignalCard('library_with_context');
 
       final afterDelete = await harness.repository.fetchMemorySummaryResult();
@@ -625,10 +1111,16 @@ void main() {
 class _Harness {
   final LocalDatabase localDatabase;
   final MemoryRepository repository;
+  final LocalCaptureRepository captureRepository;
+  final LocalLifeExperimentRepository lifeExperimentRepository;
+  final LocalPhase3PlusRepository phase3PlusRepository;
 
   _Harness({
     required this.localDatabase,
     required this.repository,
+    required this.captureRepository,
+    required this.lifeExperimentRepository,
+    required this.phase3PlusRepository,
   });
 
   Future<void> seedSignalCard({
@@ -709,17 +1201,25 @@ class _Harness {
     String hypothesis = '少一点切换可能会省力',
     String suggestedAction = '睡前少接一个新任务',
     List<String> linkedSignalCardIds = const [],
-    String sourceWeekStart = '2026-05-04',
+    String? sourceWeekStart,
+    String? sourceWeekEnd,
   }) async {
     final db = await localDatabase.database;
     final now = DateTime.now().toUtc();
+    final localNow = DateTime.now();
+    final currentWeekStart = localNow.subtract(
+      Duration(days: localNow.weekday - DateTime.monday),
+    );
+    final resolvedWeekStart = sourceWeekStart ?? _dateKey(currentWeekStart);
+    final resolvedWeekEnd = sourceWeekEnd ??
+        _dateKey(currentWeekStart.add(const Duration(days: 6)));
     await db.insert(
       'life_experiments',
       {
         'id': id,
         'local_user_id': 'test-user',
-        'source_week_start': sourceWeekStart,
-        'source_week_end': '2026-05-10',
+        'source_week_start': resolvedWeekStart,
+        'source_week_end': resolvedWeekEnd,
         'title': title,
         'hypothesis': hypothesis,
         'suggested_action': suggestedAction,
@@ -728,6 +1228,137 @@ class _Harness {
         'feedback_text': feedbackText,
         'created_at': now.subtract(const Duration(days: 7)).toIso8601String(),
         'updated_at': now.toIso8601String(),
+      },
+    );
+  }
+
+  Future<void> seedObservation({
+    required String id,
+    required String text,
+    String status = 'generated',
+  }) async {
+    final db = await localDatabase.database;
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.insert(
+      'observations',
+      {
+        'id': id,
+        'local_user_id': 'test-user',
+        'observation_text': text,
+        'observation_type': 'hypothesis',
+        'confidence': 'medium',
+        'status': status,
+        'source_period_start': _dateKey(DateTime.now()),
+        'source_period_end': _dateKey(DateTime.now()),
+        'created_by': 'l2_reason',
+        'evidence_text': text,
+        'created_at': now,
+        'updated_at': now,
+      },
+    );
+  }
+
+  Future<void> seedExperimentFeedback({
+    required String id,
+    required String feedbackText,
+    required String localDate,
+  }) async {
+    final db = await localDatabase.database;
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.insert(
+      'life_experiment_feedback',
+      {
+        'id': id,
+        'experiment_id': 'exp_evidence',
+        'local_user_id': 'test-user',
+        'feedback_date': localDate,
+        'local_date': localDate,
+        'happened': 'yes',
+        'completion_status': 'helpful',
+        'feedback_text': feedbackText,
+        'created_at': now,
+        'updated_at': now,
+      },
+    );
+  }
+
+  Future<void> seedWeeklySnapshot({
+    required String weekStart,
+    required String weekEnd,
+    required String keyInsight,
+  }) async {
+    final db = await localDatabase.database;
+    await db.insert(
+      'weekly_snapshots',
+      {
+        'week_start': weekStart,
+        'week_end': weekEnd,
+        'status': 'ready',
+        'key_insight': keyInsight,
+        'patterns_json': '[]',
+        'frictions_json': '[]',
+        'best_action': '继续轻一点调整。',
+        'opportunity_snapshot_json': null,
+        'chart_data_json': '[]',
+        'feedback_submitted': 0,
+        'source_hash': 'test-weekly-hash',
+        'schema_version': 1,
+        'pipeline_version': 'test',
+        'dirty': 0,
+        'is_stale': 0,
+        'generated_at': DateTime.now().toUtc().toIso8601String(),
+      },
+    );
+  }
+
+  Future<void> seedGoalFeedback({
+    required String id,
+    required String goalId,
+    required String feedbackDate,
+    String happened = 'yes',
+    String effect = 'helpful',
+  }) async {
+    final db = await localDatabase.database;
+    final now = DateTime.parse(feedbackDate).toUtc().toIso8601String();
+    await db.insert(
+      'goal_feedback',
+      {
+        'id': id,
+        'goal_id': goalId,
+        'feedback_date': feedbackDate,
+        'happened': happened,
+        'effort_level': 'light',
+        'effect': effect,
+        'comment': '做完轻一点',
+        'next_adjustment': 'continue',
+        'created_at': now,
+        'updated_at': now,
+      },
+    );
+  }
+
+  Future<void> seedTraceLink({
+    required String snapshotDate,
+    required String targetType,
+    required String targetId,
+  }) async {
+    final db = await localDatabase.database;
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.insert(
+      'trace_links',
+      {
+        'id': 'trace_${targetType}_$targetId',
+        'local_user_id': 'test-user',
+        'source_type': 'journey_snapshot',
+        'source_id': snapshotDate,
+        'target_type': targetType,
+        'target_id': targetId,
+        'relation_type': 'uses_trace',
+        'weight': 1.0,
+        'status': 'active',
+        'metadata_json': jsonEncode({'local_date': snapshotDate}),
+        'created_at': now,
+        'updated_at': now,
       },
     );
   }
@@ -746,6 +1377,56 @@ class _Harness {
     );
   }
 
+  Future<Map<String, Object?>?> latestJourneyReflection(
+    String snapshotDate,
+  ) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'reflection_results',
+      where: '''
+        source_type = ?
+        AND source_id = ?
+        AND reflection_type = ?
+        AND status IN (?, ?)
+      ''',
+      whereArgs: [
+        'journey_snapshot',
+        snapshotDate,
+        'reflect',
+        'generated',
+        'confirmed',
+      ],
+      orderBy: 'generated_at DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first;
+  }
+
+  Future<Map<String, Object?>?> journeySnapshot(String snapshotDate) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'journey_snapshots',
+      where: 'snapshot_date = ?',
+      whereArgs: [snapshotDate],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first;
+  }
+
+  Future<List<Map<String, Object?>>> traceLinksForSource({
+    required String sourceType,
+    required String sourceId,
+  }) async {
+    final db = await localDatabase.database;
+    return db.query(
+      'trace_links',
+      where: 'source_type = ? AND source_id = ?',
+      whereArgs: [sourceType, sourceId],
+    );
+  }
+
   Future<void> close() async {
     await localDatabase.close();
   }
@@ -755,6 +1436,7 @@ Future<_Harness> _createHarness({
   required String dbPath,
   required AiRepository aiRepository,
   required DateTime installationDate,
+  ReportReadinessRule journeyReadinessRule = _testReadyJourneyRule,
 }) async {
   final localDatabase = LocalDatabase(
     dbPathOverride: dbPath,
@@ -767,20 +1449,29 @@ Future<_Harness> _createHarness({
       LocalJourneySnapshotRepository(localDatabase);
   final localLifeExperimentRepository =
       LocalLifeExperimentRepository(localDatabase);
+  final localPhase3PlusRepository = LocalPhase3PlusRepository(localDatabase);
+  final localWeeklySnapshotRepository =
+      LocalWeeklySnapshotRepository(localDatabase);
 
   final repository = MemoryRepository(
     localCaptureRepository: localCaptureRepository,
     localJourneySnapshotRepository: localJourneySnapshotRepository,
     localLifeExperimentRepository: localLifeExperimentRepository,
+    localPhase3PlusRepository: localPhase3PlusRepository,
+    localWeeklySnapshotRepository: localWeeklySnapshotRepository,
     aiRepository: aiRepository,
     focusAreaLoader: () async => null,
     installationDateLoader: () async => installationDate,
     localUserId: 'test-user',
+    journeyReadinessRule: journeyReadinessRule,
   );
 
   return _Harness(
     localDatabase: localDatabase,
     repository: repository,
+    captureRepository: localCaptureRepository,
+    lifeExperimentRepository: localLifeExperimentRepository,
+    phase3PlusRepository: localPhase3PlusRepository,
   );
 }
 

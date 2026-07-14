@@ -48,6 +48,23 @@ class PurchaseService:
             )
 
         source = (payload.verification_source or "").lower()
+        if source in {
+            "storekit2",
+            "storekit2_jws",
+            "storekit2_local_verified",
+        }:
+            # StoreKit 2 JWS and the legacy App Receipt are different
+            # protocols. This service only calls Apple's verifyReceipt
+            # endpoint, so treating a transaction JWS as receipt data would
+            # be both incorrect and unsafe. The client may keep its locally
+            # verified entitlement while App Receipt refresh is retried.
+            return self._persist_response(
+                payload=payload,
+                user_id=user_id,
+                verified=False,
+                product_id=product_id,
+                reason="unsupported_storekit2_verification_data",
+            )
         if "local" in source or self._looks_like_storekit_test_data(verification_data):
             return self._persist_response(
                 payload=payload,

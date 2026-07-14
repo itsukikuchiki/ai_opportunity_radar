@@ -1,5 +1,12 @@
 # Phase 3 Final Page Data Structure Acceptance
 
+> **Superseded historical record — 2026-07-12.** This document is retained as
+> Phase 3 acceptance evidence. It is not the current page or data-structure
+> specification. Schedule, Goal, user-facing cloud-backup entry points, the old
+> single-candidate experiment loop, and the old page hierarchy must not be
+> reintroduced from this file. Use [`active/app_design.md`](active/app_design.md)
+> and [`active/data_flow.md`](active/data_flow.md) for current behavior.
+
 Date: 2026-06-16
 
 This document maps every current main app page section to its data collection,

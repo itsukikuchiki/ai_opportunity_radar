@@ -1,5 +1,11 @@
 # ReleaseQA-2.7C Visual Language Finalization
 
+> **Superseded historical visual record — 2026-07-12.** Preserve this file as
+> ReleaseQA evidence only. Current product/page rules live in
+> [`../active/app_design.md`](../active/app_design.md), and current
+> visual density, typography, sizing, and illustration treatment live in
+> [`../active/main_tab_ui_standard.md`](../active/main_tab_ui_standard.md).
+
 Status: Engineering implemented / ready for visual review
 
 QA3 status: Pending

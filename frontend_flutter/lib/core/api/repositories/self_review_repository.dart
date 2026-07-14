@@ -1,8 +1,10 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../eligibility/signal_eligibility_service.dart';
 import '../../local/local_capture_repository.dart';
 import '../../models/self_review_models.dart';
 import '../../models/today_models.dart';
+import '../../preferences/focus_domains.dart';
 import '../api_client.dart';
 
 typedef SelfReviewFocusAreaLoader = Future<String?> Function();
@@ -11,18 +13,28 @@ class SelfReviewRepository {
   final LocalCaptureRepository localCaptureRepository;
   final ApiClient apiClient;
   final SelfReviewFocusAreaLoader? focusAreaLoader;
+  final SignalEligibilityService eligibilityService;
 
   SelfReviewRepository({
     required this.localCaptureRepository,
     required this.apiClient,
     this.focusAreaLoader,
-  });
+    SignalEligibilityService? eligibilityService,
+  }) : eligibilityService =
+            eligibilityService ?? const SignalEligibilityService();
 
   Future<SelfReviewModel> fetchSelfReview() async {
-    final recentSignals =
-        await localCaptureRepository.listRecentSignals(limit: 2000);
     final cutoff = DateTime.now().subtract(const Duration(days: 30));
-    final signals = recentSignals.where((signal) {
+    final rangeSignals = await localCaptureRepository.listSignalCardsBetween(
+      startDate: _dateKey(cutoff),
+      endDate: _dateKey(DateTime.now()),
+      limit: 2000,
+    );
+    final eligibleSignals = eligibilityService.filter(
+      rangeSignals,
+      SignalEligibilityStage.aiReflect,
+    );
+    final signals = eligibleSignals.where((signal) {
       final time = signal.createdAt?.toLocal();
       return time != null && !time.isBefore(cutoff);
     }).toList()
@@ -149,6 +161,14 @@ class SelfReviewRepository {
       return focusAreaLoader!();
     }
     final prefs = await SharedPreferences.getInstance();
+    final focusDomainIds = FocusDomains.normalizeIds(
+      prefs.getStringList(FocusDomains.productPreferenceKey) ??
+          prefs.getStringList(FocusDomains.preferenceKey) ??
+          const [],
+    );
+    if (focusDomainIds.isNotEmpty) {
+      return focusDomainIds.join(',');
+    }
     return prefs.getString('repeat_area_preference') ??
         prefs.getString('selected_repeat_area');
   }

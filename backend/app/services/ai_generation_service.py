@@ -10,7 +10,6 @@ from app.schemas.ai_schema import (
     JourneyGenerateRequest,
     JourneyGenerateResponse,
     LightDialogResponse,
-    OpportunityExplanationResponse,
     OpportunitySnapshotSchema,
     TodaySummaryRequest,
     TodaySummaryResponse,
@@ -31,6 +30,18 @@ class AiGenerationService:
 
         if not content:
             raise ValueError("content is required")
+
+        if self._is_immediate_safety_risk(content):
+            return CaptureReplyResponse(
+                acknowledgement=self._immediate_safety_reply(),
+                observation="先确认你现在是否处于立即危险中。",
+                try_next="请先联系当地紧急服务，或一个能马上到你身边的可信任的人。",
+                emotion="negative",
+                intensity="high",
+                scene_tags=[],
+                intent_tags=["immediate_safety"],
+                followup=None,
+            )
 
         analysis = self._analyze_capture(content)
         response_style = payload.get('response_style') or 'gentle'
@@ -133,6 +144,14 @@ class AiGenerationService:
         contents = [entry.content.strip() for entry in request.entries if entry.content and entry.content.strip()]
         top_token = self._evidence_topic(contents=contents, top_tokens=request.top_tokens)
         peak_day = self._peak_day(request.day_counts)
+        behavior_hint = self._weekly_illustration_hint(
+            " ".join([top_token, *contents]),
+            fallback="只是观察也有帮助",
+        )
+        friction_hint = self._weekly_illustration_hint(
+            " ".join([top_token, peak_day, *contents]),
+            fallback="任务堆积，开始变困难",
+        )
         confidence_line = (
             "基于目前少量信号，先把它当成临时观察。"
             if request.entry_count < 4
@@ -143,10 +162,12 @@ class AiGenerationService:
             WeeklyInsightItem(
                 name=f"本周小观察：{top_token}",
                 summary=f"{confidence_line} 记录里最先浮出来的是“{top_token}”，先看它在哪些场景里回来。",
+                illustration_hint=behavior_hint,
             ),
             WeeklyInsightItem(
                 name="证据来源",
                 summary=self._evidence_summary(contents=contents, fallback=top_token),
+                illustration_hint="只是观察也有帮助",
             ),
         ]
 
@@ -154,6 +175,7 @@ class AiGenerationService:
             WeeklyInsightItem(
                 name="本周可能的消耗点",
                 summary=f"目前先看“{top_token}”带来的负担；其中 {peak_day} 的信号更集中，但还不需要当成结论。",
+                illustration_hint=friction_hint,
             ),
         ]
 
@@ -162,6 +184,7 @@ class AiGenerationService:
         opportunity_snapshot = OpportunitySnapshotSchema(
             name="把重复信号固定下来",
             summary=f"如果“{top_token}”之后还会回来，它适合先被结构化记录，再决定要不要调整。",
+            illustration_hint="只是观察也有帮助",
         )
 
         return WeeklyGenerateResponse(
@@ -176,42 +199,81 @@ class AiGenerationService:
             feedback_submitted=False,
         )
 
+    def _weekly_illustration_hint(self, text: str, *, fallback: str) -> str:
+        source = text.lower()
+        rules = [
+            (["任务", "堆", "太多", "todo"], "任务堆积，开始变困难"),
+            (["会议", "开会"], "会议密集，注意力被切碎"),
+            (["临时", "变化", "打断"], "临时变化打断原本节奏"),
+            (["休息", "恢复", "挤"], "休息时间被任务挤掉"),
+            (["空转", "停不下来"], "想休息，但停下来后反而空转"),
+            (["手机", "短视频", "刷"], "晚上刷手机变多"),
+            (["早上", "启动"], "早上启动困难"),
+            (["中午", "午后", "下午", "精力"], "中午以后精力明显下降"),
+            (["日程", "安排", "密度"], "情绪被日程密度带着走"),
+            (["焦虑", "紧张", "还没开始"], "焦虑提前出现，还没开始就紧张"),
+            (["完成", "做完", "更累"], "做完事后更累，不是更轻松"),
+            (["计划", "目标", "太大"], "计划越大，越容易不开始"),
+            (["分散", "目标太多"], "目标太多，注意力分散"),
+            (["创作", "创造", "工作"], "创作被工作挤掉"),
+            (["拒绝", "边界", "自己的时间"], "不敢拒绝，自己的时间被挤占"),
+            (["迎合", "疲惫"], "过度迎合后感到疲惫"),
+            (["表达", "说不清"], "想表达，但说不清"),
+            (["独处"], "独处不足，恢复变慢"),
+            (["环境", "房间", "混乱"], "生活环境混乱，心情也乱"),
+            (["关系", "对话", "内耗"], "关系对话后反复内耗"),
+            (["金钱", "钱", "现实压力"], "金钱或现实压力牵动安全感"),
+            (["身体", "累"], "身体信号先出现，才意识到累"),
+            (["有效", "稳定"], "小行动有效，节奏开始稳定"),
+            (["兴趣", "爱好"], "兴趣活动带来恢复感"),
+        ]
+        for tokens, hint in rules:
+            if any(token in source for token in tokens):
+                return hint
+        return fallback
+
     def generate_light_dialog(self, request) -> LightDialogResponse:
         capture_content = request.capture_content.strip()
         user_message = request.user_message.strip()
         if not capture_content or not user_message:
             raise ValueError("capture_content and user_message are required")
 
+        history_text = " ".join(turn.text for turn in request.history)
+        safety_text = " ".join(
+            part for part in (capture_content, history_text, user_message) if part
+        )
+        if self._is_immediate_safety_risk(safety_text):
+            return LightDialogResponse(
+                reply=self._immediate_safety_reply(),
+                suggested_prompts=[
+                    "我现在处于立即危险中",
+                    "我没有立即危险，但需要有人陪我",
+                    "我可以先联系一个可信任的人",
+                ],
+            )
+
         analysis = self._analyze_capture(capture_content)
-        scene = analysis["scene_tags"][0] if analysis["scene_tags"] else "daily_life"
         emotion = analysis["emotion"]
         response_style = request.response_style or 'gentle'
         history_len = len(request.history)
 
         if history_len <= 1:
             prefix = {
-                "negative": "我先顺着这条和你往里看一点。",
-                "mixed": "这条里本来就有拉扯感，我们先不急着下结论。",
-                "positive": "这条里有值得留下来的东西，我们把它说清一点。",
-            }.get(emotion, "我们先围着这条多看一点。")
+                "negative": "听起来这一下确实让你有些难受，我先接住你现在说的这部分。",
+                "mixed": "这条里有些拉扯感，我们先不用急着把它解释完整。",
+                "positive": "这个片刻对你有一点分量，值得先好好留下。",
+            }.get(emotion, "我在听，我们先只看你现在最想说的这一点。")
         else:
-            prefix = "我继续顺着你刚才那句往下接。"
-
-        scene_line = {
-            "work": "它看起来不像单次心情，更像是工作场景里的节奏、打断或控制感在影响你。",
-            "relationships": "它更像是互动里的分寸感和被理解感在牵动你。",
-            "body": "它可能不只是想法问题，身体状态也在放大这件事。",
-            "daily_life": "它像是日常里一个会反复勾到你的点。",
-        }.get(scene, "这条背后像是一个会重复出现的具体场景。")
+            prefix = "我继续听着你刚才那句。"
 
         if any(token in user_message for token in ["为什么", "為什麼", "why"]):
-            answer = f"{prefix}{scene_line} 与其说你是在问原因，不如说你已经碰到那个最容易卡住你的部位了。先别急着解释全部，只要先分清：你更难受的是事情本身，还是事情带来的失控感。"
+            answer = f"{prefix}现在的这一条还不足以替你判断原因。可以先说说：事情本身和它带给你的感受，哪一部分此刻更重一点？"
         elif any(token in user_message for token in ["怎么办", "怎麼辦", "怎么办啊", "what should", "怎么办呢"]):
-            answer = f"{prefix}{scene_line} 这一步先不要追求解决整件事，只做一个更小的动作：下次再碰到它时，补一句最先冒出来的念头，或者当时最卡的环节。这样下一轮就会清楚很多。"
+            answer = f"{prefix}先不用一次解决整件事。你愿意的话，我们只找一个现在负担最小、能让你稍微稳一点的动作。"
         elif any(token in user_message for token in ["其实", "其實", "其实是", "actually"]):
-            answer = f"{prefix}你这句“{user_message[:18]}”本身就在把重点往外推。{scene_line} 现在更值得看的，是哪一部分让你最不甘心，或者最舍不得轻轻带过。"
+            answer = f"{prefix}你补的这句让重点更清楚了一点。哪一部分是你最不想被轻轻带过的？"
         else:
-            answer = f"{prefix}{scene_line} 你刚才补的这句说明，这件事真正勾到你的不只是表面那一下。现在先把它收成一句更具体的话：当时最让你停住的，到底是哪一个瞬间？"
+            answer = f"{prefix}如果愿意，可以只补一句：当时最让你停住的是哪个瞬间？"
 
         prompts = [
             "我最卡住的是哪一个瞬间？",
@@ -219,6 +281,12 @@ class AiGenerationService:
             "下次再遇到时我想先做什么？",
         ]
         return LightDialogResponse(reply=self._style_text(answer, response_style, kind='reply'), suggested_prompts=prompts)
+
+    def _is_immediate_safety_risk(self, text: str) -> bool:
+        return self.classification_service.is_immediate_safety_risk(text)
+
+    def _immediate_safety_reply(self) -> str:
+        return self.classification_service.immediate_safety_acknowledgement()
 
     def generate_deep_weekly(self, request: DeepWeeklyRequest) -> DeepWeeklyResponse:
         pattern_name = self._pick_name(request.patterns, fallback="这周反复回来的主题")
@@ -243,7 +311,7 @@ class AiGenerationService:
                 rebound_phrase = "后半段有一点回收，说明这一周不是一路往下掉，而是有被拉回来一点"
 
         summary = (
-            f"{key_insight} 免费版能看见主题，Deep Weekly 要看的更像是结构："
+            f"{key_insight} L3 Reflect 要看的更像是结构："
             f"“{pattern_name}”并不是孤立出现，它和“{friction_name}”在同一周里互相牵住，"
             "让你反复在想推进和被消耗之间切换。"
         )
@@ -261,7 +329,7 @@ class AiGenerationService:
             f"下周先不要扩大观察面，只盯一个小问题：当“{friction_name}”再次出现时，"
             f"它是在打断“{pattern_name}”的开始、推进中段，还是收尾阶段。这个位置比事件本身更值得记。"
         )
-        risk_note = "这份 deep weekly 更适合拿来收窄注意力，不适合一次解释完整个自己；如果这一周本来就很早期，它只能给方向，不能当结论。"
+        risk_note = "这份 L3 Reflect 更适合拿来收窄注意力，不适合一次解释完整个自己；如果这一周本来就很早期，它只能给方向，不能当结论。"
         key_nodes = [
             f"重复主题：{pattern_name}",
             f"主要摩擦：{friction_name}",
@@ -321,19 +389,6 @@ class AiGenerationService:
                     summary="后续实验反馈会和这些记录放在一起看：有效、偏难、跳过都只是证据，不是失败。",
                 )
             ],
-        )
-
-    def generate_opportunity_explanation(self, payload: dict[str, Any]) -> OpportunityExplanationResponse:
-        return OpportunityExplanationResponse(
-            why_this_opportunity="过去几周里，你反复在开始任务前重新收集和整理资料，这让启动成本持续偏高。",
-            evidence_summary=[
-                "相关模式近几周持续出现",
-                "主要摩擦集中在信息分散与启动困难",
-                "你也表达过希望把这一步省掉",
-            ],
-            solution_fit_explanation="这类问题已经有比较清楚的输入和输出，适合先做 Copilot，而不是直接交给全自动 Agent。",
-            next_step="先试一个最小版本：输入任务主题后，自动聚合相关资料并输出起步草稿。",
-            user_facing_summary="这不是一个要你彻底改变习惯的问题，而是一个适合让 AI 先接管前置整理的机会。",
         )
 
     def generate_followup_question(self, payload: dict[str, Any]) -> dict[str, Any]:

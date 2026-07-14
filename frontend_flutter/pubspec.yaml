@@ -1,7 +1,7 @@
 name: ai_opportunity_radar
 publish_to: 'none'
 description: MVP scaffold for AI Opportunity Radar
-version: 4.0.0+8
+version: 4.0.0+11
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
@@ -18,7 +18,7 @@ dependencies:
   in_app_purchase: ^3.2.3
   url_launcher: ^6.3.1
   shared_preferences: ^2.5.3
-  sign_in_with_apple: ^7.0.1
+  image_picker: 1.1.2
   uuid: ^4.5.1
   sqflite: ^2.3.3+1
   path: ^1.9.0
@@ -42,3 +42,6 @@ flutter:
     - assets/onboarding/onboarding-welcome.png
     - assets/onboarding/onboarding-input.png
     - assets/onboarding/onboarding-experiment.png
+    - assets/me/
+    - assets/journey/
+    - assets/weekly/

@@ -1,10 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/signal_library_models.dart';
+import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/widgets/aurora_ui.dart';
+import '../../../shared/widgets/editable_timeline_decision_dialog.dart';
 import '../../../shared/widgets/signal_illustration_kit.dart';
 import 'signal_library_view_model.dart';
 
@@ -17,6 +20,7 @@ class SignalLibraryPage extends StatefulWidget {
 
 class _SignalLibraryPageState extends State<SignalLibraryPage> {
   String? _loadedLanguage;
+  String _query = '';
 
   @override
   void didChangeDependencies() {
@@ -34,94 +38,151 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
   Widget build(BuildContext context) {
     final viewModel = context.watch<SignalLibraryViewModel>();
     final theme = Theme.of(context);
+    final patterns = _filterPatterns(viewModel.visiblePatterns);
 
     return Scaffold(
       body: Stack(
         children: [
           AuroraPage(
-            child: SafeArea(
-              bottom: false,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 116),
-                children: [
-                  Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'Shared life signals',
-                      zhHans: '共有生活信号',
-                      zhHant: '共有生活信號',
-                      ja: '共有される生活シグナル',
+            child: Stack(
+              children: [
+                const Positioned(
+                  right: -18,
+                  top: 18,
+                  width: 180,
+                  height: 172,
+                  child: IgnorePointer(child: _LibraryHeroDecor()),
+                ),
+                SafeArea(
+                  bottom: false,
+                  child: ListView(
+                    padding: EdgeInsets.fromLTRB(
+                      22,
+                      58,
+                      22,
+                      MediaQuery.paddingOf(context).bottom + 164,
                     ),
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 21,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _LibraryCategoryRow(
-                    selectedCategory: viewModel.selectedCategory,
-                    onSelected: viewModel.selectCategory,
-                  ),
-                  const SizedBox(height: 14),
-                  AuroraQuoteCard(
-                    landscape: true,
-                    minHeight: 80,
-                    text: AppLocaleText.tr(
-                      context,
-                      en: 'Other people have similar signals too. You are not alone.',
-                      zhHans: '别人也有同样的信号，你不是一个人。',
-                      zhHant: '別人也有同樣的信號，你不是一個人。',
-                      ja: '似たシグナルを持つ人はほかにもいます。あなた一人ではありません。',
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  if (viewModel.message != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _SoftNotice(text: viewModel.message!),
-                    ),
-                  if (viewModel.loading)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(32),
-                        child: CircularProgressIndicator(),
-                      ),
-                    )
-                  else
-                    ...viewModel.visiblePatterns.map(
-                      (pattern) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _PatternCard(
-                          pattern: pattern,
-                          saved: viewModel.savedPatternIds.contains(pattern.id),
-                          acted: viewModel.privateActionPatternIds
-                              .contains(pattern.id),
-                          onAlsoHaveThis: () => _showLibraryActionLoop(
-                              context, pattern, viewModel),
-                          onSave: () => viewModel.saveToMyObservation(pattern),
-                          onNotForMe: () => viewModel.markNotForMe(pattern),
-                          onShare: () async {
-                            await Clipboard.setData(
-                              ClipboardData(
-                                text:
-                                    '${pattern.title}\n\n${pattern.abstractPattern}\n\n${pattern.suggestedSmallExperiment}',
-                              ),
-                            );
-                            viewModel.markSharePrepared(pattern);
-                            if (!context.mounted) return;
-                            _showSharePreview(context, pattern);
-                          },
+                    children: [
+                      if (Navigator.of(context).canPop()) ...[
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: IconButton(
+                            onPressed: () => Navigator.of(context).maybePop(),
+                            icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                            color: AuroraColors.ink,
+                            tooltip: AppLocaleText.tr(
+                              context,
+                              en: 'Back',
+                              zhHans: '返回',
+                              zhHant: '返回',
+                              ja: '戻る',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      Text(
+                        AppLocaleText.tr(
+                          context,
+                          en: 'Signal Library',
+                          zhHans: '信号库',
+                          zhHant: '信號庫',
+                          ja: 'シグナルライブラリ',
+                        ),
+                        style: theme.textTheme.displaySmall?.copyWith(
+                          color: AuroraColors.purple,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 42,
+                          height: 1.02,
                         ),
                       ),
-                    ),
-                ],
-              ),
+                      const SizedBox(height: 14),
+                      Text(
+                        AppLocaleText.tr(
+                          context,
+                          en: 'Browse common SignalCard references and decide whether one matches your recent life.',
+                          zhHans: '浏览常见的 SignalCard 参考，判断它是否像你最近的情况。',
+                          zhHant: '瀏覽常見的 SignalCard 參考，判斷它是否像你最近的情況。',
+                          ja: 'よくあるSignalCardの参考から、最近の自分に近いものか判断できます。',
+                        ),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: AuroraColors.ink.withValues(alpha: 0.74),
+                          height: 1.45,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      _LibrarySearchField(
+                        onChanged: (value) => setState(() => _query = value),
+                      ),
+                      const SizedBox(height: 18),
+                      _LibraryCategoryRow(
+                        selectedCategory: viewModel.selectedCategory,
+                        onSelected: viewModel.selectCategory,
+                      ),
+                      const SizedBox(height: 20),
+                      if (viewModel.loading)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(32),
+                            child: CircularProgressIndicator(),
+                          ),
+                        )
+                      else
+                        ...patterns.map(
+                          (pattern) => Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: _PatternCard(
+                              pattern: pattern,
+                              onReview: () => _showLibraryActionLoop(
+                                  context, pattern, viewModel),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 2),
+                      _LibraryFooterHint(),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
           const AuroraSafeTopMask(),
         ],
       ),
     );
+  }
+
+  List<LibraryPatternModel> _filterPatterns(
+      List<LibraryPatternModel> patterns) {
+    final query = _query.trim().toLowerCase();
+    final filtered = query.isEmpty
+        ? patterns
+        : patterns.where((pattern) {
+            final text = [
+              pattern.title,
+              pattern.abstractPattern,
+              ...pattern.commonScenes,
+              ...pattern.commonFrictions,
+            ].join(' ').toLowerCase();
+            return text.contains(query);
+          }).toList(growable: false);
+    return [...filtered]..sort(_compareLibraryPatternPriority);
+  }
+
+  int _compareLibraryPatternPriority(
+    LibraryPatternModel a,
+    LibraryPatternModel b,
+  ) {
+    return _libraryPatternPriority(a.id)
+        .compareTo(_libraryPatternPriority(b.id));
+  }
+
+  int _libraryPatternPriority(String id) {
+    if (id.contains('recovery_debt')) return 0;
+    if (id.contains('boundary_fatigue')) return 1;
+    if (id.contains('late_night_compensation')) return 2;
+    return 10;
   }
 
   String _languageCode(BuildContext context) {
@@ -137,212 +198,6 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
     }
   }
 
-  void _showSharePreview(
-    BuildContext context,
-    LibraryPatternModel pattern,
-  ) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.96),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(34)),
-          boxShadow: [
-            BoxShadow(
-              color: AuroraColors.purple.withValues(alpha: 0.18),
-              blurRadius: 36,
-              offset: const Offset(0, -12),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(22, 10, 22, 28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 48,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: AuroraColors.line,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 22),
-                Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Create share card',
-                    zhHans: '生成分享卡片',
-                    zhHant: '生成分享卡片',
-                    ja: '共有カードを作成',
-                  ),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: AuroraColors.ink,
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Only the official abstract pattern is included.',
-                    zhHans: '只包含官方抽象模式，不包含你的私人记录。',
-                    zhHant: '只包含官方抽象模式，不包含你的私人記錄。',
-                    ja: '公式の抽象パターンだけが含まれます。',
-                  ),
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: AuroraColors.muted),
-                ),
-                const SizedBox(height: 16),
-                AuroraCard(
-                  padding: const EdgeInsets.all(22),
-                  gradient: const LinearGradient(
-                    colors: [
-                      Color(0xFFF7F3FF),
-                      Color(0xFFFFFCF6),
-                      Color(0xFFF4F8FF),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const AuroraBrandMark(size: 28),
-                          const SizedBox(width: 8),
-                          Text(
-                            AppLocaleText.tr(
-                              context,
-                              en: 'Time signal',
-                              zhHans: '时光信号',
-                              zhHant: '時光信號',
-                              ja: '時のシグナル',
-                            ),
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleSmall
-                                ?.copyWith(
-                                  color: AuroraColors.ink,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '“',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .displaySmall
-                                      ?.copyWith(
-                                        color: AuroraColors.purple
-                                            .withValues(alpha: 0.45),
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                ),
-                                Text(
-                                  pattern.title,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .headlineSmall
-                                      ?.copyWith(
-                                        color: AuroraColors.ink,
-                                        fontWeight: FontWeight.w800,
-                                        height: 1.15,
-                                      ),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  pattern.abstractPattern,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
-                                      ?.copyWith(
-                                        color: AuroraColors.ink,
-                                        height: 1.55,
-                                      ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          SizedBox(
-                            width: 92,
-                            child: PatternIllustration(patternId: pattern.id),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          AuroraChip(
-                            label: AppLocaleText.tr(
-                              context,
-                              en: 'Recorded from Signal Library',
-                              zhHans: '记录于信号库',
-                              zhHant: '記錄於信號庫',
-                              ja: 'シグナルライブラリより',
-                            ),
-                            color: AuroraColors.purple,
-                          ),
-                          const Spacer(),
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.72),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(
-                              Icons.qr_code_2_rounded,
-                              color: AuroraColors.ink,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                AuroraPillButton(
-                  label: AppLocaleText.tr(
-                    context,
-                    en: 'Generate card',
-                    zhHans: '生成卡片',
-                    zhHant: '生成卡片',
-                    ja: 'カードを作成',
-                  ),
-                  icon: Icons.auto_awesome_rounded,
-                  filled: true,
-                  onPressed: () => Navigator.of(context).maybePop(),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   void _showLibraryActionLoop(
     BuildContext context,
     LibraryPatternModel pattern,
@@ -352,226 +207,259 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => Container(
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.96),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(34)),
-          boxShadow: [
-            BoxShadow(
-              color: AuroraColors.purple.withValues(alpha: 0.18),
-              blurRadius: 36,
-              offset: const Offset(0, -12),
-            ),
-          ],
+      builder: (_) => _LibrarySignalDecisionSheet(
+        pattern: pattern,
+        viewModel: viewModel,
+      ),
+    );
+  }
+}
+
+class _LibrarySignalDecisionSheet extends StatefulWidget {
+  final LibraryPatternModel pattern;
+  final SignalLibraryViewModel viewModel;
+
+  const _LibrarySignalDecisionSheet({
+    required this.pattern,
+    required this.viewModel,
+  });
+
+  @override
+  State<_LibrarySignalDecisionSheet> createState() =>
+      _LibrarySignalDecisionSheetState();
+}
+
+class _LibrarySignalDecisionSheetState
+    extends State<_LibrarySignalDecisionSheet> {
+  bool _submitting = false;
+
+  Future<void> _respond(String status) async {
+    if (_submitting) return;
+    EditableTimelineDecision? decision;
+    if (status != 'inaccurate') {
+      decision = await showEditableTimelineDecisionDialog(
+        context,
+        initialText: widget.pattern.abstractPattern.trim(),
+        keyPrefix: 'library-signal',
+      );
+      if (decision == null || !mounted) return;
+    }
+
+    if (status == 'inaccurate' || decision?.addToTimeline != true) {
+      final messenger = ScaffoldMessenger.of(context);
+      final message = AppLocaleText.tr(
+        context,
+        en: 'Nothing was added to your timeline.',
+        zhHans: '没有加入时间线，也没有保存反馈。',
+        zhHant: '沒有加入時間線，也沒有儲存回饋。',
+        ja: 'タイムラインには追加せず、フィードバックも保存していません。',
+      );
+      Navigator.of(context).pop();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(message),
         ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(22, 10, 22, 28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 48,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: AuroraColors.line,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 22),
-                Row(
-                  children: [
-                    const AuroraSoftIconCircle(
-                      icon: Icons.auto_awesome_rounded,
-                      color: AuroraColors.purple,
-                      size: 42,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        AppLocaleText.tr(
-                          context,
-                          en: 'Does this signal feel close to you?',
-                          zhHans: '这条信号像不像你最近的情况？',
-                          zhHant: '這條信號像不像你最近的情況？',
-                          ja: 'このシグナルは最近のあなたに近いですか？',
-                        ),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: AuroraColors.ink,
-                              fontWeight: FontWeight.w800,
-                            ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  pattern.title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AuroraColors.ink,
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  pattern.abstractPattern,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AuroraColors.muted,
-                        height: 1.5,
-                      ),
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _LibraryLoopChip(
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'Looks right',
-                        zhHans: '准',
-                        zhHant: '準',
-                        ja: '近い',
-                      ),
-                    ),
-                    _LibraryLoopChip(
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'A little',
-                        zhHans: '有一点',
-                        zhHant: '有一點',
-                        ja: '少し',
-                      ),
-                    ),
-                    _LibraryLoopChip(
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'Not for me',
-                        zhHans: '不像',
-                        zhHant: '不像',
-                        ja: '違う',
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                AuroraCard(
-                  padding: const EdgeInsets.all(16),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFFFCF5), Color(0xFFF7F3FF)],
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const AuroraSoftIconCircle(
-                        icon: Icons.science_rounded,
-                        color: AuroraColors.orange,
-                        size: 38,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          AppLocaleText.tr(
-                                context,
-                                en: 'Small action: ',
-                                zhHans: '可以试一个小行动：',
-                                zhHant: '可以試一個小行動：',
-                                ja: '小さな行動：',
-                              ) +
-                              pattern.suggestedSmallExperiment,
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: AuroraColors.ink,
-                                    height: 1.45,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: AuroraPillButton(
-                        icon: Icons.add_task_rounded,
-                        label: AppLocaleText.tr(
-                          context,
-                          en: 'Try today',
-                          zhHans: '加入今日小行动',
-                          zhHant: '加入今日小行動',
-                          ja: '今日試す',
-                        ),
-                        filled: true,
-                        onPressed: () {
-                          viewModel.markAlsoHaveThis(pattern);
-                          Navigator.of(sheetContext).maybePop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(AppLocaleText.tr(
-                                context,
-                                en: 'Added to your observation.',
-                                zhHans: '已加入你的观察。',
-                                zhHant: '已加入你的觀察。',
-                                ja: 'あなたの観察に追加しました。',
-                              )),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: AuroraPillButton(
-                        icon: Icons.bookmark_add_outlined,
-                        label: AppLocaleText.tr(
-                          context,
-                          en: 'Save',
-                          zhHans: '保存观察',
-                          zhHant: '保存觀察',
-                          ja: '保存',
-                        ),
-                        onPressed: () {
-                          viewModel.saveToMyObservation(pattern);
-                          Navigator.of(sheetContext).maybePop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(AppLocaleText.tr(
-                                context,
-                                en: 'Saved as a private observation.',
-                                zhHans: '已保存为个人观察。',
-                                zhHant: '已保存為個人觀察。',
-                                ja: '個人の観察として保存しました。',
-                              )),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                AuroraPillButton(
-                  icon: Icons.close_rounded,
-                  label: AppLocaleText.tr(
+      );
+      return;
+    }
+
+    setState(() => _submitting = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final original = widget.pattern.abstractPattern.trim();
+      final edited = decision?.text.trim();
+      final signal = await widget.viewModel.respondToPattern(
+        pattern: widget.pattern,
+        status: status,
+        userText: edited == null || edited == original ? null : edited,
+        addToTimeline: decision?.addToTimeline ?? false,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            signal != null
+                ? AppLocaleText.tr(
                     context,
-                    en: 'Not now',
-                    zhHans: '暂时不做',
-                    zhHant: '暫時不做',
-                    ja: '今はしない',
+                    en: 'Added to your timeline.',
+                    zhHans: '已加入你的时间线。',
+                    zhHant: '已加入你的時間線。',
+                    ja: 'タイムラインに追加しました。',
+                  )
+                : AppLocaleText.tr(
+                    context,
+                    en: 'Nothing was added to your timeline.',
+                    zhHans: '没有加入时间线，也没有保存反馈。',
+                    zhHant: '沒有加入時間線，也沒有儲存回饋。',
+                    ja: 'タイムラインには追加せず、フィードバックも保存していません。',
                   ),
-                  onPressed: () {
-                    viewModel.markNotForMe(pattern);
-                    Navigator.of(sheetContext).maybePop();
-                  },
-                ),
-              ],
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Could not complete this action. Please try again.',
+              zhHans: '暂时无法完成，请再试一次。',
+              zhHant: '暫時無法完成，請再試一次。',
+              ja: '操作を完了できませんでした。もう一度お試しください。',
             ),
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pattern = widget.pattern;
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.96),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(34)),
+        boxShadow: [
+          BoxShadow(
+            color: AuroraColors.purple.withValues(alpha: 0.18),
+            blurRadius: 36,
+            offset: const Offset(0, -12),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            22,
+            10,
+            22,
+            24 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 48,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: AuroraColors.line,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  const AuroraSoftIconCircle(
+                    icon: Icons.auto_awesome_rounded,
+                    color: AuroraColors.purple,
+                    size: 42,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'Does this signal match your recent life?',
+                        zhHans: '这条信号像不像你最近的情况？',
+                        zhHant: '這條信號像不像你最近的情況？',
+                        ja: 'このシグナルは最近のあなたに近いですか？',
+                      ),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: AuroraColors.ink,
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                pattern.title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: AuroraColors.ink,
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                pattern.abstractPattern,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AuroraColors.muted,
+                      height: 1.5,
+                    ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'This is a SignalCard reference. It only enters your timeline if you choose to add it.',
+                  zhHans: '这只是 SignalCard 参考；只有你确认加入时，才会进入自己的时间线。',
+                  zhHant: '這只是 SignalCard 參考；只有你確認加入時，才會進入自己的時間線。',
+                  ja: 'これはSignalCardの参考です。追加を選んだ場合だけ自分のタイムラインに入ります。',
+                ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AuroraColors.muted,
+                      height: 1.45,
+                    ),
+              ),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _LibraryFeedbackButton(
+                    key: const ValueKey('library-signal-accurate'),
+                    label: AppLocaleText.tr(
+                      context,
+                      en: 'Accurate',
+                      zhHans: '准',
+                      zhHant: '準',
+                      ja: '合っている',
+                    ),
+                    icon: Icons.check_circle_outline,
+                    primary: true,
+                    onPressed: _submitting ? null : () => _respond('accurate'),
+                  ),
+                  _LibraryFeedbackButton(
+                    key: const ValueKey('library-signal-partial'),
+                    label: AppLocaleText.tr(
+                      context,
+                      en: 'Somewhat',
+                      zhHans: '有一点像',
+                      zhHant: '有一點像',
+                      ja: '少し近い',
+                    ),
+                    icon: Icons.tune,
+                    onPressed: _submitting ? null : () => _respond('partial'),
+                  ),
+                  _LibraryFeedbackButton(
+                    key: const ValueKey('library-signal-inaccurate'),
+                    label: AppLocaleText.tr(
+                      context,
+                      en: 'Not accurate',
+                      zhHans: '不准',
+                      zhHant: '不準',
+                      ja: '違う',
+                    ),
+                    icon: Icons.remove_circle_outline,
+                    onPressed:
+                        _submitting ? null : () => _respond('inaccurate'),
+                  ),
+                ],
+              ),
+              if (_submitting) ...[
+                const SizedBox(height: 16),
+                const LinearProgressIndicator(),
+              ],
+            ],
           ),
         ),
       ),
@@ -579,29 +467,303 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
   }
 }
 
-class _LibraryLoopChip extends StatelessWidget {
+class _LibraryFeedbackButton extends StatelessWidget {
   final String label;
+  final IconData icon;
+  final bool primary;
+  final VoidCallback? onPressed;
 
-  const _LibraryLoopChip({required this.label});
+  const _LibraryFeedbackButton({
+    super.key,
+    required this.label,
+    required this.icon,
+    this.primary = false,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (primary) {
+      return FilledButton.icon(
+        style: FilledButton.styleFrom(
+          backgroundColor: AuroraColors.purple,
+          foregroundColor: Colors.white,
+        ),
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+      );
+    }
+    return OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AuroraColors.purple,
+        side: BorderSide(
+          color: AuroraColors.purple.withValues(alpha: 0.24),
+        ),
+      ),
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+    );
+  }
+}
+
+class _LibrarySearchField extends StatelessWidget {
+  final ValueChanged<String> onChanged;
+
+  const _LibrarySearchField({required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      height: 66,
       decoration: BoxDecoration(
-        color: AuroraColors.purple.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AuroraColors.purple.withValues(alpha: 0.14)),
+        color: Colors.white.withValues(alpha: 0.62),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.88)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF746CA5).withValues(alpha: 0.08),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
       ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: AuroraColors.purple,
-              fontWeight: FontWeight.w800,
-            ),
+      child: TextField(
+        onChanged: onChanged,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: AppLocaleText.tr(
+            context,
+            en: 'Search a signal...',
+            zhHans: '搜索一个信号...',
+            zhHant: '搜尋一個信號...',
+            ja: 'シグナルを検索...',
+          ),
+          hintStyle: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: AuroraColors.muted.withValues(alpha: 0.72),
+                fontWeight: FontWeight.w500,
+              ),
+          prefixIcon: Icon(
+            Icons.search_rounded,
+            color: AuroraColors.muted.withValues(alpha: 0.78),
+            size: 30,
+          ),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.fromLTRB(4, 21, 18, 18),
+        ),
       ),
     );
   }
+}
+
+class _LibraryFooterHint extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return AuroraCard(
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+      color: Colors.white.withValues(alpha: 0.56),
+      borderRadius: BorderRadius.circular(22),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 64,
+            height: 58,
+            child: AuroraCrystalIllustration(),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Library items are references only. You decide whether one becomes your SignalCard.',
+                zhHans: '信号库内容只是参考；是否成为你自己的 SignalCard，由你决定。',
+                zhHant: '信號庫內容只是參考；是否成為你自己的 SignalCard，由你決定。',
+                ja: 'ライブラリは参考です。自分のSignalCardにするかは自分で選べます。',
+              ),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: AuroraColors.ink.withValues(alpha: 0.72),
+                    height: 1.45,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LibraryHeroDecor extends StatelessWidget {
+  const _LibraryHeroDecor();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        const Positioned.fill(
+          child: CustomPaint(painter: _LibrarySignalOrbPainter()),
+        ),
+        Positioned(
+          left: 18,
+          bottom: 0,
+          width: 54,
+          height: 86,
+          child: CustomPaint(
+            painter: _LibraryLeafPainter(
+              color: AuroraColors.mint.withValues(alpha: 0.18),
+            ),
+          ),
+        ),
+        Positioned(
+          right: 4,
+          bottom: 10,
+          width: 52,
+          height: 92,
+          child: CustomPaint(
+            painter: _LibraryLeafPainter(
+              color: AuroraColors.purple.withValues(alpha: 0.15),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LibrarySignalOrbPainter extends CustomPainter {
+  const _LibrarySignalOrbPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width * 0.55, size.height * 0.38);
+    final radius = size.shortestSide * 0.34;
+    final ringRect = Rect.fromCircle(center: center, radius: radius);
+
+    canvas.drawCircle(
+      center,
+      radius * 1.18,
+      Paint()
+        ..color = AuroraColors.purple.withValues(alpha: 0.10)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
+    );
+    canvas.drawArc(
+      ringRect,
+      -math.pi * 0.18,
+      math.pi * 1.55,
+      false,
+      Paint()
+        ..shader = const SweepGradient(
+          colors: [
+            Color(0xFF8272FF),
+            Color(0xFF75DDE5),
+            Color(0xFFFFC365),
+            Color(0xFF8272FF),
+          ],
+        ).createShader(ringRect)
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 17,
+    );
+    canvas.drawCircle(
+      center,
+      radius * 0.74,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = Colors.white.withValues(alpha: 0.80),
+    );
+
+    final path = Path()
+      ..moveTo(center.dx - radius * 0.95, center.dy + radius * 0.12)
+      ..cubicTo(
+        center.dx - radius * 0.24,
+        center.dy - radius * 0.18,
+        center.dx + radius * 0.42,
+        center.dy - radius * 0.10,
+        center.dx + radius * 0.06,
+        center.dy + radius * 0.20,
+      )
+      ..cubicTo(
+        center.dx - radius * 0.22,
+        center.dy + radius * 0.45,
+        center.dx - radius * 0.08,
+        center.dy + radius * 0.58,
+        center.dx + radius * 0.92,
+        center.dy + radius * 0.70,
+      );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5
+        ..strokeCap = StrokeCap.round
+        ..color = Colors.white.withValues(alpha: 0.82)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.2),
+    );
+
+    final nodePaint = Paint()..color = Colors.white.withValues(alpha: 0.92);
+    for (final point in [
+      Offset(center.dx - radius * 0.98, center.dy + radius * 0.08),
+      Offset(center.dx + radius * 0.66, center.dy - radius * 0.62),
+      Offset(center.dx + radius * 0.94, center.dy + radius * 0.58),
+    ]) {
+      canvas.drawCircle(point, 7.5, nodePaint);
+      canvas.drawCircle(
+        point,
+        4,
+        Paint()..color = AuroraColors.purple.withValues(alpha: 0.42),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _LibraryLeafPainter extends CustomPainter {
+  final Color color;
+
+  const _LibraryLeafPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stem = Paint()
+      ..color = color
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(
+      Offset(size.width * 0.48, size.height),
+      Offset(size.width * 0.52, size.height * 0.10),
+      stem,
+    );
+    final fill = Paint()..color = color.withValues(alpha: 0.72);
+    for (var i = 0; i < 4; i += 1) {
+      final y = size.height * (0.28 + i * 0.16);
+      final left = i.isEven;
+      final cx = size.width * (left ? 0.28 : 0.72);
+      final leaf = Path()
+        ..moveTo(size.width * 0.50, y)
+        ..quadraticBezierTo(
+          cx,
+          y - size.height * 0.11,
+          cx,
+          y + size.height * 0.05,
+        )
+        ..quadraticBezierTo(
+          size.width * 0.44,
+          y + size.height * 0.06,
+          size.width * 0.50,
+          y,
+        );
+      canvas.drawPath(leaf, fill);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LibraryLeafPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class _LibraryCategoryRow extends StatelessWidget {
@@ -617,40 +779,19 @@ class _LibraryCategoryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = [
       (
-        'frequent',
-        Icons.star_rounded,
-        AppLocaleText.tr(context,
-            en: 'Frequent', zhHans: '高频', zhHant: '高頻', ja: '高頻'),
+        'all',
+        Icons.grid_view_rounded,
+        AppLocaleText.tr(
+          context,
+          en: 'All',
+          zhHans: '全部',
+          zhHant: '全部',
+          ja: 'すべて',
+        ),
         AuroraColors.purple,
       ),
-      (
-        'recovery',
-        Icons.nights_stay_outlined,
-        AppLocaleText.tr(context,
-            en: 'Recovery', zhHans: '恢复', zhHant: '恢復', ja: '回復'),
-        AuroraColors.mint,
-      ),
-      (
-        'relationships',
-        Icons.groups_outlined,
-        AppLocaleText.tr(context,
-            en: 'Relationships', zhHans: '关系', zhHant: '關係', ja: '関係'),
-        AuroraColors.orange,
-      ),
-      (
-        'work',
-        Icons.work_outline,
-        AppLocaleText.tr(context,
-            en: 'Work', zhHans: '工作', zhHant: '工作', ja: '仕事'),
-        AuroraColors.blue,
-      ),
-      (
-        'boundary',
-        Icons.health_and_safety_outlined,
-        AppLocaleText.tr(context,
-            en: 'Boundary', zhHans: '边界', zhHant: '邊界', ja: '境界'),
-        AuroraColors.purple,
-      ),
+      for (final option in FocusDomains.options)
+        (option.id, option.icon, option.label(context), option.color),
     ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -703,29 +844,34 @@ class _LibraryCategoryChip extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(18),
           child: Ink(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
             decoration: BoxDecoration(
               color: selected
-                  ? color.withValues(alpha: 0.10)
-                  : Colors.white.withValues(alpha: 0.78),
-              borderRadius: BorderRadius.circular(18),
+                  ? Colors.white.withValues(alpha: 0.86)
+                  : Colors.white.withValues(alpha: 0.58),
+              borderRadius: BorderRadius.circular(24),
               border: Border.all(
                 color: selected
                     ? color.withValues(alpha: 0.55)
-                    : AuroraColors.line,
+                    : Colors.white.withValues(alpha: 0.82),
               ),
               boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF746CA5).withValues(alpha: 0.08),
+                  blurRadius: 22,
+                  offset: const Offset(0, 12),
+                ),
                 if (selected)
                   BoxShadow(
-                    color: color.withValues(alpha: 0.10),
-                    blurRadius: 14,
-                    offset: const Offset(0, 8),
+                    color: color.withValues(alpha: 0.18),
+                    blurRadius: 18,
+                    offset: const Offset(0, 10),
                   ),
               ],
             ),
             child: Row(
               children: [
-                Icon(icon, size: 18, color: color),
+                _LibraryMiniIcon(icon: icon, color: color),
                 const SizedBox(width: 8),
                 Text(
                   label,
@@ -745,145 +891,79 @@ class _LibraryCategoryChip extends StatelessWidget {
 
 class _PatternCard extends StatelessWidget {
   final LibraryPatternModel pattern;
-  final bool saved;
-  final bool acted;
-  final VoidCallback onAlsoHaveThis;
-  final VoidCallback onSave;
-  final VoidCallback onNotForMe;
-  final VoidCallback onShare;
+  final VoidCallback onReview;
 
   const _PatternCard({
     required this.pattern,
-    required this.saved,
-    required this.acted,
-    required this.onAlsoHaveThis,
-    required this.onSave,
-    required this.onNotForMe,
-    required this.onShare,
+    required this.onReview,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final domain = _LibraryDomainStyle.resolve(context, pattern);
+
     return AuroraCard(
-      padding: const EdgeInsets.fromLTRB(16, 15, 16, 14),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
+      color: Colors.white.withValues(alpha: 0.64),
+      borderRadius: BorderRadius.circular(24),
+      child: Stack(
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 66,
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: PatternIllustration(patternId: pattern.id),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      pattern.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 18,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    _PatternLine(
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'Possible structure',
-                        zhHans: '可能结构',
-                        zhHant: '可能結構',
-                        ja: '構造',
-                      ),
-                      value: pattern.abstractPattern,
-                      color: AuroraColors.orange,
-                    ),
-                    const SizedBox(height: 4),
-                    _PatternLine(
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'Observe',
-                        zhHans: '可以观察',
-                        zhHant: '可以觀察',
-                        ja: '観察',
-                      ),
-                      value: pattern.gentleReflection,
-                      color: AuroraColors.mint,
-                    ),
-                    const SizedBox(height: 4),
-                    _PatternLine(
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'Small experiment',
-                        zhHans: '小实验',
-                        zhHant: '小實驗',
-                        ja: '試み',
-                      ),
-                      value: pattern.suggestedSmallExperiment,
-                      color: AuroraColors.purple,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          Positioned(
+            right: 8,
+            top: 8,
+            child: Icon(
+              Icons.auto_awesome_rounded,
+              color: AuroraColors.purple.withValues(alpha: 0.22),
+              size: 28,
+            ),
           ),
-          const SizedBox(height: 13),
-          Row(
+          Column(
             children: [
-              Expanded(
-                child: AuroraPillButton(
-                  onPressed: onAlsoHaveThis,
-                  icon: acted ? Icons.check_circle_outline : Icons.check,
-                  label: AppLocaleText.tr(
-                    context,
-                    en: 'Me too',
-                    zhHans: '我也有',
-                    zhHant: '我也有',
-                    ja: '私にもある',
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _LibrarySignalIcon(
+                    icon: domain.icon,
+                    color: domain.color,
+                    patternId: pattern.id,
                   ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: AuroraPillButton(
-                  onPressed: saved ? null : onSave,
-                  filled: true,
-                  icon: saved ? Icons.check : Icons.bookmark_add_outlined,
-                  label: saved
-                      ? AppLocaleText.tr(
-                          context,
-                          en: 'Saved',
-                          zhHans: '已保存',
-                          zhHant: '已保存',
-                          ja: '保存済み',
-                        )
-                      : AppLocaleText.tr(
-                          context,
-                          en: 'Save',
-                          zhHans: '保存',
-                          zhHant: '保存',
-                          ja: '保存',
+                  const SizedBox(width: 22),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _LibraryDomainBadge(domain: domain),
+                        const SizedBox(height: 12),
+                        Text(
+                          pattern.abstractPattern,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: AuroraColors.ink,
+                            height: 1.42,
+                            fontSize: 21,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: AuroraPillButton(
-                  onPressed: onShare,
-                  icon: Icons.ios_share_outlined,
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: _LibraryActionButton(
+                  key: ValueKey('library-review-${pattern.id}'),
+                  onPressed: onReview,
+                  icon: Icons.fact_check_outlined,
                   label: AppLocaleText.tr(
                     context,
-                    en: 'Share',
-                    zhHans: '分享',
-                    zhHant: '分享',
-                    ja: '共有',
+                    en: 'Does this match me?',
+                    zhHans: '看看像不像我',
+                    zhHant: '看看像不像我',
+                    ja: '自分に近いか確認',
                   ),
                 ),
               ),
@@ -895,92 +975,296 @@ class _PatternCard extends StatelessWidget {
   }
 }
 
-class _PatternLine extends StatelessWidget {
-  final String label;
-  final String value;
+class _LibraryMiniIcon extends StatelessWidget {
+  final IconData icon;
   final Color color;
 
-  const _PatternLine({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
+  const _LibraryMiniIcon({required this.icon, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final labelChip = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+    return Container(
+      width: 32,
+      height: 32,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-    final valueText = Text(
-      value,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: theme.textTheme.bodySmall?.copyWith(
-        color: AuroraColors.ink,
-        height: 1.35,
-      ),
-    );
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 220) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: constraints.maxWidth),
-                child: labelChip,
-              ),
-              const SizedBox(height: 4),
-              valueText,
-            ],
-          );
-        }
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Flexible(flex: 0, child: labelChip),
-            const SizedBox(width: 8),
-            Expanded(child: valueText),
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            Colors.white.withValues(alpha: 0.96),
+            color.withValues(alpha: 0.34),
           ],
-        );
-      },
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.16),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Icon(icon, color: color, size: 19),
     );
   }
 }
 
-class _SoftNotice extends StatelessWidget {
-  final String text;
+class _LibrarySignalIcon extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String patternId;
 
-  const _SoftNotice({required this.text});
+  const _LibrarySignalIcon({
+    required this.icon,
+    required this.color,
+    required this.patternId,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Text(text, style: theme.textTheme.bodySmall),
+    return SizedBox(
+      width: 86,
+      height: 86,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.62),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.14),
+                  blurRadius: 22,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: const SizedBox.expand(),
+          ),
+          SizedBox(
+            width: 58,
+            height: 58,
+            child: PatternIllustration(patternId: patternId),
+          ),
+          Icon(icon, color: Colors.white.withValues(alpha: 0.08), size: 58),
+        ],
       ),
     );
+  }
+}
+
+class _LibraryDomainBadge extends StatelessWidget {
+  final _LibraryDomainStyle domain;
+
+  const _LibraryDomainBadge({required this.domain});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: domain.color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        domain.label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: domain.color,
+              fontWeight: FontWeight.w800,
+            ),
+      ),
+    );
+  }
+}
+
+class _LibraryActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  const _LibraryActionButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(22),
+          child: Ink(
+            height: 50,
+            decoration: BoxDecoration(
+              color: Colors.white
+                  .withValues(alpha: onPressed == null ? 0.40 : 0.58),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: AuroraColors.purple.withValues(alpha: 0.20),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  color: AuroraColors.purple.withValues(
+                    alpha: onPressed == null ? 0.48 : 1,
+                  ),
+                  size: 21,
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: AuroraColors.purple.withValues(
+                            alpha: onPressed == null ? 0.48 : 1,
+                          ),
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryDomainStyle {
+  final String id;
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  const _LibraryDomainStyle({
+    required this.id,
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  static _LibraryDomainStyle resolve(
+    BuildContext context,
+    LibraryPatternModel pattern,
+  ) {
+    final haystack = [
+      pattern.id,
+      pattern.title,
+      pattern.abstractPattern,
+      pattern.energyLoadHint,
+      pattern.possiblePositiveSignal,
+      ...pattern.commonScenes,
+      ...pattern.commonFrictions,
+    ].join(' ').toLowerCase();
+
+    if (_containsAny(haystack, [
+      'boundary',
+      'personal time',
+      'agency',
+      '边界',
+      '邊界',
+      '个人时间',
+      '個人時間',
+      '自由感',
+      '自我边界',
+      '自我邊界',
+    ])) {
+      return _LibraryDomainStyle(
+        id: 'self_boundary',
+        label: AppLocaleText.tr(
+          context,
+          en: 'Boundaries',
+          zhHans: '自我边界',
+          zhHant: '自我邊界',
+          ja: '自分の境界',
+        ),
+        icon: Icons.shield_rounded,
+        color: AuroraColors.purple,
+      );
+    }
+
+    if (_containsAny(haystack, [
+      'sleep',
+      'late-night',
+      'night',
+      'rest',
+      'body',
+      '睡眠',
+      '深夜',
+      '晚上',
+      '休息',
+      '身体',
+      '身體',
+    ])) {
+      return _LibraryDomainStyle(
+        id: 'food_sleep',
+        label: AppLocaleText.tr(
+          context,
+          en: 'Food & sleep',
+          zhHans: '饮食睡眠',
+          zhHant: '飲食睡眠',
+          ja: '食事と睡眠',
+        ),
+        icon: Icons.nights_stay_rounded,
+        color: AuroraColors.blue,
+      );
+    }
+
+    if (_containsAny(haystack, [
+      'planning',
+      'work',
+      'attention',
+      'growth',
+      'schedule',
+      '安排',
+      '工作',
+      '注意力',
+      '成长',
+      '成長',
+      '计划',
+      '計劃',
+    ])) {
+      return _LibraryDomainStyle(
+        id: 'growth_plan',
+        label: AppLocaleText.tr(
+          context,
+          en: 'Growth plan',
+          zhHans: '成长计划',
+          zhHant: '成長計劃',
+          ja: '成長計画',
+        ),
+        icon: Icons.spa_rounded,
+        color: AuroraColors.mint,
+      );
+    }
+
+    return _LibraryDomainStyle(
+      id: 'emotional_stability',
+      label: AppLocaleText.tr(
+        context,
+        en: 'Emotional calm',
+        zhHans: '情绪安定',
+        zhHant: '情緒安定',
+        ja: '感情の安定',
+      ),
+      icon: Icons.sentiment_satisfied_alt_rounded,
+      color: AuroraColors.gold,
+    );
+  }
+
+  static bool _containsAny(String haystack, List<String> values) {
+    return values.any((value) => haystack.contains(value.toLowerCase()));
   }
 }

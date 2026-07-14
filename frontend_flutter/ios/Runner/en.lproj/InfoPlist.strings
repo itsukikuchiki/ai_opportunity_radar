@@ -1,0 +1,7 @@
+"NSCalendarsFullAccessUsageDescription" = "Signal Path reads local schedule density only after you explicitly enable schedule hints. It creates gentle Energy Budget context on this device; event titles, locations, attendees, and notes are not stored or uploaded.";
+"NSCalendarsUsageDescription" = "Signal Path reads local schedule density only after you explicitly enable schedule hints. It creates gentle Energy Budget context on this device; event titles, locations, attendees, and notes are not stored or uploaded.";
+"NSHealthShareUsageDescription" = "Signal Path reads the sleep, step, and workout data you choose to share, then creates abstract Energy Budget recovery hints on this device. Raw health data is not uploaded.";
+"NSHealthUpdateUsageDescription" = "Signal Path does not add or modify Health data. Health access is read-only and supports optional Energy Budget recovery hints.";
+"NSMicrophoneUsageDescription" = "Signal Path uses the microphone to turn your voice into editable signal text. Audio is processed only during recognition and is not saved or uploaded.";
+"NSPhotoLibraryUsageDescription" = "Signal Path lets you choose a profile photo for your Me page. The photo stays on this device unless you choose to share it elsewhere.";
+"NSSpeechRecognitionUsageDescription" = "Signal Path uses only on-device speech recognition to turn your voice into editable signal text. If on-device recognition is unavailable, you can still type. Audio is not saved or uploaded.";

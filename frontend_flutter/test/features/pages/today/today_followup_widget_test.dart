@@ -49,6 +49,11 @@ void main() {
 
     await tester.pumpAndSettle();
 
+    await tester.dragUntilVisible(
+      find.text('Where did this friction show up most clearly?'),
+      find.byType(ListView).first,
+      const Offset(0, -240),
+    );
     expect(
       find.text('Where did this friction show up most clearly?'),
       findsOneWidget,
@@ -56,6 +61,8 @@ void main() {
     expect(find.text('Work'), findsOneWidget);
     expect(find.text('Home'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Work'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Work'));
     await tester.pumpAndSettle();
 

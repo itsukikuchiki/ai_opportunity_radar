@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/advanced_energy_boundary_models.dart';
+import '../state/app_data_refresh_coordinator.dart';
 
 class ExternalEnergyHintStore {
   static const _calendarHintsKey = 'external_calendar_abstract_hints_json';
@@ -14,10 +15,26 @@ class ExternalEnergyHintStore {
 
   Future<void> saveCalendarHints(Map<String, String> hints) async {
     await _save(_calendarHintsKey, _sanitize(hints, _calendarAllowed));
+    AppDataMutationBus.publish(
+      kind: AppDataMutationKind.externalEnergyHints,
+      reason: 'calendar_energy_hints_changed',
+    );
   }
 
   Future<void> saveHealthHints(Map<String, String> hints) async {
     await _save(_healthHintsKey, _sanitize(hints, _healthAllowed));
+    AppDataMutationBus.publish(
+      kind: AppDataMutationKind.externalEnergyHints,
+      reason: 'health_energy_hints_changed',
+    );
+  }
+
+  Future<void> clearHealthHints() async {
+    await prefs.remove(_healthHintsKey);
+    AppDataMutationBus.publish(
+      kind: AppDataMutationKind.externalEnergyHints,
+      reason: 'health_energy_hints_cleared',
+    );
   }
 
   AdvancedEnergyExternalSummary loadSummary() {
@@ -32,6 +49,23 @@ class ExternalEnergyHintStore {
       switchingHint: hints['switching_hint'],
       missingBufferHint: hints['missing_buffer_hint'],
       longDeepBlockHint: hints['long_deep_block_hint'],
+      sleepRecoveryHint: hints['sleep_recovery_hint'],
+      movementRecoveryHint: hints['movement_recovery_hint'],
+      workoutLoadHint: hints['workout_load_hint'],
+      recoveryGapHint: hints['recovery_gap_hint'],
+      lowRecoveryHint: hints['low_recovery_hint'],
+      stableRecoveryHint: hints['stable_recovery_hint'],
+    );
+  }
+
+  /// Current Energy Budget planning consumes Health abstractions only.
+  ///
+  /// Calendar support remains persisted for a future Target, but exposing a
+  /// dedicated reader prevents those hints from silently entering today's
+  /// planning snapshot or its invalidation fingerprint.
+  AdvancedEnergyExternalSummary loadHealthSummary() {
+    final hints = _load(_healthHintsKey, _healthAllowed);
+    return AdvancedEnergyExternalSummary(
       sleepRecoveryHint: hints['sleep_recovery_hint'],
       movementRecoveryHint: hints['movement_recovery_hint'],
       workoutLoadHint: hints['workout_load_hint'],

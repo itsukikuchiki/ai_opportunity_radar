@@ -12,6 +12,8 @@ class SubmitCaptureRequest(BaseModel):
     tag_hint: Optional[str] = None
     language: str = "en"
     timezone: str = "UTC"
+    client_id: Optional[str] = None
+    raw_payload_json: dict = Field(default_factory=dict)
 
 
 class SubmitFollowupRequest(BaseModel):
@@ -21,6 +23,10 @@ class SubmitFollowupRequest(BaseModel):
 class ConfirmSignalCardRequest(BaseModel):
     user_confirmation: str
     user_correction_json: dict = Field(default_factory=dict)
+
+
+class SignalCardDeleteRequest(BaseModel):
+    reason: str = "user_deleted"
 
 
 class FollowupOptionSchema(BaseModel):
@@ -37,6 +43,10 @@ class FollowupQuestionSchema(BaseModel):
 class RecentSignalSchema(BaseModel):
     id: Optional[str] = None
     signal_card_id: Optional[str] = None
+    client_id: Optional[str] = None
+    server_id: Optional[str] = None
+    source_type: str = "text"
+    raw_payload_json: dict = Field(default_factory=dict)
     content: str
     created_at: Optional[datetime] = None
     local_date: Optional[date] = None
@@ -56,6 +66,9 @@ class RecentSignalSchema(BaseModel):
     included_in_journey: bool = False
     is_legacy: bool = False
     migration_status: str = "native"
+    deleted_at: Optional[datetime] = None
+    deletion_reason: Optional[str] = None
+    tombstone_version: int = 0
 
 
 class SubmitCaptureResponse(BaseModel):

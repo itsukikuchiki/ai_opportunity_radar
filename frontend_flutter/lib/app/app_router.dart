@@ -3,13 +3,20 @@ import 'package:go_router/go_router.dart';
 import '../core/state/app_bootstrap_state.dart';
 import '../features/onboarding/onboarding_page.dart';
 import '../features/paywall/premium_gate_page.dart';
+import '../features/debug/debug_trace_page.dart';
+import '../core/models/candidate_models.dart';
+import '../features/pages/candidates/candidate_hub_page.dart';
 import '../features/pages/me/me_page.dart';
 import '../features/pages/me/advanced_signal_settings_page.dart';
+import '../features/pages/experiment/experiment_page.dart';
+import '../features/pages/memory/journal_page.dart';
+import '../features/pages/memory/journey_pro_page.dart';
 import '../features/pages/memory/memory_page.dart';
 import '../features/pages/self_review/self_review_page.dart';
 import '../features/pages/signal_library/signal_library_page.dart';
 import '../features/pages/today/today_diary_page.dart';
 import '../features/pages/today/today_dialog_page.dart';
+import '../features/pages/today/today_experiment_feedback_page.dart';
 import '../features/pages/today/today_page.dart';
 import '../features/pages/weekly/deep_weekly_page.dart';
 import '../features/pages/weekly/weekly_page.dart';
@@ -19,6 +26,10 @@ class AppRoutes {
   static const onboarding = '/onboarding';
   static const today = '/today';
   static const weekly = '/weekly';
+  static const experiment = '/experiment';
+  static const todayActionCandidates = '/today/action-candidates';
+  static const weeklyExperimentCandidates = '/weekly/experiment-candidates';
+  static const todayExperimentFeedback = '/today/experiment-feedback';
   static const memory = '/memory';
   static const me = '/me';
   static const selfReview = '/self-review';
@@ -26,13 +37,17 @@ class AppRoutes {
   static const signalLibrary = '/signal-library';
   static const todayDiary = '/today/diary';
   static const todayDialog = '/today/dialog';
+  static const weeklyReflect = '/weekly/reflect';
   static const deepWeekly = '/weekly/deep';
   static const journal = '/memory/journal';
+  static const journeyFragments = '/memory/fragments';
+  static const journeyPro = '/memory/pro-l3';
+  static const debugTrace = '/debug/trace';
 }
 
 GoRouter createAppRouter(AppBootstrapState bootstrap) {
   const qaInitialRoute = String.fromEnvironment('SIGNALPATH_INITIAL_ROUTE');
-  final qaResolvedInitialRoute = _resolvedInitialRoute(qaInitialRoute);
+  final qaResolvedInitialRoute = resolvedInitialRoute(qaInitialRoute);
   final initialLocation = bootstrap.onboardingCompleted
       ? qaResolvedInitialRoute
       : AppRoutes.onboarding;
@@ -57,6 +72,10 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
             builder: (_, __) => const WeeklyPage(),
           ),
           GoRoute(
+            path: AppRoutes.experiment,
+            builder: (_, __) => const ExperimentPage(),
+          ),
+          GoRoute(
             path: AppRoutes.memory,
             builder: (_, __) => const MemoryPage(),
           ),
@@ -72,27 +91,64 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       ),
       GoRoute(
         path: AppRoutes.todayDiary,
-        builder: (_, __) => const TodayDiaryPage(),
+        builder: (_, state) => TodayDiaryPage(
+          initialDateKey: state.uri.queryParameters['date'],
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.todayActionCandidates,
+        builder: (_, __) => const CandidateHubPage(
+          kind: CandidateKind.microAction,
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.weeklyExperimentCandidates,
+        builder: (_, __) => const CandidateHubPage(
+          kind: CandidateKind.lifeExperiment,
+        ),
+      ),
+      GoRoute(
+        path: '${AppRoutes.todayExperimentFeedback}/:experimentId',
+        builder: (_, state) => TodayExperimentFeedbackPage(
+          experimentId: state.pathParameters['experimentId']!,
+        ),
       ),
       GoRoute(
         path: '${AppRoutes.todayDialog}/:captureId',
         builder: (_, state) => PremiumGatePage(
-          source: 'Today dialogue',
+          source: 'Today 记录',
           child: TodayDialogPage(
             captureId: state.pathParameters['captureId']!,
           ),
         ),
       ),
       GoRoute(
-        path: AppRoutes.deepWeekly,
+        path: AppRoutes.weeklyReflect,
         builder: (_, __) => const PremiumGatePage(
-          source: 'Deep Weekly',
-          child: DeepWeeklyPage(),
+          source: 'Weekly Deep Review',
+          child: WeeklyReflectPage(),
         ),
       ),
       GoRoute(
+        path: AppRoutes.deepWeekly,
+        redirect: (_, __) => AppRoutes.weeklyReflect,
+      ),
+      GoRoute(
         path: AppRoutes.journal,
-        builder: (_, __) => const TodayDiaryPage(),
+        builder: (_, __) => const JournalPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.journeyFragments,
+        builder: (_, state) => JourneyFragmentsPage(
+          monthKey: state.uri.queryParameters['month'],
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.journeyPro,
+        builder: (_, __) => const PremiumGatePage(
+          source: 'Journey Pro L3',
+          child: JourneyProPage(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.selfReview,
@@ -104,6 +160,12 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       GoRoute(
         path: AppRoutes.advancedSignals,
         builder: (_, __) => const AdvancedSignalSettingsPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.debugTrace,
+        builder: (_, state) => DebugTracePage(
+          initialSignalId: state.uri.queryParameters['signalId'],
+        ),
       ),
     ],
     redirect: (_, state) {
@@ -135,6 +197,7 @@ bool _isShellRoute(String route) {
   switch (route) {
     case AppRoutes.today:
     case AppRoutes.weekly:
+    case AppRoutes.experiment:
     case AppRoutes.memory:
     case AppRoutes.signalLibrary:
     case AppRoutes.me:
@@ -144,14 +207,22 @@ bool _isShellRoute(String route) {
   }
 }
 
-String _resolvedInitialRoute(String route) {
+String resolvedInitialRoute(String route) {
   switch (route) {
     case AppRoutes.today:
     case AppRoutes.weekly:
+    case AppRoutes.experiment:
     case AppRoutes.memory:
     case AppRoutes.signalLibrary:
     case AppRoutes.me:
+    case AppRoutes.debugTrace:
+    case AppRoutes.weeklyReflect:
+    case AppRoutes.todayActionCandidates:
+    case AppRoutes.weeklyExperimentCandidates:
+    case AppRoutes.journeyPro:
       return route;
+    case AppRoutes.deepWeekly:
+      return AppRoutes.weeklyReflect;
     default:
       return AppRoutes.today;
   }

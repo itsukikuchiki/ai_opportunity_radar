@@ -5,6 +5,31 @@ def _headers(user_id: str = "test-user-contract") -> dict[str, str]:
     }
 
 
+def _weekly_payload() -> dict:
+    return {
+        "week_start": "2026-04-08",
+        "week_end": "2026-04-14",
+        "entry_count": 3,
+        "entries": [
+            {
+                "id": str(index),
+                "content": content,
+                "created_at": f"2026-04-{11 + index:02d}T01:00:00Z",
+            }
+            for index, content in enumerate(
+                ["会议很多", "下午又被打断", "今天需要恢复"],
+                start=1,
+            )
+        ],
+        "day_counts": {
+            "2026-04-12": 1,
+            "2026-04-13": 1,
+            "2026-04-14": 1,
+        },
+        "top_tokens": ["会议", "恢复"],
+    }
+
+
 def test_capture_reply_contract(client):
     resp = client.post(
         "/api/v1/ai/capture-reply",
@@ -166,9 +191,9 @@ def test_light_dialog_contract(client):
     assert isinstance(data["suggested_prompts"], list)
 
 
-def test_deep_weekly_contract(client):
+def test_reflect_weekly_contract(client):
     resp = client.post(
-        "/api/v1/ai/deep-weekly",
+        "/api/v1/ai/reflect-weekly",
         headers=_headers(),
         json={
             "week_start": "2026-04-08",
@@ -191,6 +216,49 @@ def test_deep_weekly_contract(client):
         "risk_note",
         "key_nodes",
     }
+
+
+def test_deep_weekly_compat_endpoint_records_legacy_telemetry(client):
+    from sqlalchemy import select
+
+    resp = client.post(
+        "/api/v1/ai/deep-weekly",
+        headers={
+            **_headers("test-user-deep-weekly-compat"),
+            "X-Client-Version": "4.0.legacy",
+            "X-Platform": "ios",
+        },
+        json={
+            "week_start": "2026-04-08",
+            "week_end": "2026-04-14",
+            "key_insight": "这周的记录开始围绕工作里的打断聚集。",
+            "patterns": [{"name": "重复出现的主题", "summary": "工作里的打断反复回来。"}],
+            "frictions": [{"name": "本周的主要消耗", "summary": "被打断时最容易烦躁。"}],
+            "best_action": "下次再出现时补一句发生在什么场景。",
+            "chart_data": [{"date": "2026-04-11", "signal_count": 3, "mood_score": -0.6, "friction_score": 0.8, "has_positive_signal": False}],
+            "focus_area": "emotion_stress",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    from app.core.db import SessionLocal
+    from app.models import LegacyEndpointTelemetry
+
+    db = SessionLocal()
+    try:
+        telemetry = db.scalars(
+            select(LegacyEndpointTelemetry).where(
+                LegacyEndpointTelemetry.counter_name
+                == "legacy_deep_weekly_endpoint_call_count"
+            )
+        ).one()
+    finally:
+        db.close()
+
+    assert telemetry.endpoint == "/api/v1/ai/deep-weekly"
+    assert telemetry.client_version == "4.0.legacy"
+    assert telemetry.platform == "ios"
+    assert telemetry.user_id_hash is not None
 
 
 def test_capture_reply_contract_accepts_response_style(client):
@@ -261,6 +329,22 @@ def test_today_summary_contract_accepts_response_style(client):
     assert data["observation"].startswith("更具体一点，")
 
 
+def test_usage_summary_exposes_ai_orchestrator_layers(client):
+    resp = client.get("/api/v1/usage/summary", headers=_headers())
+    assert resp.status_code == 200, resp.text
+
+    quotas = resp.json()["data"]["quotas"]
+    layers = {item["ai_layer"] for item in quotas}
+    feature_keys = {item["feature_key"] for item in quotas}
+
+    assert {"L1_ASSIST", "L2_REASON", "L3_REFLECT"}.issubset(layers)
+    assert "l1_assist_daily_flow" in feature_keys
+    assert "l1_attune_dialogue" in feature_keys
+    assert "l2_reason_pattern_check" in feature_keys
+    assert "l3_reflect_weekly" in feature_keys
+    assert all("user_participation" in item for item in quotas)
+
+
 def test_light_dialog_contract_accepts_response_style(client):
     resp = client.post(
         "/api/v1/ai/light-dialog",
@@ -276,3 +360,202 @@ def test_light_dialog_contract_accepts_response_style(client):
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
     assert data["reply"].startswith("重点是：")
+
+
+def test_successful_ai_call_updates_the_same_usage_counter_read_by_summary(client):
+    user_id = "usage-counter-contract"
+    response = client.post(
+        "/api/v1/ai/capture-reply",
+        headers=_headers(user_id),
+        json={"content": "今天有点累", "recent_assistant_texts": []},
+    )
+    assert response.status_code == 200, response.text
+
+    summary = client.get("/api/v1/usage/summary", headers=_headers(user_id))
+    assert summary.status_code == 200, summary.text
+    quotas = summary.json()["data"]["quotas"]
+    attune = next(
+        item for item in quotas if item["feature_key"] == "l1_attune_dialogue"
+    )
+    assert attune["used"] == 1
+
+
+def test_l1_attune_crisis_branch_stops_normal_pattern_language(client):
+    response = client.post(
+        "/api/v1/ai/light-dialog",
+        headers=_headers("attune-safety-contract"),
+        json={
+            "capture_content": "今天很难受",
+            "history": [],
+            "user_message": "我现在想伤害自己",
+        },
+    )
+    assert response.status_code == 200, response.text
+    reply = response.json()["data"]["reply"]
+    assert "立即危险" in reply
+    assert "当地紧急服务" in reply
+    assert "反复出现" not in reply
+
+
+def test_l1_attune_safety_check_includes_the_current_session_history(client):
+    response = client.post(
+        "/api/v1/ai/light-dialog",
+        headers=_headers("attune-history-safety"),
+        json={
+            "capture_content": "今天很难受",
+            "history": [
+                {"role": "user", "text": "我刚才说过我想伤害自己"},
+                {"role": "assistant", "text": "我先确认你现在是否安全。"},
+            ],
+            "user_message": "你能再听我说一句吗",
+        },
+    )
+    assert response.status_code == 200, response.text
+    reply = response.json()["data"]["reply"]
+    assert "立即危险" in reply
+    assert "当地紧急服务" in reply
+    assert "反复出现" not in reply
+
+
+def test_l1_attune_checks_saved_signal_and_does_not_leak_hidden_l2_fields(client):
+    response = client.post(
+        "/api/v1/ai/light-dialog",
+        headers=_headers("attune-selected-signal-safety"),
+        json={
+            "capture_content": "我现在想伤害自己",
+            "capture_observation": "隐藏的跨记录模式绝不能进入 L1",
+            "capture_try_next": "创建正式行动",
+            "history": [],
+            "user_message": "怎么办",
+        },
+    )
+    assert response.status_code == 200, response.text
+    reply = response.json()["data"]["reply"]
+    assert "立即危险" in reply
+    assert "当地紧急服务" in reply
+    assert "隐藏的跨记录模式" not in reply
+    assert "创建正式行动" not in reply
+
+
+def test_capture_reply_risk_branch_stops_ordinary_attune_output(client):
+    response = client.post(
+        "/api/v1/ai/capture-reply",
+        headers=_headers("attune-timeline-safety"),
+        json={"content": "我现在不想活了", "recent_assistant_texts": []},
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    combined = " ".join(
+        [data["acknowledgement"], data["observation"], data["try_next"]]
+    )
+    assert "立即危险" in combined
+    assert "当地紧急服务" in combined
+    assert data["intent_tags"] == ["immediate_safety"]
+    assert "反复出现" not in combined
+
+
+def test_ai_generation_endpoints_write_usage_but_no_user_fact_or_planning_object(
+    client,
+):
+    from sqlalchemy import func, select
+
+    user_id = "ai-zero-fact-write"
+    capture = client.post(
+        "/api/v1/ai/capture-reply",
+        headers=_headers(user_id),
+        json={"content": "今天有点累", "recent_assistant_texts": []},
+    )
+    dialog = client.post(
+        "/api/v1/ai/light-dialog",
+        headers=_headers(user_id),
+        json={
+            "capture_content": "今天有点累",
+            "history": [],
+            "user_message": "帮我接住这句话",
+        },
+    )
+    weekly = client.post(
+        "/api/v1/ai/weekly-generate",
+        headers=_headers(user_id),
+        json=_weekly_payload(),
+    )
+    assert capture.status_code == dialog.status_code == weekly.status_code == 200
+
+    from app.core.db import SessionLocal
+    from app.models import (
+        CandidateGroup,
+        ExperimentCandidate,
+        MicroActionCandidate,
+        Observation,
+        ReflectionResult,
+        SignalCard,
+    )
+
+    db = SessionLocal()
+    try:
+        for model in (
+            SignalCard,
+            Observation,
+            CandidateGroup,
+            MicroActionCandidate,
+            ExperimentCandidate,
+            ReflectionResult,
+        ):
+            count = db.scalar(
+                select(func.count()).select_from(model).where(
+                    model.user_id == user_id
+                )
+            )
+            assert count == 0, model.__tablename__
+    finally:
+        db.close()
+
+
+def test_weekly_l2_usage_is_reconciled_through_the_summary_counter(client):
+    from sqlalchemy import select
+
+    user_id = "weekly-l2-usage-counter"
+    response = client.post(
+        "/api/v1/ai/weekly-generate",
+        headers=_headers(user_id),
+        json=_weekly_payload(),
+    )
+    assert response.status_code == 200, response.text
+
+    summary = client.get("/api/v1/usage/summary", headers=_headers(user_id))
+    assert summary.status_code == 200, summary.text
+    l2_item = next(
+        item
+        for item in summary.json()["data"]["quotas"]
+        if item["feature_key"] == "l2_reason_pattern_check"
+    )
+    assert l2_item["ai_layer"] == "L2_REASON"
+    assert l2_item["used"] == 1
+
+    from app.core.db import SessionLocal
+    from app.models import AiUsage, ModelUsageLog, UsageCounter
+
+    db = SessionLocal()
+    try:
+        counter = db.scalars(
+            select(UsageCounter).where(
+                UsageCounter.user_id == user_id,
+                UsageCounter.feature_key == "l2_reason_pattern_check",
+            )
+        ).one()
+        logs = db.scalars(
+            select(ModelUsageLog).where(
+                ModelUsageLog.user_id == user_id,
+                ModelUsageLog.feature_key == "l2_reason_pattern_check",
+            )
+        ).all()
+        legacy_usage = db.scalars(
+            select(AiUsage).where(AiUsage.user_id == user_id)
+        ).one()
+    finally:
+        db.close()
+
+    assert counter.count == 1
+    assert len(logs) == 1
+    assert logs[0].metadata_json["ai_layer"] == "L2_REASON"
+    assert legacy_usage.endpoint == "l2_reason_pattern_check"

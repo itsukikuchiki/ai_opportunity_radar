@@ -1,0 +1,268 @@
+name: P2.1 CI Gates
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+  push:
+    branches:
+      - main
+      - master
+      - "codex/testflight-candidate-*"
+  workflow_dispatch:
+
+concurrency:
+  group: p2-1-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci-static:
+    name: ci-static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Check CI test manifest coverage
+        run: bash scripts/check_ci_test_manifest.sh
+      - name: Install Flutter dependencies
+        working-directory: frontend_flutter
+        run: flutter pub get
+      - name: Check Dart formatting
+        working-directory: frontend_flutter
+        run: dart format --set-exit-if-changed lib test
+      - name: Flutter analyze
+        working-directory: frontend_flutter
+        run: flutter analyze
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Python compile check
+        run: python -m compileall -q backend/app backend/tests
+
+  ci-flutter-core:
+    name: ci-flutter-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          cache: true
+      - name: Install Flutter dependencies
+        working-directory: frontend_flutter
+        run: flutter pub get
+      - name: Core Flutter repository/model tests
+        working-directory: frontend_flutter
+        run: >
+          flutter test
+          test/core/api/app_locale_text_test.dart
+          test/core/api/api_client_observability_test.dart
+          test/core/diagnostics/privacy_safe_logger_test.dart
+          test/core/platform/ios_native_configuration_test.dart
+          test/core/di/app_dependencies_test.dart
+          test/core/eligibility/signal_eligibility_service_test.dart
+          test/core/local/local_capture_repository_test.dart
+          test/core/local/local_candidate_planning_repository_test.dart
+          test/core/local/local_feedback_event_repository_test.dart
+          test/core/local/local_life_experiment_repository_test.dart
+          test/core/local/local_phase3_plus_repository_test.dart
+          test/core/local/local_reflection_result_repository_test.dart
+          test/core/api/repositories/today_repository_test.dart
+          test/core/api/repositories/weekly_repository_test.dart
+          test/core/api/repositories/memory_repository_test.dart
+          test/core/api/repositories/energy_budget_repository_test.dart
+          test/core/api/repositories/monthly_repository_test.dart
+          test/core/api/repositories/self_review_repository_test.dart
+          test/core/api/repositories/signal_library_repository_test.dart
+          test/core/api/repositories/advanced_energy_boundary_repository_test.dart
+          test/core/api/repositories/health_recovery_signal_repository_test.dart
+          test/core/api/repositories/ai_repository_grounding_test.dart
+          test/core/readiness/report_readiness_test.dart
+          test/core/state/app_data_refresh_coordinator_test.dart
+          test/core/state/app_data_refresh_integration_test.dart
+          test/core/state/app_bootstrap_state_test.dart
+          test/core/purchases/purchase_controller_test.dart
+
+  ci-flutter-migration:
+    name: ci-flutter-migration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          cache: true
+      - name: Install Flutter dependencies
+        working-directory: frontend_flutter
+        run: flutter pub get
+      - name: Migration and cache tests
+        working-directory: frontend_flutter
+        run: >
+          flutter test
+          test/fixtures/db_migrations/build_db_migration_fixtures.dart
+          test/core/local/db_migration_fixtures_test.dart
+          test/core/local/device_test_accounts_fixture_test.dart
+          test/core/local/local_legacy_migration_test.dart
+          test/core/local/local_cache_invalidation_repository_test.dart
+          test/core/debug/legacy_fallback_monitor_test.dart
+          test/core/debug/legacy_fallback_paths_test.dart
+
+  ci-flutter-ui-smoke:
+    name: ci-flutter-ui-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          cache: true
+      - name: Install Flutter dependencies
+        working-directory: frontend_flutter
+        run: flutter pub get
+      - name: Widget and UI smoke tests
+        working-directory: frontend_flutter
+        run: >
+          flutter test
+          test/features/pages/today/today_page_widget_test.dart
+          test/features/pages/today/today_diary_density_widget_test.dart
+          test/features/pages/today/today_followup_widget_test.dart
+          test/features/pages/today/today_v3b_manual_evidence_test.dart
+          test/features/pages/weekly/weekly_page_widget_test.dart
+          test/features/pages/experiment/experiment_page_widget_test.dart
+          test/features/pages/candidates/candidate_hub_page_widget_test.dart
+          test/shared/widgets/candidate_planning_widgets_test.dart
+          test/features/pages/memory/journal_page_widget_test.dart
+          test/features/pages/memory/journey_pro_page_widget_test.dart
+          test/features/pages/memory/memory_page_widget_test.dart
+          test/features/pages/me/me_page_widget_test.dart
+          test/features/pages/me/me_view_model_test.dart
+          test/features/pages/me/advanced_signal_settings_page_widget_test.dart
+          test/features/pages/signal_library/signal_library_page_widget_test.dart
+          test/features/paywall/paywall_restore_message_widget_test.dart
+          test/features/onboarding/onboarding_launch_page_widget_test.dart
+          test/features/onboarding/onboarding_page_widget_test.dart
+          test/features/onboarding/onboarding_view_model_test.dart
+          test/features/debug/debug_trace_page_widget_test.dart
+          test/features/system/initialization_failure_page_widget_test.dart
+          test/features/shell/home_shell_navigation_test.dart
+          test/features/release_qa/release_ui_guardrails_test.dart
+
+  ci-backend-core:
+    name: ci-backend-core
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: migration_test
+          POSTGRES_PASSWORD: migration_test
+          POSTGRES_DB: migration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U migration_test -d migration_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      POSTGRES_MIGRATION_TEST_URL: >-
+        postgresql+psycopg://migration_test:migration_test@localhost:5432/migration_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Backend core tests
+        run: >
+          python -m pytest
+          backend/tests/test_signal_eligibility_service.py
+          backend/tests/test_phase3_signal_cards.py
+          backend/tests/test_capture_service_integration.py
+          backend/tests/test_database_config.py
+          backend/tests/test_alembic_schema_contract.py
+          backend/tests/test_postgres_alembic_schema_contract.py
+          backend/tests/test_large_legacy_migration_performance.py
+          backend/tests/test_request_observability.py
+          backend/tests/test_candidate_planning_migration.py
+          backend/tests/test_purchase_service.py
+          backend/tests/test_reflection_result_repository.py
+          backend/tests/test_self_review_contract.py
+          backend/tests/test_self_review_integration.py
+
+  ci-legacy-compatibility:
+    name: ci-legacy-compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install Flutter dependencies
+        working-directory: frontend_flutter
+        run: flutter pub get
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Flutter legacy compatibility tests
+        working-directory: frontend_flutter
+        run: >
+          flutter test
+          test/core/debug/legacy_fallback_paths_test.dart
+          test/core/local/local_legacy_migration_test.dart
+          test/core/local/db_migration_fixtures_test.dart
+          test/core/backup/backup_bundle_repository_test.dart
+          test/core/api/repositories/calendar_schedule_density_repository_test.dart
+          test/core/notifications/schedule_notification_service_test.dart
+      - name: Backend legacy compatibility tests
+        run: >
+          python -m pytest
+          backend/tests/test_legacy_endpoint_telemetry.py
+          backend/tests/test_account_backup_api.py
+          backend/tests/test_api_chain_integration.py
+          backend/tests/test_ai_endpoints_contract.py
+
+  ci-main-flow:
+    name: ci-main-flow
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install Flutter dependencies
+        working-directory: frontend_flutter
+        run: flutter pub get
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Flutter main-flow integration tests
+        working-directory: frontend_flutter
+        run: >
+          flutter test
+          test/core/api/repositories/core_data_chain_test.dart
+      - name: Backend API chain integration tests
+        run: >
+          python -m pytest
+          backend/tests/test_api_chain_integration.py

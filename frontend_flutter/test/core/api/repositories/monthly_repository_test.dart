@@ -56,10 +56,7 @@ void main() {
         installationDate: DateTime.now(),
       );
 
-      await harness.seedCapture(
-        content: '今天开会被打断',
-        createdAt: DateTime.now(),
-      );
+      await harness.seedSignalCard(content: '今天开会被打断');
 
       final monthly = await harness.repository.fetchCurrentMonthly();
 
@@ -78,10 +75,7 @@ void main() {
         installationDate: DateTime.now().subtract(const Duration(days: 35)),
       );
 
-      await harness1.seedCapture(
-        content: '这个月开会很密',
-        createdAt: DateTime.now(),
-      );
+      await harness1.seedSignalCard(content: '这个月开会很密');
 
       final monthly1 = await harness1.repository.fetchCurrentMonthly();
       expect(monthly1.status, 'ready');
@@ -109,10 +103,7 @@ void main() {
         installationDate: DateTime.now().subtract(const Duration(days: 35)),
       );
 
-      await harness.seedCapture(
-        content: '今天上班一直被打断',
-        createdAt: DateTime.now(),
-      );
+      await harness.seedSignalCard(content: '今天上班一直被打断');
 
       final monthly = await harness.repository.fetchCurrentMonthly();
 
@@ -134,33 +125,11 @@ class _Harness {
     required this.repository,
   });
 
-  Future<void> seedCapture({
-    required String content,
-    required DateTime createdAt,
-  }) async {
-    final db = await localDatabase.database;
-    final id = 'seed_${createdAt.microsecondsSinceEpoch}_${content.hashCode}';
-
-    await db.insert(
-      'captures',
-      {
-        'id': id,
-        'content': content,
-        'created_at': createdAt.toUtc().toIso8601String(),
-        'input_mode': 'quick_capture',
-        'tag_hint': null,
-        'ai_acknowledgement': null,
-        'ai_observation': null,
-        'ai_try_next': null,
-        'ai_emotion': null,
-        'ai_intensity': null,
-        'ai_scene_tags_json': null,
-        'ai_intent_tags_json': null,
-        'ai_status': 'done',
-        'followup_question_json': null,
-        'followup_answer': null,
-        'updated_at': createdAt.toUtc().toIso8601String(),
-      },
+  Future<void> seedSignalCard({required String content}) async {
+    await LocalCaptureRepository(localDatabase).insertConfirmedSignalCard(
+      content: content,
+      sourceType: 'text',
+      language: 'zh-Hans',
     );
   }
 

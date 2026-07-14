@@ -4,6 +4,22 @@ Status: active guardrail
 Target: Signal Path 4.0.0+
 Purpose: prevent obvious UI, data-chain, and interaction regressions before TestFlight.
 
+Last reconciled: 2026-07-13 against the current `docs/active/` product design.
+
+Reconciled local baseline on that date: Flutter `359 / 359` passed with
+`68.3%` full-suite line coverage (`77.5%` for `test/core`), backend
+`70 / 70` passed, Flutter analyzer clean, and every Flutter/backend test file
+assigned to a CI gate. Test counts and line coverage are audit evidence, not a
+substitute for the product-contract and platform boundaries below.
+
+Status language in this document:
+
+- **Automated**: a repository test currently asserts the behavior.
+- **Partial**: part of the behavior is asserted, but a required branch remains open.
+- **Target / Pending**: approved behavior that is not yet fully implemented or
+  does not yet have release-blocking automation. It must not be reported as
+  shipped or passed.
+
 ## Why Previous Automation Missed Visible Bugs
 
 The previous suite was healthy for repository logic and some widget smoke tests, but it did not fail on several release-visible problems:
@@ -21,12 +37,13 @@ The previous suite was healthy for repository logic and some widget smoke tests,
 | Layer | Coverage | Examples | Required before build |
 | --- | --- | --- | --- |
 | Unit / model | Pure data rules | eligibility, quotas, language mapping, privacy flags | Yes |
-| Repository / service | persistence and failure behavior | save-first, retry, backup snapshot, delete account | Yes |
+| Repository / service | persistence and failure behavior | save-first, retry, idempotency, delete account | Yes |
 | View model | screen state from data | inclusion, filtering, fallback, local-first state | Yes |
 | Widget page | visible behavior | buttons, chips, empty/filled states, localization | Yes |
 | Release UI guardrail | multi-viewport layout and hit testing | overflow, safe area, bottom nav, tappable controls | Yes |
-| Platform mock | fake native providers | Calendar / HealthKit denied, unavailable, authorized hints | Yes |
-| TestFlight / real device | native platform proof | IAP, Apple Sign In, EventKit, HealthKit, keyboard, screenshots | Required for Platform QA, not replaceable by automation |
+| Main tab visual density | Today / Weekly / Life Experiment / Journey / Me | 18/14 page padding, safe area + 96 bottom clearance, 34–36 hero title, 16–17 section title, compact-card sizing, narrow-screen overflow | Yes |
+| Platform mock | fake native providers | HealthKit denied, unavailable, authorized abstract hints; Calendar compatibility remains outside the current user surface | Yes |
+| TestFlight / real device | native platform proof | IAP, HealthKit, keyboard, screenshots | Required for Platform QA, not replaceable by automation |
 
 ## Viewport Matrix
 
@@ -48,43 +65,72 @@ Failure conditions:
 
 ## Page / Section Matrix
 
+### Onboarding
+
+| Page | Current purpose | Automated expectations | Coverage status |
+| --- | --- | --- | --- |
+| 1. Record life signals | Explain text, voice, state, Signal Library reference, and AI judgement as entry sources | the first Flutter frame is the opening scene; enlarged Signal Path icon is used as background art; skip remains reachable. The native-to-Flutter no-white-transition claim remains physical-device QA. | Automated for Flutter layout; **Platform QA Pending** for native transition |
+| 2. Weekly + Life Experiment | Explain Weekly review and the separate Life Experiment area without inventing a one-card-only flow | Weekly and Life Experiment previews are both visible; icon background replaces the old decorative circle; copy matches the current page roles | Automated |
+| 3. Journey + Pro depth | Explain long-term Journey aggregation and paid deep reports | Journey and Pro preview is visible; free overview and paid depth are not conflated; icon background follows the same visual system | Automated for layout and implemented evidence surface; independent versioned 28-day interpretive generator remains Target / Pending |
+| 4. Focus domains | Select the life areas AI should prioritize | multi-select focus domains persist when Start is tapped, reappear in Me, and can be changed later; button copy is “Start”, not “Start setup” | Automated locally; remote multi-device focus sync is Target / Pending |
+
 ### Today
 
 | Section | Data source | Automated expectations |
 | --- | --- | --- |
-| Signal input | local draft + SignalCard create path | text entry saves first; voice/schedule/goal/prediction buttons are visible and tappable |
-| Today overview | SignalCard energy/friction/recovery aggregation | compact layout does not overflow; no fake trend line if not backed by data |
-| Small observation | Today summary / fallback | AI failure does not block raw text save |
-| AI predicted signal | predicted draft SignalCard | not eligible until user confirms or adds context |
-| Schedule signal | ScheduleSignal | create/edit paths persist locally and do not leak raw calendar fields |
-| Goal practice | Goal / GoalTaskInstance / GoalFeedback | feedback buttons remain tappable and local-first |
-| Diary timeline | SignalCard list by local date | shows raw text, saved AI reply, tags, and local sync state |
-| Weekly experiment | LifeExperiment feedback | occurred / not occurred / helpful remain tappable |
-| Sync notice | local queue / backup state | sync action is tappable; failure does not delete content |
+| Dynamic Today hero | local date + confirmed same-day SignalCards | compact hero merges the useful “Today can be viewed this way” summary; empty state is neutral and does not claim low energy, insufficient recovery, or another negative condition; no fixed fake overview |
+| Quick record | local draft + SignalCard create path | text entry saves first; voice/state/library buttons are visible and tappable; Schedule is absent as a peer input; no standalone prediction button |
+| Voice / state sheets | draft input only until save | “Skip for now” closes without a write; state note says “补一句” (“Add a sentence”); no standalone Observation record is created |
+| AI predicted signal | Observation + confirmed SignalCard | generates automatically from eligible context; accurate/somewhat can be edited before optional timeline insertion; inaccurate is dismissed |
+| Diary timeline | SignalCard + MicroAction + LifeExperiment projection | compact density matches Today; only Signal, Small Action, and Small Experiment filters appear; no Schedule peer entry |
+| Three-signal gate | eligible confirmed SignalCards | before three valid same-day signals, Small Action says content starts after three signals; before three valid same-week signals, experiment candidates remain forming in Weekly rather than appearing in Today |
+| Adopted action / experiment | adopted MicroAction + active LifeExperiment + daily feedback | Today shows only adopted items and real date-deduplicated `X/7` progress; the next-week candidate/forming card is absent |
+| Local sync notice | local queue state | retry action is tappable; failure does not delete content or create duplicate timeline items |
+| Bottom spacing | shell navigation inset | final content clears the floating navigation without an oversized trailing blank area |
+
+Coverage status:
+
+- Dynamic hero, skip behavior, prediction confirmation, compact timeline, and
+  removal of the Today next-week card: **Automated**.
+- Today and Weekly three-signal gates, plural candidate groups, independent
+  zero-to-many adoption, the Today `3 + 3` projection cap, and real
+  object-local `X/7` progress: **Automated**.
 
 ### Weekly
 
 | Section | Data source | Automated expectations |
 | --- | --- | --- |
-| Weekly insight | eligible SignalCards | lite state starts from local natural Day 1; no empty report page |
-| Life weather | SignalCard aggregation | metric cards fit 320px compact width |
-| Main drain chain | Weekly pattern generator | displayed as flow/path, not long prose |
-| Energy Budget | internal signals + abstract hints | stacked bar/legend render without overflow |
-| Drain sources | friction aggregation | bars fit viewport and are not clipped |
-| One Weekly Focus | Weekly one-pattern | one focus only; optional wording |
-| Experiment action | LifeExperiment | save/skip/feedback preserved and not framed as failure |
+| Weekly hero + AI read | eligible SignalCards + Weekly insight | compact date range and AI quote fit the Today-based density; empty/fallback copy does not claim certainty |
+| Signal distribution | weekly SignalCard aggregation | donut and rows use only eligible signals and fit one column below 600px |
+| Behavior pattern | Weekly pattern generator | the current behavior path is readable as steps; labels and arrows do not overflow |
+| Energy Budget | internal signals + abstract hints | summary visualization and legend fit the viewport; hints cannot override confirmed signals |
+| Small actions and review | adopted MicroActions + feedback | helpful, difficult, and next-adjustment evidence remain separate from experiment progress |
+| Current experiment result | active LifeExperiment + date-deduplicated feedback | result and review use actual feedback days; MicroAction tries cannot substitute for experiment progress |
+| Next-week experiment | ExperimentCandidate group | forming state and candidate-list entry live in Weekly rather than Today; feedback cannot implicitly adopt an experiment; candidate list is gated by three valid weekly signals |
 | Inclusion notes | SignalCard eligibility | inaccurate, sync failed, excluded do not enter analysis |
+
+Plural experiment candidates, zero-to-many adoption, per-item progress,
+Energy Budget influence, and the Weekly-only candidate entry are
+**Automated**. Only old embedded snapshot fallbacks are Compatibility.
 
 ### Journey
 
 | Section | Data source | Automated expectations |
 | --- | --- | --- |
-| Long-term insight | Journey snapshot | not a long report; fallback does not claim certainty |
-| Long-term patterns | SignalCard aggregation | cards fit compact width |
-| Structure path | life_chain_stage / pattern flow | arrows/path render and labels do not overflow |
-| Monthly life map | monthly snapshot | 2x3 map fits compact width and is not a plain list |
-| Experiment tracks | LifeExperiment history | skipped/not helpful/adjusted shown as learning, not failure |
-| Review & Adjust | experiment feedback + Journey snapshot | does not block Today/Weekly if generation fails |
+| Journey hero | focus domains + Journey snapshot | shows the long-term direction in the shared main-tab density; fallback does not claim certainty |
+| Track overview | visible Journey traces | record days, important moments, review notes, and related experiments are derived values rather than fixed demo numbers |
+| Observations | confirmed SignalCards + derived trace evidence | only user-visible evidence is shown; internal Observation/trace payloads do not become peer records |
+| Monthly fragments | Journey traces grouped by month | fragments remain readable on compact screens and preserve source dates |
+| Monthly calendar | dated Journey traces | date cells reflect real evidence and do not fabricate activity |
+| Life curve | monthly trace aggregation | curve points are backed by evidence and render without clipping |
+| Gentle review | SignalCards + LifeExperiment feedback + Journey snapshot | review treats skipped/not-helpful/adjusted as learning and never blocks Today/Weekly |
+| Pro deep report | versioned reflection result | free Journey remains useful; paid depth has an explicit entry and stable report boundary |
+
+The overview sections, readiness states, free evidence layer, Pro gate,
+dedicated Journey Pro route, bounded evidence, factual comparison, and
+SignalCard follow-up are **Automated**. The independent versioned 28-day
+interpretive generator remains **Target / Pending** and is not represented as
+an existing report.
 
 ### Signal Library
 
@@ -92,8 +138,8 @@ Failure conditions:
 | --- | --- | --- |
 | Category chips | curated pattern metadata | chips filter real card list and remain tappable on compact screens |
 | Shared signal cards | official curated patterns | no user raw text or user story appears |
-| Me too / Save / Share | private local action / library_saved SignalCard | actions are private; save creates private unconfirmed SignalCard |
-| Share sheet | official abstract pattern only | no personal context or raw note is included |
+| Accurate / Somewhat / Not accurate | optional `library_saved` SignalCard only | first two open editable timeline confirmation; inaccurate and Do not add are zero-write |
+| Timeline insertion | curated reference + optional user edit | creates one idempotent private SignalCard with no Observation, MicroAction, or LifeExperiment payload |
 
 ### Me
 
@@ -101,9 +147,23 @@ Failure conditions:
 | --- | --- | --- |
 | Usage preferences | local preferences | navigation rows remain tappable |
 | Pro / quota | entitlement + usage counters | quota visible and updates from entitlement state |
-| Advanced signal settings | EventKit / HealthKit provider state | denied/unavailable/authorized states have fallback and back button inside safe area |
-| Backup / restore | Apple identity + backup snapshot | mock flow covered by automation; real Apple sheet remains Platform QA |
-| Delete account | local DB + cloud deletion endpoint | local data, session, backup state, onboarding state cleared |
+| Restore Purchase (Pro sheet) | StoreKit current entitlements + delayed purchase stream | automated paths cover native entitlement, fallback, delay, persistence, and actionable empty/error states; real-device status remains **Blocker reopened / Pending** |
+| Advanced signal settings | HealthKit provider state | denied/unavailable/authorized states have fallback and back button inside safe area; Calendar has no current user entry |
+| Delete account | local DB + account deletion endpoint | canonical data/control-plane rows, local profile media, session/account state, focus preferences, external hint cache, and onboarding state are cleared; StoreKit entitlement remains an independent control plane |
+
+User-facing Apple backup/upload/restore entry points are retired from the active
+product and therefore are not active UI test targets. This does not remove the
+separate StoreKit **Restore Purchase** requirement.
+
+### Candidate Selection And Progress Pages
+
+| Surface | Current contract | Coverage status |
+| --- | --- | --- |
+| Small Action candidates | after three eligible same-day signals, show up to three generated actions on a dedicated page; allow zero-to-many adoption | Automated |
+| Small Experiment candidates | after three eligible same-week signals, open a dedicated candidate page from Weekly; do not route to the Life Experiment archive | Automated |
+| Adoption state | each candidate has an independent adopted/rejected state and creates at most one canonical item | Automated |
+| Seven-day grid | each adopted item accepts date-deduplicated daily feedback; the last valid event per local date wins and exposes real `X/7` progress | Automated |
+| Today projection | only adopted items and their actual progress appear on Today, with at most three of each type | Automated |
 
 ## Secondary Pages
 
@@ -112,11 +172,10 @@ Automated tests should cover at least smoke/hit/safe-area checks for:
 - Diary / account book.
 - Signal detail / light dialogue.
 - Voice transcription sheet.
-- Schedule signal editor.
-- Goal practice editor and feedback.
+- Small Action candidate selection and progress.
+- Small Experiment candidate selection and progress.
 - Paywall and restore purchase UI.
 - Advanced signal settings.
-- Backup / restore.
 - Delete account confirmation.
 
 ## Privacy Guardrails
@@ -140,6 +199,8 @@ cd /Users/yangyang/ai_opportunity_radar/frontend_flutter
 flutter analyze
 flutter test --no-pub
 flutter test --no-pub test/features/release_qa/release_ui_guardrails_test.dart
+cd ..
+bash scripts/check_ci_test_manifest.sh
 git diff --check
 ```
 
@@ -156,10 +217,13 @@ Automation and simulator mocks do not close these items:
 
 - Monthly and yearly IAP purchase sheets.
 - Restore Purchase with active and inactive subscription states.
-- Pro entitlement propagation from StoreKit.
-- Sign in with Apple native sheet, cancel path, token exchange, and re-login.
-- Cloud backup restore after deleting and reinstalling the app.
-- EventKit native permission prompt and Settings revocation.
+- Restore fallback when StoreKit 2 is unavailable or App Store sync fails.
+- Delayed restored transactions keep the UI in the restoring state until the
+  purchase stream resolves.
+- Pro entitlement propagation from StoreKit, including receipt persistence.
+- Treat Xcode StoreKit, TestFlight Sandbox, and App Store Production as three
+  isolated purchase environments. A Production subscription is validated with
+  the App Store build, never by expecting it to appear in TestFlight.
 - HealthKit native permission prompt and Settings revocation.
 - Real keyboard, Dynamic Island, bottom safe area, and physical-device screenshot evidence.
 

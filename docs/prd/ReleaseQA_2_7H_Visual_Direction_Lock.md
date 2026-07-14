@@ -1,5 +1,12 @@
 # ReleaseQA-2.7H: Visual Direction Lock
 
+> **Superseded historical visual lock — 2026-07-12.** The lock below applied to
+> the 2.7H release only. It is preserved as review evidence, but it no longer
+> blocks the approved icon-background onboarding treatment or the Today-based
+> main-tab UI standard. Use
+> [`../active/main_tab_ui_standard.md`](../active/main_tab_ui_standard.md) and
+> [`../active/app_design.md`](../active/app_design.md) for current work.
+
 Status: Visual locked and archived.
 
 Scope: lock icon, launch, onboarding, app theme, and Product Review screenshots to the original Signal Path icon visual language. This round does not change purchase, Pro, quota, privacy boundaries, EventKit / HealthKit integration, or Phase 3 data-chain logic.

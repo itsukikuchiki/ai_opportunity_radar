@@ -104,12 +104,22 @@ class AnalyticsService:
             subscription = UserSubscription(user_id=user_id)
             self.db.add(subscription)
 
-        subscription.product_id = product_id
-        subscription.status = "active" if verified else "inactive"
-        subscription.environment = environment
-        subscription.reason = reason
-        subscription.transaction_date = transaction_date
-        subscription.latest_verified_at = datetime.utcnow()
+        should_preserve_active = (
+            not verified
+            and subscription.status == "active"
+            and not self._is_authoritative_revocation(
+                existing_environment=subscription.environment,
+                incoming_environment=environment,
+                reason=reason,
+            )
+        )
+        if not should_preserve_active:
+            subscription.product_id = product_id
+            subscription.status = "active" if verified else "inactive"
+            subscription.environment = environment
+            subscription.reason = reason
+            subscription.transaction_date = transaction_date
+            subscription.latest_verified_at = datetime.utcnow()
 
         self.track_event(
             user_id=user_id,
@@ -124,6 +134,25 @@ class AnalyticsService:
         if commit:
             self.db.commit()
         return subscription
+
+    def _is_authoritative_revocation(
+        self,
+        *,
+        existing_environment: str | None,
+        incoming_environment: str | None,
+        reason: str | None,
+    ) -> bool:
+        authoritative_reasons = {
+            "subscription_expired",
+            "product_not_found_in_receipt",
+            "subscription_refunded",
+            "subscription_revoked",
+        }
+        if reason not in authoritative_reasons:
+            return False
+        existing = (existing_environment or "").strip().lower()
+        incoming = (incoming_environment or "").strip().lower()
+        return bool(existing and incoming and existing == incoming)
 
     def metrics_summary(self, *, days: int = 30) -> dict:
         now = datetime.utcnow()

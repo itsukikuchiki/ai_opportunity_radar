@@ -45,16 +45,31 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "0.99",
+          "displayPrice" : "2.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "5EC0F5CB",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Unlock deeper reviews, journal view, self-review, and response style switching.",
+              "description" : "Unlock This Week Deep Read, Journey L3 evidence and period comparisons, SignalCard follow-up, structured self-review, and expanded AI quota.",
               "displayName" : "Signal Path Pro Monthly",
               "locale" : "en_US"
+            },
+            {
+              "description" : "解锁本周深读、Journey L3 证据与周期对比、基于 SignalCard 的追问、结构化自我复盘及更多 AI 用量。",
+              "displayName" : "Signal Path Pro 月付",
+              "locale" : "zh_CN"
+            },
+            {
+              "description" : "解鎖本週深讀、Journey L3 證據與週期對比、基於 SignalCard 的追問、結構化自我複盤及更多 AI 用量。",
+              "displayName" : "Signal Path Pro 月付",
+              "locale" : "zh_TW"
+            },
+            {
+              "description" : "今週のディープリード、Journey L3 の根拠と期間比較、SignalCard に基づく追加質問、構造化された自己振り返り、AI 利用枠の拡張を利用できます。",
+              "displayName" : "Signal Path Pro 月額",
+              "locale" : "ja_JP"
             }
           ],
           "productID" : "jp.sunrise.signalpath.pro.monthly",
@@ -73,16 +88,31 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "9.99",
+          "displayPrice" : "29.99",
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "7F0B4F1D",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Unlock deeper reviews, journal view, self-review, and response style switching for a full year.",
+              "description" : "Unlock This Week Deep Read, Journey L3 evidence and period comparisons, SignalCard follow-up, structured self-review, and expanded AI quota for a full year.",
               "displayName" : "Signal Path Pro Yearly",
               "locale" : "en_US"
+            },
+            {
+              "description" : "以年付解锁本周深读、Journey L3 证据与周期对比、基于 SignalCard 的追问、结构化自我复盘及更多 AI 用量。",
+              "displayName" : "Signal Path Pro 年付",
+              "locale" : "zh_CN"
+            },
+            {
+              "description" : "以年付解鎖本週深讀、Journey L3 證據與週期對比、基於 SignalCard 的追問、結構化自我複盤及更多 AI 用量。",
+              "displayName" : "Signal Path Pro 年付",
+              "locale" : "zh_TW"
+            },
+            {
+              "description" : "今週のディープリード、Journey L3 の根拠と期間比較、SignalCard に基づく追加質問、構造化された自己振り返り、AI 利用枠の拡張を 1 年間利用できます。",
+              "displayName" : "Signal Path Pro 年額",
+              "locale" : "ja_JP"
             }
           ],
           "productID" : "jp.sunrise.signalpath.pro.yearly",

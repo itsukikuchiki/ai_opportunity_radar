@@ -12,8 +12,12 @@ import 'package:ai_opportunity_radar/core/local/external_energy_hint_store.dart'
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
+import 'package:ai_opportunity_radar/core/models/energy_budget_models.dart';
 import 'package:ai_opportunity_radar/core/models/memory_models.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
+
+final _fixedNow = DateTime(2026, 7, 8, 12);
+const _fixedDate = '2026-07-08';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -57,6 +61,7 @@ void main() {
         scene: 'recovery',
         lifeChainStages: const ['recovery'],
       );
+      await harness.seedNeutralGateSignals(count: 1);
 
       final budget = await harness.repository.fetchBasicEnergyBudget();
 
@@ -71,7 +76,7 @@ void main() {
       await harness.close();
     });
 
-    test('legacy / unconfirmed 可进入但保持证据等级，inaccurate 不进入', () async {
+    test('legacy / inaccurate 被排除，普通 unconfirmed 只保留轻证据等级', () async {
       final harness = await _createHarness(dbPath);
 
       await harness.seedSignalCard(
@@ -94,14 +99,15 @@ void main() {
         friction: 'overload',
         userConfirmation: 'inaccurate',
       );
+      await harness.seedNeutralGateSignals(count: 2);
 
       final budget = await harness.repository.fetchBasicEnergyBudget();
 
       expect(budget.hasAnyBlocks, true);
-      expect(budget.blockByType('high_drain')?.count, 2);
+      expect(budget.blockByType('high_drain')?.count, 1);
       expect(budget.mostDrainingSource, isNot(contains('overload')));
       expect(
-        {'legacy_context', 'unconfirmed'}
+        {'light_observation'}
             .contains(budget.blockByType('high_drain')?.evidenceLevel),
         true,
       );
@@ -139,6 +145,7 @@ void main() {
         friction: 'meeting',
         syncFailed: true,
       );
+      await harness.seedNeutralGateSignals(count: 2);
 
       final budget = await harness.repository.fetchBasicEnergyBudget();
 
@@ -181,6 +188,7 @@ void main() {
           'title': 'Boundary fatigue',
         },
       );
+      await harness.seedNeutralGateSignals(count: 2);
 
       final budget = await harness.repository.fetchBasicEnergyBudget();
 
@@ -208,6 +216,7 @@ void main() {
         status: 'not_helpful',
         feedbackText: '这次帮助不明显，需要再调小。',
       );
+      await harness.seedNeutralGateSignals(count: 2);
 
       final budget = await harness.repository.fetchBasicEnergyBudget();
 
@@ -258,31 +267,7 @@ void main() {
       await harness.close();
     });
 
-    test('Calendar / HealthKit 未授权时仍基于内部 SignalCard 运行', () async {
-      const consent = AdvancedEnergyConsentState(
-        calendar: ExternalEnergyPermissionStatus.denied,
-        healthKit: ExternalEnergyPermissionStatus.notRequested,
-      );
-      final harness = await _createHarness(dbPath);
-
-      await harness.seedSignalCard(
-        id: 'internal_signal',
-        content: '会议之间切换很多，有点耗力',
-        energyLoad: 'draining',
-        friction: 'context_switch',
-      );
-
-      final budget = await harness.repository.fetchBasicEnergyBudget();
-
-      expect(consent.appCanRunWithoutExternalConsent, isTrue);
-      expect(budget.status, 'light_ready');
-      expect(budget.mostDrainingSource, contains('context_switch'));
-      expect(budget.blocks, isNotEmpty);
-
-      await harness.close();
-    });
-
-    test('Calendar + Health abstract hints 接入 Energy Budget 辅助层', () async {
+    test('Health abstract hints 辅助 Energy Budget，Calendar 保持隔离', () async {
       final harness = await _createHarness(dbPath);
 
       await harness.seedSignalCard(
@@ -292,6 +277,7 @@ void main() {
         friction: 'context_switch',
         userConfirmation: 'accurate',
       );
+      await harness.seedNeutralGateSignals(count: 2);
 
       final budget = await harness.repository.fetchBasicEnergyBudget(
         externalSummary: const AdvancedEnergyExternalSummary(
@@ -305,15 +291,17 @@ void main() {
         ),
       );
 
-      expect(budget.status, 'light_ready');
+      expect(budget.status, 'ready');
       expect(budget.mostDrainingSource, contains('context_switch'));
-      expect(budget.scheduleDensityHint, contains('日程密度提示'));
+      expect(budget.scheduleDensityHint, contains('不使用日程数据'));
       expect(budget.recoverySignalHint, contains('恢复信号提示'));
       expect(budget.recoverySignalHint, isNot(contains('分数低')));
       expect(budget.recoverySignalHint, isNot(contains('诊断')));
       expect(budget.externalConflictNote, contains('以你确认过的 SignalCard'));
       expect(
-          budget.abstractExternalHints.keys, contains('schedule_density_hint'));
+        budget.abstractExternalHints.keys,
+        isNot(contains('schedule_density_hint')),
+      );
       expect(budget.abstractExternalHints.keys, contains('low_recovery_hint'));
 
       await harness.close();
@@ -328,14 +316,15 @@ void main() {
         energyLoad: 'draining',
         friction: 'task_switching',
       );
+      await harness.seedNeutralGateSignals(count: 2);
 
       final budget = await harness.repository.fetchBasicEnergyBudget(
         externalSummary: const AdvancedEnergyExternalSummary(),
       );
 
-      expect(budget.status, 'light_ready');
+      expect(budget.status, 'ready');
       expect(budget.mostDrainingSource, contains('task_switching'));
-      expect(budget.scheduleDensityHint, contains('内部记录'));
+      expect(budget.scheduleDensityHint, contains('不使用日程数据'));
       expect(budget.recoverySignalHint, contains('内部记录'));
       expect(budget.externalConflictNote, contains('内部 SignalCard'));
       expect(budget.abstractExternalHints, isEmpty);
@@ -354,6 +343,7 @@ void main() {
         positiveSignal: 'quiet_evening',
         userConfirmation: 'supplemented',
       );
+      await harness.seedNeutralGateSignals(count: 2);
 
       final budget = await harness.repository.fetchBasicEnergyBudget(
         externalSummary: const AdvancedEnergyExternalSummary(
@@ -380,6 +370,7 @@ void main() {
         energyLoad: 'draining',
         friction: 'meeting_switch',
       );
+      await harness.seedNeutralGateSignals(count: 2);
 
       final budget = await harness.repository.fetchBasicEnergyBudget(
         externalSummary: const AdvancedEnergyExternalSummary(
@@ -421,6 +412,7 @@ void main() {
         friction: 'boundary',
         userConfirmation: 'accurate',
       );
+      await harness.seedNeutralGateSignals(count: 2);
 
       final budget = await harness.repository.fetchBasicEnergyBudget(
         externalSummary: const AdvancedEnergyExternalSummary(
@@ -459,14 +451,15 @@ void main() {
         friction: 'message_switch',
         userConfirmation: 'accurate',
       );
+      await harness.seedNeutralGateSignals(count: 2);
 
       final budget = await harness.repository.fetchBasicEnergyBudget();
 
-      expect(budget.scheduleDensityHint, contains('日程密度提示'));
+      expect(budget.scheduleDensityHint, contains('不使用日程数据'));
       expect(budget.recoverySignalHint, contains('恢复信号提示'));
       expect(
         budget.abstractExternalHints.keys,
-        contains('schedule_density_hint'),
+        isNot(contains('schedule_density_hint')),
       );
       expect(budget.abstractExternalHints.keys, contains('low_recovery_hint'));
       expect(budget.abstractExternalHints.keys, isNot(contains('event_title')));
@@ -476,6 +469,133 @@ void main() {
       );
       expect(budget.mostDrainingSource, contains('message_switch'));
 
+      await harness.close();
+    });
+
+    test('当日最后一条明确状态生效，跨过本地日界后回到 unknown', () async {
+      final harness = await _createHarness(dbPath);
+      await harness.seedSignalCard(
+        id: 'state_high_first',
+        content: '早上状态还可以',
+        sourceType: 'one_tap',
+        rawPayloadJson: const {
+          'quick_status': 'calm',
+          'energy_level': 2,
+        },
+        createdAt: DateTime(2026, 7, 8, 8),
+      );
+      await harness.seedSignalCard(
+        id: 'state_low_latest',
+        content: '下午明确感到疲惫',
+        sourceType: 'one_tap',
+        rawPayloadJson: const {
+          'quick_status': 'tired',
+          'energy_level': 0,
+        },
+        createdAt: DateTime(2026, 7, 8, 16),
+      );
+
+      final today = await harness.repository.fetchDailySnapshot(
+        day: _fixedNow,
+      );
+      final nextDay = await harness.repository.fetchDailySnapshot(
+        day: DateTime(2026, 7, 9, 9),
+      );
+
+      expect(today.periodStart, _fixedDate);
+      expect(today.capacityBand, EnergyCapacityBand.veryLow);
+      expect(today.evidenceSignalIds, contains('state_high_first'));
+      expect(today.evidenceSignalIds, contains('state_low_latest'));
+      expect(nextDay.capacityBand, EnergyCapacityBand.unknown);
+      expect(nextDay.evidenceSignalIds, isEmpty);
+      await harness.close();
+    });
+
+    test('周快照严格限定本地周一到周日，不混入历史信号', () async {
+      final harness = await _createHarness(dbPath);
+      await harness.seedSignalCard(
+        id: 'current_week_drain',
+        content: '本周任务切换很耗力',
+        energyLoad: 'draining',
+        friction: 'current_switching',
+      );
+      await harness.seedNeutralGateSignals(count: 2);
+      await harness.seedSignalCard(
+        id: 'previous_week_drain',
+        content: '上周的强烈消耗不应混入',
+        energyLoad: 'draining',
+        friction: 'historical_overload',
+        localDate: '2026-07-05',
+        createdAt: DateTime(2026, 7, 5, 20),
+      );
+
+      final snapshot = await harness.repository.fetchWeeklySnapshot(
+        day: _fixedNow,
+      );
+
+      expect(snapshot.periodStart, '2026-07-06');
+      expect(snapshot.periodEnd, '2026-07-12');
+      expect(snapshot.evidenceSignalIds, contains('current_week_drain'));
+      expect(
+          snapshot.evidenceSignalIds, isNot(contains('previous_week_drain')));
+      expect(snapshot.budget.mostDrainingSource, contains('current_switching'));
+      expect(snapshot.budget.mostDrainingSource,
+          isNot(contains('historical_overload')));
+      await harness.close();
+    });
+
+    test('周信号未达 3 条时只有中性 readiness，不生成完整结论', () async {
+      final harness = await _createHarness(dbPath);
+      await harness.seedSignalCard(
+        id: 'one_of_two',
+        content: '今天消耗较多',
+        energyLoad: 'draining',
+        friction: 'overload',
+      );
+      await harness.seedNeutralGateSignals(count: 1);
+
+      final snapshot = await harness.repository.fetchWeeklySnapshot(
+        day: _fixedNow,
+      );
+
+      expect(snapshot.readiness, 'light_ready');
+      expect(snapshot.budget.status, 'insufficient_data');
+      expect(snapshot.budget.blocks, isEmpty);
+      await harness.close();
+    });
+
+    test('Calendar 抽象提示不进快照或 source hash，Health 允许值会进入', () async {
+      final harness = await _createHarness(dbPath);
+      await harness.seedNeutralGateSignals(count: 3);
+
+      final calendarA = await harness.repository.fetchWeeklySnapshot(
+        day: _fixedNow,
+        externalSummary: const AdvancedEnergyExternalSummary(
+          scheduleDensityHint: 'calendar-a',
+          switchingHint: 'calendar-switch-a',
+        ),
+      );
+      final calendarB = await harness.repository.fetchWeeklySnapshot(
+        day: _fixedNow,
+        externalSummary: const AdvancedEnergyExternalSummary(
+          scheduleDensityHint: 'calendar-b',
+          switchingHint: 'calendar-switch-b',
+        ),
+      );
+      final health = await harness.repository.fetchWeeklySnapshot(
+        day: _fixedNow,
+        externalSummary: const AdvancedEnergyExternalSummary(
+          lowRecoveryHint: 'recovery may be low',
+        ),
+      );
+
+      expect(calendarA.sourceHash, calendarB.sourceHash);
+      expect(calendarA.budget.abstractExternalHints, isEmpty);
+      expect(health.sourceHash, isNot(calendarA.sourceHash));
+      expect(health.budget.abstractExternalHints.keys,
+          contains('low_recovery_hint'));
+      expect(health.capacityBand, EnergyCapacityBand.unknown,
+          reason: 'Health-only evidence must not invent a capacity state.');
       await harness.close();
     });
   });
@@ -505,9 +625,11 @@ class _Harness {
     String privacyLevel = 'private',
     bool isLegacy = false,
     bool syncFailed = false,
+    String localDate = _fixedDate,
+    DateTime? createdAt,
   }) async {
     final db = await localDatabase.database;
-    final now = DateTime.now().toUtc();
+    final now = (createdAt ?? _fixedNow).toUtc();
     await db.insert(
       'signal_cards',
       {
@@ -518,7 +640,7 @@ class _Harness {
         'source_type': sourceType,
         'raw_text': content,
         'created_at': now.toIso8601String(),
-        'local_date': _dateKey(now),
+        'local_date': localDate,
         'timezone': 'Asia/Tokyo',
         'language': 'zh-Hans',
         'ai_reply': '先保存下来。',
@@ -552,19 +674,28 @@ class _Harness {
     );
   }
 
+  Future<void> seedNeutralGateSignals({required int count}) async {
+    for (var index = 0; index < count; index++) {
+      await seedSignalCard(
+        id: 'neutral_gate_$index',
+        content: '用于达到三条信号门槛的中性记录 $index',
+      );
+    }
+  }
+
   Future<void> seedExperiment({
     String status = 'saved',
     String? feedbackText,
   }) async {
     final db = await localDatabase.database;
-    final now = DateTime.now().toUtc();
+    final now = _fixedNow.toUtc();
     await db.insert(
       'life_experiments',
       {
         'id': 'exp_energy',
         'local_user_id': 'test-user',
-        'source_week_start': '2026-05-25',
-        'source_week_end': '2026-05-31',
+        'source_week_start': '2026-07-06',
+        'source_week_end': '2026-07-12',
         'title': '给晚上留一点缓冲',
         'hypothesis': '少一点贴紧安排可能会省力',
         'suggested_action': '晚间安排之间留十分钟',
@@ -601,17 +732,11 @@ Future<_Harness> _createHarness(
     localLifeExperimentRepository: localLifeExperimentRepository,
     externalEnergyHintStore: hintStore,
     localUserId: 'test-user',
+    nowLoader: () => _fixedNow,
   );
 
   return _Harness(
     localDatabase: localDatabase,
     repository: repository,
   );
-}
-
-String _dateKey(DateTime date) {
-  final local = date.toLocal();
-  final mm = local.month.toString().padLeft(2, '0');
-  final dd = local.day.toString().padLeft(2, '0');
-  return '${local.year}-$mm-$dd';
 }

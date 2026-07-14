@@ -1,5 +1,4 @@
-from datetime import datetime, timedelta, date
-from uuid import uuid4
+from datetime import date
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
@@ -9,16 +8,23 @@ from app.models import (
     Friction,
     Desire,
     Opportunity,
-    RawMemory,
+    SignalAnalysisPolicy,
     UserProfile,
     WeeklyInsight,
-    Capture,
+    SignalCard,
+    SignalProcessingState,
+)
+from app.repositories.capture_repository import CaptureRepository
+from app.services.signal_eligibility_service import (
+    SignalEligibilityService,
+    SignalEligibilityStage,
 )
 
 
 class MemoryRepository:
     def __init__(self, db: Session):
         self.db = db
+        self.eligibility_service = SignalEligibilityService()
 
     def find_pattern(self, user_id: str, scene_type: str | None) -> Pattern | None:
         if not scene_type or scene_type == 'other':
@@ -73,21 +79,21 @@ class MemoryRepository:
         return opportunity
 
     def list_patterns(self, user_id: str, limit: int = 20) -> list[Pattern]:
-        self._backfill_missing_raw_memories(user_id)
+        self._ensure_signal_cards(user_id)
         stmt = select(Pattern).where(
             Pattern.user_id == user_id,
         ).order_by(Pattern.updated_at.desc()).limit(limit)
         return list(self.db.scalars(stmt))
 
     def list_frictions(self, user_id: str, limit: int = 20) -> list[Friction]:
-        self._backfill_missing_raw_memories(user_id)
+        self._ensure_signal_cards(user_id)
         stmt = select(Friction).where(
             Friction.user_id == user_id,
         ).order_by(Friction.updated_at.desc()).limit(limit)
         return list(self.db.scalars(stmt))
 
     def list_desires(self, user_id: str, limit: int = 20) -> list[Desire]:
-        self._backfill_missing_raw_memories(user_id)
+        self._ensure_signal_cards(user_id)
         stmt = select(Desire).where(
             Desire.user_id == user_id,
         ).order_by(Desire.updated_at.desc()).limit(limit)
@@ -128,47 +134,53 @@ class MemoryRepository:
 
     def get_first_signal_date(self, user_id: str) -> date | None:
         """
-        先回填旧 Capture -> RawMemory，再从 RawMemory 取首条时间。
-        这样升级前数据也会计入 Weekly / Journey 的起始日。
+        SignalCard is the primary fact table. Legacy Capture / RawMemory rows
+        are migrated into SignalCard before reading the first signal date.
         """
-        self._backfill_missing_raw_memories(user_id)
+        self._ensure_signal_cards(user_id)
 
-        stmt = select(func.min(RawMemory.created_at)).where(
-            RawMemory.user_id == user_id,
-        )
-        first_dt = self.db.execute(stmt).scalar_one_or_none()
-        if first_dt is None:
-            return None
-        return first_dt.date()
+        stmt = select(SignalCard).where(
+            SignalCard.user_id == user_id,
+        ).order_by(SignalCard.local_date.asc())
+        for signal in self._attach_split_state(list(self.db.scalars(stmt))):
+            if self.eligibility_service.is_eligible(
+                signal,
+                SignalEligibilityStage.DAILY,
+            ):
+                return signal.local_date
+        return None
 
     def raw_summary(self, user_id: str, week_start: date, week_end: date) -> dict:
         """
-        周统计前先做回填，确保旧 Capture 数据能被纳入 signal_count。
-        旧数据即便还没有 scene/friction 分类，也至少应计入 signal_count。
+        Weekly summary reads SignalCard as the primary fact source.
+        Legacy Capture / RawMemory rows are migrated into SignalCard first.
         """
-        self._backfill_missing_raw_memories(user_id)
+        self._ensure_signal_cards(user_id)
 
-        start_dt = datetime.combine(week_start, datetime.min.time())
-        end_dt = datetime.combine(week_end + timedelta(days=1), datetime.min.time())
-
-        stmt = select(RawMemory).where(
-            RawMemory.user_id == user_id,
-            RawMemory.created_at >= start_dt,
-            RawMemory.created_at < end_dt,
+        stmt = select(SignalCard).where(
+            SignalCard.user_id == user_id,
+            SignalCard.local_date >= week_start,
+            SignalCard.local_date <= week_end,
         )
-        raws = list(self.db.scalars(stmt))
+        signals = self._attach_split_state(list(self.db.scalars(stmt)))
+        eligible_signals = self.eligibility_service.filter(
+            signals,
+            SignalEligibilityStage.WEEKLY,
+        )
 
         scene_counts = {}
         friction_counts = {}
 
-        for r in raws:
-            if r.scene_type:
-                scene_counts[r.scene_type] = scene_counts.get(r.scene_type, 0) + 1
-            if r.friction_type:
-                friction_counts[r.friction_type] = friction_counts.get(r.friction_type, 0) + 1
+        for signal in eligible_signals:
+            if signal.scene:
+                scene_counts[signal.scene] = scene_counts.get(signal.scene, 0) + 1
+            if signal.friction:
+                friction_counts[signal.friction] = (
+                    friction_counts.get(signal.friction, 0) + 1
+                )
 
         return {
-            'signal_count': len(raws),
+            'signal_count': len(eligible_signals),
             'top_scene_types': [
                 k for k, _ in sorted(
                     scene_counts.items(),
@@ -185,60 +197,33 @@ class MemoryRepository:
             ],
         }
 
-    def _backfill_missing_raw_memories(self, user_id: str) -> int:
-        """
-        懒回填：
-        如果用户旧版本只有 Capture，没有 RawMemory，
-        则在读取 Weekly / Journey 前自动补齐。
-        """
-        capture_stmt = (
-            select(Capture)
-            .where(Capture.user_id == user_id)
-            .order_by(Capture.created_at.asc())
+    def _ensure_signal_cards(self, user_id: str) -> dict[str, int]:
+        return CaptureRepository(self.db).migrate_legacy_signal_cards(
+            user_id=user_id,
+            commit=True,
         )
-        captures = list(self.db.scalars(capture_stmt))
 
-        if not captures:
-            return 0
-
-        raw_capture_ids_stmt = select(RawMemory.capture_id).where(
-            RawMemory.user_id == user_id,
-            RawMemory.capture_id.is_not(None),
-        )
-        existing_capture_ids = {
-            capture_id
-            for capture_id in self.db.scalars(raw_capture_ids_stmt)
-            if capture_id
-        }
-
-        created_count = 0
-
-        for capture in captures:
-            if capture.id in existing_capture_ids:
-                continue
-
-            raw_memory = RawMemory(
-                id=f"raw_{uuid4().hex[:12]}",
-                user_id=user_id,
-                capture_id=capture.id,
-                source="capture",
-                content=capture.content or "",
-                signal_type=None,
-                scene_type=None,
-                friction_type=None,
-                emotion_strength=None,
-                repetition_flag=False,
-                desire_flag=False,
-                related_pattern_id=None,
-                related_friction_id=None,
-                metadata_json={},
-                created_at=capture.created_at,
+    def _attach_split_state(self, signals: list[SignalCard]) -> list[SignalCard]:
+        if not signals:
+            return []
+        ids = [signal.id for signal in signals]
+        states = {
+            row.signal_id: row
+            for row in self.db.scalars(
+                select(SignalProcessingState).where(
+                    SignalProcessingState.signal_id.in_(ids)
+                )
             )
-            self.db.add(raw_memory)
-            created_count += 1
-
-        if created_count > 0:
-            self.db.flush()
-            self.db.commit()
-
-        return created_count
+        }
+        policies = {
+            row.signal_id: row
+            for row in self.db.scalars(
+                select(SignalAnalysisPolicy).where(
+                    SignalAnalysisPolicy.signal_id.in_(ids)
+                )
+            )
+        }
+        for signal in signals:
+            signal.processing_state = states.get(signal.id)
+            signal.analysis_policy = policies.get(signal.id)
+        return signals

@@ -69,11 +69,13 @@ class TodaySummaryResponse(BaseModel):
 class WeeklyInsightItem(BaseModel):
     name: str
     summary: str
+    illustration_hint: Optional[str] = None
 
 
 class OpportunitySnapshotSchema(BaseModel):
     name: str
     summary: str
+    illustration_hint: Optional[str] = None
 
 
 class WeeklyGenerateRequest(BaseModel):
@@ -84,6 +86,7 @@ class WeeklyGenerateRequest(BaseModel):
     day_counts: dict[str, int] = Field(default_factory=dict)
     top_tokens: list[str] = Field(default_factory=list)
     focus_area: Optional[str] = None
+    illustration_taxonomy: dict[str, Any] = Field(default_factory=dict)
 
 
 class WeeklyGenerateResponse(BaseModel):
@@ -139,20 +142,6 @@ class MonthlyGenerateResponse(BaseModel):
     unresolved_points: list[str] = Field(default_factory=list)
     next_month_watch: Optional[str] = None
     weekly_bridges: list[MonthlyBridgeWeekSchema] = Field(default_factory=list)
-
-
-class OpportunityExplanationRequest(BaseModel):
-    patterns: list[dict[str, Any]] = Field(default_factory=list)
-    frictions: list[dict[str, Any]] = Field(default_factory=list)
-    opportunities: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class OpportunityExplanationResponse(BaseModel):
-    why_this_opportunity: str
-    evidence_summary: list[str] = Field(default_factory=list)
-    solution_fit_explanation: str
-    next_step: str
-    user_facing_summary: str
 
 
 class FollowupGenerateRequest(BaseModel):

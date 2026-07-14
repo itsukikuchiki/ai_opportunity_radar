@@ -1,17 +1,38 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'app/app.dart';
+import 'core/diagnostics/privacy_safe_logger.dart';
 import 'core/state/app_bootstrap_state.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+void main() {
+  final logger = PrivacySafeLogger.instance;
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    logger.installFlutterHandlers();
 
-  final bootstrapState = AppBootstrapState();
+    final bootstrapState = AppBootstrapState(logger: logger);
+    try {
+      await bootstrapState.prepareLaunch();
+    } catch (error, stackTrace) {
+      logger.capture(
+        error,
+        stackTrace,
+        operation: 'prepare_launch',
+      );
+      // Initialization retries the preference read after the first frame.
+    }
 
-  runApp(RadarApp(bootstrapState: bootstrapState));
+    runApp(RadarApp(bootstrapState: bootstrapState));
 
-  bootstrapState.init().catchError((_) {
-    // AppBootstrapState 内部已经保存错误状态，
-    // 这里吞掉未处理异常，避免首屏白屏或直接崩溃。
+    unawaited(bootstrapState.init());
+  }, (error, stackTrace) {
+    logger.capture(
+      error,
+      stackTrace,
+      operation: 'root_zone',
+      fatal: true,
+    );
   });
 }

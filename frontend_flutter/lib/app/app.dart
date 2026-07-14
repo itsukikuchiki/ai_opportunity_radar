@@ -8,6 +8,8 @@ import 'app_router.dart';
 import '../core/di/app_dependencies.dart';
 import '../core/purchases/purchase_controller.dart';
 import '../core/state/app_bootstrap_state.dart';
+import '../core/state/app_data_refresh_coordinator.dart';
+import '../features/onboarding/onboarding_page.dart';
 import '../features/onboarding/onboarding_view_model.dart';
 import '../features/pages/me/me_view_model.dart';
 import '../features/pages/memory/memory_view_model.dart';
@@ -15,6 +17,7 @@ import '../features/pages/self_review/self_review_view_model.dart';
 import '../features/pages/signal_library/signal_library_view_model.dart';
 import '../features/pages/today/today_view_model.dart';
 import '../features/pages/weekly/weekly_view_model.dart';
+import '../features/system/initialization_failure_page.dart';
 
 class RadarApp extends StatefulWidget {
   final AppBootstrapState bootstrapState;
@@ -28,7 +31,7 @@ class RadarApp extends StatefulWidget {
   State<RadarApp> createState() => _RadarAppState();
 }
 
-class _RadarAppState extends State<RadarApp> {
+class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
   late final GoRouter _router;
 
   AppDependencies? _dependencies;
@@ -40,12 +43,24 @@ class _RadarAppState extends State<RadarApp> {
   SignalLibraryViewModel? _signalLibraryViewModel;
   MeViewModel? _meViewModel;
   PurchaseController? _purchaseController;
+  AppDataRefreshCoordinator? _dataRefreshCoordinator;
+  String? _purchaseEntitlementSignature;
   bool _trackedAppOpen = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _router = createAppRouter(widget.bootstrapState);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    final purchase = _purchaseController;
+    if (purchase != null) {
+      unawaited(purchase.refreshCurrentEntitlements());
+    }
   }
 
   void _ensureAppObjectsInitialized() {
@@ -53,12 +68,22 @@ class _RadarAppState extends State<RadarApp> {
 
     final dependencies = widget.bootstrapState.dependencies;
     _dependencies = dependencies;
-    _onboardingViewModel = OnboardingViewModel(dependencies.apiClient);
+    _meViewModel = MeViewModel(
+      dependencies.apiClient,
+      dependencies.localDatabase,
+    );
+    _onboardingViewModel = OnboardingViewModel(
+      dependencies.apiClient,
+      analyticsRepository: dependencies.analyticsRepository,
+      onFocusDomainsPersisted: _meViewModel!.applyPersistedFocusDomains,
+    );
     _todayViewModel = TodayViewModel(dependencies.todayRepository);
     _weeklyViewModel = WeeklyViewModel(
       dependencies.weeklyRepository,
       energyBudgetRepository: dependencies.energyBudgetRepository,
       analyticsRepository: dependencies.analyticsRepository,
+      candidatePlanningRepository:
+          dependencies.localCandidatePlanningRepository,
     );
     _memoryViewModel = MemoryViewModel(
       dependencies.memoryRepository,
@@ -66,16 +91,22 @@ class _RadarAppState extends State<RadarApp> {
     );
     _selfReviewViewModel =
         SelfReviewViewModel(dependencies.selfReviewRepository);
-    _signalLibraryViewModel =
-        SignalLibraryViewModel(dependencies.signalLibraryRepository);
-    _meViewModel = MeViewModel(
-      dependencies.apiClient,
-      dependencies.backupBundleRepository,
-      dependencies.cloudBackupRepository,
-      dependencies.localUserId,
-      dependencies.deviceId,
+    _signalLibraryViewModel = SignalLibraryViewModel(
+      dependencies.signalLibraryRepository,
+      analyticsRepository: dependencies.analyticsRepository,
     );
     _purchaseController = PurchaseController(apiClient: dependencies.apiClient);
+    _purchaseEntitlementSignature = _entitlementSignature(_purchaseController!);
+    _purchaseController!.addListener(_handlePurchaseStateChanged);
+    _dataRefreshCoordinator = AppDataRefreshCoordinator(
+      routeLoaders: {
+        AppRoutes.today: _todayViewModel!.load,
+        AppRoutes.weekly: _weeklyViewModel!.load,
+        AppRoutes.experiment: _weeklyViewModel!.load,
+        AppRoutes.memory: _memoryViewModel!.load,
+        AppRoutes.me: _meViewModel!.reload,
+      },
+    );
     if (!_trackedAppOpen) {
       _trackedAppOpen = true;
       unawaited(dependencies.analyticsRepository.track('app_open'));
@@ -84,6 +115,16 @@ class _RadarAppState extends State<RadarApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _disposeAppObjects();
+    _router.dispose();
+    super.dispose();
+  }
+
+  void _disposeAppObjects() {
+    final dependencies = _dependencies;
+    _purchaseController?.removeListener(_handlePurchaseStateChanged);
+    _dataRefreshCoordinator?.dispose();
     _onboardingViewModel?.dispose();
     _todayViewModel?.dispose();
     _weeklyViewModel?.dispose();
@@ -92,9 +133,42 @@ class _RadarAppState extends State<RadarApp> {
     _signalLibraryViewModel?.dispose();
     _meViewModel?.dispose();
     _purchaseController?.dispose();
-    _router.dispose();
-    super.dispose();
+    if (dependencies != null) {
+      unawaited(dependencies.localCandidatePlanningRepository.dispose());
+      dependencies.apiClient.close();
+    }
+    _dependencies = null;
+    _onboardingViewModel = null;
+    _todayViewModel = null;
+    _weeklyViewModel = null;
+    _memoryViewModel = null;
+    _selfReviewViewModel = null;
+    _signalLibraryViewModel = null;
+    _meViewModel = null;
+    _purchaseController = null;
+    _dataRefreshCoordinator = null;
+    _purchaseEntitlementSignature = null;
   }
+
+  void _handlePurchaseStateChanged() {
+    final controller = _purchaseController;
+    if (controller == null) return;
+    final next = _entitlementSignature(controller);
+    final previous = _purchaseEntitlementSignature;
+    _purchaseEntitlementSignature = next;
+    if (previous == null || previous == next) return;
+    AppDataMutationBus.publish(
+      kind: AppDataMutationKind.entitlement,
+      reason: 'pro_entitlement_changed',
+    );
+  }
+
+  String _entitlementSignature(PurchaseController controller) => [
+        controller.isPremium,
+        controller.entitlementProductId ?? '',
+        controller.entitlementVerificationSource ?? '',
+        controller.serverVerified,
+      ].join('|');
 
   @override
   Widget build(BuildContext context) {
@@ -103,8 +177,17 @@ class _RadarAppState extends State<RadarApp> {
       builder: (context, _) {
         final bootstrap = widget.bootstrapState;
 
-        if (!bootstrap.initialized) return _buildLoadingApp();
-        if (bootstrap.hasError) return _buildErrorApp(bootstrap.initError);
+        if (!bootstrap.initialized) {
+          return _buildLoadingApp(
+            showOnboarding: !bootstrap.onboardingCompleted,
+          );
+        }
+        if (bootstrap.hasError) return _buildErrorApp(bootstrap);
+
+        if (_dependencies != null &&
+            !identical(_dependencies, bootstrap.dependencies)) {
+          _disposeAppObjects();
+        }
 
         _ensureAppObjectsInitialized();
 
@@ -128,6 +211,9 @@ class _RadarAppState extends State<RadarApp> {
             ChangeNotifierProvider<MeViewModel>.value(value: _meViewModel!),
             ChangeNotifierProvider<PurchaseController?>.value(
                 value: _purchaseController!),
+            Provider<AppDataRefreshCoordinator>.value(
+              value: _dataRefreshCoordinator!,
+            ),
           ],
           child: _buildRouterApp(_router),
         );
@@ -135,28 +221,49 @@ class _RadarAppState extends State<RadarApp> {
     );
   }
 
-  Widget _buildLoadingApp() {
+  Widget _buildLoadingApp({required bool showOnboarding}) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Signal Path：AI手帳',
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('en'),
+        Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+        Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+        Locale('ja'),
+      ],
+      localeResolutionCallback: _resolveLocale,
       theme: _buildTheme(),
-      home: const _BrandLaunchScreen(),
+      home: showOnboarding
+          ? const OnboardingLaunchPage()
+          : const _BrandLaunchScreen(),
     );
   }
 
-  Widget _buildErrorApp(Object? error) {
+  Widget _buildErrorApp(AppBootstrapState bootstrap) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Signal Path：AI手帳',
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('en'),
+        Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+        Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+        Locale('ja'),
+      ],
+      localeResolutionCallback: _resolveLocale,
       theme: _buildTheme(),
-      home: Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text('App failed to initialize.\n$error',
-                textAlign: TextAlign.center),
-          ),
-        ),
+      home: InitializationFailurePage(
+        referenceId: bootstrap.initErrorEventId,
+        onRetry: bootstrap.retryInitialization,
       ),
     );
   }
@@ -176,27 +283,34 @@ class _RadarAppState extends State<RadarApp> {
         Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
         Locale('ja'),
       ],
-      localeResolutionCallback: (locale, supportedLocales) {
-        if (locale == null) return const Locale('en');
-        final languageCode = locale.languageCode.toLowerCase();
-        final scriptCode = locale.scriptCode?.toLowerCase();
-        final countryCode = locale.countryCode?.toUpperCase();
-        if (languageCode == 'ja') return const Locale('ja');
-        if (languageCode == 'zh') {
-          final isTraditional = scriptCode == 'hant' ||
-              countryCode == 'TW' ||
-              countryCode == 'HK' ||
-              countryCode == 'MO';
-          return isTraditional
-              ? const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
-              : const Locale.fromSubtags(
-                  languageCode: 'zh', scriptCode: 'Hans');
-        }
-        return const Locale('en');
-      },
+      localeResolutionCallback: _resolveLocale,
       theme: _buildTheme(),
       routerConfig: router,
     );
+  }
+
+  Locale _resolveLocale(
+    Locale? locale,
+    Iterable<Locale> supportedLocales,
+  ) {
+    if (locale == null) return const Locale('en');
+    final languageCode = locale.languageCode.toLowerCase();
+    final scriptCode = locale.scriptCode?.toLowerCase();
+    final countryCode = locale.countryCode?.toUpperCase();
+    if (languageCode == 'ja') return const Locale('ja');
+    if (languageCode == 'zh') {
+      final isTraditional = scriptCode == 'hant' ||
+          countryCode == 'TW' ||
+          countryCode == 'HK' ||
+          countryCode == 'MO';
+      return isTraditional
+          ? const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
+          : const Locale.fromSubtags(
+              languageCode: 'zh',
+              scriptCode: 'Hans',
+            );
+    }
+    return const Locale('en');
   }
 
   ThemeData _buildTheme() {

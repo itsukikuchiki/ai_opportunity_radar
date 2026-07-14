@@ -10,6 +10,7 @@ from app.api.deps import get_user_id
 from app.core.db import get_db
 from app.models import UsageCounter, UserSubscription
 from app.repositories.core_repository import ensure_demo_user
+from app.services.ai_orchestrator import AiOrchestrator
 from app.services.usage_service import UsageService
 
 router = APIRouter(tags=["usage"])
@@ -31,6 +32,7 @@ def usage_summary(
         today = date.today()
         items = []
         for feature_key, (period_type, limit_value) in limits.items():
+            profile = AiOrchestrator.from_feature_key(feature_key)
             period_start = _period_start(today, period_type)
             counter = db.scalars(
                 select(UsageCounter).where(
@@ -44,6 +46,9 @@ def usage_summary(
             items.append(
                 {
                     "feature_key": feature_key,
+                    "ai_layer": profile.layer,
+                    "product_role": profile.product_role,
+                    "user_participation": profile.user_participation,
                     "period_type": period_type,
                     "period_start": period_start,
                     "used": used,

@@ -6,8 +6,6 @@ class LibraryPatternModel {
   final List<String> commonFrictions;
   final String energyLoadHint;
   final String possiblePositiveSignal;
-  final String gentleReflection;
-  final String suggestedSmallExperiment;
   final String language;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -20,8 +18,6 @@ class LibraryPatternModel {
     required this.commonFrictions,
     required this.energyLoadHint,
     required this.possiblePositiveSignal,
-    required this.gentleReflection,
-    required this.suggestedSmallExperiment,
     required this.language,
     required this.createdAt,
     required this.updatedAt,
@@ -36,23 +32,7 @@ class LibraryPatternModel {
       'common_frictions': commonFrictions,
       'energy_load_hint': energyLoadHint,
       'possible_positive_signal': possiblePositiveSignal,
-      'gentle_reflection': gentleReflection,
-      'suggested_small_experiment': suggestedSmallExperiment,
       'language': language,
     };
   }
-}
-
-class SignalLibraryActionModel {
-  final String patternId;
-  final String action;
-  final bool isPrivate;
-  final DateTime createdAt;
-
-  const SignalLibraryActionModel({
-    required this.patternId,
-    required this.action,
-    required this.isPrivate,
-    required this.createdAt,
-  });
 }

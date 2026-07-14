@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_user_id
@@ -12,12 +14,14 @@ from app.schemas.ai_schema import (
     JourneyGenerateRequest,
     LightDialogRequest,
     MonthlyGenerateRequest,
-    OpportunityExplanationRequest,
     TodaySummaryRequest,
     WeeklyGenerateRequest,
 )
+from app.services.ai_orchestrator import AiOrchestrator
 from app.services.ai_generation_service import AiGenerationService
 from app.services.analytics_service import AnalyticsService
+from app.services.legacy_telemetry_service import record_legacy_endpoint_call
+from app.services.usage_service import UsageService
 
 router = APIRouter(tags=["ai"])
 
@@ -30,13 +34,38 @@ def _record_ai_usage(
     request_payload: object,
     response_payload: object,
 ) -> None:
+    profile = AiOrchestrator.from_endpoint(endpoint)
     try:
-        AnalyticsService(db).record_ai_usage(
+        usage = UsageService(db)
+        usage.consume_quota(
             user_id=user_id,
-            endpoint=endpoint,
+            feature_key=profile.feature_key,
+            local_date=date.today(),
+            model_used=profile.model_label,
+            source_event_id=None,
+            commit=False,
+        )
+        usage.log_model_usage(
+            user_id=user_id,
+            feature_key=profile.feature_key,
+            model_used=profile.model_label,
             request_payload=request_payload,
             response_payload=response_payload,
+            metadata={"api_endpoint": endpoint},
+            commit=False,
         )
+        AnalyticsService(db).record_ai_usage(
+            user_id=user_id,
+            endpoint=profile.usage_endpoint,
+            request_payload=request_payload,
+            response_payload={
+                "ai_layer": profile.layer,
+                "product_role": profile.product_role,
+                "payload": response_payload,
+            },
+            commit=False,
+        )
+        db.commit()
     except Exception:
         db.rollback()
 
@@ -125,27 +154,6 @@ def generate_journey_summary(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/opportunity-explanation")
-def generate_opportunity_explanation(
-    payload: OpportunityExplanationRequest,
-    user_id: str = Depends(get_user_id),
-    db: Session = Depends(get_db),
-) -> dict:
-    try:
-        service = AiGenerationService()
-        result = service.generate_opportunity_explanation(payload.model_dump())
-        _record_ai_usage(
-            db=db,
-            user_id=user_id,
-            endpoint="opportunity_explanation",
-            request_payload=payload.model_dump(),
-            response_payload=result.model_dump(),
-        )
-        return {"data": result.model_dump()}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
 @router.post("/light-dialog")
 def generate_light_dialog(
     payload: LightDialogRequest,
@@ -170,8 +178,34 @@ def generate_light_dialog(
 @router.post("/deep-weekly")
 def generate_deep_weekly(
     payload: DeepWeeklyRequest,
+    request: Request,
     user_id: str = Depends(get_user_id),
     db: Session = Depends(get_db),
+) -> dict:
+    record_legacy_endpoint_call(
+        db=db,
+        counter_name="legacy_deep_weekly_endpoint_call_count",
+        endpoint="/api/v1/ai/deep-weekly",
+        request=request,
+        user_id=user_id,
+    )
+    return _generate_weekly_reflect(payload=payload, user_id=user_id, db=db)
+
+
+@router.post("/reflect-weekly")
+def generate_reflect_weekly(
+    payload: DeepWeeklyRequest,
+    user_id: str = Depends(get_user_id),
+    db: Session = Depends(get_db),
+) -> dict:
+    return _generate_weekly_reflect(payload=payload, user_id=user_id, db=db)
+
+
+def _generate_weekly_reflect(
+    *,
+    payload: DeepWeeklyRequest,
+    user_id: str,
+    db: Session,
 ) -> dict:
     try:
         service = AiGenerationService()
@@ -179,7 +213,7 @@ def generate_deep_weekly(
         _record_ai_usage(
             db=db,
             user_id=user_id,
-            endpoint="deep_weekly",
+            endpoint="reflect_weekly",
             request_payload=payload.model_dump(),
             response_payload=result.model_dump(),
         )

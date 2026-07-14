@@ -1,14 +1,23 @@
-# AI Opportunity Radar
+# SignalPath
 
-MVP scaffold and runnable starter for a life-observation AI that captures signals, builds memory, generates weekly insight, and identifies AI opportunities.
+SignalPath is a local-first reflective app that turns user-confirmed everyday signals into optional MicroActions, LifeExperiments, and evidence-backed Weekly/Journey reflection.
 
-## Structure
+## Canonical Documentation
 
-- `backend/` FastAPI + SQLAlchemy + Alembic
-- `frontend_flutter/` Flutter Web/App scaffold with Provider + go_router
-- `docs/prd/` PRD v0.1 - v0.7
+- [Final app design](docs/active/app_design.md)
+- [Canonical data flow](docs/active/data_flow.md)
+- [Current documentation index](docs/active/README.md)
 
-## Quick start
+Historical PRDs and ReleaseQA files are retained only as delivery/QA evidence. They do not override the final design.
+
+## Repository
+
+- `backend/`: FastAPI, SQLAlchemy, Alembic, AI/eligibility/purchase services.
+- `frontend_flutter/`: Flutter application for iOS and supported local targets.
+- `docs/active/`: final product/data contracts and current engineering/operations documentation.
+- `docs/prd/`: historical Phase and ReleaseQA evidence.
+
+## Local Development
 
 ### Backend
 
@@ -26,25 +35,7 @@ uvicorn app.main:app --reload
 ```bash
 cd frontend_flutter
 flutter pub get
-flutter run -d chrome
+flutter run
 ```
 
-## Current scope
-
-This repository now includes:
-
-- capture submit
-- follow-up submit
-- weekly fetch + weekly feedback
-- opportunity list/detail/feedback
-- memory summary
-- SQLite-friendly SQLAlchemy models
-- Alembic bootstrap
-- Provider-based Flutter state wiring
-
-## Notes
-
-- The backend and Flutter skeleton are designed for a local demo first.
-- The current LLM generation layer is stubbed with deterministic text so you can wire the full flow before swapping to a real model.
-- The container used to generate this package did not have `sqlalchemy` available at runtime, so end-to-end execution was not verified here. The files are prepared for local setup using `requirements.txt`.
-# ai_opportunity_radar
+See the active CI, device-build, staging, and rollback documents before preparing a release. A TestFlight build is produced only when explicitly requested.

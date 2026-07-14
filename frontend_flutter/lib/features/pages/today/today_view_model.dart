@@ -4,6 +4,7 @@ import '../../../core/api/repositories/today_repository.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/phase3_plus_models.dart';
 import '../../../core/models/today_models.dart';
+import '../../../core/models/weekly_models.dart';
 import '../../../shared/states/load_state.dart';
 import 'today_state.dart';
 
@@ -11,6 +12,7 @@ enum DraftSyncResult { completed, stillPending, noPending }
 
 class TodayViewModel extends ChangeNotifier {
   final TodayRepository repository;
+  final Set<String> _sessionHiddenJudgementIds = <String>{};
 
   TodayState _state = TodayState.initial();
   TodayState get state => _state;
@@ -38,14 +40,11 @@ class TodayViewModel extends ChangeNotifier {
         pendingQuestion: data['pendingQuestion'] as FollowupQuestionModel?,
         bestAction: data['bestAction'] as DailyBestActionModel?,
         recentSignals: fetchedSignals,
-        scheduleSignals:
-            data['scheduleSignals'] as List<ScheduleSignalModel>? ?? const [],
-        activeGoals: data['activeGoals'] as List<GoalModel>? ?? const [],
-        goalTasks:
-            data['goalTasks'] as List<GoalTaskInstanceModel>? ?? const [],
-        aiJudgement: data['aiJudgement'] as AiJudgementModel?,
+        aiJudgement: _visibleJudgement(data['aiJudgement']),
         microActions:
             data['microActions'] as List<MicroActionModel>? ?? const [],
+        todayLifeExperiment:
+            data['todayLifeExperiment'] as LifeExperimentModel?,
         clearErrorMessage: true,
       );
     } catch (e) {
@@ -87,14 +86,11 @@ class TodayViewModel extends ChangeNotifier {
         pendingQuestion: data['pendingQuestion'] as FollowupQuestionModel?,
         bestAction: data['bestAction'] as DailyBestActionModel?,
         recentSignals: fetchedSignals,
-        scheduleSignals:
-            data['scheduleSignals'] as List<ScheduleSignalModel>? ?? const [],
-        activeGoals: data['activeGoals'] as List<GoalModel>? ?? const [],
-        goalTasks:
-            data['goalTasks'] as List<GoalTaskInstanceModel>? ?? const [],
-        aiJudgement: data['aiJudgement'] as AiJudgementModel?,
+        aiJudgement: _visibleJudgement(data['aiJudgement']),
         microActions:
             data['microActions'] as List<MicroActionModel>? ?? const [],
+        todayLifeExperiment:
+            data['todayLifeExperiment'] as LifeExperimentModel?,
         draftSyncSubmitState:
             stillPending ? SubmitState.failure : SubmitState.success,
         draftSyncMessage: stillPending ? 'sync_still_pending' : 'sync_complete',
@@ -169,15 +165,11 @@ class TodayViewModel extends ChangeNotifier {
         insight: refreshed['insight'] as TodayInsightModel?,
         bestAction: refreshed['bestAction'] as DailyBestActionModel?,
         recentSignals: updatedSignals,
-        scheduleSignals:
-            refreshed['scheduleSignals'] as List<ScheduleSignalModel>? ??
-                const [],
-        activeGoals: refreshed['activeGoals'] as List<GoalModel>? ?? const [],
-        goalTasks:
-            refreshed['goalTasks'] as List<GoalTaskInstanceModel>? ?? const [],
         aiJudgement: refreshed['aiJudgement'] as AiJudgementModel?,
         microActions:
             refreshed['microActions'] as List<MicroActionModel>? ?? const [],
+        todayLifeExperiment:
+            refreshed['todayLifeExperiment'] as LifeExperimentModel?,
         captureSuccessTick: _state.captureSuccessTick + 1,
         clearErrorMessage: true,
       );
@@ -224,15 +216,11 @@ class TodayViewModel extends ChangeNotifier {
         bestAction: refreshed['bestAction'] as DailyBestActionModel?,
         recentSignals:
             refreshed['recentSignals'] as List<RecentSignalModel>? ?? const [],
-        scheduleSignals:
-            refreshed['scheduleSignals'] as List<ScheduleSignalModel>? ??
-                const [],
-        activeGoals: refreshed['activeGoals'] as List<GoalModel>? ?? const [],
-        goalTasks:
-            refreshed['goalTasks'] as List<GoalTaskInstanceModel>? ?? const [],
         aiJudgement: refreshed['aiJudgement'] as AiJudgementModel?,
         microActions:
             refreshed['microActions'] as List<MicroActionModel>? ?? const [],
+        todayLifeExperiment:
+            refreshed['todayLifeExperiment'] as LifeExperimentModel?,
         captureSuccessTick: _state.captureSuccessTick + 1,
         clearErrorMessage: true,
       );
@@ -249,12 +237,24 @@ class TodayViewModel extends ChangeNotifier {
   Future<void> submitQuickStatus({
     required String choice,
     AppLanguage language = AppLanguage.english,
+    String? detail,
+    int? energyLevel,
+    String? note,
   }) async {
-    final content = _quickStatusText(choice, language);
+    final content = _quickStatusText(
+      choice,
+      language,
+      detail: detail,
+      energyLevel: energyLevel,
+      note: note,
+    );
     if (content.trim().isEmpty) return;
     final rawPayloadJson = {
       'quick_status': choice,
       'user_triggered': true,
+      if (detail != null && detail.trim().isNotEmpty) 'detail': detail,
+      if (energyLevel != null) 'energy_level': energyLevel,
+      if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
     };
 
     _state = _state.copyWith(
@@ -290,15 +290,11 @@ class TodayViewModel extends ChangeNotifier {
         recentSignals: !refreshedIncludesSubmitted
             ? localFallbackSignals
             : refreshedSignals,
-        scheduleSignals:
-            refreshed['scheduleSignals'] as List<ScheduleSignalModel>? ??
-                const [],
-        activeGoals: refreshed['activeGoals'] as List<GoalModel>? ?? const [],
-        goalTasks:
-            refreshed['goalTasks'] as List<GoalTaskInstanceModel>? ?? const [],
         aiJudgement: refreshed['aiJudgement'] as AiJudgementModel?,
         microActions:
             refreshed['microActions'] as List<MicroActionModel>? ?? const [],
+        todayLifeExperiment:
+            refreshed['todayLifeExperiment'] as LifeExperimentModel?,
         captureSuccessTick: _state.captureSuccessTick + 1,
         clearErrorMessage: true,
       );
@@ -387,8 +383,23 @@ class TodayViewModel extends ChangeNotifier {
     required AiJudgementModel judgement,
     required String status,
     String? userAdjustmentText,
+    bool addToTimeline = true,
     AppLanguage language = AppLanguage.english,
   }) async {
+    final createsSignalCard = addToTimeline &&
+        const {'confirmed', 'adjusted', 'accurate', 'partial'}
+            .contains(status == 'supplemented' ? 'adjusted' : status);
+    if (!createsSignalCard) {
+      _sessionHiddenJudgementIds.add(judgement.id);
+      _state = _state.copyWith(
+        captureSubmitState: SubmitState.success,
+        aiJudgement: null,
+        clearErrorMessage: true,
+      );
+      notifyListeners();
+      return;
+    }
+
     _state = _state.copyWith(
       captureSubmitState: SubmitState.submitting,
       clearErrorMessage: true,
@@ -400,6 +411,7 @@ class TodayViewModel extends ChangeNotifier {
         judgementId: judgement.id,
         status: status,
         userAdjustmentText: userAdjustmentText,
+        addToTimeline: addToTimeline,
         language: language,
       );
       _applyTodayRefresh(
@@ -478,6 +490,39 @@ class TodayViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> archiveAndSubmitMicroActionFeedback({
+    required MicroActionModel action,
+    required String feedback,
+  }) async {
+    _state = _state.copyWith(
+      captureSubmitState: SubmitState.submitting,
+      clearErrorMessage: true,
+    );
+    notifyListeners();
+
+    try {
+      await repository.chooseMicroAction(
+        microActionId: action.id,
+        choice: 'weekly_experiment',
+      );
+      final refreshed = await repository.submitMicroActionFeedback(
+        microActionId: action.id,
+        feedback: feedback,
+      );
+      _applyTodayRefresh(
+        refreshed,
+        submitState: SubmitState.success,
+        incrementSuccessTick: false,
+      );
+    } catch (e) {
+      _state = _state.copyWith(
+        captureSubmitState: SubmitState.failure,
+        errorMessage: e.toString(),
+      );
+    }
+    notifyListeners();
+  }
+
   Future<void> _refreshAfterJudgementMutation({
     required SubmitState submitState,
     required bool incrementSuccessTick,
@@ -503,15 +548,11 @@ class TodayViewModel extends ChangeNotifier {
       bestAction: refreshed['bestAction'] as DailyBestActionModel?,
       recentSignals:
           refreshed['recentSignals'] as List<RecentSignalModel>? ?? const [],
-      scheduleSignals:
-          refreshed['scheduleSignals'] as List<ScheduleSignalModel>? ??
-              const [],
-      activeGoals: refreshed['activeGoals'] as List<GoalModel>? ?? const [],
-      goalTasks:
-          refreshed['goalTasks'] as List<GoalTaskInstanceModel>? ?? const [],
-      aiJudgement: refreshed['aiJudgement'] as AiJudgementModel?,
+      aiJudgement: _visibleJudgement(refreshed['aiJudgement']),
       microActions:
           refreshed['microActions'] as List<MicroActionModel>? ?? const [],
+      todayLifeExperiment:
+          refreshed['todayLifeExperiment'] as LifeExperimentModel?,
       captureSuccessTick: incrementSuccessTick
           ? _state.captureSuccessTick + 1
           : _state.captureSuccessTick,
@@ -519,7 +560,40 @@ class TodayViewModel extends ChangeNotifier {
     );
   }
 
-  String _quickStatusText(String choice, AppLanguage language) {
+  AiJudgementModel? _visibleJudgement(Object? value) {
+    final judgement = value as AiJudgementModel?;
+    if (judgement == null ||
+        _sessionHiddenJudgementIds.contains(judgement.id)) {
+      return null;
+    }
+    return judgement;
+  }
+
+  String _quickStatusText(
+    String choice,
+    AppLanguage language, {
+    String? detail,
+    int? energyLevel,
+    String? note,
+  }) {
+    final noteText = note?.trim();
+    final base = _quickStatusBaseText(choice, language);
+    final detailText = _quickStatusDetailText(detail, language);
+    final energyText = _quickStatusEnergyText(energyLevel, language);
+    if (noteText != null && noteText.isNotEmpty) {
+      return switch (language) {
+        AppLanguage.simplifiedChinese =>
+          '$base$detailText$energyText 补充：$noteText',
+        AppLanguage.traditionalChinese =>
+          '$base$detailText$energyText 補充：$noteText',
+        AppLanguage.japanese => '$base$detailText$energyText 補足：$noteText',
+        AppLanguage.english => '$base$detailText$energyText Note: $noteText',
+      };
+    }
+    return '$base$detailText$energyText';
+  }
+
+  String _quickStatusBaseText(String choice, AppLanguage language) {
     switch (language) {
       case AppLanguage.simplifiedChinese:
         return switch (choice) {
@@ -584,6 +658,66 @@ class TodayViewModel extends ChangeNotifier {
     }
   }
 
+  String _quickStatusDetailText(String? detail, AppLanguage language) {
+    if (detail == null || detail.trim().isEmpty) return '';
+    return switch (language) {
+      AppLanguage.simplifiedChinese => switch (detail) {
+          'a_bit_tired' => ' 更像是有点累。',
+          'mind_messy' => ' 更像是心里乱。',
+          'want_rest' => ' 更像是想休息。',
+          'still_want_do' => ' 但还想做点事。',
+          _ => '',
+        },
+      AppLanguage.traditionalChinese => switch (detail) {
+          'a_bit_tired' => ' 更像是有點累。',
+          'mind_messy' => ' 更像是心裡亂。',
+          'want_rest' => ' 更像是想休息。',
+          'still_want_do' => ' 但還想做點事。',
+          _ => '',
+        },
+      AppLanguage.japanese => switch (detail) {
+          'a_bit_tired' => ' 少し疲れている感じです。',
+          'mind_messy' => ' 心が散らかっている感じです。',
+          'want_rest' => ' 休みたい感じです。',
+          'still_want_do' => ' でも少し動きたい感じです。',
+          _ => '',
+        },
+      AppLanguage.english => switch (detail) {
+          'a_bit_tired' => ' It feels a bit tired.',
+          'mind_messy' => ' It feels mentally messy.',
+          'want_rest' => ' It feels like I want rest.',
+          'still_want_do' => ' I still want to do a little.',
+          _ => '',
+        },
+    };
+  }
+
+  String _quickStatusEnergyText(int? energyLevel, AppLanguage language) {
+    if (energyLevel == null) return '';
+    return switch (language) {
+      AppLanguage.simplifiedChinese => switch (energyLevel) {
+          0 => ' 精力偏低。',
+          1 => ' 精力还好。',
+          _ => ' 精力很足。',
+        },
+      AppLanguage.traditionalChinese => switch (energyLevel) {
+          0 => ' 精力偏低。',
+          1 => ' 精力還好。',
+          _ => ' 精力很足。',
+        },
+      AppLanguage.japanese => switch (energyLevel) {
+          0 => ' エネルギーは低めです。',
+          1 => ' エネルギーはまあまあです。',
+          _ => ' エネルギーは十分です。',
+        },
+      AppLanguage.english => switch (energyLevel) {
+          0 => ' Energy feels low.',
+          1 => ' Energy feels okay.',
+          _ => ' Energy feels enough.',
+        },
+    };
+  }
+
   Future<void> submitFollowup(String value) async {
     final followup = _state.pendingQuestion;
     if (followup == null) return;
@@ -637,129 +771,44 @@ class TodayViewModel extends ChangeNotifier {
       bestAction: refreshed['bestAction'] as DailyBestActionModel?,
       recentSignals:
           refreshed['recentSignals'] as List<RecentSignalModel>? ?? const [],
-      scheduleSignals:
-          refreshed['scheduleSignals'] as List<ScheduleSignalModel>? ??
-              const [],
-      activeGoals: refreshed['activeGoals'] as List<GoalModel>? ?? const [],
-      goalTasks:
-          refreshed['goalTasks'] as List<GoalTaskInstanceModel>? ?? const [],
       aiJudgement: refreshed['aiJudgement'] as AiJudgementModel?,
       microActions:
           refreshed['microActions'] as List<MicroActionModel>? ?? const [],
+      todayLifeExperiment:
+          refreshed['todayLifeExperiment'] as LifeExperimentModel?,
       clearErrorMessage: true,
     );
     notifyListeners();
   }
 
-  Future<void> createSchedule({
-    required String title,
-    DateTime? date,
-    DateTime? time,
-    DateTime? endTime,
-    String? scene,
-    String? note,
-    String? expectedEnergyLoad,
-    bool reminderEnabled = false,
+  Future<void> submitTodayLifeExperimentFeedback({
+    required LifeExperimentModel experiment,
+    required String status,
+    required String feedbackText,
   }) async {
-    final trimmed = title.trim();
-    if (trimmed.isEmpty) {
-      _state = _state.copyWith(errorMessage: 'schedule_title_required');
-      notifyListeners();
-      return;
+    _state = _state.copyWith(
+      captureSubmitState: SubmitState.submitting,
+      clearErrorMessage: true,
+    );
+    notifyListeners();
+
+    try {
+      final refreshed = await repository.submitTodayLifeExperimentFeedback(
+        experimentId: experiment.id,
+        status: status,
+        feedbackText: feedbackText,
+      );
+      _applyTodayRefresh(
+        refreshed,
+        submitState: SubmitState.success,
+        incrementSuccessTick: false,
+      );
+    } catch (e) {
+      _state = _state.copyWith(
+        captureSubmitState: SubmitState.failure,
+        errorMessage: e.toString(),
+      );
     }
-    await repository.createScheduleSignal(
-      title: trimmed,
-      date: date,
-      time: time,
-      endTime: endTime,
-      scene: scene,
-      note: note,
-      expectedEnergyLoad: expectedEnergyLoad,
-      reminderEnabled: reminderEnabled,
-    );
-    await load();
-  }
-
-  Future<void> updateSchedule({
-    required ScheduleSignalModel schedule,
-    required String title,
-    DateTime? date,
-    DateTime? time,
-    DateTime? endTime,
-    String? scene,
-    String? note,
-    String? expectedEnergyLoad,
-    bool reminderEnabled = false,
-  }) async {
-    final trimmed = title.trim();
-    if (trimmed.isEmpty) {
-      _state = _state.copyWith(errorMessage: 'schedule_title_required');
-      notifyListeners();
-      return;
-    }
-    await repository.updateScheduleSignal(
-      id: schedule.id,
-      title: trimmed,
-      date: date,
-      time: time,
-      endTime: endTime,
-      scene: scene,
-      note: note,
-      expectedEnergyLoad: expectedEnergyLoad,
-      reminderEnabled: reminderEnabled,
-    );
-    await load();
-  }
-
-  Future<void> deleteSchedule(ScheduleSignalModel schedule) async {
-    await repository.deleteScheduleSignal(schedule.id);
-    await load();
-  }
-
-  Future<void> recordScheduleFeeling({
-    required ScheduleSignalModel schedule,
-    required String feelingText,
-  }) async {
-    final text = feelingText.trim();
-    if (text.isEmpty) return;
-    await repository.recordScheduleFeeling(
-      schedule: schedule,
-      feelingText: text,
-    );
-    await load();
-  }
-
-  Future<void> createGoal({
-    required String title,
-    String? desiredFrequency,
-    int? desiredDurationMinutes,
-  }) async {
-    final trimmed = title.trim();
-    if (trimmed.isEmpty) {
-      _state = _state.copyWith(errorMessage: 'goal_title_required');
-      notifyListeners();
-      return;
-    }
-    await repository.createGoalWithPlan(
-      title: trimmed,
-      desiredFrequency: desiredFrequency,
-      desiredDurationMinutes: desiredDurationMinutes,
-    );
-    await load();
-  }
-
-  Future<void> submitGoalFeedback({
-    required GoalTaskInstanceModel task,
-    required String happened,
-    String? effect,
-  }) async {
-    await repository.submitGoalFeedback(
-      goalId: task.goalId,
-      goalTaskInstanceId: task.id,
-      happened: happened,
-      effect: effect,
-      taskTitle: task.title,
-    );
-    await load();
+    notifyListeners();
   }
 }

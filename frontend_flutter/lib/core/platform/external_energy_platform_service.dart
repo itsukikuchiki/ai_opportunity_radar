@@ -19,46 +19,34 @@ class ExternalEnergyPlatformService {
   });
 
   Future<ExternalEnergyPermissionStatus> calendarPermissionStatus() async {
-    return _statusFromString(
-      await _channel.invokeMethod<String>('calendarPermissionStatus'),
-    );
+    try {
+      return _statusFromString(
+        await _channel.invokeMethod<String>('calendarPermissionStatus'),
+      );
+    } catch (_) {
+      return ExternalEnergyPermissionStatus.unavailable;
+    }
   }
 
   Future<ExternalEnergyPermissionStatus> healthPermissionStatus() async {
-    return _statusFromString(
-      await _channel.invokeMethod<String>('healthPermissionStatus'),
-    );
+    try {
+      return _statusFromString(
+        await _channel.invokeMethod<String>('healthPermissionStatus'),
+      );
+    } catch (_) {
+      return ExternalEnergyPermissionStatus.unavailable;
+    }
   }
 
   Future<CalendarScheduleDensityResult> requestCalendarHints() async {
-    try {
-      final raw = await _channel.invokeMethod<Map<dynamic, dynamic>>(
-        'requestCalendarScheduleHints',
-      );
-      final map = _stringMap(raw);
-      final status = _statusFromString(map['permission_status']?.toString());
-      final rawBlocks = map['blocks'];
-      final blocks = rawBlocks is List
-          ? rawBlocks
-              .whereType<Map>()
-              .map((entry) => calendarRepository.sanitizeLocalEventPayload(
-                    entry.cast<String, Object?>(),
-                  ))
-              .whereType<CalendarScheduleBlock>()
-              .toList()
-          : const <CalendarScheduleBlock>[];
-      return calendarRepository.evaluate(
-        permissionStatus: status,
-        blocks: blocks,
-        readFailed: map['read_failed'] == true,
-      );
-    } catch (_) {
-      return calendarRepository.evaluate(
-        permissionStatus: ExternalEnergyPermissionStatus.unavailable,
-        blocks: const [],
-        readFailed: true,
-      );
-    }
+    // Calendar remains a future Target. This release deliberately never calls
+    // the native EventKit bridge, so navigation and background refresh cannot
+    // present a Calendar permission sheet.
+    return calendarRepository.evaluate(
+      permissionStatus: ExternalEnergyPermissionStatus.notRequested,
+      blocks: const [],
+      readFailed: false,
+    );
   }
 
   Future<HealthRecoverySignalResult> requestHealthHints() async {

@@ -20,6 +20,7 @@ void main() {
       expect(boundary.canContributeToSignalLibrary, isFalse);
       expect(boundary.storesRawExternalData, isFalse);
       expect(boundary.fallbackMessage, contains('optional'));
+      expect(boundary.fallbackMessage, isNot(contains('Calendar')));
     });
 
     test('consent denied falls back without reducing Today Weekly Journey', () {
@@ -34,6 +35,7 @@ void main() {
       expect(boundary.basicAppAvailable, isTrue);
       expect(boundary.usesInternalSignalCards, isTrue);
       expect(boundary.fallbackMessage, contains('still works'));
+      expect(boundary.fallbackMessage, isNot(contains('Calendar')));
       expect(repository.canRequestLater(ExternalEnergyPermissionStatus.denied),
           isTrue);
     });

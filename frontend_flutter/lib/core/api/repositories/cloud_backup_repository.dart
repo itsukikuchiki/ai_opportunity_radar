@@ -1,7 +1,3 @@
-import 'dart:convert';
-
-import 'package:http/http.dart' as http;
-
 import '../api_client.dart';
 
 class CloudBackupRepository {
@@ -89,14 +85,10 @@ class CloudBackupRepository {
   Future<int> deleteCloudBackup({
     required String sessionToken,
   }) async {
-    final response = await http.delete(
-      Uri.parse('${apiClient.baseUrl}/api/v1/backup'),
-      headers: _headers(sessionToken),
+    final decoded = await apiClient.deleteJsonWithHeaders(
+      '/api/v1/backup',
+      additionalHeaders: _sessionHeaders(sessionToken),
     );
-    if (response.statusCode >= 400) {
-      throw Exception('DELETE /api/v1/backup failed: ${response.body}');
-    }
-    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final data = (decoded['data'] as Map<String, dynamic>?) ?? decoded;
     return (data['deleted'] as num?)?.toInt() ?? 0;
   }
@@ -104,14 +96,10 @@ class CloudBackupRepository {
   Future<Map<String, int>> deleteAccount({
     required String sessionToken,
   }) async {
-    final response = await http.delete(
-      Uri.parse('${apiClient.baseUrl}/api/v1/account'),
-      headers: _headers(sessionToken),
+    final decoded = await apiClient.deleteJsonWithHeaders(
+      '/api/v1/account',
+      additionalHeaders: _sessionHeaders(sessionToken),
     );
-    if (response.statusCode >= 400) {
-      throw Exception('DELETE /api/v1/account failed: ${response.body}');
-    }
-    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final data = (decoded['data'] as Map<String, dynamic>?) ?? decoded;
     final deleted = (data['deleted'] as Map?) ?? const {};
     return {
@@ -123,37 +111,27 @@ class CloudBackupRepository {
   Future<Map<String, dynamic>> _getWithSession(
     String path,
     String sessionToken,
-  ) async {
-    final response = await http.get(
-      Uri.parse('${apiClient.baseUrl}$path'),
-      headers: _headers(sessionToken),
+  ) {
+    return apiClient.getJsonWithHeaders(
+      path,
+      additionalHeaders: _sessionHeaders(sessionToken),
     );
-    if (response.statusCode >= 400) {
-      throw Exception('GET $path failed: ${response.body}');
-    }
-    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> _postWithSession(
     String path,
     String sessionToken,
     Map<String, dynamic> body,
-  ) async {
-    final response = await http.post(
-      Uri.parse('${apiClient.baseUrl}$path'),
-      headers: _headers(sessionToken),
-      body: jsonEncode(body),
+  ) {
+    return apiClient.postJsonWithHeaders(
+      path,
+      body,
+      additionalHeaders: _sessionHeaders(sessionToken),
     );
-    if (response.statusCode >= 400) {
-      throw Exception('POST $path failed: ${response.body}');
-    }
-    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
-  Map<String, String> _headers(String sessionToken) {
+  Map<String, String> _sessionHeaders(String sessionToken) {
     return {
-      'Content-Type': 'application/json',
-      'X-User-Id': apiClient.userId,
       'X-Account-Session': sessionToken,
     };
   }

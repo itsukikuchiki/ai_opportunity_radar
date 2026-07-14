@@ -10,17 +10,27 @@ class HealthRecoverySignalRepository {
     bool readFailed = false,
   }) {
     if (permissionStatus != ExternalEnergyPermissionStatus.authorized) {
-      return _fallback(_statusForPermission(permissionStatus));
+      return _fallback(
+        _statusForPermission(permissionStatus),
+        permissionStatus: permissionStatus,
+      );
     }
     if (readFailed) {
-      return _fallback('healthkit_read_failed_internal_only');
+      return _fallback(
+        'healthkit_read_failed_internal_only',
+        permissionStatus: permissionStatus,
+      );
     }
     if (aggregate == null || !aggregate.hasUsableSignal) {
-      return _fallback('no_health_data_internal_only');
+      return _fallback(
+        'no_health_data_internal_only',
+        permissionStatus: permissionStatus,
+      );
     }
 
     final hints = _buildHints(aggregate);
     return HealthRecoverySignalResult(
+      permissionStatus: permissionStatus,
       status: 'healthkit_recovery_signal_ready',
       usesInternalEnergyBudgetFallback: false,
       externalDataIsAuxiliary: true,
@@ -120,8 +130,13 @@ class HealthRecoverySignalRepository {
     }
   }
 
-  HealthRecoverySignalResult _fallback(String status) {
+  HealthRecoverySignalResult _fallback(
+    String status, {
+    ExternalEnergyPermissionStatus permissionStatus =
+        ExternalEnergyPermissionStatus.unavailable,
+  }) {
     return HealthRecoverySignalResult(
+      permissionStatus: permissionStatus,
       status: status,
       usesInternalEnergyBudgetFallback: true,
       externalDataIsAuxiliary: true,

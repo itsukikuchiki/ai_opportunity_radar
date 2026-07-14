@@ -1,6 +1,7 @@
 import '../../models/memory_models.dart';
 import '../../models/monthly_models.dart';
 import '../../models/today_models.dart';
+import '../../models/weekly_illustration_taxonomy.dart';
 import '../../models/weekly_models.dart';
 import '../api_client.dart';
 
@@ -132,6 +133,8 @@ class AiRepository {
           'day_counts': dayCounts,
           'top_tokens': topTokens,
           'focus_area': focusArea,
+          'illustration_taxonomy':
+              WeeklyIllustrationTaxonomy.weeklyGeneratePayload,
         },
       );
 
@@ -229,8 +232,6 @@ class AiRepository {
         {
           'capture_content': signal.content,
           'capture_acknowledgement': signal.acknowledgement,
-          'capture_observation': signal.observation,
-          'capture_try_next': signal.tryNext,
           'history': history.map((e) => e.toJson()).toList(),
           'user_message': userMessage,
           'focus_area': focusArea,
@@ -255,13 +256,13 @@ class AiRepository {
     }
   }
 
-  Future<DeepWeeklyModel> generateDeepWeekly({
+  Future<WeeklyReflectModel> generateWeeklyReflect({
     required WeeklyInsightModel weekly,
     String? focusArea,
   }) async {
     try {
       final res = await apiClient.postJson(
-        '/api/v1/ai/deep-weekly',
+        '/api/v1/ai/reflect-weekly',
         {
           'week_start': weekly.weekStart,
           'week_end': weekly.weekEnd,
@@ -274,7 +275,7 @@ class AiRepository {
         },
       );
       final data = (res['data'] as Map<String, dynamic>?) ?? res;
-      return DeepWeeklyModel.fromJson(data);
+      return WeeklyReflectModel.fromJson(data);
     } catch (_) {
       final topic = weekly.deriveTopicFocus();
       final chartPoints = [...weekly.chartData]..sort(
@@ -292,14 +293,14 @@ class AiRepository {
       }
       final peakLabel = _shortDateLabel(peak?.date) ?? '这周某一天';
       final lowLabel = _shortDateLabel(low?.date) ?? '这周某个低点';
-      return DeepWeeklyModel(
-        summary: '${topic.reason} Deep Weekly 更需要看的，是这些记录背后的同一种拉扯，而不是把免费版内容拉长。',
+      return WeeklyReflectModel(
+        summary: '${topic.reason} L3 Reflect 更需要看的，是这些记录背后的同一种拉扯，而不是把内容拉长。',
         rootTension:
             '更深一层的 tension 往往不是单个事件，而是你想推进的方向和反复回来的摩擦点互相顶住，导致每次都要重新找回节奏。',
         hiddenPattern:
             '把图和文字放在一起看，$peakLabel 是线索更密的节点，$lowLabel 更像状态低点。重点不是哪天最糟，而是压力聚集后你如何被拉走。',
         nextFocus: '${topic.nextWatch} 下次再出现同类场景时，多记一句它发生在开始、推进中段，还是收尾阶段。',
-        riskNote: '这份 deep weekly 适合帮你收窄观察面，不适合一次性下结论。',
+        riskNote: '这份 L3 Reflect 适合帮你收窄观察面，不适合一次性下结论。',
         keyNodes: [
           topic.headline,
           '线索密集点：$peakLabel',

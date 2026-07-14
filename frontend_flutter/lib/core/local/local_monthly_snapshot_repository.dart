@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/monthly_models.dart';
+import 'local_cache_invalidation_repository.dart';
 import 'local_database.dart';
 
 class LocalMonthlySnapshotRepository {
@@ -43,6 +44,12 @@ class LocalMonthlySnapshotRepository {
           monthly.weeklyBridges.map((e) => e.toJson()).toList(),
         ),
         'source_hash': sourceHash,
+        'schema_version': 1,
+        'pipeline_version': 'v4_p1_06',
+        'dirty': 0,
+        'is_stale': 0,
+        'stale_reason': null,
+        'invalidated_at': null,
         'generated_at': DateTime.now().toUtc().toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -50,16 +57,11 @@ class LocalMonthlySnapshotRepository {
   }
 
   Future<String?> getSourceHash(String monthStart) async {
-    final db = await localDatabase.database;
-    final rows = await db.query(
-      'monthly_snapshots',
-      columns: ['source_hash'],
-      where: 'month_start = ?',
-      whereArgs: [monthStart],
-      limit: 1,
+    return LocalCacheInvalidationRepository(localDatabase).validSourceHash(
+      table: 'monthly_snapshots',
+      keyColumn: 'month_start',
+      keyValue: monthStart,
     );
-    if (rows.isEmpty) return null;
-    return rows.first['source_hash'] as String?;
   }
 
   String buildSourceHash({

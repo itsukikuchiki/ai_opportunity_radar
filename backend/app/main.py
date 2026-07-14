@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.api.ai import router as ai_router
 from app.api.captures import router as captures_router
@@ -13,19 +16,15 @@ from app.api.self_review import router as self_review_router
 from app.api.analytics import router as analytics_router
 from app.api.usage import router as usage_router
 from app.api.account_backup import router as account_backup_router
-from app.core.db import Base, engine
-import app.models  # noqa: F401
+from app.core.db import get_db
+from app.core.request_observability import install_request_observability
 
 app = FastAPI(
     title="AI Opportunity Radar API",
     version="0.9.0",
 )
 
-
-@app.on_event("startup")
-def on_startup() -> None:
-    Base.metadata.create_all(bind=engine)
-
+install_request_observability(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,5 +49,9 @@ app.include_router(account_backup_router, prefix="/api/v1", tags=["account_backu
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health(db: Session = Depends(get_db)) -> dict[str, str]:
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="database unavailable") from exc
     return {"status": "ok", "version": "0.9.0"}

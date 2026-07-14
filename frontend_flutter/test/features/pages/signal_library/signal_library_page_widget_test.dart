@@ -15,56 +15,130 @@ void main() {
     await tester.pumpWidget(_buildWidget());
     await tester.pump();
 
-    expect(find.text('Shared life signals'), findsOneWidget);
-    expect(
-      find.text('Possible structure'),
-      findsOneWidget,
-    );
-    expect(find.text('Observe'), findsOneWidget);
-    expect(find.text('Small experiment'), findsOneWidget);
-    expect(find.text('Me too'), findsOneWidget);
-    expect(find.text('Save'), findsOneWidget);
-    expect(find.text('Share'), findsOneWidget);
+    expect(find.text('Signal Library'), findsOneWidget);
+    expect(find.text('Search a signal...'), findsOneWidget);
+    expect(find.text('All'), findsOneWidget);
+    expect(find.text('emotional stability'), findsOneWidget);
+    expect(find.text('self boundary'), findsOneWidget);
+    expect(find.textContaining('fixed commitments'), findsOneWidget);
+    expect(find.text('Does this match me?'), findsOneWidget);
+    expect(find.text('Save'), findsNothing);
+    expect(find.text('Make it mine'), findsNothing);
+    expect(find.textContaining('observation'), findsNothing);
     expect(find.textContaining('you are this kind of person'), findsNothing);
   });
 
-  testWidgets('saving a pattern uses private low-pressure confirmation',
-      (tester) async {
-    await tester.pumpWidget(_buildWidget());
-    await tester.pump();
-
-    final saveButton = find.text('Save');
-    await tester.ensureVisible(saveButton);
-    await tester.pump();
-    await tester.tap(saveButton);
-    await tester.pump();
-
-    expect(
-      find.text('Saved privately into your observations.'),
-      findsOneWidget,
-    );
-    expect(find.text('Saved'), findsOneWidget);
-    expect(find.textContaining('confirm you have this problem'), findsNothing);
-  });
-
-  testWidgets('Chinese copy saves into observation without labeling the user',
+  testWidgets('accurate can edit and add one SignalCard to the timeline',
       (tester) async {
     final repository = _FakeSignalLibraryRepository();
-    await tester.pumpWidget(
-      _buildWidget(
-        repository: repository,
-        locale: const Locale.fromSubtags(
-          languageCode: 'zh',
-          scriptCode: 'Hans',
-        ),
-      ),
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_buildWidget(repository: repository));
+    await tester.pump();
+
+    final review = find.byKey(
+      const ValueKey('library-review-over_scheduled_weeks'),
     );
+    await tester.ensureVisible(review);
+    await tester.tap(review);
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const ValueKey('library-signal-accurate')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('library-signal-partial')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('library-signal-inaccurate')),
+      findsOneWidget,
+    );
+    expect(find.text('Try today'), findsNothing);
+    expect(find.text('Save'), findsNothing);
+    expect(find.textContaining('observation'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('library-signal-accurate')));
+    await tester.pumpAndSettle();
+    final input = find.byKey(const ValueKey('library-signal-timeline-input'));
+    expect(input, findsOneWidget);
+    await tester.enterText(input, 'I need more room between fixed plans.');
+    await tester.tap(
+      find.byKey(const ValueKey('library-signal-add-timeline')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.responses, hasLength(1));
+    expect(repository.responses.single['status'], 'accurate');
+    expect(repository.responses.single['userText'],
+        'I need more room between fixed plans.');
+    expect(repository.responses.single['addToTimeline'], isTrue);
+    expect(find.text('Added to your timeline.'), findsOneWidget);
+  });
+
+  testWidgets('somewhat can edit then decline timeline with zero response',
+      (tester) async {
+    final repository = _FakeSignalLibraryRepository();
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_buildWidget(repository: repository));
+    await tester.pump();
+
+    final review = find.byKey(
+      const ValueKey('library-review-over_scheduled_weeks'),
+    );
+    await tester.ensureVisible(review);
+    await tester.tap(review);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('library-signal-partial')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('library-signal-timeline-input')),
+      'Only the lack of buffer feels familiar.',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('library-signal-do-not-add')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.responses, isEmpty);
+    expect(
+      find.text('Nothing was added to your timeline.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Chinese copy uses three real judgements without old actions',
+      (tester) async {
+    final repository = _FakeSignalLibraryRepository();
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_buildWidget(
+      repository: repository,
+      locale: const Locale.fromSubtags(
+        languageCode: 'zh',
+        scriptCode: 'Hans',
+      ),
+    ));
     await tester.pump();
 
     expect(repository.lastLanguage, 'zh-Hans');
-    expect(find.text('保存'), findsOneWidget);
+    expect(find.text('看看像不像我'), findsOneWidget);
+    await tester.tap(find.text('看看像不像我'));
+    await tester.pumpAndSettle();
+    expect(find.text('准'), findsOneWidget);
+    expect(find.text('有一点像'), findsOneWidget);
+    expect(find.text('不准'), findsOneWidget);
+    expect(find.text('加入今日小行动'), findsNothing);
+    expect(find.text('保存观察'), findsNothing);
+    expect(find.text('暂时不做'), findsNothing);
     expect(find.textContaining('你就是这种人'), findsNothing);
     expect(find.textContaining('你有这个问题'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('library-signal-inaccurate')));
+    await tester.pumpAndSettle();
+    expect(repository.responses, isEmpty);
+    expect(
+      find.byKey(const ValueKey('library-signal-timeline-input')),
+      findsNothing,
+    );
   });
 
   testWidgets('passes Traditional Chinese and Japanese locale codes',
@@ -125,7 +199,7 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text('Over-scheduled weeks'), findsOneWidget);
+    expect(find.textContaining('fixed commitments'), findsOneWidget);
 
     locale.value = const Locale.fromSubtags(
       languageCode: 'zh',
@@ -135,8 +209,8 @@ void main() {
     await tester.pump();
 
     expect(repository.requestedLanguages, ['en', 'zh-Hans']);
-    expect(find.text('安排过密的一周'), findsOneWidget);
-    expect(find.text('Over-scheduled weeks'), findsNothing);
+    expect(find.text('有些时候，一周里固定安排很多，中间却几乎没有可以缓一缓的空隙。'), findsOneWidget);
+    expect(find.textContaining('fixed commitments'), findsNothing);
   });
 
   testWidgets(
@@ -149,41 +223,39 @@ void main() {
     await tester.pumpWidget(_buildWidget(repository: repository));
     await tester.pump();
 
-    expect(find.text('Over-scheduled weeks'), findsOneWidget);
-    expect(find.text('Recovery debt'), findsOneWidget);
-    expect(find.text('Unclear expectations'), findsOneWidget);
+    expect(find.textContaining('fixed commitments'), findsOneWidget);
+    expect(find.textContaining('rest starts feeling'), findsOneWidget);
 
-    await tester
-        .ensureVisible(find.byKey(const ValueKey('library-category-recovery')));
-    await tester.tap(find.byKey(const ValueKey('library-category-recovery')));
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('library-category-food_sleep')));
+    await tester.tap(find.byKey(const ValueKey('library-category-food_sleep')));
     await tester.pump();
 
-    expect(find.text('Recovery debt'), findsOneWidget);
-    expect(find.text('Over-scheduled weeks'), findsNothing);
-    expect(find.text('Unclear expectations'), findsNothing);
+    expect(find.textContaining('rest starts feeling'), findsOneWidget);
+    expect(find.textContaining('fixed commitments'), findsNothing);
 
     await tester.drag(
       find.byType(SingleChildScrollView).first,
       const Offset(-520, 0),
     );
     await tester.pump();
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('library-category-growth_plan')));
     await tester
-        .ensureVisible(find.byKey(const ValueKey('library-category-work')));
-    await tester.tap(find.byKey(const ValueKey('library-category-work')));
+        .tap(find.byKey(const ValueKey('library-category-growth_plan')));
     await tester.pump();
 
-    expect(find.text('Over-scheduled weeks'), findsOneWidget);
-    expect(find.text('Recovery debt'), findsNothing);
-    expect(find.text('Unclear expectations'), findsNothing);
+    expect(find.textContaining('fixed commitments'), findsOneWidget);
+    expect(find.textContaining('rest starts feeling'), findsNothing);
 
     await tester.ensureVisible(
-        find.byKey(const ValueKey('library-category-relationships')));
+        find.byKey(const ValueKey('library-category-self_boundary')));
     await tester
-        .tap(find.byKey(const ValueKey('library-category-relationships')));
+        .tap(find.byKey(const ValueKey('library-category-self_boundary')));
     await tester.pump();
 
-    expect(find.text('Unclear expectations'), findsOneWidget);
-    expect(find.text('Over-scheduled weeks'), findsNothing);
+    expect(find.textContaining('relationship itself'), findsOneWidget);
+    expect(find.textContaining('fixed commitments'), findsNothing);
   });
 }
 
@@ -218,6 +290,7 @@ class _FakeSignalLibraryRepository extends SignalLibraryRepository {
 
   String? lastLanguage;
   final List<String> requestedLanguages = [];
+  final List<Map<String, Object?>> responses = [];
 
   @override
   Future<List<LibraryPatternModel>> listCuratedPatterns({
@@ -232,23 +305,26 @@ class _FakeSignalLibraryRepository extends SignalLibraryRepository {
   }
 
   @override
-  Future<void> recordPrivateAction({
-    required String patternId,
-    required String action,
-  }) async {}
-
-  @override
-  Future<RecentSignalModel> saveToMyObservation({
+  Future<RecentSignalModel?> respondToPattern({
     required LibraryPatternModel pattern,
-    String timezone = 'local',
+    required String status,
+    String? userText,
+    bool addToTimeline = false,
   }) async {
+    responses.add({
+      'patternId': pattern.id,
+      'status': status,
+      'userText': userText,
+      'addToTimeline': addToTimeline,
+    });
+    if (!addToTimeline || status == 'inaccurate') return null;
     return RecentSignalModel(
       id: 'library_test',
       signalCardId: 'library_test',
       sourceType: 'library_saved',
-      content: '',
+      content: userText ?? pattern.abstractPattern,
       privacyLevel: 'private',
-      userConfirmation: 'unconfirmed',
+      userConfirmation: status,
       rawPayloadJson: pattern.toPayloadJson(),
     );
   }
@@ -263,10 +339,6 @@ final _pattern = LibraryPatternModel(
   commonFrictions: const ['schedule density'],
   energyLoadHint: 'high-drain',
   possiblePositiveSignal: 'a small pocket of open time',
-  gentleReflection:
-      'This may be less about doing more and more about where the week has no soft edges.',
-  suggestedSmallExperiment:
-      'Try leaving one small buffer before or after the densest part of the week.',
   language: 'en',
   createdAt: DateTime.utc(2026, 5, 29),
   updatedAt: DateTime.utc(2026, 5, 29),
@@ -280,8 +352,6 @@ final _simplifiedChinesePattern = LibraryPatternModel(
   commonFrictions: const ['日程密度'],
   energyLoadHint: 'high-drain',
   possiblePositiveSignal: '一小段可自由安排的时间',
-  gentleReflection: '这也许不是需要做得更多，而是这一周哪里少了一点柔软的边界。',
-  suggestedSmallExperiment: '可以试着在最密的一段前后，留一个很小的缓冲。',
   language: 'zh-Hans',
   createdAt: DateTime.utc(2026, 5, 29),
   updatedAt: DateTime.utc(2026, 5, 29),
@@ -296,8 +366,6 @@ final _recoveryPattern = LibraryPatternModel(
   commonFrictions: const ['recovery debt'],
   energyLoadHint: 'recovery',
   possiblePositiveSignal: 'sleep recovery',
-  gentleReflection: 'Recovery may need a little more room this week.',
-  suggestedSmallExperiment: 'Try setting one small stop time before bed.',
   language: 'en',
   createdAt: DateTime.utc(2026, 5, 29),
   updatedAt: DateTime.utc(2026, 5, 29),
@@ -312,9 +380,6 @@ final _relationshipPattern = LibraryPatternModel(
   commonFrictions: const ['boundary', 'expectations'],
   energyLoadHint: 'mixed',
   possiblePositiveSignal: 'clear connection',
-  gentleReflection: 'This can be observed without deciding anything yet.',
-  suggestedSmallExperiment:
-      'Try naming one small expectation before responding.',
   language: 'en',
   createdAt: DateTime.utc(2026, 5, 29),
   updatedAt: DateTime.utc(2026, 5, 29),

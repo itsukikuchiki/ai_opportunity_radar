@@ -11,8 +11,17 @@ import 'package:ai_opportunity_radar/core/api/repositories/weekly_repository.dar
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
+import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dart';
+import 'package:ai_opportunity_radar/core/local/local_reflection_result_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_weekly_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
+
+String _dateKeyForTest(DateTime value) =>
+    '${value.year.toString().padLeft(4, '0')}-'
+    '${value.month.toString().padLeft(2, '0')}-'
+    '${value.day.toString().padLeft(2, '0')}';
+
+final DateTime _testNow = DateTime(2026, 7, 8, 12);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -40,33 +49,42 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now(),
+        installationDate: _testNow,
       );
 
       final weekly = await harness.repository.fetchCurrentWeekly();
 
       expect(weekly.status, 'first_day_gate');
       expect(weekly.keyInsight, isNull);
+      final today = _testNow;
+      final localToday = DateTime(today.year, today.month, today.day);
+      final monday = localToday.subtract(
+        Duration(days: localToday.weekday - DateTime.monday),
+      );
+      expect(weekly.weekStart, _dateKey(monday));
+      expect(weekly.weekEnd, _dateKey(monday.add(const Duration(days: 6))));
 
       await harness.close();
     });
 
-    test('2) 第 1 天只要有本地记录，Weekly 就正常展示', () async {
+    test('2) 第 1 天只有 1 条本地记录时，Weekly 显示明确进度空态', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now(),
+        installationDate: _testNow,
       );
 
       await harness.seedSignalCard(
         content: '今天上班很烦',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
       );
 
       final weekly = await harness.repository.fetchCurrentWeekly();
 
-      expect(weekly.status, 'light_ready');
-      expect(weekly.keyInsight, isNotNull);
+      expect(weekly.status, 'insufficient_data');
+      expect(weekly.keyInsight, isNull);
+      expect(weekly.reportReadiness.signalCount, 1);
+      expect(weekly.reportReadiness.remainingSignals, 2);
 
       await harness.close();
     });
@@ -75,7 +93,7 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       final weekly = await harness.repository.fetchCurrentWeekly();
@@ -86,43 +104,173 @@ void main() {
       await harness.close();
     });
 
-    test('4) 第 2 天以后只有 1 条本地记录时，Weekly 返回 light_ready', () async {
+    test('4) 第 2 天以后只有 1 条本地记录时，Weekly 仍不生成报告', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         content: '今天开会被打断',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
       );
 
       final weekly = await harness.repository.fetchCurrentWeekly();
 
-      expect(weekly.status, 'light_ready');
-      expect(weekly.patterns, isNotEmpty);
+      expect(weekly.status, 'insufficient_data');
+      expect(weekly.patterns, isEmpty);
+      expect(weekly.reportReadiness.signalCount, 1);
 
       await harness.close();
     });
 
-    test('4b) 第 2 天只有前一天 1 条信号时，Weekly 仍必须返回 light_ready', () async {
+    test('4a) Weekly 只把当前周 SignalCard 交给 AI 输入', () async {
+      final aiRepository = RecordingWeeklyAiRepository();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: aiRepository,
+        installationDate: _testNow.subtract(const Duration(days: 30)),
+      );
+
+      await harness.seedSignalCard(
+        id: 'sig_old',
+        content: '很久以前的旧周期记录',
+        createdAt: DateTime(2020, 1, 1),
+        localDate: '2020-01-01',
+      );
+      await harness.seedSignalCard(
+        id: 'sig_current',
+        content: '本周的有效记录',
+        createdAt: _testNow,
+      );
+      await harness.seedReadinessFillers(2);
+
+      await harness.repository.fetchCurrentWeekly();
+
+      expect(aiRepository.lastEntries.map((entry) => entry['id']),
+          contains('sig_current'));
+      expect(aiRepository.lastEntries.map((entry) => entry['id']),
+          isNot(contains('sig_old')));
+
+      await harness.close();
+    });
+
+    test('4a-0) Weekly 按 period 取数，不全量扫最近 500 条', () async {
+      final aiRepository = RecordingWeeklyAiRepository();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: aiRepository,
+        installationDate: _testNow.subtract(const Duration(days: 30)),
+      );
+
+      for (var i = 0; i < 520; i += 1) {
+        await harness.seedSignalCard(
+          id: 'old_$i',
+          content: '很久以前的旧记录 $i',
+          createdAt: _testNow.subtract(Duration(days: 40 + i)),
+        );
+      }
+      await harness.seedSignalCard(
+        id: 'current_period_only',
+        content: '本周唯一有效记录',
+        createdAt: _testNow,
+      );
+      await harness.seedReadinessFillers(2);
+
+      await harness.repository.fetchCurrentWeekly();
+
+      expect(
+        aiRepository.lastEntries.map((entry) => entry['signal_card_id']),
+        contains('current_period_only'),
+      );
+      expect(aiRepository.lastEntries, hasLength(3));
+
+      await harness.close();
+    });
+
+    test('4a-1) Weekly excludes legacy schedule / goal feedback from core flow',
+        () async {
+      final aiRepository = RecordingWeeklyAiRepository();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: aiRepository,
+        installationDate: _testNow.subtract(const Duration(days: 1)),
+      );
+      final now = _testNow;
+
+      await harness.seedSignalCard(
+        id: 'sig_feedback_context',
+        content: '今天下午会议之后明显变累',
+        createdAt: now,
+      );
+      await harness.seedReadinessFillers(2);
+      final db = await harness.localDatabase.database;
+      final date = _dateKey(now);
+      final timestamp = now.toUtc().toIso8601String();
+      await db.insert('schedule_signals', {
+        'id': 'legacy-weekly-schedule',
+        'title': '下午会议',
+        'local_date': date,
+        'anchor_date': date,
+        'date_precision': 'date',
+        'time_precision': 'time',
+        'feedback_status': 'recorded',
+        'actual_energy_load': 'draining',
+        'post_mood': 'tired',
+        'friction': 'context_switching',
+        'created_at': timestamp,
+        'updated_at': timestamp,
+      });
+      await db.insert('goals', {
+        'id': 'legacy-weekly-goal',
+        'title': '恢复练习',
+        'created_at': timestamp,
+        'updated_at': timestamp,
+      });
+      await db.insert('goal_feedback', {
+        'id': 'legacy-weekly-goal-feedback',
+        'goal_id': 'legacy-weekly-goal',
+        'feedback_date': date,
+        'happened': 'yes',
+        'effort_level': 'light',
+        'effect': 'helpful',
+        'comment': '做完轻一点',
+        'next_adjustment': 'continue',
+        'created_at': timestamp,
+        'updated_at': timestamp,
+      });
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+      final summary = weekly.opportunitySnapshot?['_feedback_event_summary']
+          as Map<String, dynamic>?;
+      final sourceTypes =
+          aiRepository.lastEntries.map((entry) => entry['source_type']);
+
+      expect(sourceTypes, isNot(contains('schedule_feedback')));
+      expect(sourceTypes, isNot(contains('goal_feedback')));
+      expect(summary, isNull);
+
+      await harness.close();
+    });
+
+    test('4b) 第 2 天只有前一天 1 条信号时，Weekly 仍保持门槛空态', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         content: '昨天先留下了一条信号',
-        createdAt: DateTime.now().subtract(const Duration(days: 1)),
+        createdAt: _testNow.subtract(const Duration(days: 1)),
       );
 
       final weekly = await harness.repository.fetchCurrentWeekly();
 
-      expect(weekly.status, 'light_ready');
-      expect(weekly.keyInsight, isNotNull);
-      expect(weekly.bestAction, isNotNull);
+      expect(weekly.status, 'insufficient_data');
+      expect(weekly.keyInsight, isNull);
+      expect(weekly.bestAction, isNull);
 
       await harness.close();
     });
@@ -131,10 +279,10 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
-      final now = DateTime.now();
+      final now = _testNow;
       await harness.seedSignalCard(
         content: '今天上班很烦',
         createdAt: now,
@@ -164,10 +312,10 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 6)),
+        installationDate: _testNow.subtract(const Duration(days: 6)),
       );
 
-      final now = DateTime.now();
+      final now = _testNow;
       await harness.seedSignalCard(content: '今天上班很烦', createdAt: now);
       await harness.seedSignalCard(
         content: '下午又被打断',
@@ -196,13 +344,14 @@ void main() {
       final harness1 = await _createHarness(
         dbPath: dbPath,
         aiRepository: countingAi,
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness1.seedSignalCard(
         content: '今天有点烦',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
       );
+      await harness1.seedReadinessFillers(2);
 
       final weekly1 = await harness1.repository.fetchCurrentWeekly();
       expect(weekly1.status, 'light_ready');
@@ -213,7 +362,7 @@ void main() {
       final harness2 = await _createHarness(
         dbPath: dbPath,
         aiRepository: countingAi,
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       final weekly2 = await harness2.repository.fetchCurrentWeekly();
@@ -227,13 +376,14 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FailingWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         content: '今天上班很烦',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
       );
+      await harness.seedReadinessFillers(2);
 
       final weekly = await harness.repository.fetchCurrentWeekly();
 
@@ -243,7 +393,7 @@ void main() {
       expect(weekly.bestAction, isNotNull);
 
       final cards = await harness.listSignalCards();
-      expect(cards.single['raw_text'], '今天上班很烦');
+      expect(cards.map((row) => row['raw_text']), contains('今天上班很烦'));
 
       await harness.close();
     });
@@ -253,15 +403,16 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: recordingAi,
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         id: 'sig_native',
         content: '今天被消息打断很多次',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         userConfirmation: 'accurate',
       );
+      await harness.seedReadinessFillers(2);
 
       final weekly = await harness.repository.fetchCurrentWeekly();
 
@@ -275,15 +426,17 @@ void main() {
 
     test('9) Weekly 按 SignalCard.local_date 计算本周边界，不按 UTC 错分', () async {
       final recordingAi = RecordingWeeklyAiRepository();
-      final now = DateTime.now();
+      final now = _testNow;
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: recordingAi,
         installationDate: now.subtract(const Duration(days: 1)),
       );
 
-      final localWeekStart = DateTime(now.year, now.month, now.day)
-          .subtract(const Duration(days: 6));
+      final localToday = DateTime(now.year, now.month, now.day);
+      final localWeekStart = localToday.subtract(
+        Duration(days: localToday.weekday - DateTime.monday),
+      );
       await harness.seedSignalCard(
         id: 'sig_boundary',
         content: '午夜前后还有工作消息',
@@ -295,52 +448,55 @@ void main() {
         localDate: _dateKey(localWeekStart),
         timezone: 'Asia/Tokyo',
       );
+      await harness.seedReadinessFillers(2);
 
       await harness.repository.fetchCurrentWeekly();
 
       expect(recordingAi.lastDayCounts[_dateKey(localWeekStart)], 1);
-      expect(recordingAi.lastEntries.single['local_date'],
-          _dateKey(localWeekStart));
+      expect(
+        recordingAi.lastEntries
+            .where((entry) => entry['signal_card_id'] == 'sig_boundary')
+            .single['local_date'],
+        _dateKey(localWeekStart),
+      );
 
       await harness.close();
     });
 
-    test('10) legacy/unconfirmed 可作为低置信参考，inaccurate 不进入 Weekly', () async {
+    test('10) legacy/inaccurate 不进入 Weekly，unconfirmed 保留', () async {
       final recordingAi = RecordingWeeklyAiRepository();
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: recordingAi,
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         id: 'sig_legacy',
         content: '旧记录里的反复消耗',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         isLegacy: true,
         migrationStatus: 'local_legacy',
       );
       await harness.seedSignalCard(
         id: 'sig_unconfirmed',
         content: '还没确认但可以小观察',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
       );
       await harness.seedSignalCard(
         id: 'sig_inaccurate',
         content: '用户说不准的解析',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         userConfirmation: 'inaccurate',
       );
+      await harness.seedReadinessFillers(2);
 
       await harness.repository.fetchCurrentWeekly();
 
       final ids = recordingAi.lastEntries.map((e) => e['signal_card_id']);
-      expect(ids, contains('sig_legacy'));
+      expect(ids, isNot(contains('sig_legacy')));
       expect(ids, contains('sig_unconfirmed'));
       expect(ids, isNot(contains('sig_inaccurate')));
-      final legacy = recordingAi.lastEntries
-          .firstWhere((entry) => entry['signal_card_id'] == 'sig_legacy');
-      expect(legacy['weekly_confidence'], 'legacy_reference');
       expect(await harness.includedInWeekly('sig_legacy'), isFalse);
       expect(await harness.includedInWeekly('sig_unconfirmed'), isTrue);
 
@@ -352,25 +508,25 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: recordingAi,
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         id: 'sig_draft',
         content: '本地 draft',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         isLocalDraft: true,
       );
       await harness.seedSignalCard(
         id: 'sig_failed',
         content: '同步失败',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         syncFailed: true,
       );
       await harness.seedSignalCard(
         id: 'sig_private_excluded',
         content: '不参与分析的敏感记录',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         privacyLevel: 'do_not_analyze',
       );
 
@@ -382,18 +538,18 @@ void main() {
       await harness.close();
     });
 
-    test('11b) library_saved 需要用户补充个人语境后才进入 Weekly', () async {
+    test('11b) library_saved 需要用户确认后才进入 Weekly', () async {
       final recordingAi = RecordingWeeklyAiRepository();
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: recordingAi,
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         id: 'library_unconfirmed',
         content: '',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         sourceType: 'library_saved',
         userConfirmation: 'unconfirmed',
         rawPayloadJson: const {
@@ -406,7 +562,7 @@ void main() {
       await harness.seedSignalCard(
         id: 'library_confirmed_without_context',
         content: '',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         sourceType: 'library_saved',
         userConfirmation: 'accurate',
         rawPayloadJson: const {
@@ -419,7 +575,7 @@ void main() {
       await harness.seedSignalCard(
         id: 'library_with_context',
         content: '',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         sourceType: 'library_saved',
         userConfirmation: 'supplemented',
         userCorrectionJson: const {
@@ -432,12 +588,13 @@ void main() {
               'Some people feel more worn down by frequent switching than by any single task.',
         },
       );
+      await harness.seedReadinessFillers(1);
 
       await harness.repository.fetchCurrentWeekly();
 
       final ids = recordingAi.lastEntries.map((e) => e['signal_card_id']);
       expect(ids, isNot(contains('library_unconfirmed')));
-      expect(ids, isNot(contains('library_confirmed_without_context')));
+      expect(ids, contains('library_confirmed_without_context'));
       expect(ids, contains('library_with_context'));
       final confirmed = recordingAi.lastEntries.firstWhere(
         (entry) => entry['signal_card_id'] == 'library_with_context',
@@ -447,7 +604,7 @@ void main() {
       expect(await harness.includedInWeekly('library_unconfirmed'), isFalse);
       expect(
         await harness.includedInWeekly('library_confirmed_without_context'),
-        isFalse,
+        isTrue,
       );
       expect(await harness.includedInWeekly('library_with_context'), isTrue);
 
@@ -459,36 +616,36 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: recordingAi,
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         id: 'text_raw',
         content: '文字输入算作真实信号',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
       );
       await harness.seedSignalCard(
         id: 'voice_transcript',
         content: '语音转写也算作真实信号',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         sourceType: 'voice',
       );
       await harness.seedSignalCard(
         id: 'ai_failed_raw_saved',
         content: 'AI 失败但原文已经保存也算',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
       );
       await harness.seedSignalCard(
         id: 'ai_predicted_accurate_only',
         content: 'AI 轻建议本身不算原始信号',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         sourceType: 'ai_predicted',
         userConfirmation: 'accurate',
       );
       await harness.seedSignalCard(
         id: 'ai_predicted_with_context',
         content: 'AI 预测加上自己的语境后才算',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         sourceType: 'ai_predicted',
         userConfirmation: 'supplemented',
         userCorrectionJson: const {
@@ -498,7 +655,7 @@ void main() {
       await harness.seedSignalCard(
         id: 'library_default',
         content: '',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         sourceType: 'library_saved',
         userConfirmation: 'accurate',
         rawPayloadJson: const {
@@ -510,7 +667,7 @@ void main() {
       await harness.seedSignalCard(
         id: 'library_with_context',
         content: '',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         sourceType: 'library_saved',
         userConfirmation: 'edited',
         userCorrectionJson: const {
@@ -532,16 +689,18 @@ void main() {
             'text_raw',
             'voice_transcript',
             'ai_failed_raw_saved',
+            'ai_predicted_accurate_only',
             'ai_predicted_with_context',
+            'library_default',
             'library_with_context',
           ]));
-      expect(ids, isNot(contains('ai_predicted_accurate_only')));
-      expect(ids, isNot(contains('library_default')));
 
       await harness.deleteSignalCard('text_raw');
       await harness.deleteSignalCard('voice_transcript');
       await harness.deleteSignalCard('ai_failed_raw_saved');
+      await harness.deleteSignalCard('ai_predicted_accurate_only');
       await harness.deleteSignalCard('ai_predicted_with_context');
+      await harness.deleteSignalCard('library_default');
       await harness.deleteSignalCard('library_with_context');
 
       final weeklyAfterDelete = await harness.repository.fetchCurrentWeekly();
@@ -554,10 +713,10 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: MultiPatternWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 6)),
+        installationDate: _testNow.subtract(const Duration(days: 6)),
       );
 
-      final now = DateTime.now();
+      final now = _testNow;
       await harness.seedSignalCard(content: '上午开会很累', createdAt: now);
       await harness.seedSignalCard(
         content: '下午消息切换很多',
@@ -589,18 +748,18 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         id: 'sig_used',
         content: '今天安排过密',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
       );
       await harness.seedSignalCard(
         id: 'sig_excluded',
         content: '这条只留在时间线',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         userConfirmation: 'inaccurate',
       );
 
@@ -614,27 +773,131 @@ void main() {
       await harness.close();
     });
 
-    test('14) Weekly one-experiment 会创建 suggested Life Experiment', () async {
+    test('14) Weekly 满三条 eligible signal 后才创建 experiment candidate', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
-        id: 'sig_experiment',
+        id: 'sig_experiment_1',
         content: '今天被消息打断很多次',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
+      );
+      await harness.seedSignalCard(
+        id: 'sig_experiment_2',
+        content: '下午切换任务时很难重新进入状态',
+        createdAt: _testNow,
+      );
+
+      final beforeThreshold = await harness.repository.fetchCurrentWeekly();
+      expect(
+        await harness.repository.fetchWeeklyExperimentCandidate(
+          weekStart: beforeThreshold.weekStart,
+        ),
+        isNull,
+      );
+      expect(await harness.tableCount('experiment_candidates'), 0);
+
+      await harness.seedSignalCard(
+        id: 'sig_experiment_3',
+        content: '晚上留出缓冲以后恢复得更快',
+        createdAt: _testNow,
       );
 
       final weekly = await harness.repository.fetchCurrentWeekly();
-      final experiment = weekly.lifeExperiment;
+      final experiment =
+          await harness.repository.fetchWeeklyExperimentCandidate(
+        weekStart: weekly.weekStart,
+      );
 
       expect(experiment, isNotNull);
-      expect(experiment!.status, 'suggested');
+      expect(experiment!.id, startsWith('cand_'));
+      expect(experiment.status, 'suggested');
       expect(experiment.sourceWeekStart, weekly.weekStart);
       expect(experiment.suggestedAction, isNotEmpty);
-      expect(experiment.linkedSignalCardIds, contains('sig_experiment'));
+      expect(
+        experiment.linkedSignalCardIds,
+        containsAll(
+            ['sig_experiment_1', 'sig_experiment_2', 'sig_experiment_3']),
+      );
+      expect(await harness.tableCount('experiment_candidates'), 1);
+      expect(await harness.tableCount('life_experiments'), 0);
+      expect(await harness.tableCount('weekly_snapshots'), 1);
+      expect(await harness.tableCount('reflection_results'), 1);
+      expect(weekly.lifeExperiment, isNull);
+      expect(
+        await harness.weeklySnapshotContainsLifeExperiment(weekly.weekStart),
+        isFalse,
+      );
+
+      await harness.close();
+    });
+
+    test('14a) skip candidate 只更新 candidate 状态，不创建正式实验', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
+      );
+
+      await harness.seedSignalCard(
+        id: 'sig_skip_candidate',
+        content: '今天安排过密',
+        createdAt: _testNow,
+      );
+      await harness.seedSignalCard(
+        id: 'sig_skip_candidate_2',
+        content: '切换之后很难回来',
+        createdAt: _testNow,
+      );
+      await harness.seedSignalCard(
+        id: 'sig_skip_candidate_3',
+        content: '晚上留一点空白会轻松些',
+        createdAt: _testNow,
+      );
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+      final candidate =
+          (await harness.repository.fetchWeeklyExperimentCandidate(
+        weekStart: weekly.weekStart,
+      ))!;
+
+      final skipped = await harness.repository.skipLifeExperiment(candidate.id);
+
+      expect(skipped?.id, candidate.id);
+      expect(skipped?.status, 'skipped');
+      expect(await harness.experimentCandidateStatus(candidate.id), 'skipped');
+      expect(await harness.tableCount('life_experiments'), 0);
+
+      await harness.close();
+    });
+
+    test('14b) P2-02 stops writing legacy _life_experiment snapshot cache',
+        () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: LegacyLifeExperimentWeeklyAiRepository(),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
+      );
+
+      await harness.seedSignalCard(
+        id: 'sig_legacy_life_experiment',
+        content: '今天安排过密',
+        createdAt: _testNow,
+      );
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+
+      expect(
+        await harness.weeklySnapshotContainsLifeExperiment(weekly.weekStart),
+        isFalse,
+      );
+      expect(
+        await harness.weeklyReflectionContainsLifeExperiment(weekly.weekStart),
+        isFalse,
+      );
 
       await harness.close();
     });
@@ -643,32 +906,107 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         id: 'sig_save',
         content: '今天安排过密',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
+      );
+      await harness.seedSignalCard(
+        id: 'sig_save_2',
+        content: '下午切换太频繁',
+        createdAt: _testNow,
+      );
+      await harness.seedSignalCard(
+        id: 'sig_save_3',
+        content: '留出十分钟后恢复更快',
+        createdAt: _testNow,
       );
 
       final weekly = await harness.repository.fetchCurrentWeekly();
-      final experiment = weekly.lifeExperiment!;
+      final experiment =
+          (await harness.repository.fetchWeeklyExperimentCandidate(
+        weekStart: weekly.weekStart,
+      ))!;
 
       final saved = await harness.repository.saveLifeExperiment(experiment.id);
       expect(saved?.status, 'saved');
-      expect(await harness.linkedExperimentId('sig_save'), experiment.id);
+      expect(saved?.id, isNot(experiment.id));
+      expect(await harness.linkedExperimentId('sig_save'), saved?.id);
+      expect(
+        await harness.experimentCandidateStatus(experiment.id),
+        'adopted',
+      );
+      expect(await harness.tableCount('life_experiments'), 1);
+      final sourceStart = DateTime.parse(experiment.sourceWeekStart);
+      final sourceEnd = DateTime.parse(experiment.sourceWeekEnd);
+      expect(
+        saved?.sourceWeekStart,
+        _dateKeyForTest(sourceStart.add(const Duration(days: 7))),
+      );
+      expect(
+        saved?.sourceWeekEnd,
+        _dateKeyForTest(sourceEnd.add(const Duration(days: 7))),
+      );
+      expect(
+        await harness.localLifeExperimentRepository.getSavedForToday(
+          localUserId: 'test-user',
+          today: sourceStart,
+        ),
+        isNull,
+      );
+      expect(
+        (await harness.localLifeExperimentRepository.getSavedForToday(
+          localUserId: 'test-user',
+          today: sourceStart.add(const Duration(days: 7)),
+        ))
+            ?.id,
+        saved?.id,
+      );
+      expect(
+        (await harness.repository.fetchNextWeekExperiment(
+          weekStart: weekly.weekStart,
+        ))
+            ?.id,
+        saved?.id,
+      );
+      expect(
+        await harness.repository.fetchCurrentWeekLifeExperiment(
+          weekStart: weekly.weekStart,
+        ),
+        isNull,
+      );
+
+      final savedAgain =
+          await harness.repository.saveLifeExperiment(experiment.id);
+      expect(savedAgain?.id, saved?.id);
+      expect(await harness.tableCount('life_experiments'), 1);
+
+      final reloaded = await harness.repository.fetchCurrentWeekly();
+      final reloadedCandidate =
+          await harness.repository.fetchWeeklyExperimentCandidate(
+        weekStart: reloaded.weekStart,
+      );
+      expect(reloaded.lifeExperiment, isNull);
+      expect(reloadedCandidate?.id, experiment.id);
+      expect(await harness.tableCount('life_experiments'), 1);
 
       final feedback = await harness.repository.submitLifeExperimentFeedback(
-        experimentId: experiment.id,
+        experimentId: saved!.id,
         status: 'not_helpful',
         feedbackText: 'Not helpful this time',
       );
-      expect(feedback?.status, 'not_helpful');
+      expect(feedback?.status, 'active');
       expect(feedback?.feedbackText, 'Not helpful this time');
+      final feedbackRows = await harness.localLifeExperimentRepository
+          .listFeedbacks(experimentId: saved.id);
+      expect(feedbackRows, hasLength(1));
+      expect(feedbackRows.single.completionStatus, 'not_helpful');
+      expect(feedbackRows.single.feedbackText, 'Not helpful this time');
 
-      final skipped =
-          await harness.repository.skipLifeExperiment(experiment.id);
+      final skipped = await harness.repository.skipLifeExperiment(saved.id);
       expect(skipped?.status, 'skipped');
 
       await harness.close();
@@ -679,35 +1017,48 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         id: 'sig_used_for_exp',
         content: '今天开会很累',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
+      );
+      await harness.seedSignalCard(
+        id: 'sig_used_for_exp_2',
+        content: '午后恢复得比较慢',
+        createdAt: _testNow,
+      );
+      await harness.seedSignalCard(
+        id: 'sig_used_for_exp_3',
+        content: '散步以后清楚一点',
+        createdAt: _testNow,
       );
       await harness.seedSignalCard(
         id: 'sig_bad_parse',
         content: '不准的解析',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         userConfirmation: 'inaccurate',
       );
       await harness.seedSignalCard(
         id: 'sig_sync_failed',
         content: '同步失败记录',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         syncFailed: true,
       );
       await harness.seedSignalCard(
         id: 'sig_legacy_ref',
         content: '旧记录只作背景',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
         isLegacy: true,
       );
 
       final weekly = await harness.repository.fetchCurrentWeekly();
-      final linked = weekly.lifeExperiment!.linkedSignalCardIds;
+      final candidate = await harness.repository.fetchWeeklyExperimentCandidate(
+        weekStart: weekly.weekStart,
+      );
+      final linked = candidate!.linkedSignalCardIds;
 
       expect(linked, contains('sig_used_for_exp'));
       expect(linked, isNot(contains('sig_bad_parse')));
@@ -721,20 +1072,38 @@ void main() {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 1)),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
       );
 
       await harness.seedSignalCard(
         id: 'sig_kept',
         content: '原始记录不能消失',
-        createdAt: DateTime.now(),
+        createdAt: _testNow,
+      );
+      await harness.seedSignalCard(
+        id: 'sig_kept_2',
+        content: '下午很容易被打断',
+        createdAt: _testNow,
+      );
+      await harness.seedSignalCard(
+        id: 'sig_kept_3',
+        content: '晚上恢复了一些',
+        createdAt: _testNow,
       );
 
       final weekly = await harness.repository.fetchCurrentWeekly();
+      final candidate = await harness.repository.fetchWeeklyExperimentCandidate(
+        weekStart: weekly.weekStart,
+      );
       await harness.repository.submitLifeExperimentFeedback(
-        experimentId: weekly.lifeExperiment!.id,
+        experimentId: candidate!.id,
         status: 'adjusted',
         feedbackText: 'Needs adjustment',
+      );
+      expect(await harness.tableCount('life_experiments'), 0);
+      expect(
+        await harness.experimentCandidateStatus(candidate.id),
+        'generated',
       );
 
       final cards = await harness.listSignalCards();
@@ -745,16 +1114,68 @@ void main() {
 
       await harness.close();
     });
+
+    test('18) prompt/model rollout marks old weekly reflection stale',
+        () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
+      );
+
+      await harness.seedSignalCard(
+        id: 'sig_rollout',
+        content: '今天安排过密',
+        createdAt: _testNow,
+      );
+      await harness.seedReadinessFillers(2);
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+      await harness.stampWeeklyReflectionVersion(
+        weekStart: weekly.weekStart,
+        promptVersion: 'weekly_reflect_prompt_v1',
+        modelVersion: 'model_reflect_v1',
+      );
+
+      expect(
+        await harness.markWeeklyReflectionStaleForRollout(
+          weekStart: weekly.weekStart,
+          promptVersion: 'weekly_reflect_prompt_v1',
+          modelVersion: 'model_reflect_v1',
+        ),
+        0,
+      );
+
+      expect(
+        await harness.markWeeklyReflectionStaleForRollout(
+          weekStart: weekly.weekStart,
+          promptVersion: 'weekly_reflect_prompt_v2',
+          modelVersion: 'model_reflect_v1',
+        ),
+        1,
+      );
+      final rows = await harness.weeklyReflectionRows(weekly.weekStart);
+      expect(rows.single['dirty'], 1);
+      expect(rows.single['is_stale'], 1);
+      expect(rows.single['stale_reason'], 'prompt_model_version_changed');
+      expect(rows.single['invalidated_at'], isNotNull);
+
+      await harness.close();
+    });
   });
 }
 
 class _Harness {
   final LocalDatabase localDatabase;
   final WeeklyRepository repository;
+  final LocalLifeExperimentRepository localLifeExperimentRepository;
+  final LocalPhase3PlusRepository localPhase3PlusRepository;
 
   _Harness({
     required this.localDatabase,
     required this.repository,
+    required this.localLifeExperimentRepository,
+    required this.localPhase3PlusRepository,
   });
 
   Future<void> seedSignalCard({
@@ -824,6 +1245,18 @@ class _Harness {
     );
   }
 
+  Future<void> seedReadinessFillers(int count) async {
+    final now = _testNow;
+    for (var index = 0; index < count; index += 1) {
+      await seedSignalCard(
+        id: 'readiness_filler_${now.microsecondsSinceEpoch}_$index',
+        content: '用于满足报告门槛的有效信号 $index',
+        createdAt: now.subtract(Duration(minutes: index + 1)),
+        userConfirmation: 'accurate',
+      );
+    }
+  }
+
   Future<List<Map<String, Object?>>> listSignalCards() async {
     final db = await localDatabase.database;
     return db.query('signal_cards', orderBy: 'id ASC');
@@ -863,6 +1296,104 @@ class _Harness {
     return rows.first['linked_experiment_id'] as String?;
   }
 
+  Future<int> tableCount(String tableName) async {
+    final db = await localDatabase.database;
+    final rows = await db.rawQuery('SELECT COUNT(*) AS count FROM $tableName');
+    return (rows.first['count'] as int?) ?? 0;
+  }
+
+  Future<String?> experimentCandidateStatus(String candidateId) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'experiment_candidates',
+      columns: ['status'],
+      where: 'id = ?',
+      whereArgs: [candidateId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['status'] as String?;
+  }
+
+  Future<bool> weeklySnapshotContainsLifeExperiment(String weekStart) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'weekly_snapshots',
+      columns: ['opportunity_snapshot_json'],
+      where: 'week_start = ?',
+      whereArgs: [weekStart],
+      limit: 1,
+    );
+    if (rows.isEmpty) return false;
+    final raw = rows.first['opportunity_snapshot_json'];
+    if (raw is! String || raw.trim().isEmpty) return false;
+    final decoded = jsonDecode(raw);
+    return decoded is Map && decoded.containsKey('_life_experiment');
+  }
+
+  Future<bool> weeklyReflectionContainsLifeExperiment(String weekStart) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'reflection_results',
+      columns: ['content_json'],
+      where: 'source_type = ? AND source_id = ? AND reflection_type = ?',
+      whereArgs: ['weekly_snapshot', weekStart, 'reflect'],
+      orderBy: 'generated_at DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return false;
+    final raw = rows.first['content_json'];
+    if (raw is! String || raw.trim().isEmpty) return false;
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return false;
+    final opportunity = decoded['opportunity_snapshot'];
+    return opportunity is Map && opportunity.containsKey('_life_experiment');
+  }
+
+  Future<List<Map<String, Object?>>> weeklyReflectionRows(
+      String weekStart) async {
+    final db = await localDatabase.database;
+    return db.query(
+      'reflection_results',
+      where: 'source_type = ? AND source_id = ? AND reflection_type = ?',
+      whereArgs: ['weekly_snapshot', weekStart, 'reflect'],
+      orderBy: 'generated_at DESC',
+    );
+  }
+
+  Future<void> stampWeeklyReflectionVersion({
+    required String weekStart,
+    required String promptVersion,
+    required String modelVersion,
+  }) async {
+    final db = await localDatabase.database;
+    await db.update(
+      'reflection_results',
+      {
+        'prompt_version': promptVersion,
+        'model_version': modelVersion,
+      },
+      where: 'source_type = ? AND source_id = ? AND reflection_type = ?',
+      whereArgs: ['weekly_snapshot', weekStart, 'reflect'],
+    );
+  }
+
+  Future<int> markWeeklyReflectionStaleForRollout({
+    required String weekStart,
+    required String promptVersion,
+    required String modelVersion,
+  }) {
+    return LocalReflectionResultRepository(
+      localDatabase,
+    ).markStaleForPromptModelChange(
+      sourceType: 'weekly_snapshot',
+      sourceId: weekStart,
+      reflectionType: 'reflect',
+      promptVersion: promptVersion,
+      modelVersion: modelVersion,
+    );
+  }
+
   Future<void> close() async {
     await localDatabase.close();
   }
@@ -884,6 +1415,7 @@ Future<_Harness> _createHarness({
       LocalWeeklySnapshotRepository(localDatabase);
   final localLifeExperimentRepository =
       LocalLifeExperimentRepository(localDatabase);
+  final localPhase3PlusRepository = LocalPhase3PlusRepository(localDatabase);
 
   final repository = WeeklyRepository(
     localCaptureRepository: localCaptureRepository,
@@ -893,11 +1425,14 @@ Future<_Harness> _createHarness({
     focusAreaLoader: () async => null,
     installationDateLoader: () async => installationDate,
     localUserId: 'test-user',
+    nowLoader: () => _testNow,
   );
 
   return _Harness(
     localDatabase: localDatabase,
     repository: repository,
+    localLifeExperimentRepository: localLifeExperimentRepository,
+    localPhase3PlusRepository: localPhase3PlusRepository,
   );
 }
 
@@ -966,6 +1501,48 @@ class CountingWeeklyAiRepository extends FakeWeeklyAiRepository {
       dayCounts: dayCounts,
       topTokens: topTokens,
       focusArea: focusArea,
+    );
+  }
+}
+
+class LegacyLifeExperimentWeeklyAiRepository extends FakeWeeklyAiRepository {
+  @override
+  Future<WeeklyInsightModel> generateWeeklySummary({
+    required String weekStart,
+    required String weekEnd,
+    required List<Map<String, dynamic>> entries,
+    required Map<String, int> dayCounts,
+    required List<String> topTokens,
+    String? focusArea,
+  }) async {
+    return WeeklyInsightModel(
+      weekStart: weekStart,
+      weekEnd: weekEnd,
+      status: 'ready',
+      keyInsight: 'Legacy payload should be sanitized.',
+      patterns: const [
+        {'name': 'Legacy pattern', 'summary': 'Generated by legacy test.'},
+      ],
+      frictions: const [
+        {'name': 'Legacy friction', 'summary': 'Generated by legacy test.'},
+      ],
+      bestAction: 'Try a small buffer.',
+      opportunitySnapshot: const {
+        'name': 'Legacy opportunity',
+        'summary':
+            'This object must remain, but the embedded experiment must not.',
+        '_life_experiment': {
+          'id': 'legacy_embedded_experiment',
+          'title': 'Old embedded experiment',
+          'hypothesis': 'Old path',
+          'suggested_action': 'Old action',
+          'status': 'suggested',
+          'source_week_start': '2026-07-01',
+          'source_week_end': '2026-07-07',
+          'linked_signal_card_ids': [],
+        },
+      },
+      feedbackSubmitted: false,
     );
   }
 }

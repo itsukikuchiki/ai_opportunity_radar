@@ -8,30 +8,43 @@ from hashlib import sha256
 from secrets import token_urlsafe
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.services.legacy_telemetry_service import record_legacy_endpoint_call
 from app.models import (
     Account,
     AccountAlias,
     AiUsage,
     AnalyticsEvent,
     BackupBundle,
+    CandidateGroup,
     Capture,
     Desire,
     Experiment,
+    ExperimentCandidate,
     FollowupAnswer,
     FollowupQuestion,
     Friction,
+    LifeExperimentLifecycleEvent,
+    LifeExperimentRollup,
+    MicroActionCandidate,
     ModelUsageLog,
+    Observation,
+    ObservationSignalLink,
     Opportunity,
     Pattern,
+    PipelineRun,
     QuotaGateEvent,
     RawMemory,
+    ReflectionResult,
+    SignalAnalysisPolicy,
     SignalCard,
+    SignalProcessingState,
+    TraceLink,
     UsageCounter,
     User,
     UserProfile,
@@ -84,6 +97,7 @@ def _account_from_session(
 @router.post("/auth/apple")
 def auth_apple(
     payload: AppleAuthRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ) -> dict:
     stable_subject = _stable_apple_subject(payload)
@@ -109,6 +123,14 @@ def auth_apple(
     if payload.local_user_id:
         _ensure_alias(db, account.id, payload.local_user_id)
     db.commit()
+    record_legacy_endpoint_call(
+        db=db,
+        counter_name="legacy_auth_apple_endpoint_call_count",
+        endpoint="/api/v1/auth/apple",
+        request=request,
+        user_id=payload.local_user_id,
+        account_id=account.id,
+    )
 
     return {
         "data": {
@@ -160,11 +182,20 @@ def _decode_apple_identity_claims(identity_token: str) -> dict:
 @router.post("/account/bind-local-user")
 def bind_local_user(
     payload: BindLocalUserRequest,
+    request: Request,
     account: Account = Depends(_account_from_session),
     db: Session = Depends(get_db),
 ) -> dict:
     alias = _ensure_alias(db, account.id, payload.local_user_id)
     db.commit()
+    record_legacy_endpoint_call(
+        db=db,
+        counter_name="legacy_account_endpoint_call_count",
+        endpoint="/api/v1/account/bind-local-user",
+        request=request,
+        user_id=payload.local_user_id,
+        account_id=account.id,
+    )
     return {
         "data": {
             "account_id": account.id,
@@ -177,6 +208,7 @@ def bind_local_user(
 @router.post("/backup/upload")
 def upload_backup(
     payload: BackupUploadRequest,
+    request: Request,
     account: Account = Depends(_account_from_session),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -192,11 +224,19 @@ def upload_backup(
     db.add(bundle)
     db.commit()
     db.refresh(bundle)
+    record_legacy_endpoint_call(
+        db=db,
+        counter_name="legacy_backup_endpoint_call_count",
+        endpoint="/api/v1/backup/upload",
+        request=request,
+        account_id=account.id,
+    )
     return {"data": _backup_response(bundle)}
 
 
 @router.get("/backup/latest")
 def latest_backup(
+    request: Request,
     account: Account = Depends(_account_from_session),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -205,12 +245,20 @@ def latest_backup(
         .where(BackupBundle.account_id == account.id)
         .order_by(BackupBundle.created_at.desc())
     ).first()
+    record_legacy_endpoint_call(
+        db=db,
+        counter_name="legacy_backup_endpoint_call_count",
+        endpoint="/api/v1/backup/latest",
+        request=request,
+        account_id=account.id,
+    )
     return {"data": None if bundle is None else _backup_response(bundle)}
 
 
 @router.post("/backup/restore-confirmed")
 def restore_confirmed(
     payload: RestoreConfirmedRequest,
+    request: Request,
     account: Account = Depends(_account_from_session),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -220,11 +268,19 @@ def restore_confirmed(
     bundle.restored_at = datetime.now(timezone.utc)
     bundle.restore_device_id = payload.device_id
     db.commit()
+    record_legacy_endpoint_call(
+        db=db,
+        counter_name="legacy_backup_endpoint_call_count",
+        endpoint="/api/v1/backup/restore-confirmed",
+        request=request,
+        account_id=account.id,
+    )
     return {"data": {"backup_id": bundle.id, "restored": True}}
 
 
 @router.delete("/backup")
 def delete_backups(
+    request: Request,
     account: Account = Depends(_account_from_session),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -235,15 +291,24 @@ def delete_backups(
     for bundle in bundles:
         db.delete(bundle)
     db.commit()
+    record_legacy_endpoint_call(
+        db=db,
+        counter_name="legacy_backup_endpoint_call_count",
+        endpoint="/api/v1/backup",
+        request=request,
+        account_id=account.id,
+    )
     return {"data": {"deleted": deleted}}
 
 
 @router.delete("/account")
 def delete_account_and_user_data(
+    request: Request,
     account: Account = Depends(_account_from_session),
     db: Session = Depends(get_db),
     x_user_id: str | None = Header(default=None),
 ) -> dict:
+    account_id = account.id
     aliases = db.scalars(
         select(AccountAlias).where(AccountAlias.account_id == account.id)
     ).all()
@@ -268,6 +333,14 @@ def delete_account_and_user_data(
     ).rowcount or 0
 
     db.commit()
+    record_legacy_endpoint_call(
+        db=db,
+        counter_name="legacy_account_endpoint_call_count",
+        endpoint="/api/v1/account",
+        request=request,
+        user_id=x_user_id,
+        account_id=account_id,
+    )
     return {
         "data": {
             "deleted": deleted,
@@ -322,9 +395,37 @@ def _delete_user_scoped_rows(db: Session, user_ids: set[str]) -> dict[str, int]:
         return {}
 
     deleted: dict[str, int] = {}
+    signal_ids = select(SignalCard.id).where(SignalCard.user_id.in_(user_ids))
+    observation_ids = select(Observation.id).where(
+        Observation.user_id.in_(user_ids)
+    )
+    dependent_deletes = [
+        (
+            ObservationSignalLink,
+            or_(
+                ObservationSignalLink.observation_id.in_(observation_ids),
+                ObservationSignalLink.signal_id.in_(signal_ids),
+            ),
+        ),
+        (SignalProcessingState, SignalProcessingState.signal_id.in_(signal_ids)),
+        (SignalAnalysisPolicy, SignalAnalysisPolicy.signal_id.in_(signal_ids)),
+    ]
+    for model, predicate in dependent_deletes:
+        result = db.execute(delete(model).where(predicate))
+        deleted[model.__tablename__] = result.rowcount or 0
+
     user_scoped_models = [
         FollowupAnswer,
         FollowupQuestion,
+        LifeExperimentLifecycleEvent,
+        LifeExperimentRollup,
+        MicroActionCandidate,
+        ExperimentCandidate,
+        CandidateGroup,
+        TraceLink,
+        PipelineRun,
+        ReflectionResult,
+        Observation,
         ModelUsageLog,
         QuotaGateEvent,
         UsageCounter,

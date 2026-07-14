@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/self_review_models.dart';
+import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/states/load_state.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../me/me_view_model.dart';
@@ -253,25 +254,7 @@ class SelfReviewPage extends StatelessWidget {
   }
 
   String _preferenceText(BuildContext context, String? value) {
-    final label = switch (value) {
-      'work_tasks' => AppLocaleText.tr(context,
-          en: 'work and tasks', zhHans: '工作与任务', zhHant: '工作與任務', ja: '仕事とタスク'),
-      'emotion_stress' => AppLocaleText.tr(context,
-          en: 'emotions and stress',
-          zhHans: '情绪与压力',
-          zhHant: '情緒與壓力',
-          ja: '感情とストレス'),
-      'relationships' => AppLocaleText.tr(context,
-          en: 'relationships', zhHans: '关系与相处', zhHant: '關係與相處', ja: '人間関係'),
-      'time_rhythm' => AppLocaleText.tr(context,
-          en: 'time and rhythm',
-          zhHans: '时间与节奏',
-          zhHant: '時間與節奏',
-          ja: '時間とリズム'),
-      _ => AppLocaleText.tr(context,
-          en: 'current focus', zhHans: '当前关注', zhHant: '當前關注', ja: '今の注目'),
-    };
-    return label;
+    return FocusDomains.labelFor(context, value);
   }
 }
 
@@ -516,10 +499,10 @@ class _SelfReviewActionLoopCard extends StatelessWidget {
             color: AuroraColors.purple,
             label: AppLocaleText.tr(
               context,
-              en: 'AI judgement',
-              zhHans: 'AI 判断',
-              zhHant: 'AI 判斷',
-              ja: 'AI の判断',
+              en: 'AI prediction',
+              zhHans: 'AI 预判',
+              zhHant: 'AI 預判',
+              ja: 'AI 予測',
             ),
             body: judgement,
           ),

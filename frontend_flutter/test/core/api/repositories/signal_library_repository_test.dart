@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:ai_opportunity_radar/core/api/repositories/signal_library_repository.dart';
+import 'package:ai_opportunity_radar/core/eligibility/signal_eligibility_service.dart';
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 
@@ -122,10 +123,10 @@ void main() {
       language: 'fr',
     );
 
-    expect(zhHans.acknowledgement, contains('已先保存在本机'));
-    expect(zhHant.acknowledgement, contains('已先保存在本機'));
-    expect(japanese.acknowledgement, contains('端末に保存'));
-    expect(fallback.acknowledgement, startsWith('Saved on this device'));
+    expect(zhHans.acknowledgement, contains('生活信号'));
+    expect(zhHant.acknowledgement, contains('生活信號'));
+    expect(japanese.acknowledgement, contains('生活シグナル'));
+    expect(fallback.acknowledgement, startsWith('This is one small signal'));
   });
 
   test('library cards do not contain raw text, stories, or identifiers',
@@ -140,8 +141,6 @@ void main() {
             pattern.abstractPattern,
             ...pattern.commonScenes,
             ...pattern.commonFrictions,
-            pattern.gentleReflection,
-            pattern.suggestedSmallExperiment,
           ].join(' '),
         )
         .join('\n')
@@ -183,7 +182,7 @@ void main() {
     );
   });
 
-  test('save to my observation creates private library_saved SignalCard',
+  test('accurate edited reference creates one private timeline SignalCard',
       () async {
     final localDatabase = LocalDatabase(
       dbPathOverride: dbPath,
@@ -197,14 +196,34 @@ void main() {
     final repository = SignalLibraryRepository(localDatabase);
     final pattern = (await repository.listCuratedPatterns()).first;
 
-    final signal = await repository.saveToMyObservation(pattern: pattern);
+    final signal = await repository.respondToPattern(
+      pattern: pattern,
+      status: 'accurate',
+      userText: 'I need more room between fixed plans.',
+      addToTimeline: true,
+    );
 
-    expect(signal.sourceType, 'library_saved');
+    expect(signal, isNotNull);
+    expect(signal!.sourceType, 'library_saved');
     expect(signal.privacyLevel, 'private');
-    expect(signal.userConfirmation, 'unconfirmed');
+    expect(signal.userConfirmation, 'accurate');
     expect(signal.isLocalDraft, isFalse);
     expect(signal.syncFailed, isFalse);
+    expect(signal.content, 'I need more room between fixed plans.');
+    expect(signal.acknowledgement, isNull);
+    expect(signal.observation, isNull);
+    expect(signal.tryNext, isNull);
+    expect(signal.scene, pattern.commonScenes.first);
+    expect(signal.friction, pattern.commonFrictions.first);
+    expect(signal.energyLoad, pattern.energyLoadHint);
+    expect(signal.positiveSignal, pattern.possiblePositiveSignal);
     expect(signal.rawPayloadJson['library_pattern_id'], pattern.id);
+    expect(signal.rawPayloadJson['canonical_pattern_id'], pattern.id);
+    expect(signal.rawPayloadJson['reference_type'], 'curated_signal_card');
+    expect(signal.rawPayloadJson['generation_rule_version'],
+        'signal_library_reference_v1');
+    expect(signal.rawPayloadJson['match_status'], 'accurate');
+    expect(signal.rawPayloadJson['added_to_timeline'], isTrue);
     expect(
         signal.rawPayloadJson.keys,
         unorderedEquals([
@@ -215,11 +234,21 @@ void main() {
           'common_frictions',
           'energy_load_hint',
           'possible_positive_signal',
-          'gentle_reflection',
-          'suggested_small_experiment',
           'language',
+          'canonical_pattern_id',
+          'reference_type',
+          'generation_rule_version',
+          'match_status',
+          'added_to_timeline',
+          'user_adjustment_text',
         ]));
-    expect(signal.content, isEmpty);
+    expect(
+      const SignalEligibilityService().isEligible(
+        signal,
+        SignalEligibilityStage.weekly,
+      ),
+      isTrue,
+    );
 
     final db = await localDatabase.database;
     final rows = await db.query(
@@ -230,13 +259,12 @@ void main() {
     expect(rows, hasLength(1));
     expect(rows.single['source_type'], 'library_saved');
     expect(rows.single['privacy_level'], 'private');
-    expect(rows.single['user_confirmation'], 'unconfirmed');
+    expect(rows.single['user_confirmation'], 'accurate');
     expect(rows.single['raw_payload_json'].toString(),
         contains('"library_pattern_id":"${pattern.id}"'));
-    expect(
-      rows.single['raw_text'].toString(),
-      isEmpty,
-    );
+    expect(rows.single['raw_text'], 'I need more room between fixed plans.');
+    expect(rows.single['observation'], isNull);
+    expect(rows.single['try_next'], isNull);
     expect(
       rows.single['raw_payload_json'].toString(),
       isNot(contains('PRIVATE RAW TEXT SHOULD NOT LEAK')),
@@ -246,24 +274,7 @@ void main() {
     expect(rows.single['included_in_journey'], 0);
   });
 
-  test('save to my observation localizes saved AI reply for Chinese patterns',
-      () async {
-    final localDatabase = LocalDatabase(
-      dbPathOverride: dbPath,
-      databaseFactoryOverride: databaseFactoryFfi,
-    );
-    final repository = SignalLibraryRepository(localDatabase);
-    final pattern =
-        (await repository.listCuratedPatterns(language: 'zh-Hans')).first;
-
-    final signal = await repository.saveToMyObservation(pattern: pattern);
-
-    expect(signal.acknowledgement, contains('已私密放进你的观察里'));
-    expect(signal.acknowledgement, isNot(contains('Saved privately')));
-  });
-
-  test('library actions are stored locally as private interactions only',
-      () async {
+  test('not-added and inaccurate references are zero-write actions', () async {
     final localDatabase = LocalDatabase(
       dbPathOverride: dbPath,
       databaseFactoryOverride: databaseFactoryFfi,
@@ -271,44 +282,91 @@ void main() {
     final repository = SignalLibraryRepository(localDatabase);
     final pattern = (await repository.listCuratedPatterns()).first;
 
-    await repository.recordPrivateAction(
-      patternId: pattern.id,
-      action: 'i_also_have_this',
+    final partial = await repository.respondToPattern(
+      pattern: pattern,
+      status: 'partial',
+      userText: 'Only the missing buffer feels familiar.',
+      addToTimeline: false,
     );
-    await repository.recordPrivateAction(
-      patternId: pattern.id,
-      action: 'not_for_me',
-    );
-    await repository.saveToMyObservation(pattern: pattern);
+    expect(partial, isNull);
 
     final db = await localDatabase.database;
-    final rows = await db.query(
+    expect(
+      await db.query(
+        'signal_cards',
+        where: 'source_type = ?',
+        whereArgs: ['library_saved'],
+      ),
+      isEmpty,
+    );
+    var actions = await db.query(
       'signal_library_actions',
       where: 'pattern_id = ?',
       whereArgs: [pattern.id],
     );
+    expect(actions, isEmpty);
 
-    expect(rows, hasLength(3));
-    expect(rows.every((row) => row['is_private'] == 1), isTrue);
-    expect(rows.map((row) => row['action']), contains('i_also_have_this'));
-    expect(rows.map((row) => row['action']), contains('not_for_me'));
+    final inaccurate = await repository.respondToPattern(
+      pattern: pattern,
+      status: 'inaccurate',
+      addToTimeline: true,
+    );
+    expect(inaccurate, isNull);
+
+    actions = await db.query(
+      'signal_library_actions',
+      where: 'pattern_id = ?',
+      whereArgs: [pattern.id],
+    );
+    expect(actions, isEmpty);
     expect(
-      rows.map((row) => row['action']),
-      contains('save_to_my_observation'),
+      await db.query(
+        'signal_cards',
+        where: 'source_type = ?',
+        whereArgs: ['library_saved'],
+      ),
+      isEmpty,
+    );
+  });
+
+  test('same pattern and day upserts instead of duplicating timeline cards',
+      () async {
+    final localDatabase = LocalDatabase(
+      dbPathOverride: dbPath,
+      databaseFactoryOverride: databaseFactoryFfi,
+    );
+    final repository = SignalLibraryRepository(localDatabase);
+    final pattern = (await repository.listCuratedPatterns()).first;
+    final localizedPattern =
+        (await repository.listCuratedPatterns(language: 'zh-Hans')).first;
+
+    await repository.respondToPattern(
+      pattern: pattern,
+      status: 'accurate',
+      addToTimeline: true,
+    );
+    await repository.respondToPattern(
+      pattern: localizedPattern,
+      status: 'partial',
+      userText: '改成我的情况后再写入。',
+      addToTimeline: true,
     );
 
-    final publicTables = await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) LIKE '%public%'",
-    );
-    expect(publicTables, isEmpty);
-
-    final savedCards = await db.query(
+    final db = await localDatabase.database;
+    final cards = await db.query(
       'signal_cards',
       where: 'source_type = ?',
       whereArgs: ['library_saved'],
     );
-    expect(savedCards, hasLength(1));
-    expect(savedCards.single['privacy_level'], 'private');
+    final actions = await db.query(
+      'signal_library_actions',
+      where: 'pattern_id = ?',
+      whereArgs: [pattern.id],
+    );
+    expect(cards, hasLength(1));
+    expect(cards.single['raw_text'], '改成我的情况后再写入。');
+    expect(cards.single['user_confirmation'], 'partial');
+    expect(actions, isEmpty);
   });
 }
 

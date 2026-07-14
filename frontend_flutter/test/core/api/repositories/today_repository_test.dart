@@ -7,9 +7,14 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:ai_opportunity_radar/core/api/api_client.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/ai_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/today_repository.dart';
+import 'package:ai_opportunity_radar/core/i18n/app_locale_text.dart';
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_daily_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
+import 'package:ai_opportunity_radar/core/local/local_experiment_candidate_repository.dart';
+import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
+import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dart';
+import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 import 'package:ai_opportunity_radar/core/models/today_models.dart';
 
 void main() {
@@ -160,6 +165,30 @@ void main() {
   });
 
   group('V3B SignalCard data loop', () {
+    test('首次远端 SignalCard 提交携带本地 client_id 保证幂等', () async {
+      final api = FakeSignalCardApiClient(recentSignals: const []);
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+        apiClient: api,
+      );
+
+      await harness.repository.submitCapture(
+        content: '第一次提交也要带 client id',
+        sourceType: 'voice',
+        rawPayloadJson: const {'audio_uploaded': false},
+      );
+
+      expect(api.postCalls, isNotEmpty);
+      final body = api.postCalls.single['body'] as Map<String, dynamic>;
+      expect(body['client_id'], isA<String>());
+      expect(body['client_id'], startsWith('draft_'));
+      expect(body['input_mode'], 'voice');
+      expect(body['raw_payload_json'], {'audio_uploaded': false});
+
+      await harness.close();
+    });
+
     test('Today 读取远端 SignalCard，并保留 legacy / local_date 状态', () async {
       final api = FakeSignalCardApiClient(
         recentSignals: [
@@ -269,12 +298,24 @@ void main() {
         apiClient: api,
       );
 
-      await harness.repository.submitCapture(content: '断网时也不能丢');
+      const statusPayload = {
+        'quick_status': 'tired',
+        'energy_level': 0,
+        'note': '下午开始有点转不动。',
+      };
+      await harness.repository.submitCapture(
+        content: '断网时也不能丢',
+        sourceType: 'one_tap',
+        rawPayloadJson: statusPayload,
+      );
 
       var cached = await harness.localCaptureRepository.listSignalCards();
       expect(cached.any((signal) => signal.content == '断网时也不能丢'), true);
       expect(cached.first.isLocalDraft, true);
       expect(cached.first.syncFailed, true);
+      final draftClientId = cached.first.clientId;
+      expect(draftClientId, isNotNull);
+      expect(draftClientId, startsWith('draft_'));
 
       api
         ..failPost = false
@@ -282,6 +323,9 @@ void main() {
           {
             'id': 'raw-retry',
             'signal_card_id': 'sig-retry',
+            'client_id': draftClientId,
+            'source_type': 'one_tap',
+            'raw_payload_json': statusPayload,
             'content': '断网时也不能丢',
             'created_at': DateTime.now().toUtc().toIso8601String(),
             'local_date': _testDateKey(DateTime.now()),
@@ -292,9 +336,15 @@ void main() {
       await harness.repository.retryPendingDrafts();
       cached = await harness.localCaptureRepository.listSignalCards();
 
+      expect(api.postCalls.last['body']['client_id'], draftClientId);
+      expect(api.postCalls.last['body']['input_mode'], 'one_tap');
+      expect(api.postCalls.last['body']['raw_payload_json'], statusPayload);
       expect(
           cached.where((signal) => signal.content == '断网时也不能丢'), hasLength(1));
       expect(cached.first.signalCardId, 'sig-retry');
+      expect(cached.first.clientId, draftClientId);
+      expect(cached.first.sourceType, 'one_tap');
+      expect(cached.first.rawPayloadJson, statusPayload);
       expect(cached.first.acknowledgement, 'retry 后保存的 AI 回复');
       expect(cached.first.isLocalDraft, false);
 
@@ -388,8 +438,39 @@ void main() {
       expect(signals.single.content, '断网先保存原文');
       expect(signals.single.isLocalDraft, true);
       expect(signals.single.includedInSummary, false);
+      expect(await harness.repository.createAiJudgementForToday(), isNull);
       expect(insight.text, contains('原文已经保存'));
       expect(insight.text, contains('同步'));
+
+      await harness.close();
+    });
+
+    test(
+        'legacy schedule stays stored but no longer enters Today or AI judgement',
+        () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+      );
+      final db = await harness.localDatabase.database;
+      final now = DateTime.now();
+      final today = _testDateKey(now);
+      await db.insert('schedule_signals', {
+        'id': 'legacy-schedule',
+        'title': 'Legacy schedule',
+        'local_date': today,
+        'anchor_date': today,
+        'date_precision': 'date',
+        'time_precision': 'none',
+        'created_at': now.toUtc().toIso8601String(),
+        'updated_at': now.toUtc().toIso8601String(),
+      });
+
+      final data = await harness.repository.fetchToday();
+
+      expect(data.containsKey('scheduleSignals'), isFalse);
+      expect(data['aiJudgement'], isNull);
+      expect(await db.query('schedule_signals'), hasLength(1));
 
       await harness.close();
     });
@@ -460,7 +541,240 @@ void main() {
       await harness.close();
     });
 
-    test('ai_predicted 默认不进入 Summary，补充个人语境后才可作为观察材料', () async {
+    test('Today 有真实来源时自动生成预判，partial 不加入时零写入', () async {
+      final today = _testDateKey(DateTime.now());
+      final api = FakeSignalCardApiClient(
+        recentSignals: [
+          {
+            'id': 'raw-auto-prediction',
+            'signal_card_id': 'sig-auto-prediction',
+            'source_type': 'text',
+            'content': '连续会议以后有点累，脑子一直在切换。',
+            'created_at': DateTime.now().toUtc().toIso8601String(),
+            'local_date': today,
+            'acknowledgement': '已保存。',
+            'user_confirmation': 'unconfirmed',
+          },
+        ],
+      );
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+        apiClient: api,
+      );
+
+      final data = await harness.repository.fetchToday();
+      final judgement = data['aiJudgement'] as AiJudgementModel?;
+      expect(judgement, isNotNull);
+      expect(judgement!.status, 'pending');
+      final db = await harness.localDatabase.database;
+      final before = await db.query(
+        'observations',
+        where: 'source_ai_judgement_id = ?',
+        whereArgs: [judgement.id],
+      );
+      const persistedTables = <String>[
+        'signal_cards',
+        'observations',
+        'ai_judgements',
+        'daily_snapshots',
+        'reflection_results',
+        'pipeline_runs',
+        'micro_action_feedback',
+        'life_experiment_feedback',
+        'trace_links',
+      ];
+      Future<Map<String, List<Map<String, Object?>>>> persistedState() async {
+        final state = <String, List<Map<String, Object?>>>{};
+        for (final table in persistedTables) {
+          state[table] = await db.query(table, orderBy: 'rowid ASC');
+        }
+        return state;
+      }
+
+      final stateBeforeDismiss = await persistedState();
+
+      await harness.repository.respondToAiJudgement(
+        judgementId: judgement.id,
+        status: 'partial',
+        userAdjustmentText: '有一点像，更接近频繁切换带来的消耗。',
+        addToTimeline: false,
+        language: AppLanguage.simplifiedChinese,
+      );
+
+      final signals = await harness.localCaptureRepository.listSignalCards();
+      expect(signals.where((signal) => signal.sourceType == 'ai_predicted'),
+          isEmpty);
+      final observations = await db.query(
+        'observations',
+        where: 'source_ai_judgement_id = ?',
+        whereArgs: [judgement.id],
+      );
+      expect(observations.single['status'], before.single['status']);
+      expect(
+        observations.single['observation_text'],
+        before.single['observation_text'],
+      );
+      expect(await persistedState(), stateBeforeDismiss);
+
+      await harness.close();
+    });
+
+    test('accurate 编辑后只写一条 ai_predicted 时间线，inaccurate 不写入', () async {
+      final today = _testDateKey(DateTime.now());
+      final api = FakeSignalCardApiClient(
+        recentSignals: [
+          {
+            'id': 'raw-accurate-prediction',
+            'signal_card_id': 'sig-accurate-prediction',
+            'source_type': 'text',
+            'content': '今天安排很密，晚上明显疲惫。',
+            'created_at': DateTime.now().toUtc().toIso8601String(),
+            'local_date': today,
+            'acknowledgement': '已保存。',
+            'user_confirmation': 'unconfirmed',
+          },
+        ],
+      );
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+        apiClient: api,
+      );
+
+      final data = await harness.repository.fetchToday();
+      final judgement = data['aiJudgement'] as AiJudgementModel;
+      await harness.repository.respondToAiJudgement(
+        judgementId: judgement.id,
+        status: 'accurate',
+        userAdjustmentText: '连续会议以后，我确实需要先恢复十分钟。',
+        addToTimeline: true,
+        language: AppLanguage.simplifiedChinese,
+      );
+      await harness.repository.respondToAiJudgement(
+        judgementId: judgement.id,
+        status: 'accurate',
+        userAdjustmentText: '连续会议以后，我确实需要先恢复十分钟。',
+        addToTimeline: true,
+        language: AppLanguage.simplifiedChinese,
+      );
+
+      var signals = await harness.localCaptureRepository.listSignalCards();
+      final predicted =
+          signals.where((signal) => signal.sourceType == 'ai_predicted');
+      expect(predicted, hasLength(1));
+      expect(predicted.single.content, '连续会议以后，我确实需要先恢复十分钟。');
+      expect(predicted.single.acknowledgement, isNot(predicted.single.content));
+      expect(predicted.single.acknowledgement, contains('加入时间线'));
+      expect(
+          predicted.single.rawPayloadJson['confirmation_status'], 'accurate');
+      expect(predicted.single.rawPayloadJson['added_to_timeline'], isTrue);
+
+      final secondHarness = await _createHarness(
+        dbPath: p.join(tempDir.path, 'inaccurate_prediction.db'),
+        aiRepository: FakeAiRepository(),
+        apiClient: api,
+      );
+      final secondData = await secondHarness.repository.fetchToday();
+      final secondJudgement = secondData['aiJudgement'] as AiJudgementModel;
+      final secondDb = await secondHarness.localDatabase.database;
+      final beforeDismiss = await secondDb.query(
+        'observations',
+        where: 'source_ai_judgement_id = ?',
+        whereArgs: [secondJudgement.id],
+      );
+      await secondHarness.repository.respondToAiJudgement(
+        judgementId: secondJudgement.id,
+        status: 'inaccurate',
+        addToTimeline: false,
+        language: AppLanguage.simplifiedChinese,
+      );
+      signals = await secondHarness.localCaptureRepository.listSignalCards();
+      expect(signals.where((signal) => signal.sourceType == 'ai_predicted'),
+          isEmpty);
+      final dismissed = await secondDb.query(
+        'observations',
+        where: 'source_ai_judgement_id = ?',
+        whereArgs: [secondJudgement.id],
+      );
+      expect(dismissed.single['status'], beforeDismiss.single['status']);
+
+      await secondHarness.close();
+      await harness.close();
+    });
+
+    test('pending 预判随来源刷新，不加入时间线时不冻结或写反馈', () async {
+      final today = _testDateKey(DateTime.now());
+      final api = FakeSignalCardApiClient(
+        recentSignals: [
+          {
+            'id': 'raw-refresh-1',
+            'signal_card_id': 'sig-refresh-1',
+            'source_type': 'text',
+            'content': '上午连续切换了几个任务。',
+            'created_at': DateTime.now().toUtc().toIso8601String(),
+            'local_date': today,
+            'user_confirmation': 'unconfirmed',
+          },
+        ],
+      );
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+        apiClient: api,
+      );
+
+      final first = (await harness.repository.fetchToday())['aiJudgement']
+          as AiJudgementModel;
+      expect(first.sourceSignalCardIds, ['sig-refresh-1']);
+
+      api.recentSignals.insert(0, {
+        'id': 'raw-refresh-2',
+        'signal_card_id': 'sig-refresh-2',
+        'source_type': 'text',
+        'content': '下午的安排也很密。',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+        'local_date': today,
+        'user_confirmation': 'unconfirmed',
+      });
+      final refreshed = (await harness.repository.fetchToday())['aiJudgement']
+          as AiJudgementModel;
+      expect(refreshed.id, first.id);
+      expect(refreshed.sourceSignalCardIds.toSet(),
+          {'sig-refresh-1', 'sig-refresh-2'});
+
+      await harness.repository.respondToAiJudgement(
+        judgementId: refreshed.id,
+        status: 'accurate',
+        addToTimeline: false,
+      );
+      api.recentSignals.insert(0, {
+        'id': 'raw-refresh-3',
+        'signal_card_id': 'sig-refresh-3',
+        'source_type': 'text',
+        'content': '晚上又多了一条记录。',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+        'local_date': today,
+        'user_confirmation': 'unconfirmed',
+      });
+      final updated = (await harness.repository.fetchToday())['aiJudgement']
+          as AiJudgementModel;
+      expect(updated.status, 'pending');
+      expect(updated.sourceSignalCardIds.toSet(),
+          {'sig-refresh-1', 'sig-refresh-2', 'sig-refresh-3'});
+
+      final db = await harness.localDatabase.database;
+      final judgements = await db.query(
+        'ai_judgements',
+        where: 'local_date = ?',
+        whereArgs: [today],
+      );
+      expect(judgements, hasLength(1));
+
+      await harness.close();
+    });
+
+    test('ai_predicted 默认不进入 Summary，确认后可作为观察材料', () async {
       final ai = RecordingSummaryAiRepository();
       final today = _testDateKey(DateTime.now());
       final api = FakeSignalCardApiClient(
@@ -492,7 +806,9 @@ void main() {
       );
       api.recentSignals.first['user_confirmation'] = 'accurate';
       await harness.repository.fetchToday();
-      expect(ai.lastSummaryEntries, isEmpty);
+      expect(ai.lastSummaryEntries.map((e) => e.content), [
+        'AI 主动预判的信号需要用户确认',
+      ]);
 
       await harness.repository.confirmSignalCard(
         signalCardId: 'sig-predicted',
@@ -513,16 +829,67 @@ void main() {
       await harness.close();
     });
   });
+
+  test(
+      'non-local user adopted experiment only appears in its next-week active period',
+      () async {
+    final localDatabase = LocalDatabase(
+      dbPathOverride: dbPath,
+      databaseFactoryOverride: databaseFactoryFfi,
+    );
+    await localDatabase.init();
+    final lifeRepository = LocalLifeExperimentRepository(localDatabase);
+    final candidateRepository =
+        LocalExperimentCandidateRepository(localDatabase);
+    const userId = 'device-user-uuid';
+    final candidate = await candidateRepository.ensureWeeklyCandidate(
+      localUserId: userId,
+      weekStart: '2026-07-06',
+      weekEnd: '2026-07-12',
+      title: 'Protect one recovery window',
+      hypothesis: 'A small buffer may help recovery.',
+      suggestedAction: 'Keep ten minutes open.',
+      linkedSignalCardIds: const ['sig_1', 'sig_2', 'sig_3'],
+    );
+    final adopted = await candidateRepository.adoptCandidate(
+      candidateId: candidate.id,
+      lifeExperimentRepository: lifeRepository,
+    );
+    expect(adopted?.sourceWeekStart, '2026-07-13');
+    expect(adopted?.sourceWeekEnd, '2026-07-19');
+
+    var now = DateTime(2026, 7, 10);
+    final todayRepository = TodayRepository(
+      localCaptureRepository: LocalCaptureRepository(localDatabase),
+      localDailySnapshotRepository: LocalDailySnapshotRepository(localDatabase),
+      localLifeExperimentRepository: lifeRepository,
+      localPhase3PlusRepository: LocalPhase3PlusRepository(localDatabase),
+      aiRepository: FakeAiRepository(),
+      localUserId: userId,
+      nowLoader: () => now,
+    );
+
+    expect((await todayRepository.fetchToday())['todayLifeExperiment'], isNull);
+    now = DateTime(2026, 7, 14);
+    expect(
+      ((await todayRepository.fetchToday())['todayLifeExperiment'] as dynamic)
+          ?.id,
+      adopted?.id,
+    );
+    await localDatabase.close();
+  });
 }
 
 class _Harness {
   final LocalDatabase localDatabase;
   final LocalCaptureRepository localCaptureRepository;
+  final LocalPhase3PlusRepository localPhase3PlusRepository;
   final TodayRepository repository;
 
   _Harness({
     required this.localDatabase,
     required this.localCaptureRepository,
+    required this.localPhase3PlusRepository,
     required this.repository,
   });
 
@@ -546,10 +913,12 @@ Future<_Harness> _createHarness({
   final localCaptureRepository = LocalCaptureRepository(localDatabase);
   final localDailySnapshotRepository =
       LocalDailySnapshotRepository(localDatabase);
+  final localPhase3PlusRepository = LocalPhase3PlusRepository(localDatabase);
 
   final repository = TodayRepository(
     localCaptureRepository: localCaptureRepository,
     localDailySnapshotRepository: localDailySnapshotRepository,
+    localPhase3PlusRepository: localPhase3PlusRepository,
     aiRepository: aiRepository,
     apiClient: apiClient,
     focusAreaLoader: () async => null,
@@ -559,6 +928,7 @@ Future<_Harness> _createHarness({
   return _Harness(
     localDatabase: localDatabase,
     localCaptureRepository: localCaptureRepository,
+    localPhase3PlusRepository: localPhase3PlusRepository,
     repository: repository,
   );
 }
@@ -568,6 +938,7 @@ class FakeSignalCardApiClient extends ApiClient {
   bool failPost;
   final List<Map<String, dynamic>> postCalls = [];
   final List<Map<String, dynamic>> patchCalls = [];
+  final List<Map<String, dynamic>> deleteCalls = [];
 
   FakeSignalCardApiClient({
     required this.recentSignals,
@@ -611,6 +982,15 @@ class FakeSignalCardApiClient extends ApiClient {
   ) async {
     patchCalls.add({'path': path, 'body': body});
     return {'data': body};
+  }
+
+  @override
+  Future<Map<String, dynamic>> deleteJson(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    deleteCalls.add({'path': path, 'body': body});
+    return {'data': body ?? const <String, dynamic>{}};
   }
 }
 

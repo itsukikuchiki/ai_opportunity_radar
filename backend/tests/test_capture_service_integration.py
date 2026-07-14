@@ -125,6 +125,7 @@ def test_recent_signal_query_reads_back_saved_capture_with_acknowledgement():
         reload(classification_module)
         reload(capture_service_module)
 
+        from app.models.signal_card import SignalCard
         from app.repositories.capture_repository import CaptureRepository
         from app.services.capture_service import CaptureService
         from app.services.classification_service import ClassificationService
@@ -148,8 +149,11 @@ def test_recent_signal_query_reads_back_saved_capture_with_acknowledgement():
                 user_id="test-user-service",
                 limit=10,
             )
+            card = db.execute(select(SignalCard)).scalar_one()
 
             assert len(signals) >= 1
+            assert signals[0].id == card.id
+            assert signals[0].signal_card_id == card.id
             assert signals[0].content == "今天还是很烦"
             assert isinstance(signals[0].acknowledgement, str)
             assert signals[0].acknowledgement.strip() != ""

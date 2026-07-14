@@ -66,8 +66,8 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
     final pending = purchase?.purchasePending ?? false;
     final restoring = purchase?.restoring ?? false;
     final isPremium = purchase?.isPremium ?? false;
-    final monthlyPrice = purchase?.proMonthlyDisplayPrice ?? '\$0.99';
-    final yearlyPrice = purchase?.proYearlyDisplayPrice ?? '\$9.99';
+    final monthlyPrice = purchase?.proMonthlyDisplayPrice ?? '\$2.99';
+    final yearlyPrice = purchase?.proYearlyDisplayPrice ?? '\$29.99';
     final effectiveProductId = _effectiveProductId(purchase);
     final selectedReady = purchase?.canBuyProduct(effectiveProductId) ?? false;
     final hasAnyPlan = purchase?.proYearlyProduct != null ||
@@ -83,6 +83,8 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
         !loading &&
         !hasAnyPlan &&
         !canAttemptNativePurchase;
+    final restoreStatusMessage =
+        purchase == null ? null : _restoreStatusMessage(context, purchase);
 
     return SafeArea(
       child: Padding(
@@ -175,30 +177,30 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
               icon: Icons.chat_bubble_outline,
               text: AppLocaleText.tr(
                 context,
-                en: 'Continue Today entries as light dialogue',
-                zhHans: '把 Today 记录继续成轻量对话',
-                zhHant: '把 Today 記錄繼續成輕量對話',
-                ja: 'Today の記録を短い対話として続ける',
+                en: 'Ask deeper follow-up questions across periods',
+                zhHans: '围绕跨周期模式进行更深入的追问',
+                zhHant: '圍繞跨週期模式進行更深入的追問',
+                ja: '期間をまたぐパターンについて、より深く問いかける',
               ),
             ),
             _BenefitRow(
               icon: Icons.auto_graph_outlined,
               text: AppLocaleText.tr(
                 context,
-                en: 'Open Deep Weekly and Journey monthly life maps',
-                zhHans: '打开 Deep Weekly 和 Journey 月度生活地图',
-                zhHant: '打開 Deep Weekly 和 Journey 月度生活地圖',
-                ja: 'Deep Weekly と Journey の月次生活マップを開く',
+                en: 'Open Weekly deep review and Journey L3 synthesis',
+                zhHans: '打开 Weekly 本周深读和 Journey L3 综合',
+                zhHant: '打開 Weekly 本週深讀和 Journey L3 綜合',
+                ja: 'Weekly 深掘りと Journey L3 統合を開く',
               ),
             ),
             _BenefitRow(
               icon: Icons.menu_book_outlined,
               text: AppLocaleText.tr(
                 context,
-                en: 'Use the Journey journal and self-review modules',
-                zhHans: '使用 Journey 手帐和专题式自我梳理',
-                zhHant: '使用 Journey 手帳和專題式自我梳理',
-                ja: 'Journey 手帳と Self-Review を使う',
+                en: 'Compare periods and get evidence-backed adjustment directions',
+                zhHans: '比较不同周期，获得有证据支持的调整方向',
+                zhHant: '比較不同週期，獲得有證據支持的調整方向',
+                ja: '期間を比較し、根拠に基づく調整方向を確認する',
               ),
             ),
             const SizedBox(height: 18),
@@ -344,20 +346,20 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                 ],
               ],
             ),
+            if (restoreStatusMessage != null) ...[
+              const SizedBox(height: 4),
+              _RestoreStatusBanner(
+                status: purchase!.restoreStatus,
+                message: restoreStatusMessage,
+              ),
+            ],
             const SizedBox(height: 4),
             _LegalLinksRow(
               onOpenPrivacy: () => _openLegalLink(_privacyPolicyUri),
               onOpenTerms: () => _openLegalLink(_termsOfUseUri),
             ),
-            if (purchase?.errorMessage != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                _localizedPurchaseMessage(context, purchase!.errorMessage!),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.error,
-                ),
-              ),
-            ] else if (!(purchase?.storeAvailable ?? true)) ...[
+            if (purchase?.errorMessage == null &&
+                !(purchase?.storeAvailable ?? true)) ...[
               const SizedBox(height: 8),
               Text(
                 AppLocaleText.tr(
@@ -405,13 +407,82 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
     if (message == PurchaseController.noRestorableSubscriptionMessage) {
       return AppLocaleText.tr(
         context,
-        en: 'No active Pro subscription was found for this Apple ID.',
-        zhHans: '没有找到这个 Apple ID 下可恢复的 Pro 订阅。',
-        zhHant: '沒有找到這個 Apple ID 下可恢復的 Pro 訂閱。',
-        ja: 'この Apple ID で復元できる Pro サブスクリプションは見つかりませんでした。',
+        en: 'No active Pro subscription was found in this StoreKit environment.',
+        zhHans: '当前 StoreKit 环境中没有找到可恢复的 Pro 订阅。',
+        zhHant: '目前 StoreKit 環境中沒有找到可恢復的 Pro 訂閱。',
+        ja: '現在の StoreKit 環境では復元できる Pro サブスクリプションが見つかりませんでした。',
+      );
+    }
+    if (message == PurchaseController.restoreTemporarilyUnavailableMessage) {
+      return AppLocaleText.tr(
+        context,
+        en: 'The App Store could not refresh purchases right now. Please check the connection and try again later.',
+        zhHans: 'App Store 暂时无法刷新购买状态，请检查网络后稍后重试。',
+        zhHant: 'App Store 暫時無法重新整理購買狀態，請檢查網路後稍後重試。',
+        ja: 'App Store から購入状態を更新できませんでした。少し待ってから復元をお試しください。',
+      );
+    }
+    if (message == PurchaseController.sandboxRestoreMessage) {
+      return AppLocaleText.tr(
+        context,
+        en: 'This TestFlight build can only restore Pro purchased in TestFlight. A production App Store subscription can be restored only in the App Store version.',
+        zhHans:
+            'TestFlight 版只能恢复在 TestFlight 中购买的测试订阅；App Store 正式订阅需要在正式版中恢复。',
+        zhHant:
+            'TestFlight 版只能恢復在 TestFlight 中購買的測試訂閱；App Store 正式訂閱需要在正式版中恢復。',
+        ja: 'TestFlight 版では TestFlight 内で購入したテスト用サブスクリプションのみ復元できます。App Store の正式な購読は正式版で復元してください。',
+      );
+    }
+    if (message == PurchaseController.localStoreKitRestoreMessage) {
+      return AppLocaleText.tr(
+        context,
+        en: 'This development build can only restore purchases made in the same StoreKit test environment.',
+        zhHans: '开发测试版只能恢复同一个 StoreKit 测试环境中的购买。',
+        zhHant: '開發測試版只能恢復同一個 StoreKit 測試環境中的購買。',
+        ja: '開発用ビルドでは、同じ StoreKit テスト環境で行った購入のみ復元できます。',
+      );
+    }
+    if (message ==
+        PurchaseController.entitlementEnvironmentReconciliationMessage) {
+      return AppLocaleText.tr(
+        context,
+        en: 'Pro was verified in another or unknown StoreKit environment. Access stays active while the entitlement is reconciled.',
+        zhHans: 'Pro 权益来自另一个或尚未识别的 StoreKit 环境；对账期间会继续保留访问权限。',
+        zhHant: 'Pro 權益來自另一個或尚未識別的 StoreKit 環境；對帳期間會繼續保留存取權限。',
+        ja: 'Pro は別の、または未確認の StoreKit 環境で検証されています。照合中もアクセスは維持されます。',
       );
     }
     return message;
+  }
+
+  String? _restoreStatusMessage(
+    BuildContext context,
+    PurchaseController purchase,
+  ) {
+    final error = purchase.errorMessage;
+    if (error != null && error.trim().isNotEmpty) {
+      return _localizedPurchaseMessage(context, error);
+    }
+    if (purchase.restoring ||
+        purchase.restoreStatus == PurchaseRestoreStatus.checkingStore) {
+      return AppLocaleText.tr(
+        context,
+        en: 'Checking this StoreKit environment for an active Pro entitlement...',
+        zhHans: '正在当前 StoreKit 环境中查询有效的 Pro 权益…',
+        zhHant: '正在目前 StoreKit 環境中查詢有效的 Pro 權益…',
+        ja: '現在の StoreKit 環境で有効な Pro 権利を確認しています…',
+      );
+    }
+    if (purchase.entitlementReconciliationPending) {
+      return AppLocaleText.tr(
+        context,
+        en: 'Pro is active. Backend verification is syncing in the background and does not block access.',
+        zhHans: 'Pro 已激活。后台验证正在异步同步，不影响当前使用。',
+        zhHant: 'Pro 已啟用。後台驗證正在非同步同步，不影響目前使用。',
+        ja: 'Pro は有効です。バックエンド検証はバックグラウンドで同期中ですが、利用には影響しません。',
+      );
+    }
+    return null;
   }
 
   String _effectiveProductId(PurchaseController? purchase) {
@@ -467,6 +538,69 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
     if (!opened) {
       await launchUrl(uri, mode: LaunchMode.platformDefault);
     }
+  }
+}
+
+class _RestoreStatusBanner extends StatelessWidget {
+  final PurchaseRestoreStatus status;
+  final String message;
+
+  const _RestoreStatusBanner({
+    required this.status,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isError = status == PurchaseRestoreStatus.failed ||
+        status == PurchaseRestoreStatus.storeUnavailable;
+    final isPending = status == PurchaseRestoreStatus.checkingStore ||
+        status == PurchaseRestoreStatus.verificationPending;
+    final color = isError
+        ? Theme.of(context).colorScheme.error
+        : isPending
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).colorScheme.onSurfaceVariant;
+
+    return Semantics(
+      liveRegion: true,
+      label: message,
+      child: Container(
+        key: const ValueKey('purchase-restore-status-banner'),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.24)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              isError
+                  ? Icons.error_outline_rounded
+                  : isPending
+                      ? Icons.sync_rounded
+                      : Icons.info_outline_rounded,
+              size: 18,
+              color: color,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

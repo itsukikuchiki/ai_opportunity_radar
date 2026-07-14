@@ -25,6 +25,7 @@ class HealthRecoveryAggregate {
 }
 
 class HealthRecoverySignalResult {
+  final ExternalEnergyPermissionStatus permissionStatus;
   final String status;
   final bool usesInternalEnergyBudgetFallback;
   final bool externalDataIsAuxiliary;
@@ -37,6 +38,7 @@ class HealthRecoverySignalResult {
   final Map<String, String> abstractHints;
 
   const HealthRecoverySignalResult({
+    required this.permissionStatus,
     required this.status,
     required this.usesInternalEnergyBudgetFallback,
     required this.externalDataIsAuxiliary,

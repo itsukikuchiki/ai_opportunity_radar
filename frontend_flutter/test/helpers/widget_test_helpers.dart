@@ -7,7 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_opportunity_radar/core/api/api_client.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/analytics_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/ai_repository.dart';
-import 'package:ai_opportunity_radar/core/api/repositories/cloud_backup_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/energy_budget_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/memory_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/monthly_repository.dart';
@@ -15,12 +14,14 @@ import 'package:ai_opportunity_radar/core/api/repositories/self_review_repositor
 import 'package:ai_opportunity_radar/core/api/repositories/signal_library_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/today_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/weekly_repository.dart';
-import 'package:ai_opportunity_radar/core/backup/backup_bundle_repository.dart';
 import 'package:ai_opportunity_radar/core/di/app_dependencies.dart';
+import 'package:ai_opportunity_radar/core/i18n/app_locale_text.dart';
 import 'package:ai_opportunity_radar/core/models/advanced_energy_boundary_models.dart';
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
+import 'package:ai_opportunity_radar/core/local/local_candidate_planning_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_daily_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
+import 'package:ai_opportunity_radar/core/local/local_feedback_event_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_journey_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_monthly_snapshot_repository.dart';
@@ -28,10 +29,11 @@ import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dar
 import 'package:ai_opportunity_radar/core/local/local_weekly_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/models/energy_budget_models.dart';
 import 'package:ai_opportunity_radar/core/models/memory_models.dart';
-import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
+import 'package:ai_opportunity_radar/core/models/journey_pro_models.dart';
 import 'package:ai_opportunity_radar/core/models/monthly_models.dart';
 import 'package:ai_opportunity_radar/core/models/today_models.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
+import 'package:ai_opportunity_radar/core/readiness/report_readiness.dart';
 import 'package:ai_opportunity_radar/features/pages/me/me_view_model.dart';
 
 class DummyAiRepository extends AiRepository {
@@ -89,7 +91,12 @@ class StubTodayRepository extends TodayRepository {
   final Future<void> Function()? onRetryPendingDrafts;
   final List<Map<String, String>> followupCalls = [];
   final List<Map<String, dynamic>> submittedCaptures = [];
-  final List<Map<String, dynamic>> submittedSchedules = [];
+  final List<Map<String, dynamic>> savedDraftCaptures = [];
+  final List<Map<String, dynamic>> submittedMicroActionChoices = [];
+  final List<Map<String, dynamic>> submittedMicroActionFeedbacks = [];
+  final List<Map<String, dynamic>> submittedLifeExperimentFeedbacks = [];
+  final List<Map<String, dynamic>> confirmedSignals = [];
+  final List<Map<String, dynamic>> aiJudgementResponses = [];
   final List<String> lightDialogMessages = [];
   int fetchTodayCallCount = 0;
   int retryPendingDraftsCallCount = 0;
@@ -166,46 +173,108 @@ class StubTodayRepository extends TodayRepository {
   }
 
   @override
-  Future<ScheduleSignalModel> createScheduleSignal({
-    required String title,
-    DateTime? date,
-    DateTime? time,
-    DateTime? endTime,
-    String? scene,
-    String? note,
-    String? expectedEnergyLoad,
-    bool reminderEnabled = false,
+  Future<RecentSignalModel> saveLocalDraftCapture({
+    required String content,
+    String sourceType = 'text',
+    String? tagHint,
+    Map<String, dynamic> rawPayloadJson = const {},
   }) async {
-    submittedSchedules.add({
-      'title': title,
-      'date': date,
-      'time': time,
-      'endTime': endTime,
-      'scene': scene,
-      'note': note,
-      'expectedEnergyLoad': expectedEnergyLoad,
-      'reminderEnabled': reminderEnabled,
+    savedDraftCaptures.add({
+      'content': content,
+      'tagHint': tagHint,
+      'sourceType': sourceType,
+      'rawPayloadJson': rawPayloadJson,
     });
-    return ScheduleSignalModel(
-      id: 'schedule-${submittedSchedules.length}',
-      title: title,
-      anchorDate: date?.toIso8601String().split('T').first ?? 'unscheduled',
-      datePrecision: date == null ? 'none' : 'date',
-      timePrecision: time == null ? 'none' : 'time',
-      startTime: time,
-      endTime: endTime,
-      scene: scene,
-      note: note,
-      expectedEnergyLoad: expectedEnergyLoad,
-      reminderEnabled: reminderEnabled,
+    return RecentSignalModel(
+      id: 'draft-${savedDraftCaptures.length}',
+      sourceType: sourceType,
+      content: content,
       createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
+      acknowledgement: '草稿已保存在本机。',
+      isLocalDraft: true,
+      rawPayloadJson: rawPayloadJson,
     );
+  }
+
+  @override
+  Future<Map<String, dynamic>> chooseMicroAction({
+    required String microActionId,
+    required String choice,
+    AppLanguage language = AppLanguage.english,
+  }) async {
+    submittedMicroActionChoices.add({
+      'microActionId': microActionId,
+      'choice': choice,
+    });
+    return fetchTodayResult;
+  }
+
+  @override
+  Future<Map<String, dynamic>> submitMicroActionFeedback({
+    required String microActionId,
+    required String feedback,
+    String? userNote,
+  }) async {
+    submittedMicroActionFeedbacks.add({
+      'microActionId': microActionId,
+      'feedback': feedback,
+      'userNote': userNote,
+    });
+    return fetchTodayResult;
+  }
+
+  @override
+  Future<Map<String, dynamic>> submitTodayLifeExperimentFeedback({
+    required String experimentId,
+    required String status,
+    required String feedbackText,
+  }) async {
+    submittedLifeExperimentFeedbacks.add({
+      'experimentId': experimentId,
+      'status': status,
+      'feedbackText': feedbackText,
+    });
+    return fetchTodayResult;
+  }
+
+  @override
+  Future<void> confirmSignalCard({
+    required String signalCardId,
+    required String userConfirmation,
+    Map<String, dynamic> userCorrectionJson = const {},
+  }) async {
+    confirmedSignals.add({
+      'signalCardId': signalCardId,
+      'userConfirmation': userConfirmation,
+      'userCorrectionJson': userCorrectionJson,
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> respondToAiJudgement({
+    required String judgementId,
+    required String status,
+    String? userAdjustmentText,
+    bool addToTimeline = true,
+    AppLanguage language = AppLanguage.english,
+  }) async {
+    aiJudgementResponses.add({
+      'judgementId': judgementId,
+      'status': status,
+      'userAdjustmentText': userAdjustmentText,
+      'addToTimeline': addToTimeline,
+      'language': language.name,
+    });
+    return fetchTodayResult;
   }
 }
 
 Future<AppDependencies> buildTestDependencies({
   required TodayRepository todayRepository,
+  WeeklyRepository? weeklyRepository,
+  MemoryRepository? memoryRepository,
+  EnergyBudgetRepository? energyBudgetRepository,
+  LocalDatabase? localDatabaseOverride,
 }) async {
   await seedMockPrefs();
   final apiClient = ApiClient(
@@ -214,7 +283,7 @@ Future<AppDependencies> buildTestDependencies({
   );
   final analyticsRepository = AnalyticsRepository(apiClient);
   final aiRepository = DummyAiRepository();
-  final localDatabase = createDummyDatabase();
+  final localDatabase = localDatabaseOverride ?? createDummyDatabase();
   final localCaptureRepository = LocalCaptureRepository(localDatabase);
   final localDailySnapshotRepository =
       LocalDailySnapshotRepository(localDatabase);
@@ -226,7 +295,27 @@ Future<AppDependencies> buildTestDependencies({
       LocalMonthlySnapshotRepository(localDatabase);
   final localLifeExperimentRepository =
       LocalLifeExperimentRepository(localDatabase);
-  final localPhase3PlusRepository = LocalPhase3PlusRepository(localDatabase);
+  final localPhase3PlusRepository = LocalPhase3PlusRepository(
+    localDatabase,
+    localUserId: 'widget-test-user',
+  );
+  final localFeedbackEventRepository =
+      LocalFeedbackEventRepository(localDatabase);
+  final resolvedEnergyBudgetRepository = energyBudgetRepository ??
+      EnergyBudgetRepository(
+        localCaptureRepository: localCaptureRepository,
+        localLifeExperimentRepository: localLifeExperimentRepository,
+        feedbackEventRepository: localFeedbackEventRepository,
+        localUserId: 'widget-test-user',
+      );
+  final localCandidatePlanningRepository = LocalCandidatePlanningRepository(
+    localDatabase: localDatabase,
+    localCaptureRepository: localCaptureRepository,
+    localLifeExperimentRepository: localLifeExperimentRepository,
+    feedbackEventRepository: localFeedbackEventRepository,
+    energyBudgetRepository: resolvedEnergyBudgetRepository,
+    localUserId: 'widget-test-user',
+  );
   return AppDependencies(
     apiClient: apiClient,
     localUserId: 'widget-test-user',
@@ -234,20 +323,19 @@ Future<AppDependencies> buildTestDependencies({
     analyticsRepository: analyticsRepository,
     aiRepository: aiRepository,
     todayRepository: todayRepository,
-    weeklyRepository: WeeklyRepository(
-      localCaptureRepository: localCaptureRepository,
-      localWeeklySnapshotRepository: localWeeklySnapshotRepository,
-      aiRepository: aiRepository,
-    ),
-    memoryRepository: MemoryRepository(
-      localCaptureRepository: localCaptureRepository,
-      localJourneySnapshotRepository: localJourneySnapshotRepository,
-      aiRepository: aiRepository,
-    ),
-    energyBudgetRepository: EnergyBudgetRepository(
-      localCaptureRepository: localCaptureRepository,
-      localLifeExperimentRepository: localLifeExperimentRepository,
-    ),
+    weeklyRepository: weeklyRepository ??
+        WeeklyRepository(
+          localCaptureRepository: localCaptureRepository,
+          localWeeklySnapshotRepository: localWeeklySnapshotRepository,
+          aiRepository: aiRepository,
+        ),
+    memoryRepository: memoryRepository ??
+        MemoryRepository(
+          localCaptureRepository: localCaptureRepository,
+          localJourneySnapshotRepository: localJourneySnapshotRepository,
+          aiRepository: aiRepository,
+        ),
+    energyBudgetRepository: resolvedEnergyBudgetRepository,
     monthlyRepository: MonthlyRepository(
       localCaptureRepository: localCaptureRepository,
       localMonthlySnapshotRepository: localMonthlySnapshotRepository,
@@ -258,13 +346,9 @@ Future<AppDependencies> buildTestDependencies({
       apiClient: apiClient,
     ),
     signalLibraryRepository: SignalLibraryRepository(localDatabase),
-    backupBundleRepository: BackupBundleRepository(
-      localDatabase: localDatabase,
-      preferences: await SharedPreferences.getInstance(),
-    ),
-    cloudBackupRepository: CloudBackupRepository(apiClient),
     localDatabase: localDatabase,
     localCaptureRepository: localCaptureRepository,
+    localCandidatePlanningRepository: localCandidatePlanningRepository,
     localDailySnapshotRepository: localDailySnapshotRepository,
     localWeeklySnapshotRepository: localWeeklySnapshotRepository,
     localJourneySnapshotRepository: localJourneySnapshotRepository,
@@ -276,10 +360,17 @@ Future<AppDependencies> buildTestDependencies({
 
 class StubMemoryRepository extends MemoryRepository {
   final MemoryFetchResult result;
+  final List<JourneyEvidenceItemModel> evidenceItems;
+  final JourneyProReportModel? proReportResult;
   int fetchCallCount = 0;
+  int evidenceCallCount = 0;
+  int proReportCallCount = 0;
 
-  StubMemoryRepository({required this.result})
-      : super(
+  StubMemoryRepository({
+    required this.result,
+    this.evidenceItems = const [],
+    this.proReportResult,
+  }) : super(
           localCaptureRepository: LocalCaptureRepository(createDummyDatabase()),
           localJourneySnapshotRepository: LocalJourneySnapshotRepository(
             createDummyDatabase(),
@@ -292,15 +383,53 @@ class StubMemoryRepository extends MemoryRepository {
     fetchCallCount += 1;
     return result;
   }
+
+  @override
+  Future<List<JourneyEvidenceItemModel>> fetchJourneyEvidence({
+    JourneyTraceModel? trace,
+  }) async {
+    evidenceCallCount += 1;
+    return evidenceItems;
+  }
+
+  @override
+  Future<JourneyProReportModel> fetchJourneyProReport() async {
+    proReportCallCount += 1;
+    return proReportResult ??
+        JourneyProReportModel(
+          readiness: result.proReadiness ??
+              ReportReadiness.empty(ReportReadinessEvaluator.journeyProRule),
+          periodStart: '2026-01-01',
+          periodEnd: '2026-01-28',
+          currentWeek: const JourneyProWeekStats(
+            weekStart: '2026-01-26',
+            weekEnd: '2026-02-01',
+            signalCount: 0,
+            activeDayCount: 0,
+          ),
+          previousWeek: const JourneyProWeekStats(
+            weekStart: '2026-01-19',
+            weekEnd: '2026-01-25',
+            signalCount: 0,
+            activeDayCount: 0,
+          ),
+          evidence: const [],
+        );
+  }
 }
 
 class StubWeeklyRepository extends WeeklyRepository {
   final WeeklyInsightModel weekly;
+  final LifeExperimentModel? experimentCandidate;
+  final LifeExperimentModel? currentWeekExperiment;
   final List<String> feedbackValues = [];
   int fetchCallCount = 0;
 
-  StubWeeklyRepository({required this.weekly})
-      : super(
+  StubWeeklyRepository({
+    required this.weekly,
+    this.experimentCandidate,
+    this.currentWeekExperiment,
+  }) : super(
           localCaptureRepository: LocalCaptureRepository(createDummyDatabase()),
           localWeeklySnapshotRepository: LocalWeeklySnapshotRepository(
             createDummyDatabase(),
@@ -315,6 +444,43 @@ class StubWeeklyRepository extends WeeklyRepository {
   }
 
   @override
+  Future<WeeklyReflectModel> fetchWeeklyReflect() async {
+    return const WeeklyReflectModel(
+      summary: 'Weekly Reflect keeps the deeper read tied to this week.',
+      rootTension: 'Energy dropped when meetings compressed recovery.',
+      hiddenPattern: 'Small recovery actions worked better than large plans.',
+      nextFocus: 'Keep the next experiment light and observable.',
+      riskNote: 'Use this as a hypothesis, not a judgement.',
+      keyNodes: [
+        'Meeting compression',
+        'Recovery window',
+        'Light experiment',
+      ],
+    );
+  }
+
+  @override
+  Future<LifeExperimentModel?> fetchWeeklyExperimentCandidate({
+    required String weekStart,
+  }) async {
+    return experimentCandidate ?? weekly.lifeExperiment;
+  }
+
+  @override
+  Future<LifeExperimentModel?> fetchCurrentWeekLifeExperiment({
+    required String weekStart,
+  }) async {
+    return currentWeekExperiment;
+  }
+
+  @override
+  Future<LifeExperimentModel?> fetchNextWeekExperiment({
+    required String weekStart,
+  }) async {
+    return experimentCandidate;
+  }
+
+  @override
   Future<void> submitWeeklyFeedback({
     required String weekStart,
     required String feedbackValue,
@@ -324,12 +490,35 @@ class StubWeeklyRepository extends WeeklyRepository {
 
   @override
   Future<LifeExperimentModel?> saveLifeExperiment(String experimentId) async {
-    return weekly.lifeExperiment?.copyWith(status: 'saved');
+    final source = experimentCandidate;
+    if (source == null) return null;
+    final start = DateTime.parse(source.sourceWeekStart).add(
+      const Duration(days: 7),
+    );
+    final end = DateTime.parse(source.sourceWeekEnd).add(
+      const Duration(days: 7),
+    );
+    String key(DateTime value) => '${value.year.toString().padLeft(4, '0')}-'
+        '${value.month.toString().padLeft(2, '0')}-'
+        '${value.day.toString().padLeft(2, '0')}';
+    return LifeExperimentModel(
+      id: 'exp_adopted_${source.id}',
+      localUserId: source.localUserId,
+      sourceWeekStart: key(start),
+      sourceWeekEnd: key(end),
+      title: source.title,
+      hypothesis: source.hypothesis,
+      suggestedAction: source.suggestedAction,
+      linkedSignalCardIds: source.linkedSignalCardIds,
+      status: 'saved',
+    );
   }
 
   @override
   Future<LifeExperimentModel?> skipLifeExperiment(String experimentId) async {
-    return weekly.lifeExperiment?.copyWith(status: 'skipped');
+    return (experimentCandidate ?? weekly.lifeExperiment)?.copyWith(
+      status: 'skipped',
+    );
   }
 
   @override
@@ -338,7 +527,7 @@ class StubWeeklyRepository extends WeeklyRepository {
     required String status,
     required String feedbackText,
   }) async {
-    return weekly.lifeExperiment?.copyWith(
+    return (experimentCandidate ?? weekly.lifeExperiment)?.copyWith(
       status: status,
       feedbackText: feedbackText,
     );

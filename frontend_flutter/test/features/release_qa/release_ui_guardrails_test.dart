@@ -15,7 +15,9 @@ import 'package:ai_opportunity_radar/core/models/signal_library_models.dart';
 import 'package:ai_opportunity_radar/core/models/today_models.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
 import 'package:ai_opportunity_radar/features/pages/me/advanced_signal_settings_page.dart';
+import 'package:ai_opportunity_radar/features/pages/me/me_page.dart';
 import 'package:ai_opportunity_radar/features/pages/me/me_view_model.dart';
+import 'package:ai_opportunity_radar/features/pages/experiment/experiment_page.dart';
 import 'package:ai_opportunity_radar/features/pages/memory/memory_page.dart';
 import 'package:ai_opportunity_radar/features/pages/memory/memory_view_model.dart';
 import 'package:ai_opportunity_radar/features/pages/signal_library/signal_library_page.dart';
@@ -73,34 +75,118 @@ void main() {
       await _setViewport(tester, viewport);
       await _pumpToday(tester);
       _expectNoRenderFailure(tester);
-      _expectInViewport(tester, find.text('Signal input').first);
+      _expectInViewport(tester, find.text('Quick record').first);
+      _expectFullyInViewport(
+        tester,
+        find.byKey(const ValueKey('today-status-action')),
+      );
+      expect(
+        find.byKey(const ValueKey('today-schedule-action')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('today-ai-judgement-action')),
+        findsNothing,
+      );
+      _expectFullyInViewport(tester, find.text('Voice').first);
+      _expectFullyInViewport(tester, find.text('Library').first);
       expect(find.byKey(const ValueKey('today-sync-action')), findsNothing);
       expect(find.text('View trend'), findsNothing);
-      expect(find.text('View all'), findsNothing);
+      // Today groups adopted actions and experiments into one compact
+      // "Today's attempts" surface with a shared entry point.
+      expect(find.text('View all'), findsOneWidget);
 
       await _pumpWeekly(tester);
       _expectNoRenderFailure(tester);
-      _expectInViewport(tester, find.text('Main drain chain').first);
+      _expectInViewport(tester, find.text('Weekly Review').first);
+      await tester.scrollUntilVisible(
+        find.text('Behavior pattern'),
+        220,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pump();
+      _expectInViewport(tester, find.text('Behavior pattern').first);
+
+      await _pumpExperiment(tester);
+      _expectNoRenderFailure(tester);
+      _expectInViewport(tester, find.text('Life Experiment').first);
 
       await _pumpJourney(tester);
       _expectNoRenderFailure(tester);
-      _expectInViewport(tester, find.text('Long-term patterns').first);
+      _expectInViewport(tester, find.text('Journey').first);
 
       await _pumpLibrary(tester);
       _expectNoRenderFailure(tester);
-      _expectInViewport(tester, find.text('Shared life signals').first);
+      _expectInViewport(tester, find.text('Signal Library').first);
       await tester.ensureVisible(
-          find.byKey(const ValueKey('library-category-recovery')));
-      await tester.tap(find.byKey(const ValueKey('library-category-recovery')));
+          find.byKey(const ValueKey('library-category-food_sleep')));
+      await tester
+          .tap(find.byKey(const ValueKey('library-category-food_sleep')));
       await tester.pump();
-      expect(find.text('Recovery debt'), findsOneWidget);
-      expect(find.text('Over-scheduled weeks'), findsNothing);
+      expect(find.textContaining('Rest may start'), findsOneWidget);
+      expect(find.textContaining('fixed commitments'), findsNothing);
+    });
+  }
+
+  for (final localeCase in _localeCases) {
+    testWidgets('critical pages support ${localeCase.name} at 1.3 text scale',
+        (tester) async {
+      await _setViewport(tester, regularPhone);
+
+      await _pumpToday(
+        tester,
+        locale: localeCase.locale,
+        textScale: 1.3,
+      );
+      _expectNoRenderFailure(tester);
+      _expectInViewport(tester, find.text(localeCase.todayTitle).first);
+
+      await _pumpWeekly(
+        tester,
+        locale: localeCase.locale,
+        textScale: 1.3,
+      );
+      _expectNoRenderFailure(tester);
+      _expectInViewport(tester, find.text(localeCase.weeklyTitle).first);
+
+      await _pumpExperiment(
+        tester,
+        locale: localeCase.locale,
+        textScale: 1.3,
+      );
+      _expectNoRenderFailure(tester);
+      _expectInViewport(tester, find.text(localeCase.experimentTitle).first);
+
+      await _pumpJourney(
+        tester,
+        locale: localeCase.locale,
+        textScale: 1.3,
+      );
+      _expectNoRenderFailure(tester);
+      _expectInViewport(tester, find.text('Journey').first);
+
+      await _pumpMe(
+        tester,
+        locale: localeCase.locale,
+        textScale: 1.3,
+      );
+      _expectNoRenderFailure(tester);
+      _expectInViewport(tester, find.text(localeCase.meTitle).first);
+
+      await _pumpLibrary(
+        tester,
+        locale: localeCase.locale,
+        textScale: 1.3,
+      );
+      _expectNoRenderFailure(tester);
+      _expectInViewport(tester, find.text(localeCase.libraryTitle).first);
     });
   }
 
   testWidgets('bottom navigation keeps all labels tappable on compact phones',
       (tester) async {
     await _setViewport(tester, compactPhone);
+    final semantics = tester.ensureSemantics();
 
     final router = GoRouter(
       initialLocation: AppRoutes.today,
@@ -110,6 +196,7 @@ void main() {
           routes: [
             _route(AppRoutes.today, 'today route'),
             _route(AppRoutes.weekly, 'weekly route'),
+            _route(AppRoutes.experiment, 'experiment route'),
             _route(AppRoutes.memory, 'journey route'),
             _route(AppRoutes.signalLibrary, 'library route'),
             _route(AppRoutes.me, 'me route'),
@@ -122,15 +209,61 @@ void main() {
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
     await tester.pumpAndSettle();
 
-    for (final label in ['Today', 'Weekly', 'Journey', 'Library', 'Me']) {
+    for (final label in ['Today', 'Weekly', 'Experiment', 'Journey', 'Me']) {
       final finder = find.text(label);
       expect(finder, findsOneWidget);
       _expectInViewport(tester, finder);
+      _expectMinimumTapTarget(
+        tester,
+        find.ancestor(of: finder, matching: find.byType(InkWell)).first,
+      );
       await tester.tap(finder);
       await tester.pumpAndSettle();
       _expectNoRenderFailure(tester);
       expect(find.text(label), findsOneWidget);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel(label)),
+        matchesSemantics(
+          label: label,
+          isButton: true,
+          hasSelectedState: true,
+          isSelected: true,
+          hasTapAction: true,
+        ),
+      );
     }
+    semantics.dispose();
+  });
+
+  testWidgets('quick record controls meet touch and VoiceOver contracts',
+      (tester) async {
+    await _setViewport(tester, compactPhone);
+    final semantics = tester.ensureSemantics();
+
+    await _pumpToday(tester);
+    _expectNoRenderFailure(tester);
+
+    const controls = <(String, ValueKey<String>)>[
+      ('Text', ValueKey('today-text-action')),
+      ('Voice', ValueKey('today-voice-action')),
+      ('State', ValueKey('today-status-action')),
+      ('Library', ValueKey('today-signal-library-action')),
+      ('Save signal', ValueKey('today-submit-text-action')),
+    ];
+    for (final control in controls) {
+      _expectMinimumTapTarget(tester, find.byKey(control.$2));
+      expect(
+        tester.getSemantics(find.bySemanticsLabel(control.$1)),
+        matchesSemantics(
+          label: control.$1,
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          hasTapAction: true,
+        ),
+      );
+    }
+    semantics.dispose();
   });
 
   testWidgets('secondary pages keep back controls inside the safe area',
@@ -179,7 +312,43 @@ void _expectInViewport(WidgetTester tester, Finder finder) {
   expect(rect.left, lessThan(size.width));
 }
 
-Future<void> _pumpToday(WidgetTester tester) async {
+void _expectFullyInViewport(WidgetTester tester, Finder finder) {
+  expect(finder, findsWidgets);
+  final rect = tester.getRect(finder.first);
+  final size = tester.view.physicalSize / tester.view.devicePixelRatio;
+  expect(rect.left, greaterThanOrEqualTo(0));
+  expect(rect.top, greaterThanOrEqualTo(0));
+  expect(rect.right, lessThanOrEqualTo(size.width));
+  expect(rect.bottom, lessThanOrEqualTo(size.height));
+}
+
+void _expectMinimumTapTarget(
+  WidgetTester tester,
+  Finder finder, {
+  double minimum = 44,
+}) {
+  expect(finder, findsOneWidget);
+  final size = tester.getSize(finder);
+  expect(size.width, greaterThanOrEqualTo(minimum));
+  expect(size.height, greaterThanOrEqualTo(minimum));
+}
+
+Widget _withTextScale(Widget child, double textScale) {
+  return Builder(
+    builder: (context) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(
+        textScaler: TextScaler.linear(textScale),
+      ),
+      child: child,
+    ),
+  );
+}
+
+Future<void> _pumpToday(
+  WidgetTester tester, {
+  Locale locale = const Locale('en'),
+  double textScale = 1,
+}) async {
   final repo = StubTodayRepository(
     fetchTodayResult: {
       'insight': TodayInsightModel(
@@ -210,7 +379,8 @@ Future<void> _pumpToday(WidgetTester tester) async {
 
   await tester.pumpWidget(
     buildTestApp(
-      child: const TodayPage(),
+      locale: locale,
+      child: _withTextScale(const TodayPage(), textScale),
       providers: [
         ChangeNotifierProvider<TodayViewModel>(
           create: (_) => TodayViewModel(repo),
@@ -222,14 +392,19 @@ Future<void> _pumpToday(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-Future<void> _pumpWeekly(WidgetTester tester) async {
+Future<void> _pumpWeekly(
+  WidgetTester tester, {
+  Locale locale = const Locale('en'),
+  double textScale = 1,
+}) async {
   final repo = StubWeeklyRepository(weekly: _weeklyModel);
   final energyRepo = StubEnergyBudgetRepository(budget: _energyBudget);
   final meVm = await buildMeViewModel(repeatArea: 'work_tasks');
 
   await tester.pumpWidget(
     buildTestApp(
-      child: const WeeklyPage(),
+      locale: locale,
+      child: _withTextScale(const WeeklyPage(), textScale),
       providers: [
         ChangeNotifierProvider<WeeklyViewModel>(
           create: (_) => WeeklyViewModel(
@@ -244,7 +419,32 @@ Future<void> _pumpWeekly(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-Future<void> _pumpJourney(WidgetTester tester) async {
+Future<void> _pumpExperiment(
+  WidgetTester tester, {
+  Locale locale = const Locale('en'),
+  double textScale = 1,
+}) async {
+  final repo = StubWeeklyRepository(weekly: _weeklyModel);
+
+  await tester.pumpWidget(
+    buildTestApp(
+      locale: locale,
+      child: _withTextScale(const ExperimentPage(), textScale),
+      providers: [
+        ChangeNotifierProvider<WeeklyViewModel>(
+          create: (_) => WeeklyViewModel(repo),
+        ),
+      ],
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pumpJourney(
+  WidgetTester tester, {
+  Locale locale = const Locale('en'),
+  double textScale = 1,
+}) async {
   final repo = StubMemoryRepository(
     result: MemoryFetchResult(
       isFirstDayGate: false,
@@ -278,7 +478,8 @@ Future<void> _pumpJourney(WidgetTester tester) async {
 
   await tester.pumpWidget(
     buildTestApp(
-      child: const MemoryPage(),
+      locale: locale,
+      child: _withTextScale(const MemoryPage(), textScale),
       providers: [
         ChangeNotifierProvider<MemoryViewModel>(
           create: (_) => MemoryViewModel(repo),
@@ -290,14 +491,42 @@ Future<void> _pumpJourney(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-Future<void> _pumpLibrary(WidgetTester tester) async {
+Future<void> _pumpMe(
+  WidgetTester tester, {
+  Locale locale = const Locale('en'),
+  double textScale = 1,
+}) async {
+  final meVm = await buildMeViewModel(repeatArea: 'time_rhythm');
+
   await tester.pumpWidget(
-    ChangeNotifierProvider(
-      create: (_) => SignalLibraryViewModel(_GuardrailLibraryRepository()),
-      child: const MaterialApp(home: SignalLibraryPage()),
+    buildTestApp(
+      locale: locale,
+      child: _withTextScale(const MePage(), textScale),
+      providers: [
+        ChangeNotifierProvider<MeViewModel>.value(value: meVm),
+      ],
     ),
   );
-  await tester.pump();
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pumpLibrary(
+  WidgetTester tester, {
+  Locale locale = const Locale('en'),
+  double textScale = 1,
+}) async {
+  await tester.pumpWidget(
+    buildTestApp(
+      locale: locale,
+      child: _withTextScale(const SignalLibraryPage(), textScale),
+      providers: [
+        ChangeNotifierProvider<SignalLibraryViewModel>(
+          create: (_) => SignalLibraryViewModel(_GuardrailLibraryRepository()),
+        ),
+      ],
+    ),
+  );
+  await tester.pumpAndSettle();
 }
 
 GoRoute _route(String path, String label) {
@@ -379,8 +608,6 @@ final _workPattern = LibraryPatternModel(
   commonFrictions: const ['schedule density'],
   energyLoadHint: 'high-drain',
   possiblePositiveSignal: 'open time',
-  gentleReflection: 'This may be about missing soft edges.',
-  suggestedSmallExperiment: 'Leave one small buffer this week.',
   language: 'en',
   createdAt: DateTime.utc(2026, 6, 18),
   updatedAt: DateTime.utc(2026, 6, 18),
@@ -394,9 +621,66 @@ final _recoveryPattern = LibraryPatternModel(
   commonFrictions: const ['recovery debt'],
   energyLoadHint: 'recovery',
   possiblePositiveSignal: 'sleep recovery',
-  gentleReflection: 'Recovery may need a little more room.',
-  suggestedSmallExperiment: 'Set one small stop time before bed.',
   language: 'en',
   createdAt: DateTime.utc(2026, 6, 18),
   updatedAt: DateTime.utc(2026, 6, 18),
 );
+
+class _LocaleCase {
+  final String name;
+  final Locale locale;
+  final String todayTitle;
+  final String weeklyTitle;
+  final String experimentTitle;
+  final String meTitle;
+  final String libraryTitle;
+
+  const _LocaleCase({
+    required this.name,
+    required this.locale,
+    required this.todayTitle,
+    required this.weeklyTitle,
+    required this.experimentTitle,
+    required this.meTitle,
+    required this.libraryTitle,
+  });
+}
+
+const _localeCases = <_LocaleCase>[
+  _LocaleCase(
+    name: 'English',
+    locale: Locale('en'),
+    todayTitle: 'Quick record',
+    weeklyTitle: 'Weekly Review',
+    experimentTitle: 'Life Experiment',
+    meTitle: 'Me',
+    libraryTitle: 'Signal Library',
+  ),
+  _LocaleCase(
+    name: 'Simplified Chinese',
+    locale: Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+    todayTitle: '快速记录',
+    weeklyTitle: '本周复盘',
+    experimentTitle: '小实验',
+    meTitle: '我的',
+    libraryTitle: '信号库',
+  ),
+  _LocaleCase(
+    name: 'Traditional Chinese',
+    locale: Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+    todayTitle: '快速記錄',
+    weeklyTitle: '本週復盤',
+    experimentTitle: '小實驗',
+    meTitle: '我的',
+    libraryTitle: '信號庫',
+  ),
+  _LocaleCase(
+    name: 'Japanese',
+    locale: Locale('ja'),
+    todayTitle: 'クイック記録',
+    weeklyTitle: '今週の振り返り',
+    experimentTitle: '小さな実験',
+    meTitle: '私',
+    libraryTitle: 'シグナルライブラリ',
+  ),
+];

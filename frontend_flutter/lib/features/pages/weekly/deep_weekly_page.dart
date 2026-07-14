@@ -4,10 +4,11 @@ import 'package:provider/provider.dart';
 import '../../../core/di/app_dependencies.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/weekly_models.dart';
+import '../../../core/readiness/report_readiness.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 
-class DeepWeeklyPage extends StatelessWidget {
-  const DeepWeeklyPage({super.key});
+class WeeklyReflectPage extends StatelessWidget {
+  const WeeklyReflectPage({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -17,16 +18,19 @@ class DeepWeeklyPage extends StatelessWidget {
           AuroraPage(
             child: SafeArea(
               bottom: false,
-              child: FutureBuilder<DeepWeeklyModel>(
-                future: context
-                    .read<AppDependencies>()
-                    .weeklyRepository
-                    .fetchDeepWeekly(),
+              child: FutureBuilder<_WeeklyReflectLoad>(
+                future: _load(context),
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {
-                    return const _DeepWeeklyLoading();
+                    return const _WeeklyReflectLoading();
                   }
-                  final deep = snapshot.data!;
+                  final result = snapshot.data!;
+                  if (!result.readiness.isReady || result.reflect == null) {
+                    return _WeeklyReflectUnavailable(
+                      readiness: result.readiness,
+                    );
+                  }
+                  final deep = result.reflect!;
                   return ListView(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
                     children: [
@@ -35,10 +39,10 @@ class DeepWeeklyPage extends StatelessWidget {
                           Text(
                             AppLocaleText.tr(
                               context,
-                              en: 'Deep Weekly',
-                              zhHans: '深度周报',
-                              zhHant: '深度週報',
-                              ja: 'Deep Weekly',
+                              en: 'Weekly Deep Review',
+                              zhHans: 'Weekly 本周深读',
+                              zhHant: 'Weekly 本週深讀',
+                              ja: 'Weekly 深掘りレビュー',
                             ),
                             style: Theme.of(context)
                                 .textTheme
@@ -52,10 +56,10 @@ class DeepWeeklyPage extends StatelessWidget {
                           AuroraChip(
                             label: AppLocaleText.tr(
                               context,
-                              en: 'Deep insight',
-                              zhHans: '深度洞察',
-                              zhHant: '深度洞察',
-                              ja: '深い洞察',
+                              en: 'Reflect',
+                              zhHans: '深度反思',
+                              zhHant: '深度反思',
+                              ja: 'Reflect',
                             ),
                           ),
                           const Spacer(),
@@ -68,8 +72,8 @@ class DeepWeeklyPage extends StatelessWidget {
                         AppLocaleText.tr(
                           context,
                           en: 'A structural reading based on this week’s signals.',
-                          zhHans: '基于你本周的信号，进行更深的结构化分析与解读。',
-                          zhHant: '基於你本週的信號，進行更深的結構化分析與解讀。',
+                          zhHans: '基于你本周的信号，做一次更有结构的深读。',
+                          zhHant: '基於你本週的信號，做一次更有結構的深讀。',
                           ja: '今週のシグナルから、構造を少し深く読み解きます。',
                         ),
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -112,10 +116,136 @@ class DeepWeeklyPage extends StatelessWidget {
       ),
     );
   }
+
+  Future<_WeeklyReflectLoad> _load(BuildContext context) async {
+    final repository = context.read<AppDependencies>().weeklyRepository;
+    final weekly = await repository.fetchCurrentWeekly();
+    final readiness = weekly.reportReadiness;
+    if (!readiness.isReady) {
+      return _WeeklyReflectLoad(readiness: readiness);
+    }
+    return _WeeklyReflectLoad(
+      readiness: readiness,
+      reflect: await repository.fetchWeeklyReflect(),
+    );
+  }
 }
 
-class _DeepWeeklyLoading extends StatelessWidget {
-  const _DeepWeeklyLoading();
+class _WeeklyReflectLoad {
+  final ReportReadiness readiness;
+  final WeeklyReflectModel? reflect;
+
+  const _WeeklyReflectLoad({
+    required this.readiness,
+    this.reflect,
+  });
+}
+
+class _WeeklyReflectUnavailable extends StatelessWidget {
+  final ReportReadiness readiness;
+
+  const _WeeklyReflectUnavailable({required this.readiness});
+
+  @override
+  Widget build(BuildContext context) {
+    final progressText = AppLocaleText.tr(
+      context,
+      en: '${readiness.signalCount} / 3 eligible signals this week',
+      zhHans: '本周已记录 ${readiness.signalCount} / 3 条有效信号',
+      zhHant: '本週已記錄 ${readiness.signalCount} / 3 條有效信號',
+      ja: '今週の有効なシグナル ${readiness.signalCount} / 3 件',
+    );
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
+      children: [
+        Text(
+          AppLocaleText.tr(
+            context,
+            en: 'Weekly Deep Review',
+            zhHans: 'Weekly 本周深读',
+            zhHant: 'Weekly 本週深讀',
+            ja: 'Weekly 深掘りレビュー',
+          ),
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: AuroraColors.ink,
+                fontWeight: FontWeight.w800,
+              ),
+        ),
+        const SizedBox(height: 18),
+        AuroraCard(
+          key: const ValueKey('weekly-reflect-readiness-card'),
+          child: Column(
+            children: [
+              const AuroraSoftIconCircle(
+                icon: Icons.auto_graph_rounded,
+                color: AuroraColors.purple,
+                size: 72,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'The weekly report is still forming',
+                  zhHans: '本周报告还在形成',
+                  zhHant: '本週報告還在形成',
+                  ja: '今週のレポートはまだ形成中です',
+                ),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: AuroraColors.ink,
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'Weekly and its same-week deep review start after 3 eligible SignalCards in the current local Monday-Sunday week. Cross-period L3 uses the separate 28-day Pro threshold.',
+                  zhHans:
+                      '当前本地周一至周日达到 3 条有效 SignalCard 后，Weekly 和本周深读才开始显示。跨周期 L3 使用独立的 28 天 Pro 门槛。',
+                  zhHant:
+                      '當前本地週一至週日達到 3 條有效 SignalCard 後，Weekly 和本週深讀才開始顯示。跨週期 L3 使用獨立的 28 天 Pro 門檻。',
+                  ja: '現在のローカル月曜〜日曜で 3 件になると Weekly 深掘りを表示します。期間比較 L3 には別の 28 日 Pro 条件を使います。',
+                ),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AuroraColors.muted,
+                      height: 1.45,
+                    ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                progressText,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: AuroraColors.purple,
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Semantics(
+                label: progressText,
+                value: '${(readiness.progress * 100).round()}%',
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: readiness.progress,
+                    minHeight: 8,
+                    color: AuroraColors.purple,
+                    backgroundColor:
+                        AuroraColors.purple.withValues(alpha: 0.12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WeeklyReflectLoading extends StatelessWidget {
+  const _WeeklyReflectLoading();
 
   @override
   Widget build(BuildContext context) {
@@ -154,7 +284,7 @@ class _DeepWeeklyLoading extends StatelessWidget {
 }
 
 class _HeroInsightCard extends StatelessWidget {
-  final DeepWeeklyModel deep;
+  final WeeklyReflectModel deep;
 
   const _HeroInsightCard({required this.deep});
 
@@ -280,7 +410,7 @@ class _MiniInsight extends StatelessWidget {
 }
 
 class _CoreTopicsCard extends StatelessWidget {
-  final DeepWeeklyModel deep;
+  final WeeklyReflectModel deep;
 
   const _CoreTopicsCard({required this.deep});
 
@@ -372,7 +502,7 @@ class _CoreTopicsCard extends StatelessWidget {
 }
 
 class _EvidenceAndEnergyGrid extends StatelessWidget {
-  final DeepWeeklyModel deep;
+  final WeeklyReflectModel deep;
 
   const _EvidenceAndEnergyGrid({required this.deep});
 
@@ -432,7 +562,7 @@ class _EvidenceAndEnergyGrid extends StatelessWidget {
 }
 
 class _PatternFlowCard extends StatelessWidget {
-  final DeepWeeklyModel deep;
+  final WeeklyReflectModel deep;
 
   const _PatternFlowCard({required this.deep});
 
@@ -523,7 +653,7 @@ class _PatternFlowCard extends StatelessWidget {
 }
 
 class _ExperimentSuggestionCard extends StatelessWidget {
-  final DeepWeeklyModel deep;
+  final WeeklyReflectModel deep;
 
   const _ExperimentSuggestionCard({required this.deep});
 
@@ -576,7 +706,7 @@ class _ExperimentSuggestionCard extends StatelessWidget {
 }
 
 class _DeepActionDesignCard extends StatelessWidget {
-  final DeepWeeklyModel deep;
+  final WeeklyReflectModel deep;
 
   const _DeepActionDesignCard({required this.deep});
 

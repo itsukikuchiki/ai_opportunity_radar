@@ -1,6 +1,7 @@
 import '../../../shared/states/load_state.dart';
 import '../../../core/models/phase3_plus_models.dart';
 import '../../../core/models/today_models.dart';
+import '../../../core/models/weekly_models.dart';
 
 class TodayState {
   final LoadState loadState;
@@ -13,11 +14,9 @@ class TodayState {
   final FollowupQuestionModel? pendingQuestion;
   final DailyBestActionModel? bestAction;
   final List<RecentSignalModel> recentSignals;
-  final List<ScheduleSignalModel> scheduleSignals;
-  final List<GoalModel> activeGoals;
-  final List<GoalTaskInstanceModel> goalTasks;
   final AiJudgementModel? aiJudgement;
   final List<MicroActionModel> microActions;
+  final LifeExperimentModel? todayLifeExperiment;
   final String? errorMessage;
   final int captureSuccessTick;
   final int followupSuccessTick;
@@ -34,11 +33,9 @@ class TodayState {
     required this.pendingQuestion,
     required this.bestAction,
     required this.recentSignals,
-    required this.scheduleSignals,
-    required this.activeGoals,
-    required this.goalTasks,
     required this.aiJudgement,
     required this.microActions,
+    required this.todayLifeExperiment,
     required this.errorMessage,
     required this.captureSuccessTick,
     required this.followupSuccessTick,
@@ -56,11 +53,9 @@ class TodayState {
         pendingQuestion: null,
         bestAction: null,
         recentSignals: [],
-        scheduleSignals: [],
-        activeGoals: [],
-        goalTasks: [],
         aiJudgement: null,
         microActions: [],
+        todayLifeExperiment: null,
         errorMessage: null,
         captureSuccessTick: 0,
         followupSuccessTick: 0,
@@ -81,8 +76,14 @@ class TodayState {
 
   bool get hasRecentSignals => recentSignals.isNotEmpty;
 
-  MicroActionModel? get activeMicroAction =>
-      microActions.isEmpty ? null : microActions.first;
+  MicroActionModel? get activeMicroAction {
+    final linkedId = aiJudgement?.linkedMicroActionId;
+    if (linkedId == null || linkedId.trim().isEmpty) return null;
+    for (final action in microActions) {
+      if (action.id == linkedId) return action;
+    }
+    return null;
+  }
 
   static const Object _unset = Object();
 
@@ -97,11 +98,9 @@ class TodayState {
     FollowupQuestionModel? pendingQuestion,
     DailyBestActionModel? bestAction,
     List<RecentSignalModel>? recentSignals,
-    List<ScheduleSignalModel>? scheduleSignals,
-    List<GoalModel>? activeGoals,
-    List<GoalTaskInstanceModel>? goalTasks,
     Object? aiJudgement = _unset,
     List<MicroActionModel>? microActions,
+    Object? todayLifeExperiment = _unset,
     String? errorMessage,
     int? captureSuccessTick,
     int? followupSuccessTick,
@@ -126,13 +125,13 @@ class TodayState {
           : (pendingQuestion ?? this.pendingQuestion),
       bestAction: bestAction ?? this.bestAction,
       recentSignals: recentSignals ?? this.recentSignals,
-      scheduleSignals: scheduleSignals ?? this.scheduleSignals,
-      activeGoals: activeGoals ?? this.activeGoals,
-      goalTasks: goalTasks ?? this.goalTasks,
       aiJudgement: identical(aiJudgement, _unset)
           ? this.aiJudgement
           : aiJudgement as AiJudgementModel?,
       microActions: microActions ?? this.microActions,
+      todayLifeExperiment: identical(todayLifeExperiment, _unset)
+          ? this.todayLifeExperiment
+          : todayLifeExperiment as LifeExperimentModel?,
       errorMessage:
           clearErrorMessage ? null : (errorMessage ?? this.errorMessage),
       captureSuccessTick: captureSuccessTick ?? this.captureSuccessTick,

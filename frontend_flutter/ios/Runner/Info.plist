@@ -29,13 +29,19 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Signal Path only reads local schedule density to create gentle Energy Budget hints. Event titles, locations, attendees, and notes are not stored or uploaded.</string>
+	<string>Signal Path reads local schedule density only after you explicitly enable schedule hints. It creates gentle Energy Budget context on this device; event titles, locations, attendees, and notes are not stored or uploaded.</string>
 	<key>NSCalendarsUsageDescription</key>
-	<string>Signal Path only reads local schedule density to create gentle Energy Budget hints. Event titles, locations, attendees, and notes are not stored or uploaded.</string>
+	<string>Signal Path reads local schedule density only after you explicitly enable schedule hints. It creates gentle Energy Budget context on this device; event titles, locations, attendees, and notes are not stored or uploaded.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Signal Path uses abstract recovery signals from sleep, steps, and workouts to support Energy Budget. Raw health samples are not shown, stored as diary content, or uploaded.</string>
+	<string>Signal Path reads the sleep, step, and workout data you choose to share, then creates abstract Energy Budget recovery hints on this device. Raw health data is not uploaded.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Signal Path may save app-created recovery summaries to support Energy Budget. Raw health samples are not uploaded or shared.</string>
+	<string>Signal Path does not add or modify Health data. Health access is read-only and supports optional Energy Budget recovery hints.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Signal Path uses the microphone to turn your voice into editable signal text. Audio is processed only during recognition and is not saved or uploaded.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Signal Path lets you choose a profile photo for your Me page. The photo stays on this device unless you choose to share it elsewhere.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Signal Path uses only on-device speech recognition to turn your voice into editable signal text. If on-device recognition is unavailable, you can still type. Audio is not saved or uploaded.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

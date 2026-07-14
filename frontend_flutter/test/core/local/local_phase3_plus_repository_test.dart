@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dart';
+import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -31,114 +32,111 @@ void main() {
     }
   });
 
-  test('title-only schedule becomes an unscheduled pending signal', () async {
-    final schedule = await repository.createScheduleSignal(
-      title: '准备明天的材料',
+  test('AI prediction stores candidate signal fields before micro actions',
+      () async {
+    final now = DateTime.now();
+    final judgement = AiJudgementModel(
+      id: 'aj_prediction_001',
+      sourceSignalCardIds: const ['sig_001'],
+      localDate: '2026-06-25',
+      judgementText: '你可能正在靠近一个恢复信号。',
+      evidenceText: '线索来自今天的记录。',
+      predictionKind: 'inferred_signal',
+      predictedSignalText: '今天的低能量可能是在提醒你先恢复。',
+      suggestedPattern: '恢复空间不足',
+      suggestedLifeChainStage: 'recovery_gap',
+      confidenceLevel: 'low',
+      createdAt: now,
+      updatedAt: now,
     );
 
-    expect(schedule.scheduleStatus, 'unscheduled');
-    expect(schedule.datePrecision, 'none');
-    expect(schedule.timePrecision, 'none');
-    expect(schedule.localDate, isNull);
-    expect(schedule.reminderEnabled, isFalse);
+    await repository.upsertAiJudgement(judgement);
+    final stored = await repository.getAiJudgementForDate('2026-06-25');
 
-    final today = await repository.listTodaySchedules();
-    expect(today.map((item) => item.id), contains(schedule.id));
+    expect(stored, isNotNull);
+    expect(stored!.predictionKind, 'inferred_signal');
+    expect(stored.predictedSignalText, '今天的低能量可能是在提醒你先恢复。');
+    expect(stored.linkedMicroActionId, isNull);
+
+    await repository.updateAiJudgementStatus(
+      id: judgement.id,
+      status: 'confirmed',
+      confirmationNote: '用户确认这条预判信号更接近。',
+      includedInWeekly: true,
+      includedInJourney: true,
+    );
+    final confirmed = await repository.getAiJudgementById(judgement.id);
+
+    expect(confirmed?.status, 'confirmed');
+    expect(confirmed?.confirmationNote, '用户确认这条预判信号更接近。');
+    expect(confirmed?.linkedMicroActionId, isNull);
+    expect(confirmed?.includedInWeekly, isTrue);
+    expect(confirmed?.includedInJourney, isTrue);
   });
 
-  test('time-only schedule defaults to today and can join density later',
-      () async {
-    final schedule = await repository.createScheduleSignal(
-      title: '晚上十分钟恢复',
-      time: DateTime(0, 1, 1, 21, 30),
-      expectedEnergyLoad: 'restoring',
+  test('AI judgement is persisted as Observation with signal links', () async {
+    final today = repository.todayKey();
+    final judgement = AiJudgementModel(
+      id: repository.createId('aj'),
+      sourceSignalCardIds: const ['sig-a', 'sig-b'],
+      localDate: today,
+      judgementText: '最近会议后能量下降更明显。',
+      evidenceText: '三条记录都提到了会议和疲惫。',
+      suggestedPattern: 'meeting_energy_drop',
+      suggestedLifeChainStage: 'energy_drain',
+      confidenceLevel: 'medium',
     );
 
-    expect(schedule.scheduleStatus, 'planned');
-    expect(schedule.datePrecision, 'date');
-    expect(schedule.timePrecision, 'time');
-    expect(schedule.localDate, isNotNull);
-    expect(schedule.startTime?.hour, 21);
-    expect(schedule.startTime?.minute, 30);
-  });
+    await repository.upsertAiJudgement(judgement);
+    final db = await localDatabase.database;
+    var observations = await db.query('observations');
+    var links = await db.query('observation_signal_links');
+    var traceLinks = await db.query('trace_links');
 
-  test('schedule can store note, end time, update details, and soft delete',
-      () async {
-    final date = DateTime(2026, 6, 23);
-    final schedule = await repository.createScheduleSignal(
-      title: '项目会议',
-      date: date,
-      time: DateTime(0, 1, 1, 15),
-      endTime: DateTime(0, 1, 1, 16),
-      scene: 'work',
-      expectedEnergyLoad: 'medium',
-      reminderEnabled: true,
-      note: '准备演示材料',
+    expect(observations, hasLength(1));
+    expect(observations.single['source_ai_judgement_id'], judgement.id);
+    expect(observations.single['observation_text'], judgement.judgementText);
+    expect(observations.single['status'], 'generated');
+    expect(links, hasLength(2));
+    expect(traceLinks, hasLength(2));
+    expect(traceLinks.map((row) => row['source_type']).toSet(), {
+      'observation',
+    });
+    expect(traceLinks.map((row) => row['target_type']).toSet(), {
+      'signal_card',
+    });
+    expect(traceLinks.map((row) => row['relation_type']).toSet(), {
+      'evidence_signal',
+    });
+
+    await repository.updateAiJudgementStatus(
+      id: judgement.id,
+      status: 'confirmed',
+      confirmationNote: '确认这个判断。',
+      includedInWeekly: true,
+      includedInJourney: true,
     );
+    observations = await db.query('observations');
+    expect(observations.single['status'], 'confirmed');
+    expect(observations.single['confirmed_at'], isNotNull);
 
-    expect(schedule.scheduleStatus, 'planned');
-    expect(schedule.timePrecision, 'time');
-    expect(schedule.startTime?.hour, 15);
-    expect(schedule.endTime?.hour, 16);
-    expect(schedule.scene, 'work');
-    expect(schedule.expectedEnergyLoad, 'medium');
-    expect(schedule.note, '准备演示材料');
-
-    final updated = await repository.updateScheduleSignal(
-      id: schedule.id,
-      title: '项目会议改期',
-      date: date.add(const Duration(days: 1)),
-      time: DateTime(0, 1, 1, 10, 30),
-      endTime: DateTime(0, 1, 1, 11, 30),
-      scene: 'study',
-      expectedEnergyLoad: 'light',
-      reminderEnabled: false,
-      note: '改为线上确认',
+    await repository.updateAiJudgementStatus(
+      id: judgement.id,
+      status: 'inaccurate',
+      confirmationNote: '这个判断不准确。',
+      includedInWeekly: false,
+      includedInJourney: false,
     );
+    observations = await db.query('observations');
+    expect(observations.single['status'], 'dismissed');
+    expect(observations.single['dismissed_at'], isNotNull);
 
-    expect(updated, isNotNull);
-    expect(updated!.title, '项目会议改期');
-    expect(updated.localDate, '2026-06-24');
-    expect(updated.startTime?.hour, 10);
-    expect(updated.startTime?.minute, 30);
-    expect(updated.endTime?.hour, 11);
-    expect(updated.scene, 'study');
-    expect(updated.expectedEnergyLoad, 'light');
-    expect(updated.reminderEnabled, isFalse);
-    expect(updated.note, '改为线上确认');
-
-    await repository.deleteScheduleSignal(schedule.id);
-    final afterDelete = await repository.listSchedulesBetween(
-      startDate: '2026-06-24',
-      endDate: '2026-06-24',
+    final summary = await repository.summarizeActionLoop(
+      startDate: today,
+      endDate: today,
     );
-    expect(afterDelete.map((item) => item.id), isNot(contains(schedule.id)));
-  });
-
-  test('goal creation builds a plan, a today task, and stores feedback',
-      () async {
-    final goal = await repository.createGoalWithPlan(
-      title: '下班后恢复',
-      desiredFrequency: '每周 3 次',
-      desiredDurationMinutes: 12,
-    );
-    final tasks = await repository.listTodayGoalTasks();
-
-    expect(goal.title, '下班后恢复');
-    expect(tasks, hasLength(1));
-    expect(tasks.first.title, contains('下班后恢复'));
-
-    await repository.submitGoalFeedback(
-      goalId: goal.id,
-      goalTaskInstanceId: tasks.first.id,
-      happened: 'yes',
-      effect: 'helpful',
-    );
-    final summary = await repository.summarizeRange(
-      startDate: tasks.first.localDate,
-      endDate: tasks.first.localDate,
-    );
-    expect(summary.activeGoalCount, 1);
-    expect(summary.goalFeedbackCount, 1);
+    expect(summary['observation_count'], 0);
+    expect(summary['confirmed_observation_count'], 0);
+    expect(summary['observation_ids'], isEmpty);
   });
 }
