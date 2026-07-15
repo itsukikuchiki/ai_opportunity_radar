@@ -1,9 +1,9 @@
 # Phase 4 TestFlight Smoke QA
 
-Date: 2026-07-14
+Date: 2026-07-15
 
 Last reconciled with the current source, final design, automated tests, and a
-read-only App Store Connect API check: 2026-07-14.
+read-only App Store Connect API check: 2026-07-15.
 
 > Plural candidates, zero-to-many adoption, and real per-object `X/7` progress
 > are implemented engineering baseline, not pending implementation. They remain
@@ -17,26 +17,26 @@ Scope: prepare the next major TestFlight validation package for Phase 3+ / Phase
 
 | Field | Value |
 | --- | --- |
-| Current repository version | `4.0.0+11` |
-| Latest ASC build | `4.0.0 (11)`; `VALID`, not expired |
-| Next unused ASC build number | `12`, confirmed by read-only API on 2026-07-14 |
-| Next current-worktree archive | `4.0.0 (12)` only after the user requests a build |
+| Current repository version | `4.0.0+13` |
+| Latest ASC build | `4.0.0 (12)`; `VALID`, not expired |
+| Next unused ASC build number | `13`, confirmed by read-only API on 2026-07-15 |
+| Next current-worktree archive | `4.0.0 (13)`, user-authorized QA showcase build |
 | ASC version record | `4.0.0`; `PREPARE_FOR_SUBMISSION` |
 | Bundle ID | jp.sunrise.signalpath |
 | Purpose | TestFlight platform validation |
 | Production ready | No |
 
-Build `11` already exists in ASC. The current worktree must not be archived or
-uploaded again as build `11`; the next upload must increment to build `12`.
+Build `12` already exists in ASC. The current worktree must not be archived or
+uploaded as build `11` or `12`; this QA showcase upload uses build `13`.
 
 ## Current Baseline Status
 
 | Area | Status |
 | --- | --- |
-| Current source version | `4.0.0+11` |
-| Latest ASC build in the `4.0.0` train | Build `11`, `VALID`, uploaded 2026-07-07 |
-| Latest automated baseline | Flutter 388/388 passed; backend 87 passed / 2 PostgreSQL-only skips; `flutter analyze` 0 issues |
-| Current-worktree IPA | Not built; user has not requested a new build |
+| Current source version | `4.0.0+13` |
+| Latest ASC build in the `4.0.0` train | Build `12`, `VALID`, uploaded 2026-07-14 |
+| Latest automated baseline | Pending final build-13 full-suite reconciliation; backend 89 passed / 2 PostgreSQL-only skips |
+| Current-worktree IPA | Build `13` QA showcase archive authorized; upload status recorded after delivery |
 | Candidate/progress engineering baseline | Implemented; automated coverage passed |
 | Current TestFlight real-device regression | Pending |
 | Platform QA | Open |
@@ -46,21 +46,21 @@ uploaded again as build `11`; the next upload must increment to build `12`.
 
 | Area | Required value | Status |
 | --- | --- | --- |
-| `frontend_flutter/pubspec.yaml` | `version: 4.0.0+11` | Current source truth |
+| `frontend_flutter/pubspec.yaml` | `version: 4.0.0+13` | Current source truth |
 | iOS `CFBundleShortVersionString` | `$(FLUTTER_BUILD_NAME)` -> `4.0.0` | Derived from Flutter build |
-| iOS `CFBundleVersion` | `$(FLUTTER_BUILD_NUMBER)` -> `11` | Derived from Flutter build |
+| iOS `CFBundleVersion` | `$(FLUTTER_BUILD_NUMBER)` -> `13` | Derived from Flutter build |
 | Runner Release `CURRENT_PROJECT_VERSION` | `$(FLUTTER_BUILD_NUMBER)` | Already configured |
 | Fastlane / build scripts | No repo Fastfile found | Not applicable |
 | App Store Connect version record | `4.0.0` | API confirmed; `PREPARE_FOR_SUBMISSION` |
 
 ## App Store Connect Preflight
 
-Read-only API confirmation on 2026-07-14:
+Read-only API confirmation on 2026-07-15:
 
 | Check | Confirmed result | Release status |
 | --- | --- | --- |
-| Highest uploaded build in `4.0.0` | `11`, `VALID`, not expired | Confirmed |
-| Next unused build number | `12` | Confirmed; reserve for the next user-requested archive |
+| Highest uploaded build in `4.0.0` | `12`, `VALID`, not expired | Confirmed |
+| Next unused build number | `13` | Confirmed; reserved for this user-requested QA showcase archive |
 | Monthly product `jp.sunrise.signalpath.pro.monthly` | `APPROVED`, `ONE_MONTH` | Confirmed |
 | Yearly product `jp.sunrise.signalpath.pro.yearly` | `APPROVED`, `ONE_YEAR` | Confirmed |
 | Monthly product localizations | `en-US`, `ja`, `zh-Hant` approved | **`zh-Hans` missing in ASC; add before release** |
@@ -78,19 +78,19 @@ The repository's local StoreKit fixture contains four-language product copy, but
 that fixture is not ASC evidence. The missing `zh-Hans` subscription and group
 localizations above are therefore an external release-preflight gap.
 
-## Current ASC Build Evidence - `4.0.0 (11)`
+## Current ASC Build Evidence - `4.0.0 (12)`
 
 ```text
 Marketing version: 4.0.0
-Build number: 11
-Uploaded: 2026-07-07
+Build number: 12
+Uploaded: 2026-07-14
 Processing state: VALID
 Expired: false
-Next unused build: 12
+Next unused build: 13
 ```
 
 This proves the ASC train state only. It does not prove that unarchived current
-worktree changes are present in build `11`.
+worktree changes are present in build `12`.
 
 ## Historical Delivery Evidence
 
@@ -263,13 +263,13 @@ Reason: in this fastlane version, `--groups` is tied to external tester distribu
 
 Do not mark Platform QA as passed until these are verified on TestFlight / real device:
 
-Before starting, record the exact installed build. Build `11` is the current ASC
-snapshot. Validation of current unarchived worktree changes requires a future
-build `12`, after the user explicitly requests that archive and upload.
+Before starting, record the exact installed build. Build `12` is the current ASC
+snapshot. Validation of this current worktree uses the user-authorized QA
+showcase build `13`.
 
 | Scenario | Status |
 | --- | --- |
-| Install and record the exact TestFlight build (`11` now; `12` for the next current-worktree package) | Pending real-device QA |
+| Install and record the exact TestFlight build (`13` for this QA showcase package) | Pending real-device QA |
 | First fresh launch opens Onboarding page 1 without a white Flutter frame | Pending |
 | Onboarding page 1: Record life signals + icon background | Pending |
 | Onboarding page 2: Weekly + Life Experiment preview + icon background | Pending |
@@ -279,8 +279,8 @@ build `12`, after the user explicitly requests that archive and upload.
 | Today text input saves one SignalCard | Pending |
 | Voice and state “Skip for now” close without saving a draft or timeline item | Pending |
 | State optional note uses “补一句” (“Add a sentence”) and remains inside the SignalCard chain | Pending |
-| AI prediction has Accurate / Somewhat / Not accurate; first two open editable timeline confirmation | Pending |
-| Signal Library uses the same editable timeline-confirmation flow and creates no Small Action / Observation / Experiment peer item | Pending |
+| AI prediction has Accurate / Somewhat / Not accurate; Accurate and Somewhat use the current direct-add flow, while Not accurate adds nothing | Pending |
+| Signal Library cards expose Accurate / Somewhat / Not accurate directly without a popup and create no Small Action / Observation / Experiment peer item | Pending |
 | Small Action stays at neutral `X/3` readiness before three eligible same-day signals | Implemented + automated passed; pending real-device QA |
 | Weekly experiment candidates stay at neutral `X/3` readiness before three eligible same-week signals | Implemented + automated passed; pending real-device QA |
 | Dedicated Small Action candidate page shows up to three choices and supports zero-to-many adoption | Implemented + automated passed; pending real-device QA |
@@ -330,8 +330,8 @@ build `12`, after the user explicitly requests that archive and upload.
 Phase 4 Platform QA can move to `Passed` only when:
 
 1. The exact candidate build is recorded and is visible/installable in
-   TestFlight for internal testers. Current-worktree validation uses build `12`
-   or later, never a reused build `11`.
+   TestFlight for internal testers. Current-worktree validation uses build `13`,
+   never a reused build `11` or `12`.
 2. All implemented No.1–28 flows above are verified. Target-only work is either
    excluded from the candidate or separately implemented and tested.
 3. `zh-Hans` monthly, yearly, and subscription-group localizations are added in
@@ -350,9 +350,10 @@ Phase 4 Platform QA can move to `Passed` only when:
 Until then:
 
 - Current engineering/automated validation is `Passed` for the recorded checks.
-- Existing build `11` may validate only its uploaded snapshot, after internal
+- Existing build `12` may validate only its uploaded snapshot, after internal
   tester visibility is confirmed.
-- Current-worktree TestFlight readiness remains `No` until the user requests
-  build `12`, it is uploaded, and its exact contents are recorded.
+- Current-worktree TestFlight readiness remains `No` until build `13` is
+  uploaded, processed, assigned to the internal group, and its exact contents
+  are recorded.
 - Platform QA remains `Open`.
 - Production ready remains `No`.

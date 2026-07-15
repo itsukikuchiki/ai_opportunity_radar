@@ -316,11 +316,13 @@ class _ExperimentPageState extends State<ExperimentPage> {
             child: Stack(
               children: [
                 const Positioned(
-                  right: -22,
-                  top: 42,
-                  width: 178,
-                  height: 178,
-                  child: IgnorePointer(child: _ExperimentHeroArt()),
+                  right: -26,
+                  top: 30,
+                  width: 166,
+                  height: 166,
+                  child: IgnorePointer(
+                    child: AuroraHeroEmblem(size: 166, opacity: 0.24),
+                  ),
                 ),
                 SafeArea(
                   bottom: false,
@@ -352,7 +354,7 @@ class _ExperimentPageState extends State<ExperimentPage> {
                                   .headlineSmall
                                   ?.copyWith(
                                     color: AuroraColors.ink,
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w700,
                                   ),
                             ),
                           ),
@@ -439,11 +441,13 @@ class _ExperimentPageState extends State<ExperimentPage> {
             child: Stack(
               children: [
                 const Positioned(
-                  right: -22,
-                  top: 42,
-                  width: 178,
-                  height: 178,
-                  child: IgnorePointer(child: _ExperimentHeroArt()),
+                  right: -26,
+                  top: 30,
+                  width: 166,
+                  height: 166,
+                  child: IgnorePointer(
+                    child: AuroraHeroEmblem(size: 166, opacity: 0.24),
+                  ),
                 ),
                 SafeArea(
                   bottom: false,
@@ -475,7 +479,7 @@ class _ExperimentPageState extends State<ExperimentPage> {
                                   .headlineSmall
                                   ?.copyWith(
                                     color: AuroraColors.ink,
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w700,
                                   ),
                             ),
                           ),
@@ -1924,10 +1928,15 @@ class _ExperimentArchiveHeroHeader extends StatelessWidget {
         children: [
           Positioned(
             right: compact ? -16 : -12,
-            top: canPop ? 30 : -10,
-            width: compact ? 148 : 166,
-            height: compact ? 148 : 166,
-            child: const IgnorePointer(child: _ExperimentHeroArt()),
+            top: canPop ? 28 : -24,
+            width: compact ? 126 : 142,
+            height: compact ? 126 : 142,
+            child: IgnorePointer(
+              child: AuroraHeroEmblem(
+                size: compact ? 126 : 142,
+                opacity: 0.86,
+              ),
+            ),
           ),
           if (canPop)
             Positioned(
@@ -1955,23 +1964,16 @@ class _ExperimentArchiveHeroHeader extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  AppLocaleText.tr(
+                AuroraHeroTitle(
+                  text: AppLocaleText.tr(
                     context,
                     en: 'Life Experiment',
-                    zhHans: '小实验',
+                    zhHans: '生活小实验',
                     zhHant: '小實驗',
                     ja: '小さな実験',
                   ),
+                  fontSize: AuroraMainPageSpec.responsiveHeroTitleSize(context),
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        color: AuroraColors.ink,
-                        fontSize:
-                            AuroraMainPageSpec.responsiveHeroTitleSize(context),
-                        fontWeight: FontWeight.w900,
-                        height: 1,
-                      ),
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -2046,7 +2048,7 @@ class _ExperimentSearchBar extends StatelessWidget {
                 hintStyle: TextStyle(
                   color: AuroraColors.muted,
                   fontSize: 14,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ),
@@ -2065,6 +2067,9 @@ class _ExperimentSearchBar extends StatelessWidget {
 }
 
 class _ExperimentFilterTabs extends StatelessWidget {
+  static const _rowHeight = 46.0;
+  static const _singleRowBreakpoint = 620.0;
+
   final _ExperimentFilter value;
   final Map<_ExperimentFilter, int> counts;
   final ValueChanged<_ExperimentFilter> onChanged;
@@ -2080,77 +2085,162 @@ class _ExperimentFilterTabs extends StatelessWidget {
     final filters = _ExperimentFilter.values
         .where((filter) => filter != _ExperimentFilter.all)
         .toList();
-    return Container(
-      key: const ValueKey('experiment-filter-tabs'),
-      height: 46,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.58),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.82)),
-        boxShadow: [
-          BoxShadow(
-            color: AuroraColors.purple.withValues(alpha: 0.07),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useTwoRows =
+            constraints.maxWidth < _singleRowBreakpoint || textScale > 1.1;
+        final rows = useTwoRows
+            ? <List<_ExperimentFilter>>[
+                filters.take(3).toList(),
+                filters.skip(3).toList(),
+              ]
+            : <List<_ExperimentFilter>>[filters];
+
+        return Container(
+          key: const ValueKey('experiment-filter-tabs'),
+          height: _rowHeight * rows.length,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.58),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.82)),
+            boxShadow: [
+              BoxShadow(
+                color: AuroraColors.purple.withValues(alpha: 0.07),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Column(
+              children: [
+                for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) ...[
+                  if (rowIndex > 0)
+                    Container(
+                      height: 1,
+                      color: AuroraColors.line.withValues(alpha: 0.5),
+                    ),
+                  Expanded(
+                    child: _ExperimentFilterRow(
+                      filters: rows[rowIndex],
+                      value: value,
+                      counts: counts,
+                      onChanged: onChanged,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ExperimentFilterRow extends StatelessWidget {
+  final List<_ExperimentFilter> filters;
+  final _ExperimentFilter value;
+  final Map<_ExperimentFilter, int> counts;
+  final ValueChanged<_ExperimentFilter> onChanged;
+
+  const _ExperimentFilterRow({
+    required this.filters,
+    required this.value,
+    required this.counts,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var index = 0; index < filters.length; index++) ...[
+          if (index > 0)
+            Container(
+              width: 1,
+              margin: const EdgeInsets.symmetric(vertical: 11),
+              color: AuroraColors.line.withValues(alpha: 0.5),
+            ),
+          Expanded(
+            child: _ExperimentFilterTab(
+              filter: filters[index],
+              selected: filters[index] == value,
+              count: counts[filters[index]] ?? 0,
+              onTap: () => onChanged(filters[index]),
+            ),
           ),
         ],
-      ),
-      child: ClipRRect(
+      ],
+    );
+  }
+}
+
+class _ExperimentFilterTab extends StatelessWidget {
+  final _ExperimentFilter filter;
+  final bool selected;
+  final int count;
+  final VoidCallback onTap;
+
+  const _ExperimentFilterTab({
+    required this.filter,
+    required this.selected,
+    required this.count,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _filterLabel(context, filter);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '$label $count',
+      child: InkWell(
+        key: ValueKey('experiment-filter-${filter.name}'),
         borderRadius: BorderRadius.circular(20),
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          padding: EdgeInsets.zero,
-          itemCount: filters.length,
-          separatorBuilder: (_, __) => Container(
-            width: 1,
-            margin: const EdgeInsets.symmetric(vertical: 11),
-            color: AuroraColors.line.withValues(alpha: 0.5),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected
+                ? Colors.white.withValues(alpha: 0.82)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            border: selected
+                ? Border.all(
+                    color: AuroraColors.purple.withValues(alpha: 0.48),
+                  )
+                : null,
           ),
-          itemBuilder: (context, index) {
-            final item = filters[index];
-            final selected = item == value;
-            return InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: () => onChanged(item),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                width: index < 3 ? 120 : 108,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: selected
-                      ? Colors.white.withValues(alpha: 0.82)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(20),
-                  border: selected
-                      ? Border.all(
-                          color: AuroraColors.purple.withValues(alpha: 0.48),
-                        )
-                      : null,
-                ),
-                child: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(text: _filterLabel(context, item)),
-                      TextSpan(
-                        text: '  ${counts[item] ?? 0}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: selected
-                              ? AuroraColors.purple.withValues(alpha: 0.9)
-                              : AuroraColors.muted,
-                        ),
-                      ),
-                    ],
-                  ),
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: label),
+                TextSpan(
+                  text: '  $count',
                   style: TextStyle(
-                    color: selected ? AuroraColors.purple : AuroraColors.ink,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: selected
+                        ? AuroraColors.purple.withValues(alpha: 0.9)
+                        : AuroraColors.muted,
                   ),
                 ),
-              ),
-            );
-          },
+              ],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: selected ? AuroraColors.purple : AuroraColors.ink,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+              fontSize: 13.5,
+            ),
+          ),
         ),
       ),
     );
@@ -2185,7 +2275,7 @@ class _ExperimentSectionHeader extends StatelessWidget {
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   color: AuroraColors.ink,
                   fontSize: 17,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ),
@@ -2195,7 +2285,7 @@ class _ExperimentSectionHeader extends StatelessWidget {
             style: const TextStyle(
               color: AuroraColors.muted,
               fontSize: 13,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w600,
             ),
           )
         else
@@ -2219,7 +2309,7 @@ class _ExperimentSectionHeader extends StatelessWidget {
                 style: const TextStyle(
                   color: AuroraColors.muted,
                   fontSize: 13,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
@@ -2333,7 +2423,7 @@ String _experimentSourceLabel(
     return AppLocaleText.tr(
       context,
       en: 'From Weekly',
-      zhHans: '来自 Weekly',
+      zhHans: '来自每周复盘',
       zhHant: '來自 Weekly',
       ja: 'Weekly から',
     );
@@ -2342,7 +2432,7 @@ String _experimentSourceLabel(
   return AppLocaleText.tr(
     context,
     en: 'From $range Weekly',
-    zhHans: '来自 $range Weekly',
+    zhHans: '来自 $range 每周复盘',
     zhHant: '來自 $range Weekly',
     ja: '$range の Weekly から',
   );
@@ -2430,7 +2520,7 @@ class _ExpandedExperimentContent extends StatelessWidget {
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                 color: AuroraColors.ink,
                 fontSize: 17,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
                 height: 1.25,
               ),
         ),
@@ -2462,7 +2552,7 @@ class _ExpandedExperimentContent extends StatelessWidget {
                 style: const TextStyle(
                   color: AuroraColors.muted,
                   fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
@@ -2487,7 +2577,7 @@ class _ExpandedExperimentContent extends StatelessWidget {
                 style: const TextStyle(
                   color: AuroraColors.ink,
                   fontSize: 14,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -2496,7 +2586,7 @@ class _ExpandedExperimentContent extends StatelessWidget {
               style: const TextStyle(
                 color: AuroraColors.purple,
                 fontSize: 17,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -2580,7 +2670,7 @@ class _CompactExperimentContent extends StatelessWidget {
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                 color: AuroraColors.ink,
                 fontSize: 17,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
                 height: 1.2,
               ),
         ),
@@ -2592,7 +2682,7 @@ class _CompactExperimentContent extends StatelessWidget {
               style: const TextStyle(
                 color: AuroraColors.purple,
                 fontSize: 15,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
             ),
             const Spacer(),
@@ -2615,7 +2705,7 @@ class _CompactExperimentContent extends StatelessWidget {
               style: const TextStyle(
                 color: AuroraColors.muted,
                 fontSize: 12.5,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -2680,12 +2770,10 @@ class _ExperimentStatusLine extends StatelessWidget {
           dimension: 48,
           child: const Align(
             alignment: Alignment.centerLeft,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: AuroraColors.purple,
-                shape: BoxShape.circle,
-              ),
-              child: SizedBox.square(dimension: 10),
+            child: AuroraSectionIcon(
+              icon: Icons.science_rounded,
+              color: AuroraColors.purple,
+              size: 40,
             ),
           ),
         ),
@@ -2700,19 +2788,23 @@ class _ExperimentStatusLine extends StatelessWidget {
           style: const TextStyle(
             color: AuroraColors.purple,
             fontSize: 13,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
           ),
         ),
         const Text(
           '  ·  ',
           style: TextStyle(color: AuroraColors.muted),
         ),
-        Text(
-          _experimentDayLabel(context, experiment),
-          style: const TextStyle(
-            color: AuroraColors.muted,
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
+        Expanded(
+          child: Text(
+            _experimentDayLabel(context, experiment),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AuroraColors.muted,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],
@@ -2774,7 +2866,7 @@ class _ExperimentProgressCell extends StatelessWidget {
             style: const TextStyle(
               color: AuroraColors.ink,
               fontSize: 12,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 6),
@@ -2869,7 +2961,7 @@ class _ExperimentLegendItem extends StatelessWidget {
             style: const TextStyle(
               color: AuroraColors.muted,
               fontSize: 11.5,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
@@ -2907,7 +2999,7 @@ class _ExperimentActionButton extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w900),
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             )
           : OutlinedButton(
@@ -2925,7 +3017,7 @@ class _ExperimentActionButton extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w900),
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
     );
@@ -2961,12 +3053,10 @@ class _UpcomingExperimentCard extends StatelessWidget {
               dimension: 48,
               child: const Align(
                 alignment: Alignment.topLeft,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Color(0xFFD8AA3D),
-                    shape: BoxShape.circle,
-                  ),
-                  child: SizedBox.square(dimension: 10),
+                child: AuroraSectionIcon(
+                  icon: Icons.science_rounded,
+                  color: AuroraColors.gold,
+                  size: 40,
                 ),
               ),
             ),
@@ -2985,7 +3075,7 @@ class _UpcomingExperimentCard extends StatelessWidget {
                     style: const TextStyle(
                       color: Color(0xFFA2781B),
                       fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(height: 5),
@@ -2996,7 +3086,7 @@ class _UpcomingExperimentCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           color: AuroraColors.ink,
                           fontSize: 17,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                           height: 1.2,
                         ),
                   ),
@@ -3011,7 +3101,7 @@ class _UpcomingExperimentCard extends StatelessWidget {
                         style: const TextStyle(
                           color: AuroraColors.muted,
                           fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -3066,7 +3156,7 @@ class _ExperimentSourceChangedBadge extends StatelessWidget {
           style: const TextStyle(
             color: AuroraColors.orange,
             fontSize: 11.5,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ],
@@ -3097,10 +3187,10 @@ class _ExperimentEmptyArchive extends StatelessWidget {
         padding: EdgeInsets.symmetric(vertical: mainPageDensity ? 0 : 24),
         child: Column(
           children: [
-            Icon(
-              Icons.science_rounded,
+            AuroraSectionIcon(
+              icon: Icons.science_rounded,
               color: AuroraColors.purple,
-              size: mainPageDensity ? 30 : 44,
+              size: mainPageDensity ? 34 : 44,
             ),
             SizedBox(height: mainPageDensity ? 6 : 12),
             Text(
@@ -3115,7 +3205,7 @@ class _ExperimentEmptyArchive extends StatelessWidget {
                     ),
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: AuroraColors.ink,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
             if (historyLoaded) ...[
@@ -3311,7 +3401,7 @@ class _LifeExperimentArchiveCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         color: AuroraColors.ink,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                         height: 1.2,
                         fontSize: mainPageDensity ? 17 : null,
                       ),
@@ -3342,7 +3432,7 @@ class _LifeExperimentArchiveCard extends StatelessWidget {
                     style: TextStyle(
                       color: AuroraColors.purple.withValues(alpha: 0.74),
                       fontSize: mainPageDensity ? 11.5 : 12,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
@@ -3353,7 +3443,7 @@ class _LifeExperimentArchiveCard extends StatelessWidget {
               style: TextStyle(
                 color: AuroraColors.ink.withValues(alpha: 0.62),
                 fontSize: mainPageDensity ? 12 : 13,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w600,
               ),
             );
             if (compact) {
@@ -3603,7 +3693,7 @@ class _ArchiveMetric extends StatelessWidget {
             value,
             style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   color: color,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   height: 1,
                   fontSize: mainPageDensity ? 22 : null,
                 ),
@@ -3662,7 +3752,7 @@ class _ExperimentStatsHeroCard extends StatelessWidget {
                         ),
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: AuroraColors.purple,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
                 const SizedBox(height: 8),
@@ -3672,7 +3762,7 @@ class _ExperimentStatsHeroCard extends StatelessWidget {
                           context,
                           en: 'After you add a next-week experiment from Weekly, its feedback, effect summary, linked signals, and timeline will appear here.',
                           zhHans:
-                              '当你从 Weekly 加入一个下周小实验后，这里会展示它的反馈、效果总结、关联信号和时间线。',
+                              '当你从每周复盘加入一个下周生活小实验后，这里会展示它的反馈、效果总结、关联信号和时间线。',
                           zhHant:
                               '當你從 Weekly 加入一個下週小實驗後，這裡會展示它的回饋、效果總結、關聯信號和時間線。',
                           ja: 'Weekly から来週の実験を追加すると、フィードバック、効果の要約、関連シグナル、タイムラインがここに表示されます。',
@@ -3870,7 +3960,7 @@ class _ExperimentStatsListItem extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           color: AuroraColors.ink,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                   const SizedBox(height: 4),
@@ -3941,7 +4031,7 @@ class _LifeExperimentDetailHeroCard extends StatelessWidget {
                   experiment.title,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: AuroraColors.purple,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                         height: 1.16,
                       ),
                 ),
@@ -4056,7 +4146,7 @@ class _ExperimentDetailTabBar extends StatelessWidget {
                 labels[tab]!,
                 style: TextStyle(
                   color: selected ? AuroraColors.purple : AuroraColors.ink,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                 ),
               ),
             ),
@@ -4269,7 +4359,7 @@ class _LifecycleEventRow extends StatelessWidget {
                   _lifecycleLabel(context, event),
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: AuroraColors.ink,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
                 const SizedBox(height: 3),
@@ -4423,7 +4513,7 @@ class _ExperimentOverviewTab extends StatelessWidget {
                       style: TextStyle(
                         color: AuroraColors.ink,
                         fontSize: 16,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -4432,7 +4522,7 @@ class _ExperimentOverviewTab extends StatelessWidget {
                       style: TextStyle(
                         color: AuroraColors.purple,
                         fontSize: 50,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                         height: 1,
                       ),
                     ),
@@ -4677,7 +4767,7 @@ class _ExperimentFeedbackTab extends StatelessWidget {
                   AppLocaleText.tr(
                     context,
                     en: 'No feedback yet. Record one from Today to make this pattern more personal.',
-                    zhHans: '还没有反馈。可以从 Today 记录一次，让这个模式更贴近你。',
+                    zhHans: '还没有反馈。可以从今天记录一次，让这个模式更贴近你。',
                     zhHant: '還沒有回饋。可以從 Today 記錄一次，讓這個模式更貼近你。',
                     ja: 'まだ反応がありません。Todayから一つ残すと、より自分に近い読みになります。',
                   ),
@@ -4970,7 +5060,7 @@ class _StatusPill extends StatelessWidget {
             style: TextStyle(
               color: color,
               fontSize: 13,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -5236,7 +5326,7 @@ class _DetailMetric extends StatelessWidget {
               style: TextStyle(
                 color: color,
                 fontSize: 22,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -5288,7 +5378,7 @@ class _FeedbackRow extends StatelessWidget {
                     '${_dateLabel(date)}  •  ${score.round()}/5',
                     style: TextStyle(
                       color: AuroraColors.ink,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -5387,7 +5477,7 @@ class _DurationLegend extends StatelessWidget {
           ),
           Text(
             value,
-            style: TextStyle(color: color, fontWeight: FontWeight.w900),
+            style: TextStyle(color: color, fontWeight: FontWeight.w700),
           ),
         ],
       ),
@@ -5509,7 +5599,7 @@ class _NotesLine extends StatelessWidget {
                   label,
                   style: TextStyle(
                     color: AuroraColors.purple,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -5720,7 +5810,7 @@ class _NextExperimentHeroCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       color: AuroraColors.purple,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                       height: 1.16,
                     ),
               ),
@@ -5748,7 +5838,7 @@ class _NextExperimentHeroCard extends StatelessWidget {
                     ),
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           color: AuroraColors.purple,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                   const SizedBox(width: 14),
@@ -5758,7 +5848,7 @@ class _NextExperimentHeroCard extends StatelessWidget {
                     '0/7',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: const Color(0xFF566078),
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                 ],
@@ -5974,7 +6064,7 @@ class _NextExperimentEditCard extends StatelessWidget {
                     ),
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: const Color(0xFF263653),
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                 ],
@@ -6058,7 +6148,7 @@ class _ExperimentLabeledEditRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: const Color(0xFF223653),
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
             ),
@@ -6237,7 +6327,7 @@ class _AddTryOptionButton extends StatelessWidget {
                   ),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AuroraColors.purple,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ],
@@ -6278,7 +6368,7 @@ class _EditSettingRow extends StatelessWidget {
               label,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: const Color(0xFF263653),
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
           ),
@@ -6359,7 +6449,7 @@ class _FrequencySegment extends StatelessWidget {
           ),
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
                 color: selected ? Colors.white : const Color(0xFF34405C),
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
         ),
       ),
@@ -6429,7 +6519,7 @@ class _FallbackChip extends StatelessWidget {
             label,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   color: color,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ],
@@ -6664,7 +6754,7 @@ class _ReviewLine extends StatelessWidget {
               text: '$label:  ',
               style: const TextStyle(
                 color: AuroraColors.purple,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
               children: [
                 TextSpan(
@@ -6729,7 +6819,7 @@ class _ExperimentPrimaryButton extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         color: Colors.white,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                         fontSize: compact ? 16 : null,
                       ),
                 ),
@@ -6776,7 +6866,7 @@ class _ExperimentSecondaryButton extends StatelessWidget {
               label,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: AuroraColors.purple,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
           ),
@@ -6804,23 +6894,21 @@ class _ExperimentGlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return AuroraCard(
       padding: padding ??
           (mainPageDensity
               ? AuroraMainPageSpec.comfortableCardPadding
               : const EdgeInsets.fromLTRB(18, 18, 18, 18)),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.62),
-        borderRadius: BorderRadius.circular(
-          mainPageDensity ? AuroraMainPageSpec.cardRadiusLarge : 24,
-        ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.88)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF7863AA).withValues(alpha: 0.08),
-            blurRadius: 28,
-            offset: const Offset(0, 14),
-          ),
+      borderRadius: BorderRadius.circular(
+        mainPageDensity ? AuroraMainPageSpec.cardRadiusLarge : 24,
+      ),
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: 0.86),
+          const Color(0xFFFFF7F1).withValues(alpha: 0.70),
+          const Color(0xFFF1F4FF).withValues(alpha: 0.74),
         ],
       ),
       child: Column(
@@ -6833,7 +6921,7 @@ class _ExperimentGlassCard extends StatelessWidget {
                   title!,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         color: const Color(0xFF253453),
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                         fontSize: mainPageDensity ? 17 : null,
                       ),
                 );
@@ -6950,7 +7038,7 @@ class _ExperimentProgressRing extends StatelessWidget {
                   style: Theme.of(context).textTheme.displaySmall?.copyWith(
                         color: AuroraColors.purple,
                         fontSize: 42,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
                 TextSpan(
@@ -7035,20 +7123,15 @@ class _BackBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Material(
-        color: Colors.white.withValues(alpha: 0.62),
-        shape: const CircleBorder(),
-        child: InkWell(
-          onTap: onTap,
-          customBorder: const CircleBorder(),
-          child: const SizedBox(
-            width: 54,
-            height: 54,
-            child: Icon(Icons.chevron_left_rounded, size: 34),
-          ),
-        ),
+    return AuroraIconButton(
+      icon: Icons.chevron_left_rounded,
+      onPressed: onTap,
+      tooltip: AppLocaleText.tr(
+        context,
+        en: 'Back',
+        zhHans: '返回',
+        zhHant: '返回',
+        ja: '戻る',
       ),
     );
   }

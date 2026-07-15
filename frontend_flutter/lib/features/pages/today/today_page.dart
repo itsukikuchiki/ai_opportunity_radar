@@ -134,6 +134,7 @@ class _TodayPageState extends State<TodayPage> {
                     },
                     onVoiceDraft: () => _openVoiceTranscriptDraft(context, vm),
                     onQuickStatus: () => _openQuickStatusSheet(context, vm),
+                    onTimeUse: () => _openTimeUseSheet(context, vm),
                     onSignalLibrary: () async {
                       if (!await _confirmLeaveWithUnsavedInput(context)) {
                         return;
@@ -348,7 +349,8 @@ class _TodayPageState extends State<TodayPage> {
     if (_controller.text.trim().isEmpty) return true;
     final result = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => AuroraDialog(
+        key: const ValueKey('today-unsaved-input-aurora-dialog'),
         title: Text(
           AppLocaleText.tr(
             context,
@@ -361,14 +363,15 @@ class _TodayPageState extends State<TodayPage> {
         content: Text(
           AppLocaleText.tr(
             context,
-            en: 'The text in Quick record has not been saved yet.',
-            zhHans: '快速记录里的文字还没有保存。',
-            zhHant: '快速記錄裡的文字還沒有保存。',
-            ja: 'クイック記録の文章はまだ保存されていません。',
+            en: 'What you just wrote has not been saved yet.',
+            zhHans: '刚才写下的内容还没有保存。',
+            zhHant: '剛才寫下的內容還沒有保存。',
+            ja: '先ほど入力した内容はまだ保存されていません。',
           ),
         ),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: Text(
               AppLocaleText.tr(
@@ -381,6 +384,7 @@ class _TodayPageState extends State<TodayPage> {
             ),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(88, 44)),
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: Text(
               AppLocaleText.tr(
@@ -408,7 +412,7 @@ class _TodayPageState extends State<TodayPage> {
       return;
     }
 
-    showPremiumPaywall(context, source: 'Today 记录');
+    showPremiumPaywall(context, source: '今天记录');
   }
 
   Future<void> _openVoiceTranscriptDraft(
@@ -449,6 +453,34 @@ class _TodayPageState extends State<TodayPage> {
       detail: result.detail,
       energyLevel: result.energyLevel,
       note: result.note,
+    );
+  }
+
+  Future<void> _openTimeUseSheet(
+    BuildContext context,
+    TodayViewModel vm,
+  ) async {
+    _trackTodayEvent(context, 'today_time_use_sheet_opened');
+    final language = AppLocaleText.resolve(context);
+    final result = await showModalBottomSheet<_TimeUseSignalResult>(
+      context: context,
+      isScrollControlled: true,
+      useRootNavigator: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (dialogContext) => const _TimeUseSignalSheet(),
+    );
+    if (result == null) return;
+    await vm.submitTimeUseSignal(
+      title: result.title,
+      startAt: result.startAt,
+      endAt: result.endAt,
+      category: result.category,
+      categoryLabel: result.categoryLabel,
+      recordStatus: result.recordStatus,
+      energyEffect: result.energyEffect,
+      note: result.note,
+      language: language,
     );
   }
 
@@ -564,6 +596,15 @@ class _TodayPageState extends State<TodayPage> {
         ja: 'まずは小さなことを一つ書いてみて。',
       );
     }
+    if (errorMessage == 'invalid_time_range') {
+      return AppLocaleText.tr(
+        context,
+        en: 'End time must be later than start time.',
+        zhHans: '结束时间需要晚于开始时间。',
+        zhHant: '結束時間需要晚於開始時間。',
+        ja: '終了時刻は開始時刻より後にしてください。',
+      );
+    }
 
     return errorMessage;
   }
@@ -578,7 +619,8 @@ Future<String?> _askForShortText(
   final result = await showDialog<String>(
     context: context,
     builder: (dialogContext) {
-      return AlertDialog(
+      return AuroraDialog(
+        key: const ValueKey('today-short-text-aurora-dialog'),
         title: Text(title),
         content: TextField(
           controller: controller,
@@ -586,13 +628,21 @@ Future<String?> _askForShortText(
           maxLines: 3,
           minLines: 1,
           textInputAction: TextInputAction.done,
-          decoration: InputDecoration(hintText: hint),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.72),
+            hintText: hint,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
           onSubmitted: (_) {
             Navigator.of(dialogContext).pop(controller.text.trim());
           },
         ),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: Text(
               AppLocaleText.tr(
@@ -605,6 +655,7 @@ Future<String?> _askForShortText(
             ),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(88, 44)),
             onPressed: () =>
                 Navigator.of(dialogContext).pop(controller.text.trim()),
             child: Text(
@@ -668,10 +719,9 @@ class _AiJudgementPanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.auto_awesome_rounded,
-                size: 22,
-                color: AuroraColors.purple,
+              const AuroraSectionIcon(
+                icon: Icons.auto_awesome_rounded,
+                size: 30,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -685,7 +735,7 @@ class _AiJudgementPanel extends StatelessWidget {
                   ),
                   style: theme.textTheme.titleMedium?.copyWith(
                     color: AuroraColors.ink,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                     fontSize: 17,
                   ),
                 ),
@@ -705,7 +755,7 @@ class _AiJudgementPanel extends StatelessWidget {
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: AuroraColors.ink.withValues(alpha: 0.70),
                 height: 1.35,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w500,
               ),
             ),
             const SizedBox(height: 5),
@@ -742,7 +792,7 @@ class _AiJudgementEmptyState extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
       style: Theme.of(context).textTheme.titleMedium?.copyWith(
             color: const Color(0xFF5D7CFF),
-            fontWeight: FontWeight.w900,
+            fontWeight: FontWeight.w700,
             height: 1.25,
           ),
     );
@@ -861,7 +911,7 @@ class _AiJudgementContent extends StatelessWidget {
             text: AppLocaleText.tr(
               context,
               en: 'This judgement will not be used in Weekly or Journey.',
-              zhHans: '这条判断不会进入本周或旅程分析。',
+              zhHans: '这条判断不会进入每周复盘或旅程分析。',
               zhHant: '這條判斷不會進入本週或旅程分析。',
               ja: 'この判断はWeeklyやJourneyの分析には使いません。',
             ),
@@ -871,7 +921,7 @@ class _AiJudgementContent extends StatelessWidget {
             text: AppLocaleText.tr(
               context,
               en: 'Confirmed as a signal. It can inform Weekly and Journey without becoming a task.',
-              zhHans: '已确认成一条信号，会进入后续分析，不会自动变成任务。',
+              zhHans: '已确认成一条信号，会进入每周复盘和旅程分析，不会自动变成任务。',
               zhHant: '已確認成一條信號，會進入後續分析，不會自動變成任務。',
               ja: 'シグナルとして確認しました。タスクにはせず、WeeklyやJourneyの材料にします。',
             ),
@@ -1299,6 +1349,7 @@ class _CaptureInputCard extends StatelessWidget {
   final VoidCallback onTextMode;
   final VoidCallback onVoiceDraft;
   final VoidCallback onQuickStatus;
+  final VoidCallback onTimeUse;
   final VoidCallback onSignalLibrary;
 
   const _CaptureInputCard({
@@ -1309,6 +1360,7 @@ class _CaptureInputCard extends StatelessWidget {
     required this.onTextMode,
     required this.onVoiceDraft,
     required this.onQuickStatus,
+    required this.onTimeUse,
     required this.onSignalLibrary,
   });
 
@@ -1331,7 +1383,7 @@ class _CaptureInputCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const _GlassIconBadge(
+              const AuroraSectionIcon(
                 icon: Icons.edit_rounded,
                 color: AuroraColors.purple,
                 size: 30,
@@ -1341,16 +1393,16 @@ class _CaptureInputCard extends StatelessWidget {
                 child: Text(
                   AppLocaleText.tr(
                     context,
-                    en: 'Quick record',
-                    zhHans: '快速记录',
-                    zhHant: '快速記錄',
-                    ja: 'クイック記録',
+                    en: 'How is today going?',
+                    zhHans: '今天过得怎么样？',
+                    zhHant: '今天過得怎麼樣？',
+                    ja: '今日はどんな一日ですか？',
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AuroraColors.purple,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                         fontSize: 17,
                       ),
                 ),
@@ -1410,8 +1462,8 @@ class _CaptureInputCard extends StatelessWidget {
           const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
-              const gap = 6.0;
-              final buttonWidth = (constraints.maxWidth - gap * 3) / 4;
+              const gap = 4.0;
+              final buttonWidth = (constraints.maxWidth - gap * 4) / 5;
 
               return Row(
                 children: [
@@ -1454,6 +1506,20 @@ class _CaptureInputCard extends StatelessWidget {
                       zhHans: '状态',
                       zhHant: '狀態',
                       ja: '状態',
+                    ),
+                  ),
+                  const SizedBox(width: gap),
+                  _ComposerModeButton(
+                    key: const ValueKey('today-schedule-action'),
+                    width: buttonWidth,
+                    onPressed: isSubmitting ? null : onTimeUse,
+                    icon: Icons.event_note_outlined,
+                    label: AppLocaleText.tr(
+                      context,
+                      en: 'Plan',
+                      zhHans: '安排',
+                      zhHant: '安排',
+                      ja: '予定',
                     ),
                   ),
                   const SizedBox(width: gap),
@@ -1799,12 +1865,9 @@ class _TodayHeroHeader extends StatelessWidget {
             width: compact ? 118 : 142,
             height: compact ? 118 : 142,
             child: IgnorePointer(
-              child: Opacity(
-                opacity: 0.72,
-                child: Image.asset(
-                  'assets/brand-icon-transparent.png',
-                  fit: BoxFit.contain,
-                ),
+              child: AuroraHeroEmblem(
+                size: compact ? 118 : 142,
+                opacity: 0.88,
               ),
             ),
           ),
@@ -1814,21 +1877,16 @@ class _TodayHeroHeader extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  AppLocaleText.tr(
+                AuroraHeroTitle(
+                  text: AppLocaleText.tr(
                     context,
                     en: 'Today',
                     zhHans: '今天',
                     zhHant: '今天',
                     ja: '今日',
                   ),
-                  style: TextStyle(
-                    color: AuroraColors.ink,
-                    fontSize: compact ? 34 : 36,
-                    height: 1,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.5,
-                  ),
+                  fontSize: compact ? 34 : 36,
+                  maxLines: 1,
                 ),
                 const SizedBox(height: 7),
                 Text(
@@ -1837,7 +1895,7 @@ class _TodayHeroHeader extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AuroraColors.ink.withValues(alpha: 0.88),
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                         fontSize: compact ? 13.5 : 15,
                       ),
                 ),
@@ -1862,7 +1920,7 @@ class _TodayHeroHeader extends StatelessWidget {
                             Theme.of(context).textTheme.labelMedium?.copyWith(
                                   color: AuroraColors.purple,
                                   fontSize: compact ? 10.5 : 11.5,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w700,
                                 ),
                       ),
                       const SizedBox(height: 3),
@@ -1873,7 +1931,7 @@ class _TodayHeroHeader extends StatelessWidget {
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: AuroraColors.ink.withValues(alpha: 0.78),
                               height: 1.32,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w500,
                               fontSize: compact ? 12.5 : 13.5,
                             ),
                       ),
@@ -2149,7 +2207,7 @@ class _TodayHeroMetricChip extends StatelessWidget {
                             color: color,
                             fontSize: 11.5,
                             height: 1,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                           ),
                     ),
                   ),
@@ -2163,6 +2221,8 @@ class _TodayHeroMetricChip extends StatelessWidget {
   }
 }
 
+// Retained for compatibility with older visual snapshots.
+// ignore: unused_element
 class _TodaySignalOrbPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -2333,21 +2393,686 @@ class _GlassIconBadge extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            color.withValues(alpha: 0.92),
-            color.withValues(alpha: 0.44),
+            color.withValues(alpha: 0.96),
+            Color.lerp(color, AuroraColors.blue, 0.42)!.withValues(alpha: 0.72),
           ],
         ),
-        borderRadius: BorderRadius.circular(size * 0.32),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+        borderRadius: BorderRadius.circular(size * 0.34),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.84)),
         boxShadow: [
           BoxShadow(
-            color: color.withValues(alpha: 0.20),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
+            color: color.withValues(alpha: 0.24),
+            blurRadius: 16,
+            offset: const Offset(0, 7),
           ),
         ],
       ),
       child: Icon(icon, color: Colors.white, size: size * 0.58),
+    );
+  }
+}
+
+class _TimeUseSignalResult {
+  final String title;
+  final DateTime startAt;
+  final DateTime endAt;
+  final String category;
+  final String categoryLabel;
+  final String recordStatus;
+  final String energyEffect;
+  final String note;
+
+  const _TimeUseSignalResult({
+    required this.title,
+    required this.startAt,
+    required this.endAt,
+    required this.category,
+    required this.categoryLabel,
+    required this.recordStatus,
+    required this.energyEffect,
+    required this.note,
+  });
+}
+
+class _TimeUseSignalSheet extends StatefulWidget {
+  const _TimeUseSignalSheet();
+
+  @override
+  State<_TimeUseSignalSheet> createState() => _TimeUseSignalSheetState();
+}
+
+class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _noteController = TextEditingController();
+  late TimeOfDay _startTime;
+  late TimeOfDay _endTime;
+  String _recordStatus = 'completed';
+  String _category = 'work';
+  String _energyEffect = 'unknown';
+  String? _validationMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    final minutesSinceMidnight = now.hour * 60 + now.minute;
+    final roundedEndMinutes = math.max(5, (minutesSinceMidnight ~/ 5) * 5);
+    final endMinutes = math.min(23 * 60 + 55, roundedEndMinutes);
+    final startMinutes = math.max(0, endMinutes - 60);
+    final end = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      endMinutes ~/ 60,
+      endMinutes % 60,
+    );
+    final start = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      startMinutes ~/ 60,
+      startMinutes % 60,
+    );
+    _startTime = TimeOfDay(hour: start.hour, minute: start.minute);
+    _endTime = TimeOfDay(hour: end.hour, minute: end.minute);
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  DateTime _resolveTime(TimeOfDay value) {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day, value.hour, value.minute);
+  }
+
+  Future<void> _pickTime({required bool isStart}) async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: isStart ? _startTime : _endTime,
+      helpText: AppLocaleText.tr(
+        context,
+        en: isStart ? 'Start time' : 'End time',
+        zhHans: isStart ? '开始时间' : '结束时间',
+        zhHant: isStart ? '開始時間' : '結束時間',
+        ja: isStart ? '開始時刻' : '終了時刻',
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      if (isStart) {
+        _startTime = selected;
+      } else {
+        _endTime = selected;
+      }
+      _validationMessage = null;
+    });
+  }
+
+  void _save(List<_TimeUseOption> categories) {
+    final title = _titleController.text.trim();
+    final startAt = _resolveTime(_startTime);
+    final endAt = _resolveTime(_endTime);
+    if (title.isEmpty) {
+      setState(() {
+        _validationMessage = AppLocaleText.tr(
+          context,
+          en: 'Add what this time was for.',
+          zhHans: '请写下这段时间用来做什么。',
+          zhHant: '請寫下這段時間用來做什麼。',
+          ja: 'この時間に何をしたか入力してください。',
+        );
+      });
+      return;
+    }
+    if (!endAt.isAfter(startAt)) {
+      setState(() {
+        _validationMessage = AppLocaleText.tr(
+          context,
+          en: 'End time must be later than start time.',
+          zhHans: '结束时间需要晚于开始时间。',
+          zhHant: '結束時間需要晚於開始時間。',
+          ja: '終了時刻は開始時刻より後にしてください。',
+        );
+      });
+      return;
+    }
+    final category = categories.firstWhere(
+      (item) => item.value == _category,
+      orElse: () => categories.first,
+    );
+    Navigator.of(context).pop(
+      _TimeUseSignalResult(
+        title: title,
+        startAt: startAt,
+        endAt: endAt,
+        category: category.value,
+        categoryLabel: category.label,
+        recordStatus: _recordStatus,
+        energyEffect: _energyEffect,
+        note: _noteController.text.trim(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final categories = _categories(context);
+    final energyOptions = _energyOptions(context);
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: FractionallySizedBox(
+        heightFactor: bottomInset > 0 ? 0.98 : 0.94,
+        alignment: Alignment.bottomCenter,
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFFFF9EF),
+                  Color(0xFFF8F2FF),
+                  Color(0xFFEFF5FF),
+                  Colors.white,
+                ],
+                stops: [0, 0.44, 0.78, 1],
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Stack(
+                children: [
+                  const Positioned(
+                    top: 6,
+                    right: 10,
+                    child: IgnorePointer(
+                      child: AuroraHeroEmblem(size: 128, opacity: 0.28),
+                    ),
+                  ),
+                  ListView(
+                    key: const ValueKey('time-use-sheet-scroll'),
+                    padding: const EdgeInsets.fromLTRB(18, 20, 18, 32),
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 44,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: AuroraColors.muted.withValues(alpha: 0.42),
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const AuroraSectionIcon(
+                            icon: Icons.event_note_rounded,
+                            color: AuroraColors.blue,
+                            size: 40,
+                          ),
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  AppLocaleText.tr(
+                                    context,
+                                    en: 'Where did your time go?',
+                                    zhHans: '这段时间用在了哪里？',
+                                    zhHant: '這段時間用在了哪裡？',
+                                    ja: 'この時間を何に使いましたか？',
+                                  ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineSmall
+                                      ?.copyWith(
+                                        color: AuroraColors.ink,
+                                        fontWeight: FontWeight.w700,
+                                        height: 1.15,
+                                      ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  AppLocaleText.tr(
+                                    context,
+                                    en: 'A simple time entry can reveal rhythm, switching and recovery patterns.',
+                                    zhHans: '时间去向也是生活信号，会帮助看见节奏、切换与恢复。',
+                                    zhHant: '時間去向也是生活信號，會幫助看見節奏、切換與恢復。',
+                                    ja: '時間の使い方も生活シグナルです。リズムや切り替え、回復が見えやすくなります。',
+                                  ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color: AuroraColors.muted,
+                                        height: 1.4,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: MaterialLocalizations.of(context)
+                                .closeButtonTooltip,
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      _VoiceGlassCard(
+                        padding: const EdgeInsets.fromLTRB(14, 15, 14, 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _TimeUseLabel(
+                              label: AppLocaleText.tr(
+                                context,
+                                en: 'Record as',
+                                zhHans: '记录为',
+                                zhHant: '記錄為',
+                                ja: '記録の種類',
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _TimeUseChoiceChip(
+                                  key: const ValueKey(
+                                      'time-use-status-completed'),
+                                  label: AppLocaleText.tr(
+                                    context,
+                                    en: 'Already happened',
+                                    zhHans: '已经发生',
+                                    zhHant: '已經發生',
+                                    ja: '完了した',
+                                  ),
+                                  selected: _recordStatus == 'completed',
+                                  onSelected: () => setState(
+                                    () => _recordStatus = 'completed',
+                                  ),
+                                ),
+                                _TimeUseChoiceChip(
+                                  key:
+                                      const ValueKey('time-use-status-planned'),
+                                  label: AppLocaleText.tr(
+                                    context,
+                                    en: 'Coming up',
+                                    zhHans: '接下来安排',
+                                    zhHant: '接下來安排',
+                                    ja: 'これからの予定',
+                                  ),
+                                  selected: _recordStatus == 'planned',
+                                  onSelected: () => setState(
+                                    () => _recordStatus = 'planned',
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              key: const ValueKey('time-use-title-field'),
+                              controller: _titleController,
+                              textInputAction: TextInputAction.next,
+                              maxLength: 80,
+                              decoration: InputDecoration(
+                                labelText: AppLocaleText.tr(
+                                  context,
+                                  en: 'What was this time for?',
+                                  zhHans: '做了／要做什么？',
+                                  zhHant: '做了／要做什麼？',
+                                  ja: '何をしましたか／しますか？',
+                                ),
+                                hintText: AppLocaleText.tr(
+                                  context,
+                                  en: 'For example: team meeting',
+                                  zhHans: '例如：团队会议',
+                                  zhHant: '例如：團隊會議',
+                                  ja: '例：チームミーティング',
+                                ),
+                                prefixIcon: const Icon(Icons.edit_note_rounded),
+                              ),
+                              onChanged: (_) => setState(
+                                () => _validationMessage = null,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            _TimeUseLabel(
+                              label: AppLocaleText.tr(
+                                context,
+                                en: 'Time',
+                                zhHans: '时间',
+                                zhHant: '時間',
+                                ja: '時間',
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _TimeUseTimeButton(
+                                    key: const ValueKey('time-use-start-time'),
+                                    label: AppLocaleText.tr(
+                                      context,
+                                      en: 'Start',
+                                      zhHans: '开始',
+                                      zhHant: '開始',
+                                      ja: '開始',
+                                    ),
+                                    value: _startTime.format(context),
+                                    onPressed: () => _pickTime(isStart: true),
+                                  ),
+                                ),
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 8),
+                                  child: Icon(
+                                    Icons.arrow_forward_rounded,
+                                    size: 18,
+                                    color: AuroraColors.muted,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: _TimeUseTimeButton(
+                                    key: const ValueKey('time-use-end-time'),
+                                    label: AppLocaleText.tr(
+                                      context,
+                                      en: 'End',
+                                      zhHans: '结束',
+                                      zhHant: '結束',
+                                      ja: '終了',
+                                    ),
+                                    value: _endTime.format(context),
+                                    onPressed: () => _pickTime(isStart: false),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            _TimeUseLabel(
+                              label: AppLocaleText.tr(
+                                context,
+                                en: 'Area',
+                                zhHans: '时间去向',
+                                zhHant: '時間去向',
+                                ja: '分野',
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 7,
+                              runSpacing: 7,
+                              children: [
+                                for (final item in categories)
+                                  _TimeUseChoiceChip(
+                                    label: item.label,
+                                    selected: _category == item.value,
+                                    onSelected: () => setState(
+                                      () => _category = item.value,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            _TimeUseLabel(
+                              label: AppLocaleText.tr(
+                                context,
+                                en: 'How did it feel? (optional)',
+                                zhHans: '这段时间的体感（可选）',
+                                zhHant: '這段時間的體感（可選）',
+                                ja: 'この時間の感覚（任意）',
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 7,
+                              runSpacing: 7,
+                              children: [
+                                for (final item in energyOptions)
+                                  _TimeUseChoiceChip(
+                                    label: item.label,
+                                    selected: _energyEffect == item.value,
+                                    onSelected: () => setState(
+                                      () => _energyEffect = item.value,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              key: const ValueKey('time-use-note-field'),
+                              controller: _noteController,
+                              minLines: 1,
+                              maxLines: 3,
+                              maxLength: 160,
+                              decoration: InputDecoration(
+                                labelText: AppLocaleText.tr(
+                                  context,
+                                  en: 'Add a note (optional)',
+                                  zhHans: '补充一句（可选）',
+                                  zhHant: '補充一句（可選）',
+                                  ja: 'メモを追加（任意）',
+                                ),
+                                prefixIcon: const Icon(Icons.notes_rounded),
+                              ),
+                            ),
+                            if (_validationMessage != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                _validationMessage!,
+                                key: const ValueKey(
+                                    'time-use-validation-message'),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color:
+                                          Theme.of(context).colorScheme.error,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            _VoicePrimaryAction(
+                              key: const ValueKey('time-use-save-action'),
+                              label: AppLocaleText.tr(
+                                context,
+                                en: 'Add to today’s timeline',
+                                zhHans: '加入今天时间线',
+                                zhHant: '加入今天時間線',
+                                ja: '今日のタイムラインに追加',
+                              ),
+                              icon: Icons.check_rounded,
+                              onPressed: () => _save(categories),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<_TimeUseOption> _categories(BuildContext context) => [
+        _TimeUseOption(
+            'work',
+            AppLocaleText.tr(context,
+                en: 'Work', zhHans: '工作', zhHant: '工作', ja: '仕事')),
+        _TimeUseOption(
+            'commute',
+            AppLocaleText.tr(context,
+                en: 'Commute', zhHans: '通勤', zhHant: '通勤', ja: '移動')),
+        _TimeUseOption(
+            'household',
+            AppLocaleText.tr(context,
+                en: 'Home', zhHans: '家务', zhHant: '家務', ja: '家事')),
+        _TimeUseOption(
+            'relationship',
+            AppLocaleText.tr(context,
+                en: 'People', zhHans: '关系', zhHant: '關係', ja: '人間関係')),
+        _TimeUseOption(
+            'recovery',
+            AppLocaleText.tr(context,
+                en: 'Recovery', zhHans: '恢复', zhHant: '恢復', ja: '回復')),
+        _TimeUseOption(
+            'interest',
+            AppLocaleText.tr(context,
+                en: 'Interest', zhHans: '兴趣', zhHant: '興趣', ja: '趣味')),
+        _TimeUseOption(
+            'other',
+            AppLocaleText.tr(context,
+                en: 'Other', zhHans: '其他', zhHant: '其他', ja: 'その他')),
+      ];
+
+  List<_TimeUseOption> _energyOptions(BuildContext context) => [
+        _TimeUseOption(
+            'unknown',
+            AppLocaleText.tr(context,
+                en: 'Not sure', zhHans: '不确定', zhHant: '不確定', ja: '不明')),
+        _TimeUseOption(
+            'draining',
+            AppLocaleText.tr(context,
+                en: 'Draining', zhHans: '偏耗力', zhHant: '偏耗力', ja: '消耗')),
+        _TimeUseOption(
+            'neutral',
+            AppLocaleText.tr(context,
+                en: 'Neutral', zhHans: '一般', zhHant: '一般', ja: '普通')),
+        _TimeUseOption(
+            'restoring',
+            AppLocaleText.tr(context,
+                en: 'Restoring', zhHans: '偏恢复', zhHant: '偏恢復', ja: '回復')),
+      ];
+}
+
+class _TimeUseOption {
+  final String value;
+  final String label;
+
+  const _TimeUseOption(this.value, this.label);
+}
+
+class _TimeUseLabel extends StatelessWidget {
+  final String label;
+
+  const _TimeUseLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            color: AuroraColors.ink,
+            fontWeight: FontWeight.w700,
+          ),
+    );
+  }
+}
+
+class _TimeUseChoiceChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  const _TimeUseChoiceChip({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onSelected(),
+      materialTapTargetSize: MaterialTapTargetSize.padded,
+      selectedColor: AuroraColors.purple.withValues(alpha: 0.15),
+      backgroundColor: Colors.white.withValues(alpha: 0.68),
+      side: BorderSide(
+        color: selected
+            ? AuroraColors.purple.withValues(alpha: 0.38)
+            : AuroraColors.line.withValues(alpha: 0.7),
+      ),
+      labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: selected ? AuroraColors.purple : AuroraColors.ink,
+            fontWeight: FontWeight.w600,
+          ),
+    );
+  }
+}
+
+class _TimeUseTimeButton extends StatelessWidget {
+  final String label;
+  final String value;
+  final VoidCallback onPressed;
+
+  const _TimeUseTimeButton({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(54),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        side: BorderSide(
+          color: AuroraColors.purple.withValues(alpha: 0.22),
+        ),
+        backgroundColor: Colors.white.withValues(alpha: 0.62),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.schedule_rounded, size: 19),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AuroraColors.muted,
+                      ),
+                ),
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2429,18 +3154,11 @@ class _StatusSignalSheetState extends State<_StatusSignalSheet> {
               top: true,
               child: Stack(
                 children: [
-                  Positioned(
+                  const Positioned(
                     top: 20,
                     right: 28,
-                    child: Opacity(
-                      opacity: 0.70,
-                      child: SizedBox(
-                        width: 150,
-                        height: 150,
-                        child: CustomPaint(
-                          painter: _TodaySignalOrbPainter(),
-                        ),
-                      ),
+                    child: IgnorePointer(
+                      child: AuroraHeroEmblem(size: 150, opacity: 0.84),
                     ),
                   ),
                   const Positioned(
@@ -2477,7 +3195,7 @@ class _StatusSignalSheetState extends State<_StatusSignalSheet> {
                               .displaySmall
                               ?.copyWith(
                                 color: AuroraColors.purple,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w700,
                                 height: 0.96,
                               ),
                         ),
@@ -2529,7 +3247,7 @@ class _StatusSignalSheetState extends State<_StatusSignalSheet> {
                                         .titleMedium
                                         ?.copyWith(
                                           color: AuroraColors.purple,
-                                          fontWeight: FontWeight.w900,
+                                          fontWeight: FontWeight.w700,
                                         ),
                                   ),
                                 ],
@@ -2562,7 +3280,7 @@ class _StatusSignalSheetState extends State<_StatusSignalSheet> {
                                         .titleMedium
                                         ?.copyWith(
                                           color: AuroraColors.purple,
-                                          fontWeight: FontWeight.w900,
+                                          fontWeight: FontWeight.w700,
                                         ),
                                   ),
                                 ],
@@ -3194,9 +3912,15 @@ class _DiaryTimelineItem {
     required VoidCallback onOpenDialog,
   }) {
     final createdAt = signal.createdAt?.toLocal();
-    final time = createdAt == null
+    final timeUseStart = signal.sourceType == 'time_use'
+        ? DateTime.tryParse(
+            signal.rawPayloadJson['start_at']?.toString() ?? '',
+          )?.toLocal()
+        : null;
+    final displayTime = timeUseStart ?? createdAt;
+    final time = displayTime == null
         ? '--:--'
-        : '${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}';
+        : '${displayTime.hour.toString().padLeft(2, '0')}:${displayTime.minute.toString().padLeft(2, '0')}';
     final libraryContent = signal.content.trim();
     final userText = signal.isLibrarySaved && libraryContent.isEmpty
         ? AppLocaleText.tr(
@@ -3208,7 +3932,7 @@ class _DiaryTimelineItem {
           )
         : signal.content;
     return _DiaryTimelineItem(
-      sortKey: createdAt?.millisecondsSinceEpoch ?? 0,
+      sortKey: displayTime?.millisecondsSinceEpoch ?? 0,
       time: time,
       userText: userText,
       aiText: _timelineAiTextForSignal(context, signal),
@@ -3228,7 +3952,7 @@ class _DiaryTimelineItem {
       return AppLocaleText.tr(
         context,
         en: 'Added from a Signal Library reference after your confirmation.',
-        zhHans: '这条 SignalCard 来自信号库参考，并由你确认后加入。',
+        zhHans: '这条 Signal Card 来自信号库参考，并由你确认后加入。',
         zhHant: '這條 SignalCard 來自信號庫參考，並由你確認後加入。',
         ja: 'シグナルライブラリの参考から、確認後に追加したSignalCardです。',
       );
@@ -3283,6 +4007,26 @@ class _DiaryTimelineItem {
     BuildContext context,
     RecentSignalModel signal,
   ) {
+    if (signal.sourceType == 'time_use') {
+      final category =
+          signal.rawPayloadJson['category']?.toString() ?? 'time_use';
+      final energy = signal.rawPayloadJson['energy_effect']?.toString();
+      return [
+        _DiaryTag(
+          AppLocaleText.tr(
+            context,
+            en: 'time',
+            zhHans: '时间',
+            zhHant: '時間',
+            ja: '時間',
+          ),
+          AuroraColors.blue,
+        ),
+        _DiaryTag(_diaryLabelTag(context, category), AuroraColors.purple),
+        if (energy != null && energy != 'unknown')
+          _DiaryTag(_diaryLabelTag(context, energy), AuroraColors.mint),
+      ];
+    }
     final raw = <String>[
       if ((signal.scene ?? '').trim().isNotEmpty) signal.scene!,
       if ((signal.friction ?? '').trim().isNotEmpty) signal.friction!,
@@ -3332,6 +4076,18 @@ class _DiaryTimelineItem {
       case 'relationships':
         return AppLocaleText.tr(context,
             en: 'relationship', zhHans: '关系', zhHant: '關係', ja: '関係');
+      case 'commute':
+        return AppLocaleText.tr(context,
+            en: 'commute', zhHans: '通勤', zhHant: '通勤', ja: '移動');
+      case 'household':
+        return AppLocaleText.tr(context,
+            en: 'home', zhHans: '家务', zhHant: '家務', ja: '家事');
+      case 'interest':
+        return AppLocaleText.tr(context,
+            en: 'interest', zhHans: '兴趣', zhHant: '興趣', ja: '趣味');
+      case 'time_use':
+        return AppLocaleText.tr(context,
+            en: 'time', zhHans: '时间', zhHant: '時間', ja: '時間');
       case 'draining':
         return AppLocaleText.tr(context,
             en: 'drain', zhHans: '消耗', zhHant: '消耗', ja: '消耗');
@@ -3563,29 +4319,35 @@ class _InlineStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      color: isError ? scheme.errorContainer : scheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              icon,
-              color: isError ? scheme.onErrorContainer : scheme.primary,
+    final accent = isError ? AuroraColors.orange : AuroraColors.blue;
+    return AuroraCard(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      borderRadius: BorderRadius.circular(16),
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: 0.80),
+          accent.withValues(alpha: 0.10),
+        ],
+      ),
+      border: Border.all(color: accent.withValues(alpha: 0.28)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AuroraSectionIcon(icon: icon, color: accent, size: 36),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AuroraColors.ink,
+                    height: 1.42,
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                text,
-                style: TextStyle(
-                  color: isError ? scheme.onErrorContainer : null,
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -3608,9 +4370,26 @@ class _FollowupQuestionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            question.question,
-            style: Theme.of(context).textTheme.titleMedium,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const AuroraSectionIcon(
+                icon: Icons.chat_bubble_outline_rounded,
+                color: AuroraColors.blue,
+                size: 36,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  question.question,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                      ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           Wrap(
@@ -3619,6 +4398,14 @@ class _FollowupQuestionCard extends StatelessWidget {
             children: question.options
                 .map(
                   (option) => OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(44, 44),
+                      foregroundColor: AuroraColors.purple,
+                      side: BorderSide(
+                        color: AuroraColors.purple.withValues(alpha: 0.26),
+                      ),
+                      backgroundColor: Colors.white.withValues(alpha: 0.58),
+                    ),
                     onPressed:
                         isSubmitting ? null : () => onSubmit(option.value),
                     child: Text(option.label),
@@ -3658,7 +4445,8 @@ class _CorrectionDialogState extends State<_CorrectionDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return AuroraDialog(
+      key: const ValueKey('today-correction-aurora-dialog'),
       title: Text(
         widget.confirmation == 'edited'
             ? AppLocaleText.tr(
@@ -3680,12 +4468,17 @@ class _CorrectionDialogState extends State<_CorrectionDialog> {
         controller: _controller,
         minLines: 3,
         maxLines: 5,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: Colors.white.withValues(alpha: 0.72),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
         ),
       ),
       actions: [
         TextButton(
+          style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
           onPressed: () => Navigator.of(context).pop(),
           child: Text(
             AppLocaleText.tr(
@@ -3698,6 +4491,7 @@ class _CorrectionDialogState extends State<_CorrectionDialog> {
           ),
         ),
         FilledButton(
+          style: FilledButton.styleFrom(minimumSize: const Size(88, 44)),
           onPressed: () => Navigator.of(context).pop(_controller.text),
           child: Text(
             AppLocaleText.tr(
@@ -4019,18 +4813,11 @@ class _VoiceTranscriptSheetState extends State<_VoiceTranscriptSheet> {
               top: true,
               child: Stack(
                 children: [
-                  Positioned(
+                  const Positioned(
                     top: 24,
                     right: 24,
-                    child: Opacity(
-                      opacity: 0.72,
-                      child: SizedBox(
-                        width: 150,
-                        height: 150,
-                        child: CustomPaint(
-                          painter: _TodaySignalOrbPainter(),
-                        ),
-                      ),
+                    child: IgnorePointer(
+                      child: AuroraHeroEmblem(size: 150, opacity: 0.84),
                     ),
                   ),
                   const Positioned(
@@ -4061,7 +4848,7 @@ class _VoiceTranscriptSheetState extends State<_VoiceTranscriptSheet> {
                               .displaySmall
                               ?.copyWith(
                                 color: AuroraColors.purple,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w700,
                                 height: 0.96,
                               ),
                         ),
@@ -4221,7 +5008,7 @@ class _VoiceRecordingPanel extends StatelessWidget {
             timerLabel,
             style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   color: AuroraColors.purple,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   letterSpacing: 0,
                 ),
           ),
@@ -4356,7 +5143,7 @@ class _VoiceTranscriptPanel extends StatelessWidget {
                 ),
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: AuroraColors.purple,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
             ],
@@ -4538,7 +5325,7 @@ class _VoiceExtractionPanel extends StatelessWidget {
                 ),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       color: AuroraColors.purple,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
             ],
@@ -4917,12 +5704,10 @@ class _UnifiedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-        child: child,
-      ),
+    return AuroraCard(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      borderRadius: BorderRadius.circular(18),
+      child: child,
     );
   }
 }

@@ -205,55 +205,61 @@ class _TodayAdoptedPlansSectionState extends State<TodayAdoptedPlansSection> {
   Future<void> _openAllAttempts() async {
     await showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true,
       useSafeArea: true,
       showDragHandle: true,
       backgroundColor: const Color(0xFFFFFCFA),
-      builder: (sheetContext) => Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const AuroraSoftIconCircle(
-                icon: Icons.spa_rounded,
-                color: AuroraColors.mint,
-              ),
-              title: Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'Today small actions',
-                  zhHans: '今日小行动',
-                  zhHant: '今日小行動',
-                  ja: '今日の小さな行動',
+      builder: (sheetContext) => SafeArea(
+        key: const ValueKey('today-attempts-all-sheet'),
+        top: false,
+        minimum: const EdgeInsets.only(bottom: 12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const AuroraSoftIconCircle(
+                  icon: Icons.spa_rounded,
+                  color: AuroraColors.mint,
                 ),
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                widget.onOpenActionHub();
-              },
-            ),
-            ListTile(
-              leading: const AuroraSoftIconCircle(
-                icon: Icons.science_rounded,
-                color: AuroraColors.blue,
-              ),
-              title: Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'Active experiments',
-                  zhHans: '进行中的小实验',
-                  zhHant: '進行中的小實驗',
-                  ja: '進行中の小さな実験',
+                title: Text(
+                  AppLocaleText.tr(
+                    sheetContext,
+                    en: 'Today small actions',
+                    zhHans: '今日小行动',
+                    zhHant: '今日小行動',
+                    ja: '今日の小さな行動',
+                  ),
                 ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  widget.onOpenActionHub();
+                },
               ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                widget.onOpenExperimentHub();
-              },
-            ),
-          ],
+              ListTile(
+                leading: const AuroraSoftIconCircle(
+                  icon: Icons.science_rounded,
+                  color: AuroraColors.blue,
+                ),
+                title: Text(
+                  AppLocaleText.tr(
+                    sheetContext,
+                    en: 'Active experiments',
+                    zhHans: '进行中的小实验',
+                    zhHant: '進行中的小實驗',
+                    ja: '進行中の小さな実験',
+                  ),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  widget.onOpenExperimentHub();
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

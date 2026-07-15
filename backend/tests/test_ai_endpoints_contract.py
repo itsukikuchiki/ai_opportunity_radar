@@ -216,6 +216,12 @@ def test_reflect_weekly_contract(client):
         "risk_note",
         "key_nodes",
     }
+    assert "深度分析" in data["summary"]
+    assert "L3 Reflect" not in data["summary"]
+    assert "深度分析" in data["risk_note"]
+    assert "L3 Reflect" not in data["risk_note"]
+    assert "tension" not in data["root_tension"].lower()
+    assert "内在拉扯" in data["root_tension"]
 
 
 def test_deep_weekly_compat_endpoint_records_legacy_telemetry(client):

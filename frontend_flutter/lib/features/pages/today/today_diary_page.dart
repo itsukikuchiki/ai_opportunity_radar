@@ -224,13 +224,11 @@ class _TimelineHero extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          Positioned(
-            right: -2,
-            top: -8,
-            width: 96,
-            height: 96,
+          const Positioned(
+            right: -8,
+            top: -14,
             child: IgnorePointer(
-              child: CustomPaint(painter: _DiarySignalOrbPainter()),
+              child: AuroraHeroEmblem(size: 108, opacity: 0.84),
             ),
           ),
           const Positioned(
@@ -249,21 +247,10 @@ class _TimelineHero extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        fontSize: 34,
-                        height: 1.05,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0,
-                        foreground: Paint()
-                          ..shader = const LinearGradient(
-                            colors: [
-                              Color(0xFF5A86F5),
-                              Color(0xFF8D65F4),
-                            ],
-                          ).createShader(const Rect.fromLTWH(0, 0, 240, 48)),
-                      ),
+                AuroraHeroTitle(
+                  text: title,
+                  fontSize: 34,
+                  maxLines: 1,
                 ),
                 const SizedBox(height: 7),
                 ConstrainedBox(
@@ -429,7 +416,7 @@ class _FilterPill extends StatelessWidget {
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color:
                             selected ? Colors.white : const Color(0xFF697083),
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ],
@@ -476,7 +463,7 @@ class _DateHeader extends StatelessWidget {
               : '${date.month}/${date.day}',
           style: Theme.of(context).textTheme.titleSmall?.copyWith(
                 color: AuroraColors.purple,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
         ),
         const SizedBox(width: 6),
@@ -484,7 +471,7 @@ class _DateHeader extends StatelessWidget {
           '| $dateText  $weekday',
           style: Theme.of(context).textTheme.titleSmall?.copyWith(
                 color: const Color(0xFF4A5165),
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
               ),
         ),
       ],
@@ -646,7 +633,7 @@ class _TimelineEntryCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelLarge?.copyWith(
                     color: entry.color,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                     height: 1.1,
                   ),
                 ),
@@ -803,7 +790,7 @@ class _FeedbackMiniPill extends StatelessWidget {
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: Colors.white,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
             ),
       ),
     );
@@ -837,7 +824,7 @@ class _MiniActionButton extends StatelessWidget {
           label,
           style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: AuroraColors.purple,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
         ),
       ),
@@ -865,7 +852,7 @@ class _EmptyDiaryState extends StatelessWidget {
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: AuroraColors.ink,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
             const SizedBox(height: 8),
@@ -873,7 +860,7 @@ class _EmptyDiaryState extends StatelessWidget {
               AppLocaleText.tr(
                 context,
                 en: 'Records saved from Today will appear here in order.',
-                zhHans: '从 Today 保存的内容，会按时间放在这里。',
+                zhHans: '从今天保存的内容，会按时间放在这里。',
                 zhHant: '從 Today 保存的內容，會按時間放在這裡。',
                 ja: 'Today で保存した内容が時間順にここへ並びます。',
               ),
@@ -933,33 +920,63 @@ class _DiaryBottomNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
-      const _DiaryNavItem(
-        label: 'Today',
+      _DiaryNavItem(
+        label: AppLocaleText.tr(
+          context,
+          en: 'Today',
+          zhHans: '今天',
+          zhHant: '今天',
+          ja: '今日',
+        ),
         icon: Icons.wb_sunny_outlined,
         selectedIcon: Icons.wb_sunny_rounded,
         route: AppRoutes.today,
         selected: true,
       ),
-      const _DiaryNavItem(
-        label: 'Weekly',
+      _DiaryNavItem(
+        label: AppLocaleText.tr(
+          context,
+          en: 'Weekly',
+          zhHans: '每周复盘',
+          zhHant: '每週',
+          ja: 'Weekly',
+        ),
         icon: Icons.bar_chart_rounded,
         selectedIcon: Icons.bar_chart_rounded,
         route: AppRoutes.weekly,
       ),
-      const _DiaryNavItem(
-        label: 'Experiment',
+      _DiaryNavItem(
+        label: AppLocaleText.tr(
+          context,
+          en: 'Experiment',
+          zhHans: '生活小实验',
+          zhHant: '小實驗',
+          ja: '実験',
+        ),
         icon: Icons.science_outlined,
         selectedIcon: Icons.science_rounded,
         route: AppRoutes.experiment,
       ),
-      const _DiaryNavItem(
-        label: 'Journey',
+      _DiaryNavItem(
+        label: AppLocaleText.tr(
+          context,
+          en: 'Journey',
+          zhHans: '旅程',
+          zhHant: '旅程',
+          ja: 'Journey',
+        ),
         icon: Icons.explore_outlined,
         selectedIcon: Icons.explore_rounded,
         route: AppRoutes.memory,
       ),
-      const _DiaryNavItem(
-        label: 'Me',
+      _DiaryNavItem(
+        label: AppLocaleText.tr(
+          context,
+          en: 'Me',
+          zhHans: '我的',
+          zhHant: '我的',
+          ja: 'マイ',
+        ),
         icon: Icons.person_outline_rounded,
         selectedIcon: Icons.person_rounded,
         route: AppRoutes.me,
@@ -1047,7 +1064,7 @@ class _DiaryNavPill extends StatelessWidget {
                   color: item.selected
                       ? AuroraColors.purple
                       : const Color(0xFF747989),
-                  fontWeight: item.selected ? FontWeight.w900 : FontWeight.w600,
+                  fontWeight: item.selected ? FontWeight.w700 : FontWeight.w600,
                 ),
           ),
         ],
@@ -1089,17 +1106,23 @@ class _TimelineEntry {
 
   factory _TimelineEntry.fromSignal(RecentSignalModel signal) {
     final createdAt = signal.createdAt?.toLocal() ?? DateTime.now();
+    final timeUseStart = signal.sourceType == 'time_use'
+        ? DateTime.tryParse(
+            signal.rawPayloadJson['start_at']?.toString() ?? '',
+          )?.toLocal()
+        : null;
+    final displayTime = timeUseStart ?? createdAt;
     final localDate = _parseLocalDate(signal.localDate) ??
-        DateTime(createdAt.year, createdAt.month, createdAt.day);
+        DateTime(displayTime.year, displayTime.month, displayTime.day);
     final kind = _kindForSignal(signal);
     final feedback = _feedbackLabel(signal);
     final progress = _progress(signal);
     return _TimelineEntry(
       captureId: signal.signalCardId ?? signal.id,
-      createdAt: createdAt,
+      createdAt: displayTime,
       localDate: localDate,
       timeLabel:
-          '${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}',
+          '${displayTime.hour.toString().padLeft(2, '0')}:${displayTime.minute.toString().padLeft(2, '0')}',
       title: kind.title,
       body: _body(signal),
       tagLabel: kind.tagLabel(signal),
@@ -1124,6 +1147,14 @@ class _TimelineEntry {
     final payloadKind = signal.rawPayloadJson['timeline_type']?.toString() ??
         signal.rawPayloadJson['kind']?.toString() ??
         '';
+    if (source == 'time_use' || payloadKind == 'time_use') {
+      return const _TimelineEntryKind(
+        title: '安排',
+        icon: Icons.event_note_rounded,
+        color: AuroraColors.blue,
+        filter: _TimelineFilter.record,
+      );
+    }
     if (source == 'micro_action' ||
         source == 'daily_action' ||
         payloadKind == 'micro_action') {
@@ -1325,6 +1356,8 @@ class _Sparkle extends StatelessWidget {
   }
 }
 
+// Retained for compatibility with older visual snapshots.
+// ignore: unused_element
 class _DiarySignalOrbPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {

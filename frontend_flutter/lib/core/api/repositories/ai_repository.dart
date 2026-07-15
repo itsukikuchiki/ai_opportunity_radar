@@ -294,13 +294,12 @@ class AiRepository {
       final peakLabel = _shortDateLabel(peak?.date) ?? '这周某一天';
       final lowLabel = _shortDateLabel(low?.date) ?? '这周某个低点';
       return WeeklyReflectModel(
-        summary: '${topic.reason} L3 Reflect 更需要看的，是这些记录背后的同一种拉扯，而不是把内容拉长。',
-        rootTension:
-            '更深一层的 tension 往往不是单个事件，而是你想推进的方向和反复回来的摩擦点互相顶住，导致每次都要重新找回节奏。',
+        summary: '${topic.reason} 深度分析更需要看的，是这些记录背后的同一种拉扯，而不是把内容拉长。',
+        rootTension: '更深一层的内在拉扯往往不是单个事件，而是你想推进的方向和反复回来的摩擦点互相顶住，导致每次都要重新找回节奏。',
         hiddenPattern:
             '把图和文字放在一起看，$peakLabel 是线索更密的节点，$lowLabel 更像状态低点。重点不是哪天最糟，而是压力聚集后你如何被拉走。',
         nextFocus: '${topic.nextWatch} 下次再出现同类场景时，多记一句它发生在开始、推进中段，还是收尾阶段。',
-        riskNote: '这份 L3 Reflect 适合帮你收窄观察面，不适合一次性下结论。',
+        riskNote: '这份深度分析适合帮你收窄观察面，不适合一次性下结论。',
         keyNodes: [
           topic.headline,
           '线索密集点：$peakLabel',

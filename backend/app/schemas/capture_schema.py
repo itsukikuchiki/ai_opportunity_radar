@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SubmitCaptureRequest(BaseModel):
@@ -69,6 +69,18 @@ class RecentSignalSchema(BaseModel):
     deleted_at: Optional[datetime] = None
     deletion_reason: Optional[str] = None
     tombstone_version: int = 0
+
+    @field_validator("created_at", "deleted_at")
+    @classmethod
+    def normalize_absolute_timestamp(
+        cls,
+        value: Optional[datetime],
+    ) -> Optional[datetime]:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 class SubmitCaptureResponse(BaseModel):

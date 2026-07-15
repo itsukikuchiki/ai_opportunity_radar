@@ -75,14 +75,14 @@ void main() {
       await _setViewport(tester, viewport);
       await _pumpToday(tester);
       _expectNoRenderFailure(tester);
-      _expectInViewport(tester, find.text('Quick record').first);
+      _expectInViewport(tester, find.text('How is today going?').first);
       _expectFullyInViewport(
         tester,
         find.byKey(const ValueKey('today-status-action')),
       );
-      expect(
+      _expectFullyInViewport(
+        tester,
         find.byKey(const ValueKey('today-schedule-action')),
-        findsNothing,
       );
       expect(
         find.byKey(const ValueKey('today-ai-judgement-action')),
@@ -94,6 +94,12 @@ void main() {
       expect(find.text('View trend'), findsNothing);
       // Today groups adopted actions and experiments into one compact
       // "Today's attempts" surface with a shared entry point.
+      await tester.scrollUntilVisible(
+        find.text('View all'),
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pump();
       expect(find.text('View all'), findsOneWidget);
 
       await _pumpWeekly(tester);
@@ -163,7 +169,7 @@ void main() {
         textScale: 1.3,
       );
       _expectNoRenderFailure(tester);
-      _expectInViewport(tester, find.text('Journey').first);
+      _expectInViewport(tester, find.text(localeCase.journeyTitle).first);
 
       await _pumpMe(
         tester,
@@ -247,6 +253,7 @@ void main() {
       ('Text', ValueKey('today-text-action')),
       ('Voice', ValueKey('today-voice-action')),
       ('State', ValueKey('today-status-action')),
+      ('Plan', ValueKey('today-schedule-action')),
       ('Library', ValueKey('today-signal-library-action')),
       ('Save signal', ValueKey('today-submit-text-action')),
     ];
@@ -632,6 +639,7 @@ class _LocaleCase {
   final String todayTitle;
   final String weeklyTitle;
   final String experimentTitle;
+  final String journeyTitle;
   final String meTitle;
   final String libraryTitle;
 
@@ -641,6 +649,7 @@ class _LocaleCase {
     required this.todayTitle,
     required this.weeklyTitle,
     required this.experimentTitle,
+    required this.journeyTitle,
     required this.meTitle,
     required this.libraryTitle,
   });
@@ -650,36 +659,40 @@ const _localeCases = <_LocaleCase>[
   _LocaleCase(
     name: 'English',
     locale: Locale('en'),
-    todayTitle: 'Quick record',
+    todayTitle: 'How is today going?',
     weeklyTitle: 'Weekly Review',
     experimentTitle: 'Life Experiment',
+    journeyTitle: 'Journey',
     meTitle: 'Me',
     libraryTitle: 'Signal Library',
   ),
   _LocaleCase(
     name: 'Simplified Chinese',
     locale: Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
-    todayTitle: '快速记录',
-    weeklyTitle: '本周复盘',
-    experimentTitle: '小实验',
+    todayTitle: '今天过得怎么样？',
+    weeklyTitle: '每周复盘',
+    experimentTitle: '生活小实验',
+    journeyTitle: '旅程',
     meTitle: '我的',
     libraryTitle: '信号库',
   ),
   _LocaleCase(
     name: 'Traditional Chinese',
     locale: Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
-    todayTitle: '快速記錄',
-    weeklyTitle: '本週復盤',
+    todayTitle: '今天過得怎麼樣？',
+    weeklyTitle: '每週復盤',
     experimentTitle: '小實驗',
+    journeyTitle: '旅程',
     meTitle: '我的',
     libraryTitle: '信號庫',
   ),
   _LocaleCase(
     name: 'Japanese',
     locale: Locale('ja'),
-    todayTitle: 'クイック記録',
+    todayTitle: '今日はどんな一日ですか？',
     weeklyTitle: '今週の振り返り',
     experimentTitle: '小さな実験',
+    journeyTitle: '旅程',
     meTitle: '私',
     libraryTitle: 'シグナルライブラリ',
   ),

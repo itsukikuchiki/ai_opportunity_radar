@@ -10,6 +10,7 @@ import '../../../core/readiness/report_readiness.dart';
 import '../../../shared/states/load_state.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../../../shared/widgets/empty_state_block.dart';
+import 'journey_display_text.dart';
 import 'memory_view_model.dart';
 
 class JourneyProPage extends StatefulWidget {
@@ -79,7 +80,7 @@ class _JourneyProPageState extends State<JourneyProPage> {
                 AppLocaleText.tr(
                   context,
                   en: 'Your local Journey data was not changed.',
-                  zhHans: '你的本地 Journey 数据没有被修改。',
+                  zhHans: '你的本地旅程数据没有被修改。',
                   zhHant: '你的本地 Journey 資料沒有被修改。',
                   ja: 'ローカルの Journey データは変更されていません。',
                 ),
@@ -109,8 +110,7 @@ class _JourneyProPageState extends State<JourneyProPage> {
             text: AppLocaleText.tr(
               context,
               en: 'L3 content is not generated before every requirement is met. Journey Free still keeps your timeline, calendar, curve, and evidence available.',
-              zhHans:
-                  '所有条件同时达到前，不生成 L3 综合或周期结论。Journey 免费层的时间线、日历、曲线和证据仍可正常查看。',
+              zhHans: '所有条件同时达到前，不生成深度分析综合或周期结论。旅程免费层的时间线、日历、曲线和证据仍可正常查看。',
               zhHant:
                   '所有條件同時達到前，不生成 L3 綜合或週期結論。Journey 免費層的時間線、日曆、曲線和證據仍可正常查看。',
               ja: 'すべての条件を満たす前に L3 の統合や期間結論は生成しません。Journey Free のタイムライン、カレンダー、曲線、根拠は引き続き利用できます。',
@@ -163,13 +163,13 @@ class _ProHeader extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'Journey Pro L3',
-              zhHans: 'Journey Pro L3',
+              zhHans: '旅程 Pro 深度分析',
               zhHant: 'Journey Pro L3',
               ja: 'Journey Pro L3',
             ),
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   color: AuroraColors.ink,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ),
@@ -186,60 +186,64 @@ class _ProHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isReady = readiness?.isReady == true;
-    return AuroraCard(
+    final compact =
+        MediaQuery.sizeOf(context).width < AuroraMainPageSpec.compactBreakpoint;
+    return ConstrainedBox(
       key: const ValueKey('journey-pro-hero'),
-      padding: AuroraMainPageSpec.comfortableCardPadding,
-      borderRadius: BorderRadius.circular(AuroraMainPageSpec.cardRadiusLarge),
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          AuroraColors.purple.withValues(alpha: 0.16),
-          AuroraColors.blue.withValues(alpha: 0.10),
-          AuroraColors.gold.withValues(alpha: 0.12),
-        ],
-      ),
-      child: Row(
+      constraints: const BoxConstraints(minHeight: 144),
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          const AuroraSoftIconCircle(
-            icon: Icons.auto_awesome_rounded,
-            color: AuroraColors.purple,
-            size: 56,
+          Positioned(
+            right: compact ? -18 : -12,
+            top: compact ? -26 : -32,
+            child: IgnorePointer(
+              child: AuroraHeroEmblem(
+                size: compact ? 116 : 140,
+                opacity: 0.80,
+              ),
+            ),
           ),
-          const SizedBox(width: 14),
-          Expanded(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(2, 4, 2, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: isReady
-                        ? 'Cross-period review'
-                        : 'Cross-period review is forming',
-                    zhHans: isReady ? '跨周期深度回看' : '跨周期报告正在形成',
-                    zhHant: isReady ? '跨週期深度回看' : '跨週期報告正在形成',
-                    ja: isReady ? '期間をまたぐ振り返り' : '期間比較を準備中',
+                Padding(
+                  padding: EdgeInsets.only(right: compact ? 76 : 98),
+                  child: AuroraHeroTitle(
+                    text: AppLocaleText.tr(
+                      context,
+                      en: isReady
+                          ? 'Cross-period review'
+                          : 'Cross-period review is forming',
+                      zhHans: isReady ? '跨周期深度回看' : '跨周期报告正在形成',
+                      zhHant: isReady ? '跨週期深度回看' : '跨週期報告正在形成',
+                      ja: isReady ? '期間をまたぐ振り返り' : '期間比較を準備中',
+                    ),
+                    fontSize: compact ? 29 : 32,
+                    maxLines: 2,
                   ),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: AuroraColors.ink,
-                        fontWeight: FontWeight.w900,
-                      ),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Latest 28 local dates · Monday-Sunday week buckets',
-                    zhHans: '最新 28 个本地日期 · 周一至周日自然周',
-                    zhHant: '最新 28 個本地日期 · 週一至週日自然週',
-                    ja: '直近 28 ローカル日 · 月曜〜日曜の週区切り',
+                const SizedBox(height: 10),
+                Padding(
+                  padding: EdgeInsets.only(right: compact ? 58 : 82),
+                  child: Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Latest 28 local dates · Monday-Sunday week buckets',
+                      zhHans: '最新 28 个本地日期 · 周一至周日自然周',
+                      zhHant: '最新 28 個本地日期 · 週一至週日自然週',
+                      ja: '直近 28 ローカル日 · 月曜〜日曜の週区切り',
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AuroraColors.ink.withValues(alpha: 0.74),
+                          height: 1.4,
+                          fontWeight: FontWeight.w500,
+                        ),
                   ),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AuroraColors.muted,
-                        height: 1.4,
-                        fontWeight: FontWeight.w600,
-                      ),
                 ),
               ],
             ),
@@ -262,7 +266,7 @@ class _ProReadinessCard extends StatelessWidget {
       context,
       en: '${readiness.signalCount}/14 eligible SignalCards · ${readiness.distinctDayCount}/7 recorded days · ${readiness.distinctWeekCount}/2 local weeks',
       zhHans:
-          '${readiness.signalCount}/14 条有效 SignalCard · ${readiness.distinctDayCount}/7 个记录日 · ${readiness.distinctWeekCount}/2 个本地自然周',
+          '${readiness.signalCount}/14 条有效 Signal Card · ${readiness.distinctDayCount}/7 个记录日 · ${readiness.distinctWeekCount}/2 个本地自然周',
       zhHant:
           '${readiness.signalCount}/14 條有效 SignalCard · ${readiness.distinctDayCount}/7 個記錄日 · ${readiness.distinctWeekCount}/2 個本地自然週',
       ja: '有効 SignalCard ${readiness.signalCount}/14 件 · 記録日 ${readiness.distinctDayCount}/7 日 · ローカル週 ${readiness.distinctWeekCount}/2 週',
@@ -293,7 +297,7 @@ class _ProReadinessCard extends StatelessWidget {
                   ),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AuroraColors.ink,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -355,7 +359,7 @@ class _L3SynthesisCard extends StatelessWidget {
       title: AppLocaleText.tr(
         context,
         en: 'L3 evidence synthesis',
-        zhHans: 'L3 证据综合',
+        zhHans: '深度分析证据综合',
         zhHant: 'L3 證據綜合',
         ja: 'L3 根拠の統合',
       ),
@@ -365,7 +369,7 @@ class _L3SynthesisCard extends StatelessWidget {
             context,
             en: 'The verified 28-day window contains ${report.readiness.signalCount} eligible SignalCards across ${report.readiness.distinctDayCount} local days and ${report.readiness.distinctWeekCount} Monday-Sunday weeks.',
             zhHans:
-                '可验证的 28 日窗口内共有 ${report.readiness.signalCount} 条有效 SignalCard，覆盖 ${report.readiness.distinctDayCount} 个本地记录日和 ${report.readiness.distinctWeekCount} 个周一至周日自然周。',
+                '可验证的 28 日窗口内共有 ${report.readiness.signalCount} 条有效 Signal Card，覆盖 ${report.readiness.distinctDayCount} 个本地记录日和 ${report.readiness.distinctWeekCount} 个周一至周日自然周。',
             zhHant:
                 '可驗證的 28 日窗口內共有 ${report.readiness.signalCount} 條有效 SignalCard，覆蓋 ${report.readiness.distinctDayCount} 個本地記錄日和 ${report.readiness.distinctWeekCount} 個週一至週日自然週。',
             ja: '検証可能な 28 日間に、有効 SignalCard ${report.readiness.signalCount} 件、ローカル記録日 ${report.readiness.distinctDayCount} 日、月曜〜日曜の週 ${report.readiness.distinctWeekCount} 週があります。',
@@ -378,13 +382,13 @@ class _L3SynthesisCard extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'Available Journey synthesis',
-              zhHans: '已有 Journey 综合',
+              zhHans: '已有旅程综合',
               zhHant: '已有 Journey 綜合',
               ja: '利用可能な Journey 統合',
             ),
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   color: AuroraColors.purple,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           const SizedBox(height: 8),
@@ -399,7 +403,7 @@ class _L3SynthesisCard extends StatelessWidget {
             text: AppLocaleText.tr(
               context,
               en: 'No interpretive Journey summary is cached for the current month, so this page shows verified statistics and source evidence only.',
-              zhHans: '本月尚无已生成的解释性 Journey 综合，因此这里只展示可验证统计和来源证据。',
+              zhHans: '本月尚无已生成的解释性旅程综合，因此这里只展示可验证统计和来源证据。',
               zhHant: '本月尚無已生成的解釋性 Journey 綜合，因此這裡只展示可驗證統計和來源證據。',
               ja: '今月の解釈的な Journey 統合はまだ保存されていないため、検証可能な統計と出典のみを表示します。',
             ),
@@ -447,20 +451,23 @@ class _SummaryRow extends StatelessWidget {
             _label(context),
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
                   color: AuroraColors.purple,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           const SizedBox(height: 3),
           Text(
-            item.item.name,
+            localizeJourneyDisplayText(context, item.item.name),
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: AuroraColors.ink,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           if (item.item.summary.trim().isNotEmpty) ...[
             const SizedBox(height: 3),
-            Text(item.item.summary, style: _bodyStyle(context)),
+            Text(
+              localizeJourneyDisplayText(context, item.item.summary),
+              style: _bodyStyle(context),
+            ),
           ],
         ],
       ),
@@ -623,7 +630,7 @@ class _WeekStatTile extends StatelessWidget {
             label,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   color: AuroraColors.blue,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           const SizedBox(height: 6),
@@ -637,7 +644,7 @@ class _WeekStatTile extends StatelessWidget {
             ),
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: AuroraColors.ink,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           Text(
@@ -717,18 +724,21 @@ class _EvidenceRow extends StatelessWidget {
                   evidence.localDate,
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color: AuroraColors.mint,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
               AuroraChip(
-                label: evidence.sourceType,
+                label: journeySourceTypeLabel(context, evidence.sourceType),
                 color: AuroraColors.mint,
               ),
             ],
           ),
           const SizedBox(height: 6),
-          Text(evidence.content, style: _bodyStyle(context)),
+          Text(
+            localizeJourneyDisplayText(context, evidence.content),
+            style: _bodyStyle(context),
+          ),
           const SizedBox(height: 5),
           SizedBox(
             height: 44,
@@ -778,7 +788,7 @@ class _FollowupCard extends StatelessWidget {
           AppLocaleText.tr(
             context,
             en: 'The conversation opens from an actual SignalCard, so the question keeps a traceable source.',
-            zhHans: '对话会从真实 SignalCard 打开，让追问始终保留可追溯来源。',
+            zhHans: '对话会从真实 Signal Card 打开，让追问始终保留可追溯来源。',
             zhHant: '對話會從真實 SignalCard 打開，讓追問始終保留可追溯來源。',
             ja: '実際の SignalCard から会話を開くため、質問の出典を追跡できます。',
           ),
@@ -841,7 +851,7 @@ class _ProSectionCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AuroraColors.ink,
                         fontSize: AuroraMainPageSpec.sectionTitleSize,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),

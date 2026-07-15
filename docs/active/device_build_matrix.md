@@ -34,7 +34,22 @@ or restore made with `Runner-LocalStoreKit` as a TestFlight restore result.
 | `SIGNALPATH_BUILD_PROFILE` | `internal`, `release-like`, `staging`, `production-like` | Reader-facing build identity. |
 | `SIGNALPATH_ENABLE_DEBUG_TOOLS` | `true` / `false` | Controls Trace Debug visibility outside normal debug mode. |
 | `SIGNALPATH_ENABLE_PIPELINE_LOGS` | `true` / `false` | Reserved switch for internal pipeline log surfaces. |
+| `SIGNALPATH_QA_SHOWCASE_DATA` | `true` / `false` | TestFlight review fixture. Seeds isolated local demo evidence for Weekly/Journey/Pro and unlocks an in-memory Pro preview. Never use for a production App Store archive. |
 | `API_BASE_URL` | URL | Overrides the default production backend. |
+
+## TestFlight Showcase Build
+
+The review-only TestFlight package may enable
+`SIGNALPATH_QA_SHOWCASE_DATA=true`. On first launch it adds namespaced local
+fixture rows without replacing user rows, marks onboarding complete, and makes
+the current Weekly, Journey, deep-analysis, micro-action, and life-experiment
+states inspectable immediately. The fixture is idempotent for the same local
+day and owns only rows whose identifiers use the `qa_demo_` namespace.
+
+The QA Pro preview is memory-only: it does not write a StoreKit entitlement or
+modify restore-purchase state. StoreKit purchase and restore acceptance must
+still be run separately with a normal `Runner` TestFlight build. A production
+App Store archive must omit this define (the default is `false`).
 
 ## Build Script
 

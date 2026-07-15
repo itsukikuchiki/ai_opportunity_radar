@@ -65,6 +65,7 @@ def test_capture_persists_and_recent_returns_acknowledgement(client, monkeypatch
     assert recent_signals[0]["content"] == "今天上班很烦，一直被打断"
     assert isinstance(recent_signals[0]["acknowledgement"], str)
     assert recent_signals[0]["acknowledgement"].strip() != ""
+    assert recent_signals[0]["created_at"].endswith(("Z", "+00:00"))
 
     from app.core.db import SessionLocal
     from app.models import LegacyEndpointTelemetry
@@ -298,6 +299,43 @@ def test_capture_api_client_id_is_idempotent_and_keeps_source_metadata(
     assert card.source_type == "voice"
     assert card.raw_payload_json["audio_uploaded"] is False
     assert card.raw_payload_json["source_kind"] == "voice_transcript"
+
+
+def test_capture_api_preserves_time_use_source_type(client, monkeypatch):
+    _patch_demo_user(monkeypatch)
+    user_id = "test-user-time-use-source"
+
+    response = client.post(
+        "/api/v1/captures",
+        headers=_headers(user_id),
+        json={
+            "content": "上午开会两小时，下午专注写方案。",
+            "input_mode": "time_use",
+            "language": "zh-Hans",
+            "timezone": "Asia/Tokyo",
+        },
+    )
+    assert response.status_code == 200, response.text
+    saved = response.json()["data"]["recent_signals"][0]
+    assert saved["source_type"] == "time_use"
+
+    recent = client.get(
+        "/api/v1/captures/recent",
+        headers=_headers(user_id),
+    )
+    assert recent.status_code == 200, recent.text
+    assert recent.json()["data"]["recent_signals"][0]["source_type"] == "time_use"
+
+    from app.core.db import SessionLocal
+    from app.models import SignalCard
+
+    db = SessionLocal()
+    try:
+        card = db.get(SignalCard, saved["signal_card_id"])
+        assert card is not None
+        assert card.source_type == "time_use"
+    finally:
+        db.close()
 
 
 def test_capture_reply_detects_mixed_emotion(client):

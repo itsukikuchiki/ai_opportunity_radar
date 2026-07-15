@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/i18n/app_locale_text.dart';
+import '../../shared/widgets/aurora_ui.dart';
 
 class InitializationFailurePage extends StatelessWidget {
   final String? referenceId;
@@ -44,84 +45,155 @@ class InitializationFailurePage extends StatelessWidget {
     );
 
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFEDEBFF),
-                      shape: BoxShape.circle,
-                    ),
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      Icons.refresh_rounded,
-                      size: 34,
-                      color: Color(0xFF7267F0),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Semantics(
-                    header: true,
-                    child: Text(
-                      title,
-                      key: const ValueKey('initialization-failure-title'),
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    body,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                  ),
-                  if (referenceId != null && referenceId!.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    Semantics(
-                      label: '$referenceLabel ${referenceId!}',
-                      child: Text(
-                        '$referenceLabel: ${referenceId!}',
-                        key: const ValueKey(
-                          'initialization-failure-reference',
-                        ),
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontFeatures: const [
-                            FontFeature.tabularFigures(),
-                          ],
+      body: Stack(
+        children: [
+          AuroraPage(
+            child: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxHeight < 700;
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight - 48,
+                      ),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 520),
+                          child: AuroraCard(
+                            key: const ValueKey(
+                              'initialization-failure-surface',
+                            ),
+                            padding: EdgeInsets.fromLTRB(
+                              compact ? 20 : 26,
+                              compact ? 22 : 30,
+                              compact ? 20 : 26,
+                              compact ? 22 : 28,
+                            ),
+                            borderRadius: BorderRadius.circular(30),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ExcludeSemantics(
+                                  child: SizedBox.square(
+                                    dimension: compact ? 106 : 122,
+                                    child: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        AuroraHeroEmblem(
+                                          size: compact ? 106 : 122,
+                                          opacity: 0.90,
+                                        ),
+                                        const Positioned(
+                                          right: 0,
+                                          bottom: 0,
+                                          child: AuroraSectionIcon(
+                                            icon: Icons.refresh_rounded,
+                                            color: AuroraColors.purple,
+                                            size: 36,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(height: compact ? 14 : 20),
+                                Semantics(
+                                  header: true,
+                                  child: AuroraHeroTitle(
+                                    key: const ValueKey(
+                                      'initialization-failure-title',
+                                    ),
+                                    text: title,
+                                    fontSize: compact ? 25 : 28,
+                                    maxLines: 4,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  body,
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyLarge
+                                      ?.copyWith(
+                                        color: AuroraColors.muted,
+                                        height: 1.48,
+                                      ),
+                                ),
+                                if (referenceId != null &&
+                                    referenceId!.isNotEmpty) ...[
+                                  const SizedBox(height: 16),
+                                  Semantics(
+                                    label: '$referenceLabel ${referenceId!}',
+                                    child: Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white
+                                            .withValues(alpha: 0.56),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: AuroraColors.line
+                                              .withValues(alpha: 0.72),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        '$referenceLabel: ${referenceId!}',
+                                        key: const ValueKey(
+                                          'initialization-failure-reference',
+                                        ),
+                                        textAlign: TextAlign.center,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                          color: AuroraColors.ink
+                                              .withValues(alpha: 0.70),
+                                          fontFeatures: const [
+                                            FontFeature.tabularFigures(),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 22),
+                                Semantics(
+                                  button: true,
+                                  label: retry,
+                                  child: SizedBox(
+                                    width: double.infinity,
+                                    child: FilledButton.icon(
+                                      key: const ValueKey(
+                                        'initialization-retry-action',
+                                      ),
+                                      onPressed: onRetry,
+                                      style: FilledButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(48),
+                                      ),
+                                      icon: const Icon(Icons.refresh_rounded),
+                                      label: Text(retry),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ],
-                  const SizedBox(height: 28),
-                  Semantics(
-                    button: true,
-                    label: retry,
-                    child: FilledButton.icon(
-                      key: const ValueKey('initialization-retry-action'),
-                      onPressed: onRetry,
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(160, 48),
-                      ),
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: Text(retry),
-                    ),
-                  ),
-                ],
+                  );
+                },
               ),
             ),
           ),
-        ),
+          const AuroraSafeTopMask(extraHeight: 0),
+        ],
       ),
     );
   }

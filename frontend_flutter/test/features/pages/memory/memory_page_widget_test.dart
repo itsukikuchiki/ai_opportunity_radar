@@ -8,6 +8,7 @@ import 'package:ai_opportunity_radar/core/readiness/report_readiness.dart';
 import 'package:ai_opportunity_radar/features/pages/me/me_view_model.dart';
 import 'package:ai_opportunity_radar/features/pages/memory/memory_page.dart';
 import 'package:ai_opportunity_radar/features/pages/memory/memory_view_model.dart';
+import 'package:ai_opportunity_radar/shared/widgets/aurora_ui.dart';
 
 import '../../../helpers/widget_test_helpers.dart';
 
@@ -172,7 +173,10 @@ void main() {
     expect(tester.getSize(hero).height, lessThanOrEqualTo(170));
     final journeyTitle = tester.widget<Text>(find.text('Journey'));
     expect(journeyTitle.style?.fontSize, 36);
+    expect(journeyTitle.style?.fontWeight, FontWeight.w700);
     expect(journeyTitle.style?.fontFamily, isNot('Georgia'));
+    expect(find.byType(AuroraHeroTitle), findsOneWidget);
+    expect(find.byType(AuroraHeroEmblem), findsOneWidget);
     for (var i = 0;
         i < 3 && find.textContaining('Track overview').evaluate().isEmpty;
         i++) {
@@ -400,6 +404,113 @@ void main() {
     expect(find.byKey(const ValueKey('journey-scroll-view')), findsOneWidget);
     expect(find.byKey(const ValueKey('journey-hero-header')), findsOneWidget);
     expect(tester.widget<Text>(find.text('Journey')).style?.fontSize, 34);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('简体中文旅程不显示原始场景枚举且信号计数完整', (tester) async {
+    tester.view.physicalSize = const Size(390, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final now = DateTime.now();
+    String dateKey(int day) =>
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+    final repo = StubMemoryRepository(
+      result: MemoryFetchResult(
+        isFirstDayGate: false,
+        summary: MemorySummaryModel(
+          patterns: const [
+            JourneySignalItemModel(
+              name: '正在形成的生活路径',
+              summary: '目前最清楚的是“work”。',
+              signalLevel: 'repeated_pattern',
+            ),
+          ],
+          frictions: const [],
+          desires: const [],
+          experiments: const [
+            JourneySignalItemModel(
+              name: '短暂离屏恢复',
+              summary: '真实实验线索。',
+              signalLevel: 'weak_signal',
+            ),
+          ],
+          journeyTraces: [
+            JourneyTraceModel(
+              id: 'emotional-trace',
+              sourceType: 'signal_card',
+              title: 'emotional',
+              summary: '情绪线索。',
+              localDate: dateKey(3),
+              cluster: 'life',
+              intensity: 0.5,
+              signalLevel: 'weak_signal',
+            ),
+            JourneyTraceModel(
+              id: 'friction-trace',
+              sourceType: 'signal_card',
+              title: 'daily_friction',
+              summary: '日常摩擦线索。',
+              localDate: dateKey(2),
+              cluster: 'friction',
+              intensity: 0.5,
+              signalLevel: 'weak_signal',
+            ),
+            JourneyTraceModel(
+              id: 'doubt-trace',
+              sourceType: 'signal_card',
+              title: 'self_doubt',
+              summary: '自我怀疑线索。',
+              localDate: dateKey(1),
+              cluster: 'life',
+              intensity: 0.5,
+              signalLevel: 'weak_signal',
+            ),
+          ],
+        ),
+        journeyReadiness: const ReportReadiness(
+          rule: ReportReadinessEvaluator.journeyRule,
+          signalCount: 18,
+          distinctDayCount: 14,
+          distinctWeekCount: 3,
+        ),
+        proReadiness: const ReportReadiness(
+          rule: ReportReadinessEvaluator.journeyProRule,
+          signalCount: 18,
+          distinctDayCount: 14,
+          distinctWeekCount: 3,
+        ),
+      ),
+    );
+    final meVm = await buildMeViewModel();
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const MemoryPage(),
+        providers: [
+          ChangeNotifierProvider<MemoryViewModel>(
+            create: (_) => MemoryViewModel(repo),
+          ),
+          ChangeNotifierProvider<MeViewModel>.value(value: meVm),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('目前最清楚的是“工作”。'), findsWidgets);
+    expect(find.text('18 条信号'), findsOneWidget);
+    expect(find.textContaining('18 条 Sign'), findsNothing);
+    expect(find.text('情绪'), findsWidgets);
+    expect(find.text('日常摩擦'), findsOneWidget);
+    expect(find.text('自我怀疑'), findsOneWidget);
+    expect(find.text('emotional'), findsNothing);
+    expect(find.text('daily_friction'), findsNothing);
+    expect(find.text('self_doubt'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

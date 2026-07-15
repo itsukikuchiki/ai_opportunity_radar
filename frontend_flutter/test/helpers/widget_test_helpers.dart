@@ -420,6 +420,7 @@ class StubMemoryRepository extends MemoryRepository {
 
 class StubWeeklyRepository extends WeeklyRepository {
   final WeeklyInsightModel weekly;
+  final WeeklyReflectModel? weeklyReflect;
   final LifeExperimentModel? experimentCandidate;
   final LifeExperimentModel? currentWeekExperiment;
   final List<String> feedbackValues = [];
@@ -427,6 +428,7 @@ class StubWeeklyRepository extends WeeklyRepository {
 
   StubWeeklyRepository({
     required this.weekly,
+    this.weeklyReflect,
     this.experimentCandidate,
     this.currentWeekExperiment,
   }) : super(
@@ -445,18 +447,20 @@ class StubWeeklyRepository extends WeeklyRepository {
 
   @override
   Future<WeeklyReflectModel> fetchWeeklyReflect() async {
-    return const WeeklyReflectModel(
-      summary: 'Weekly Reflect keeps the deeper read tied to this week.',
-      rootTension: 'Energy dropped when meetings compressed recovery.',
-      hiddenPattern: 'Small recovery actions worked better than large plans.',
-      nextFocus: 'Keep the next experiment light and observable.',
-      riskNote: 'Use this as a hypothesis, not a judgement.',
-      keyNodes: [
-        'Meeting compression',
-        'Recovery window',
-        'Light experiment',
-      ],
-    );
+    return weeklyReflect ??
+        const WeeklyReflectModel(
+          summary: 'Weekly Reflect keeps the deeper read tied to this week.',
+          rootTension: 'Energy dropped when meetings compressed recovery.',
+          hiddenPattern:
+              'Small recovery actions worked better than large plans.',
+          nextFocus: 'Keep the next experiment light and observable.',
+          riskNote: 'Use this as a hypothesis, not a judgement.',
+          keyNodes: [
+            'Meeting compression',
+            'Recovery window',
+            'Light experiment',
+          ],
+        );
   }
 
   @override

@@ -40,12 +40,12 @@ class _JournalPageState extends State<JournalPage> {
               final signals = snapshot.data ?? const <RecentSignalModel>[];
               final entries = _journalEntries(context, signals);
               return ListView(
-                padding: const EdgeInsets.fromLTRB(24, 18, 24, 118),
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 118),
                 children: [
                   const _JournalTopBar(),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 14),
                   const _JournalHeroHeader(),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 14),
                   _JournalSummaryCard(total: entries.length),
                   const SizedBox(height: 18),
                   const _JournalFilterChips(),
@@ -98,97 +98,113 @@ class _JournalHeroHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 206,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(borderRadius: BorderRadius.circular(26)),
+    final compact =
+        MediaQuery.sizeOf(context).width < AuroraMainPageSpec.compactBreakpoint;
+    return ConstrainedBox(
+      key: const ValueKey('journey-journal-hero'),
+      constraints: const BoxConstraints(minHeight: 168),
       child: Stack(
-        fit: StackFit.expand,
+        clipBehavior: Clip.none,
         children: [
-          Image.asset(
-            'assets/journey/journal-header-bg.png',
-            fit: BoxFit.cover,
-            alignment: Alignment.centerRight,
-          ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.white.withValues(alpha: 0.52),
-                  Colors.white.withValues(alpha: 0.12),
-                  Colors.white.withValues(alpha: 0.28),
-                ],
+          Positioned(
+            right: compact ? -18 : -12,
+            top: compact ? -24 : -30,
+            child: IgnorePointer(
+              child: AuroraHeroEmblem(
+                size: compact ? 118 : 142,
+                opacity: 0.80,
               ),
             ),
           ),
-          Column(
-            children: [
-              Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'Fragments Kept This Month',
-                  zhHans: '本月留下的片段',
-                  zhHant: '本月留下的片段',
-                  ja: '今月残した断片',
-                ),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                      color: const Color(0xFF7154E8),
-                      fontSize: 37,
-                      height: 1.08,
-                      fontWeight: FontWeight.w900,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: EdgeInsets.only(right: compact ? 80 : 104),
+                  child: AuroraHeroTitle(
+                    text: AppLocaleText.tr(
+                      context,
+                      en: 'Fragments Kept This Month',
+                      zhHans: '本月留下的片段',
+                      zhHant: '本月留下的片段',
+                      ja: '今月残した断片',
                     ),
-              ),
-              const SizedBox(height: 28),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.58),
-                  borderRadius: BorderRadius.circular(999),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: 0.82)),
+                    fontSize: compact ? 30 : 34,
+                    maxLines: 2,
+                  ),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.chevron_left_rounded,
-                        color: Color(0xFF49659A)),
-                    const SizedBox(width: 14),
-                    Text(
-                      AppLocaleText.tr(context,
+                const SizedBox(height: 10),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.white.withValues(alpha: 0.78),
+                        const Color(0xFFF2EDFF).withValues(alpha: 0.66),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.86),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.chevron_left_rounded,
+                        color: AuroraColors.muted,
+                        size: 19,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        AppLocaleText.tr(
+                          context,
                           en: 'July 2025',
                           zhHans: '2025年7月',
                           zhHant: '2025年7月',
-                          ja: '2025年7月'),
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: const Color(0xFF7154E8),
-                            fontWeight: FontWeight.w900,
-                          ),
-                    ),
-                    const SizedBox(width: 14),
-                    const Icon(Icons.chevron_right_rounded,
-                        color: Color(0xFF49659A)),
-                  ],
+                          ja: '2025年7月',
+                        ),
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: AuroraColors.purple,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: AuroraColors.muted,
+                        size: 19,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'Gently collect the moments you truly kept this month.',
-                  zhHans: '把这个月真正留下来的时刻，轻轻收在一起。',
-                  zhHant: '把這個月真正留下來的時刻，輕輕收在一起。',
-                  ja: '今月ほんとうに残った瞬間を、そっと集めます。',
-                ),
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: const Color(0xFF07316E),
-                      fontWeight: FontWeight.w700,
+                const SizedBox(height: 12),
+                Padding(
+                  padding: EdgeInsets.only(right: compact ? 58 : 82),
+                  child: Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Gently collect the moments you truly kept this month.',
+                      zhHans: '把这个月真正留下来的时刻，轻轻收在一起。',
+                      zhHant: '把這個月真正留下來的時刻，輕輕收在一起。',
+                      ja: '今月ほんとうに残った瞬間を、そっと集めます。',
                     ),
-              ),
-            ],
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AuroraColors.ink.withValues(alpha: 0.76),
+                          height: 1.35,
+                          fontWeight: FontWeight.w500,
+                        ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -204,7 +220,7 @@ class _JournalSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 145,
+      constraints: const BoxConstraints(minHeight: 145),
       padding: const EdgeInsets.fromLTRB(28, 22, 28, 22),
       decoration: _journalGlassDecoration(),
       child: Row(
@@ -250,7 +266,7 @@ class _JournalSummaryCard extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: const Color(0xFF09286A),
                     height: 1.35,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
           ),
@@ -306,7 +322,7 @@ class _JournalFilterChips extends StatelessWidget {
                   labels[i],
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: i == 0 ? Colors.white : const Color(0xFF49659A),
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -379,7 +395,7 @@ class _JournalEntryCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               color: const Color(0xFF09286A),
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w700,
                             ),
                       ),
                       const SizedBox(height: 7),
@@ -454,7 +470,7 @@ class _JournalClosingCard extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: const Color(0xFF173773),
                     height: 1.45,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
           ),
@@ -477,7 +493,7 @@ class _JournalEmptyCard extends StatelessWidget {
         AppLocaleText.tr(
           context,
           en: 'No fragments yet. Records from your Today timeline will gather here.',
-          zhHans: '本月还没有片段，Today 时间线里的真实记录会汇集到这里。',
+          zhHans: '本月还没有片段，今天时间线里的真实记录会汇集到这里。',
           zhHant: '本月還沒有片段，Today 時間線裡的真實記錄會匯集到這裡。',
           ja: '今月の断片はまだありません。Today のタイムラインに残した記録がここに集まります。',
         ),
@@ -498,26 +514,65 @@ class _JournalBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
-      (Icons.wb_sunny_outlined, 'Today', false, AppRoutes.today),
-      (Icons.calendar_month_rounded, 'Weekly', false, AppRoutes.weekly),
-      (Icons.science_rounded, 'Experiment', false, AppRoutes.experiment),
-      (Icons.route_rounded, 'Journey', true, AppRoutes.memory),
-      (Icons.person_rounded, 'Me', false, AppRoutes.me),
+      (
+        Icons.wb_sunny_outlined,
+        AppLocaleText.tr(context,
+            en: 'Today', zhHans: '今天', zhHant: '今天', ja: '今日'),
+        false,
+        AppRoutes.today
+      ),
+      (
+        Icons.calendar_month_rounded,
+        AppLocaleText.tr(context,
+            en: 'Weekly', zhHans: '每周复盘', zhHant: '每週', ja: 'Weekly'),
+        false,
+        AppRoutes.weekly
+      ),
+      (
+        Icons.science_rounded,
+        AppLocaleText.tr(context,
+            en: 'Experiment', zhHans: '生活小实验', zhHant: '小實驗', ja: '実験'),
+        false,
+        AppRoutes.experiment
+      ),
+      (
+        Icons.route_rounded,
+        AppLocaleText.tr(context,
+            en: 'Journey', zhHans: '旅程', zhHant: '旅程', ja: 'Journey'),
+        true,
+        AppRoutes.memory
+      ),
+      (
+        Icons.person_rounded,
+        AppLocaleText.tr(context,
+            en: 'Me', zhHans: '我的', zhHant: '我的', ja: 'マイ'),
+        false,
+        AppRoutes.me
+      ),
     ];
     return SafeArea(
       top: false,
       child: Container(
-        height: 96,
-        margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        height: 82,
+        margin: const EdgeInsets.fromLTRB(18, 0, 18, 8),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.82),
-          borderRadius: BorderRadius.circular(30),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.90)),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.88),
+              const Color(0xFFF7F3FF).withValues(alpha: 0.78),
+              const Color(0xFFF3F8FF).withValues(alpha: 0.72),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF7059B8).withValues(alpha: 0.16),
-              blurRadius: 24,
-              offset: const Offset(0, -4),
+              color: const Color(0xFF7164A8).withValues(alpha: 0.14),
+              blurRadius: 28,
+              spreadRadius: -10,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
@@ -535,7 +590,7 @@ class _JournalBottomNav extends StatelessWidget {
                         color: item.$3
                             ? const Color(0xFF8B62E8)
                             : const Color(0xFF9BA4C2),
-                        size: item.$3 ? 48 : 38,
+                        size: item.$3 ? 40 : 34,
                         active: item.$3,
                       ),
                       const SizedBox(height: 3),
@@ -546,7 +601,7 @@ class _JournalBottomNav extends StatelessWidget {
                                   ? const Color(0xFF7B57E8)
                                   : const Color(0xFF7E89AF),
                               fontWeight:
-                                  item.$3 ? FontWeight.w900 : FontWeight.w700,
+                                  item.$3 ? FontWeight.w700 : FontWeight.w700,
                             ),
                       ),
                     ],
@@ -573,7 +628,7 @@ class _JournalCircleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final size = compact ? 44.0 : 58.0;
+    const size = 44.0;
     return InkWell(
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
@@ -585,8 +640,7 @@ class _JournalCircleButton extends StatelessWidget {
           shape: BoxShape.circle,
           border: Border.all(color: Colors.white.withValues(alpha: 0.88)),
         ),
-        child:
-            Icon(icon, color: const Color(0xFF07316E), size: compact ? 25 : 32),
+        child: Icon(icon, color: AuroraColors.ink, size: compact ? 23 : 24),
       ),
     );
   }
@@ -655,7 +709,7 @@ class _JournalTag extends StatelessWidget {
         label,
         style: Theme.of(context).textTheme.labelLarge?.copyWith(
               color: color,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
             ),
       ),
     );
@@ -728,15 +782,31 @@ String _formatJournalDate(DateTime? time) {
 
 BoxDecoration _journalGlassDecoration() {
   return BoxDecoration(
-    color: Colors.white.withValues(alpha: 0.48),
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Colors.white.withValues(alpha: 0.86),
+        const Color(0xFFFFF8F4).withValues(alpha: 0.70),
+        const Color(0xFFF3F1FF).withValues(alpha: 0.66),
+        const Color(0xFFF1F8FF).withValues(alpha: 0.62),
+      ],
+      stops: const [0, 0.36, 0.72, 1],
+    ),
     borderRadius: BorderRadius.circular(22),
-    border: Border.all(color: Colors.white.withValues(alpha: 0.82), width: 1.1),
+    border: Border.all(color: Colors.white.withValues(alpha: 0.86), width: 1),
     boxShadow: [
       BoxShadow(
-        color: const Color(0xFF7059B8).withValues(alpha: 0.12),
-        blurRadius: 28,
-        spreadRadius: -10,
+        color: const Color(0xFF7164A8).withValues(alpha: 0.10),
+        blurRadius: 30,
+        spreadRadius: -14,
         offset: const Offset(0, 15),
+      ),
+      BoxShadow(
+        color: const Color(0xFFFFB17C).withValues(alpha: 0.07),
+        blurRadius: 26,
+        spreadRadius: -14,
+        offset: const Offset(-6, 10),
       ),
     ],
   );

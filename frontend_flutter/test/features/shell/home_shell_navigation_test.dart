@@ -140,7 +140,7 @@ void main() {
       (Locale('ja'), ['今日', 'Weekly', '実験', 'Journey', 'マイ']),
       (
         Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
-        ['今天', '每周', '小实验', '旅程', '我的'],
+        ['今天', '每周复盘', '生活小实验', '旅程', '我的'],
       ),
       (
         Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),

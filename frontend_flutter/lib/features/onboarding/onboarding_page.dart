@@ -213,17 +213,15 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   subtitle: AppLocaleText.tr(
                     context,
                     en: 'Weekly finds one pattern and suggests one experiment. Once adopted, Life Experiment keeps the real feedback and adjustments.',
-                    zhHans:
-                        'Weekly 从本周信号里看见一个模式，提出一个下周小实验；采纳后由 Life Experiment 保存真实反馈与调整。',
-                    zhHant:
-                        'Weekly 從本週信號裡看見一個模式，提出一個下週小實驗；採納後由 Life Experiment 保存真實回饋與調整。',
+                    zhHans: '每周复盘从本周信号里看见一个模式，提出一个下周小实验。\n生活小实验保存真实反馈与调整。',
+                    zhHant: '每週復盤從本週信號裡看見一個模式，提出一個下週小實驗。\n生活小實驗保存真實回饋與調整。',
                     ja: 'Weekly は今週のパターンと小さな実験を提案し、採用後は Life Experiment が反応と調整を残します。',
                   ),
                   footer: AppLocaleText.tr(
                     context,
                     en: 'Weekly suggests; Life Experiment remembers what truly helps.',
-                    zhHans: 'Weekly 负责提出，Life Experiment 负责记住什么真正有效。',
-                    zhHant: 'Weekly 負責提出，Life Experiment 負責記住什麼真正有效。',
+                    zhHans: '每周复盘负责提出。\n生活小实验负责记住什么真正有效。',
+                    zhHant: '每週復盤負責提出。\n生活小實驗負責記住什麼真正有效。',
                     ja: 'Weekly が提案し、Life Experiment が本当に役立つ方法を残します。',
                   ),
                   orbitCards: const [],
@@ -241,10 +239,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   subtitle: AppLocaleText.tr(
                     context,
                     en: 'Journey connects monthly observations and evidence into a long-term path. Pro L3 Reflect reads core insights and pattern links one layer deeper.',
-                    zhHans:
-                        'Journey 把本月观察与依据连成长期轨迹；Pro 的 L3 深度回看会进一步拆解核心洞察、模式联系与调整方向。',
-                    zhHant:
-                        'Journey 把本月觀察與依據連成長期軌跡；Pro 的 L3 深度回看會進一步拆解核心洞察、模式聯繫與調整方向。',
+                    zhHans: '旅程把本月观察与依据连成长期轨迹。\n深度分析会进一步拆解核心洞察、模式联系与调整方向。',
+                    zhHant: '旅程把本月觀察與依據連成長期軌跡。\n深度分析會進一步拆解核心洞察、模式聯繫與調整方向。',
                     ja: 'Journey は月ごとの観察と根拠を長期の軌跡につなぎ、Pro の L3 Reflect は関係をもう一段深く読みます。',
                   ),
                   footer: AppLocaleText.tr(
@@ -355,15 +351,15 @@ class _OnboardingScene extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _GradientTitle(title, fontSize: compact ? 34 : 42),
+              _GradientTitle(title, fontSize: compact ? 33 : 40),
               SizedBox(height: compact ? 12 : 18),
               Text(
                 subtitle,
                 style: TextStyle(
-                  color: const Color(0xFF6F7381),
-                  fontSize: compact ? 16.5 : 22,
-                  height: 1.34,
-                  fontWeight: FontWeight.w500,
+                  color: const Color(0xFF697083),
+                  fontSize: compact ? 16 : 21,
+                  height: 1.38,
+                  fontWeight: FontWeight.w400,
                   letterSpacing: 0,
                 ),
               ),
@@ -377,10 +373,11 @@ class _OnboardingScene extends StatelessWidget {
                     final cardScale = media.width < 390
                         ? 0.78
                         : (media.width < 430 ? 0.84 : 0.9);
-                    final usesBrandBackdrop =
-                        step == 0 || foregroundArtwork != null;
+                    final usesBrandBackdrop = step == 0;
                     final artworkWidth =
-                        usesBrandBackdrop ? pathWidth * 1.2 : pathWidth;
+                        usesBrandBackdrop || foregroundArtwork != null
+                            ? pathWidth * 1.22
+                            : pathWidth;
                     final backgroundKey = switch (step) {
                       0 => 'onboarding-opening-icon-background',
                       1 => 'onboarding-weekly-experiment-icon-background',
@@ -399,14 +396,23 @@ class _OnboardingScene extends StatelessWidget {
                             height: usesBrandBackdrop
                                 ? artworkWidth
                                 : pathWidth * 1.12,
-                            child: usesBrandBackdrop
-                                ? _BrandIconBackdrop(imageKey: backgroundKey)
-                                : CustomPaint(
-                                    painter: _SignalPathPainter(
-                                      phase: step,
-                                      minimal: false,
-                                    ),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                if (usesBrandBackdrop ||
+                                    foregroundArtwork != null)
+                                  _BrandIconBackdrop(
+                                    imageKey: backgroundKey,
+                                    opacity: step == 0 ? 0.5 : 0.22,
                                   ),
+                                CustomPaint(
+                                  painter: _SignalPathPainter(
+                                    phase: step,
+                                    minimal: false,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                         if (foregroundArtwork != null)
@@ -455,8 +461,12 @@ class _OnboardingScene extends StatelessWidget {
 
 class _BrandIconBackdrop extends StatelessWidget {
   final String imageKey;
+  final double opacity;
 
-  const _BrandIconBackdrop({required this.imageKey});
+  const _BrandIconBackdrop({
+    required this.imageKey,
+    this.opacity = 0.58,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -487,7 +497,7 @@ class _BrandIconBackdrop extends StatelessWidget {
               stops: [0, 0.68, 1],
             ).createShader(bounds),
             child: Opacity(
-              opacity: 0.86,
+              opacity: opacity,
               child: Image.asset(
                 'assets/brand-icon-display.png',
                 key: ValueKey(imageKey),
@@ -532,12 +542,18 @@ class _WeeklyDesignPreview extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Weekly',
-                              style: TextStyle(
+                            Text(
+                              AppLocaleText.tr(
+                                context,
+                                en: 'Weekly',
+                                zhHans: '每周复盘',
+                                zhHant: '每週復盤',
+                                ja: 'Weekly',
+                              ),
+                              style: const TextStyle(
                                 color: Color(0xFF7767F5),
                                 fontSize: 11,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                             Text(
@@ -551,7 +567,7 @@ class _WeeklyDesignPreview extends StatelessWidget {
                               style: const TextStyle(
                                 color: Color(0xFF29334D),
                                 fontSize: 17,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ],
@@ -673,7 +689,7 @@ class _WeeklyDesignPreview extends StatelessWidget {
                           style: const TextStyle(
                             color: Color(0xFF3B356E),
                             fontSize: 15,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -740,8 +756,8 @@ class _WeeklyDesignPreview extends StatelessWidget {
                           AppLocaleText.tr(
                             context,
                             en: 'Adopted into Life Experiment',
-                            zhHans: '采纳后进入 Life Experiment',
-                            zhHant: '採納後進入 Life Experiment',
+                            zhHans: '采纳后进入生活小实验',
+                            zhHant: '採納後進入生活小實驗',
                             ja: '採用後は Life Experiment へ',
                           ),
                           maxLines: 1,
@@ -802,8 +818,8 @@ class _LifeExperimentDesignPreview extends StatelessWidget {
                           AppLocaleText.tr(
                             context,
                             en: 'Life Experiment · Archive',
-                            zhHans: 'Life Experiment · 小实验档案',
-                            zhHant: 'Life Experiment · 小實驗檔案',
+                            zhHans: '生活小实验 · 小实验档案',
+                            zhHant: '生活小實驗 · 小實驗檔案',
                             ja: 'Life Experiment · アーカイブ',
                           ),
                           maxLines: 1,
@@ -811,7 +827,7 @@ class _LifeExperimentDesignPreview extends StatelessWidget {
                           style: const TextStyle(
                             color: Color(0xFF3D4760),
                             fontSize: 11.5,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
@@ -874,12 +890,18 @@ class _LifeExperimentDesignPreview extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Life Experiment',
-                              style: TextStyle(
+                            Text(
+                              AppLocaleText.tr(
+                                context,
+                                en: 'Life Experiment',
+                                zhHans: '生活小实验',
+                                zhHant: '生活小實驗',
+                                ja: 'Life Experiment',
+                              ),
+                              style: const TextStyle(
                                 color: Color(0xFF7767F5),
                                 fontSize: 11,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                             Text(
@@ -893,7 +915,7 @@ class _LifeExperimentDesignPreview extends StatelessWidget {
                               style: const TextStyle(
                                 color: Color(0xFF29334D),
                                 fontSize: 17,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ],
@@ -935,7 +957,7 @@ class _LifeExperimentDesignPreview extends StatelessWidget {
                           style: const TextStyle(
                             color: Color(0xFF333B56),
                             fontSize: 16,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                         const SizedBox(height: 7),
@@ -980,7 +1002,7 @@ class _LifeExperimentDesignPreview extends StatelessWidget {
                               style: const TextStyle(
                                 color: Color(0xFF7767F5),
                                 fontSize: 11,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                             const Spacer(),
@@ -1100,12 +1122,18 @@ class _JourneyProDesignPreview extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Journey',
-                              style: TextStyle(
+                            Text(
+                              AppLocaleText.tr(
+                                context,
+                                en: 'Journey',
+                                zhHans: '旅程',
+                                zhHant: '旅程',
+                                ja: 'Journey',
+                              ),
+                              style: const TextStyle(
                                 color: Color(0xFF7B63E8),
                                 fontSize: 11,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                             Text(
@@ -1119,7 +1147,7 @@ class _JourneyProDesignPreview extends StatelessWidget {
                               style: const TextStyle(
                                 color: Color(0xFF29334D),
                                 fontSize: 17,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ],
@@ -1319,7 +1347,7 @@ class _JourneyProDesignPreview extends StatelessWidget {
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 9.5,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
@@ -1329,14 +1357,14 @@ class _JourneyProDesignPreview extends StatelessWidget {
                                 AppLocaleText.tr(
                                   context,
                                   en: 'Weekly Deep Review',
-                                  zhHans: 'Weekly 本周深读',
-                                  zhHant: 'Weekly 本週深讀',
+                                  zhHans: '每周复盘 · 深度分析',
+                                  zhHant: '每週復盤 · 深度分析',
                                   ja: 'Weekly 深掘りレビュー',
                                 ),
                                 style: const TextStyle(
                                   color: Color(0xFF3B356E),
                                   fontSize: 14,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
@@ -1486,7 +1514,7 @@ class _JourneyPreviewClue extends StatelessWidget {
                   style: TextStyle(
                     color: color,
                     fontSize: 10.5,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
@@ -1520,14 +1548,19 @@ class _OnboardingPreviewPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.68),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
+        color: Colors.white.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.78)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF7568A6).withValues(alpha: 0.14),
-            blurRadius: 30,
-            offset: const Offset(0, 14),
+            color: const Color(0xFF7568A6).withValues(alpha: 0.12),
+            blurRadius: 34,
+            offset: const Offset(0, 16),
+          ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: 0.34),
+            blurRadius: 18,
+            offset: const Offset(0, -6),
           ),
         ],
       ),
@@ -1594,7 +1627,7 @@ class _PreviewSectionLabel extends StatelessWidget {
             style: TextStyle(
               color: color,
               fontSize: 11.5,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
@@ -1628,7 +1661,7 @@ class _PreviewPatternNode extends StatelessWidget {
           color: color.withValues(alpha: 0.96),
           fontSize: 10.5,
           height: 1.15,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -1678,7 +1711,7 @@ class _PreviewPill extends StatelessWidget {
         style: TextStyle(
           color: color,
           fontSize: 10.5,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -1709,7 +1742,7 @@ class _PreviewAction extends StatelessWidget {
         style: const TextStyle(
           color: Colors.white,
           fontSize: 10.5,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );
@@ -1734,8 +1767,8 @@ class _PreferenceScene extends StatelessWidget {
     final media = MediaQuery.sizeOf(context);
     final compact = media.height < 720;
     final iconSize = math.min(
-      media.width * (compact ? 0.19 : 0.28),
-      compact ? 60.0 : 112.0,
+      media.width * (compact ? 0.19 : 0.42),
+      compact ? 60.0 : 170.0,
     );
 
     return _AuroraOnboardingBackground(
@@ -1789,10 +1822,10 @@ class _PreferenceScene extends StatelessWidget {
                   ja: 'AIに見てほしい生活領域を先に伝えます。あとからいつでも調整できます。',
                 ),
                 style: TextStyle(
-                  color: const Color(0xFF6F7381),
-                  fontSize: compact ? 15.5 : 21,
-                  height: compact ? 1.3 : 1.36,
-                  fontWeight: FontWeight.w500,
+                  color: const Color(0xFF697083),
+                  fontSize: compact ? 15.2 : 20,
+                  height: compact ? 1.32 : 1.38,
+                  fontWeight: FontWeight.w400,
                   letterSpacing: 0,
                 ),
               ),
@@ -1855,9 +1888,9 @@ class _GradientTitle extends StatelessWidget {
     return ShaderMask(
       shaderCallback: (bounds) => const LinearGradient(
         colors: [
-          Color(0xFF4D83F7),
-          Color(0xFF8770F7),
-          Color(0xFF7B6DF5),
+          Color(0xFF4C86F6),
+          Color(0xFF8176F6),
+          Color(0xFF7D68EE),
         ],
       ).createShader(bounds),
       child: Text(
@@ -1865,7 +1898,7 @@ class _GradientTitle extends StatelessWidget {
         style: const TextStyle(
           color: Colors.white,
           height: 1.08,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w800,
           letterSpacing: 0,
         ).copyWith(fontSize: fontSize),
       ),
@@ -1887,17 +1920,21 @@ class _AuroraOnboardingBackground extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [
             Color(0xFFFFFCF4),
-            Color(0xFFFFF2E0),
-            Color(0xFFECE6FF),
-            Color(0xFFDBE7FF),
+            Color(0xFFFFEBD6),
+            Color(0xFFF0E4FF),
+            Color(0xFFD9E8FF),
+            Color(0xFFEAF3FF),
             Color(0xFFFFFFFF),
           ],
-          stops: [0, 0.26, 0.54, 0.82, 1],
+          stops: [0, 0.23, 0.5, 0.72, 0.9, 1],
         ),
       ),
       child: Stack(
         children: [
           const Positioned.fill(child: CustomPaint(painter: _CloudPainter())),
+          const Positioned.fill(
+            child: CustomPaint(painter: _OnboardingHazePainter()),
+          ),
           const Positioned.fill(
             child: CustomPaint(painter: _SoftParticlePainter()),
           ),
@@ -1906,10 +1943,10 @@ class _AuroraOnboardingBackground extends StatelessWidget {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: RadialGradient(
-                    center: const Alignment(0.18, -0.08),
-                    radius: 0.72,
+                    center: const Alignment(0.1, -0.12),
+                    radius: 0.86,
                     colors: [
-                      Colors.white.withValues(alpha: 0.22),
+                      Colors.white.withValues(alpha: 0.08),
                       Colors.white.withValues(alpha: 0),
                     ],
                   ),
@@ -1930,10 +1967,10 @@ class _CloudPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final cloudPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.44)
+      ..color = Colors.white.withValues(alpha: 0.36)
       ..style = PaintingStyle.fill;
     final glowPaint = Paint()
-      ..color = const Color(0xFFB6B9FF).withValues(alpha: 0.12)
+      ..color = const Color(0xFFB6B9FF).withValues(alpha: 0.16)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 28);
 
     void blob(Offset center, double radius) {
@@ -1975,6 +2012,83 @@ class _CloudPainter extends CustomPainter {
       canvas.drawLine(
           center.translate(0, -7), center.translate(0, 7), sparklePaint);
     }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _OnboardingHazePainter extends CustomPainter {
+  const _OnboardingHazePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final topWash = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Color(0x30FFE1B6),
+          Color(0x2CEBDAFF),
+          Color(0x28BFD8FF),
+        ],
+      ).createShader(Offset.zero & size);
+    canvas.drawRect(Offset.zero & size, topWash);
+
+    final wavePaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Colors.white.withValues(alpha: 0),
+          const Color(0xFFFFFFFF).withValues(alpha: 0.42),
+          const Color(0xFFE6EFFF).withValues(alpha: 0.44),
+        ],
+      ).createShader(Offset.zero & size);
+    final base = size.height * 0.72;
+    final wave = Path()
+      ..moveTo(0, base)
+      ..cubicTo(size.width * 0.18, base - 44, size.width * 0.34, base + 34,
+          size.width * 0.52, base - 10)
+      ..cubicTo(size.width * 0.7, base - 52, size.width * 0.86, base + 18,
+          size.width, base - 20)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(wave, wavePaint);
+
+    final leafPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.15
+      ..strokeCap = StrokeCap.round
+      ..color = Colors.white.withValues(alpha: 0.34);
+
+    void leaves(Offset root, double scale, bool flip) {
+      final direction = flip ? -1.0 : 1.0;
+      final stem = Path()
+        ..moveTo(root.dx, root.dy)
+        ..cubicTo(
+            root.dx + 10 * direction * scale,
+            root.dy - 28 * scale,
+            root.dx + 18 * direction * scale,
+            root.dy - 48 * scale,
+            root.dx + 18 * direction * scale,
+            root.dy - 72 * scale);
+      canvas.drawPath(stem, leafPaint);
+      for (final t in const [0.25, 0.42, 0.6, 0.76]) {
+        final y = root.dy - 72 * scale * t;
+        final x = root.dx + 18 * direction * scale * t;
+        final leaf = Path()
+          ..moveTo(x, y)
+          ..quadraticBezierTo(x + 20 * direction * scale, y - 12 * scale,
+              x + 34 * direction * scale, y - 30 * scale)
+          ..quadraticBezierTo(x + 8 * direction * scale, y - 26 * scale, x, y);
+        canvas.drawPath(leaf, leafPaint);
+      }
+    }
+
+    leaves(Offset(size.width * 0.1, size.height * 0.82), 0.88, false);
+    leaves(Offset(size.width * 0.9, size.height * 0.82), 0.82, true);
   }
 
   @override
@@ -2270,7 +2384,7 @@ class _FloatingOrbitCard extends StatelessWidget {
                     style: TextStyle(
                       color: data.color,
                       fontSize: 15,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       letterSpacing: 0,
                     ),
                   ),
@@ -2360,18 +2474,18 @@ class _FocusDomainTile extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: selected ? 0.72 : 0.48),
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: selected
-                ? option.color.withValues(alpha: 0.62)
-                : Colors.white.withValues(alpha: 0.8),
-            width: selected ? 1.5 : 1,
+                ? option.color.withValues(alpha: 0.5)
+                : Colors.white.withValues(alpha: 0.72),
+            width: selected ? 1.25 : 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: option.color.withValues(alpha: selected ? 0.2 : 0.08),
-              blurRadius: selected ? 20 : 12,
-              offset: const Offset(0, 8),
+              color: option.color.withValues(alpha: selected ? 0.16 : 0.07),
+              blurRadius: selected ? 22 : 14,
+              offset: const Offset(0, 9),
             ),
           ],
         ),
@@ -2414,7 +2528,7 @@ class _FocusDomainTile extends StatelessWidget {
                         color:
                             selected ? option.color : const Color(0xFF6B7082),
                         fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         letterSpacing: 0,
                       ),
                     ),
@@ -2484,7 +2598,7 @@ class _StartSetupButton extends StatelessWidget {
             ),
             textStyle: const TextStyle(
               fontSize: 22,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
               letterSpacing: 0,
             ),
           ),

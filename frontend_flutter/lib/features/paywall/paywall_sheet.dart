@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/di/app_dependencies.dart';
 import '../../core/i18n/app_locale_text.dart';
 import '../../core/purchases/purchase_controller.dart';
+import '../../shared/widgets/aurora_ui.dart';
 
 Future<void> showPremiumPaywall(
   BuildContext context, {
@@ -99,9 +100,10 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
           children: [
             Row(
               children: [
-                Icon(
-                  Icons.workspace_premium_outlined,
-                  color: theme.colorScheme.primary,
+                const AuroraSectionIcon(
+                  icon: Icons.workspace_premium_outlined,
+                  color: AuroraColors.purple,
+                  size: 38,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -114,7 +116,8 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                       ja: 'Signal Path Pro',
                     ),
                     style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      color: AuroraColors.ink,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
@@ -124,7 +127,7 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
             Text(
               _subtitle(context, widget.source),
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+                color: AuroraColors.muted,
               ),
             ),
             const SizedBox(height: 16),
@@ -188,7 +191,7 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
               text: AppLocaleText.tr(
                 context,
                 en: 'Open Weekly deep review and Journey L3 synthesis',
-                zhHans: '打开 Weekly 本周深读和 Journey L3 综合',
+                zhHans: '打开每周复盘的深度分析和旅程综合',
                 zhHant: '打開 Weekly 本週深讀和 Journey L3 綜合',
                 ja: 'Weekly 深掘りと Journey L3 統合を開く',
               ),
@@ -679,16 +682,37 @@ class _PlanOption extends StatelessWidget {
 
     return InkWell(
       onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(18),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         decoration: BoxDecoration(
-          color: selected
-              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.34)
-              : theme.colorScheme.surface,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: selected
+                ? [
+                    Colors.white.withValues(alpha: 0.92),
+                    AuroraColors.purple.withValues(alpha: 0.12),
+                    AuroraColors.blue.withValues(alpha: 0.08),
+                  ]
+                : [
+                    Colors.white.withValues(alpha: 0.82),
+                    const Color(0xFFF8F5FF).withValues(alpha: 0.70),
+                  ],
+          ),
           border: Border.all(color: borderColor),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: AuroraColors.purple.withValues(alpha: 0.12),
+                    blurRadius: 18,
+                    spreadRadius: -8,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           children: [
@@ -712,7 +736,7 @@ class _PlanOption extends StatelessWidget {
                           title,
                           style: theme.textTheme.titleSmall?.copyWith(
                             color: foreground,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
@@ -783,9 +807,24 @@ class _BenefitRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: theme.colorScheme.primary),
+          AuroraSectionIcon(
+            icon: icon,
+            color: theme.colorScheme.primary,
+            size: 30,
+          ),
           const SizedBox(width: 10),
-          Expanded(child: Text(text)),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: Text(
+                text,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AuroraColors.ink.withValues(alpha: 0.82),
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

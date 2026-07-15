@@ -64,7 +64,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(TodayPage), findsOneWidget);
-    expect(find.text('Quick record'), findsOneWidget);
+    expect(find.text('How is today going?'), findsOneWidget);
     expect(find.text('Today'), findsOneWidget);
     expect(find.text('Text'), findsOneWidget);
     expect(
@@ -215,7 +215,7 @@ void main() {
     );
     expect(
       tester.getBottomLeft(hero).dy,
-      lessThan(tester.getTopLeft(find.text('快速记录')).dy),
+      lessThan(tester.getTopLeft(find.text('今天过得怎么样？')).dy),
     );
     expect(tester.takeException(), isNull);
   });
@@ -369,7 +369,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Quick record'), findsOneWidget);
+    expect(find.text('How is today going?'), findsOneWidget);
 
     await tester.scrollUntilVisible(
       find.text('I felt drained after three meetings.'),
@@ -439,7 +439,7 @@ void main() {
     expect(panel, findsOneWidget);
     expect(
       tester.getTopLeft(panel).dy,
-      greaterThan(tester.getTopLeft(find.text('快速记录')).dy),
+      greaterThan(tester.getTopLeft(find.text('今天过得怎么样？')).dy),
     );
 
     await tester.tap(find.byKey(const ValueKey('ai-prediction-accurate')));
@@ -764,7 +764,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('手帐时间线'), findsOneWidget);
-    expect(find.text('今天'), findsOneWidget);
+    expect(find.text('今天'), findsWidgets);
     expect(find.text('今天的记录'), findsOneWidget);
     expect(find.text('昨天的记录'), findsNothing);
   });
@@ -969,7 +969,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('today-sync-action')), findsNothing);
     expect(find.text('同步'), findsNothing);
-    expect(find.text('快速记录'), findsOneWidget);
+    expect(find.text('今天过得怎么样？'), findsOneWidget);
     expect(find.text('今日时间线'), findsOneWidget);
     expect(repo.retryPendingDraftsCallCount, 0);
   });
@@ -1241,7 +1241,7 @@ void main() {
     expect(repo.savedDraftCaptures, isEmpty);
   });
 
-  testWidgets('Today 不再展示安排入口或 legacy Schedule 数据', (tester) async {
+  testWidgets('Today 展示时间安排入口，但仍隐藏 legacy Schedule 数据', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 1200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -1294,7 +1294,7 @@ void main() {
 
     expect(
       find.byKey(const ValueKey('today-schedule-action')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(find.text('语音'), findsOneWidget);
     expect(find.text('状态'), findsOneWidget);
@@ -1302,6 +1302,62 @@ void main() {
     expect(find.text('这是一条真实信号'), findsOneWidget);
     expect(find.text('不应展示的旧安排信号'), findsNothing);
     expect(find.text('不应展示的旧安排'), findsNothing);
+  });
+
+  testWidgets('安排保存为结构化 time_use Signal Card', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repo = StubTodayRepository(
+      fetchTodayResult: {
+        'insight': TodayInsightModel(text: '今天可以先这样看。'),
+        'pendingQuestion': null,
+        'bestAction': DailyBestActionModel(text: '先留下一点余地。'),
+        'recentSignals': <RecentSignalModel>[],
+      },
+    );
+    final meVm = await buildMeViewModel();
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const TodayPage(),
+        providers: [
+          ChangeNotifierProvider<TodayViewModel>(
+            create: (_) => TodayViewModel(repo),
+          ),
+          ChangeNotifierProvider<MeViewModel>.value(value: meVm),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('today-schedule-action')));
+    await tester.pumpAndSettle();
+    expect(find.text('这段时间用在了哪里？'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('time-use-title-field')),
+      '团队会议',
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('time-use-sheet-scroll')),
+      const Offset(0, -900),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('time-use-save-action')));
+    await tester.pumpAndSettle();
+
+    expect(repo.submittedCaptures, hasLength(1));
+    final submitted = repo.submittedCaptures.single;
+    expect(submitted['sourceType'], 'time_use');
+    final payload = submitted['rawPayloadJson'] as Map<String, dynamic>;
+    expect(payload['timeline_type'], 'time_use');
+    expect(payload['title'], '团队会议');
+    expect(payload['category'], 'work');
+    expect(payload['duration_minutes'], greaterThan(0));
+    expect(payload['start_at'], isNotNull);
+    expect(payload['end_at'], isNotNull);
   });
 
   testWidgets('状态 sheet 提供正向中性和负面选项，并保存为 one_tap Signal', (tester) async {

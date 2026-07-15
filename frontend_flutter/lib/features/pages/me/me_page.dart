@@ -409,28 +409,64 @@ class _MeHeroHeader extends StatelessWidget {
             ? double.infinity
             : 170,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Me',
-              zhHans: '我的',
-              zhHant: '我的',
-              ja: '私',
+          Positioned(
+            right: -14,
+            top: -30,
+            child: IgnorePointer(
+              child: AuroraHeroEmblem(
+                size: MediaQuery.sizeOf(context).width <
+                        AuroraMainPageSpec.compactBreakpoint
+                    ? 116
+                    : 138,
+                opacity: 0.62,
+              ),
             ),
-            key: const ValueKey('me-hero-title'),
-            style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                  color: const Color(0xFF071D5E),
-                  fontSize: AuroraMainPageSpec.responsiveHeroTitleSize(context),
-                  fontWeight: FontWeight.w900,
-                  height: 1,
-                ),
           ),
-          const SizedBox(height: 10),
-          _MeProfileIntro(vm: vm),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 92),
+                child: ShaderMask(
+                  blendMode: BlendMode.srcIn,
+                  shaderCallback: (bounds) => const LinearGradient(
+                    colors: [
+                      Color(0xFF5487F4),
+                      Color(0xFF806AF4),
+                      Color(0xFF9A63E8),
+                    ],
+                  ).createShader(bounds),
+                  child: Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Me',
+                      zhHans: '我的',
+                      zhHant: '我的',
+                      ja: '私',
+                    ),
+                    key: const ValueKey('me-hero-title'),
+                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                          color: Colors.white,
+                          fontSize: AuroraMainPageSpec.responsiveHeroTitleSize(
+                              context),
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                          letterSpacing: -0.25,
+                        ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.only(right: 54),
+                child: _MeProfileIntro(vm: vm),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -531,7 +567,7 @@ class _MeProfileIntro extends StatelessWidget {
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       color: const Color(0xFF071D5E),
                       fontSize: 18,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const SizedBox(height: 4),
@@ -689,7 +725,7 @@ class _LifeDirectionCard extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               color: const Color(0xFF071D5E),
                               fontSize: 17,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w700,
                             ),
                       ),
                     ),
@@ -723,7 +759,7 @@ class _LifeDirectionCard extends StatelessWidget {
                               ),
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
                               color: AuroraColors.purple,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                             ),
                       ),
                     ),
@@ -743,7 +779,7 @@ class _LifeDirectionCard extends StatelessWidget {
                         color: const Color(0xFF071D5E),
                         fontSize: AuroraMainPageSpec.bodySize,
                         height: 1.35,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -854,7 +890,7 @@ class _FocusDomainsCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             color: const Color(0xFF071D5E),
                             fontSize: 17,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w700,
                           ),
                     ),
                     const SizedBox(height: 6),
@@ -905,7 +941,7 @@ class _FocusDomainsCard extends StatelessWidget {
                             ),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: AuroraColors.purple,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w700,
                           ),
                     ),
                     const Icon(Icons.chevron_right_rounded, size: 20),
@@ -982,7 +1018,7 @@ class _FocusDomainChip extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: const Color(0xFF071D5E),
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
             ),
@@ -1019,7 +1055,7 @@ class _FocusDomainMoreChip extends StatelessWidget {
         ),
         style: Theme.of(context).textTheme.labelLarge?.copyWith(
               color: AuroraColors.purple,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
             ),
       ),
     );
@@ -1269,7 +1305,7 @@ class _MeListCard extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: const Color(0xFF071D5E),
                     fontSize: 17,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
             const SizedBox(height: 4),
@@ -1332,7 +1368,7 @@ class _MeListRow extends StatelessWidget {
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: const Color(0xFF071D5E),
                           fontSize: AuroraMainPageSpec.bodySize,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                   const SizedBox(height: 2),
@@ -1423,7 +1459,7 @@ class _PremiumStatusCard extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               color: const Color(0xFF071D5E),
                               fontSize: 17,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w700,
                             ),
                       ),
                       const SizedBox(height: 4),
@@ -1489,7 +1525,7 @@ class _PremiumStatusCard extends StatelessWidget {
                           ),
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           color: AuroraColors.purple,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                   const Icon(
@@ -1543,7 +1579,7 @@ class _ReflectQuotaSummary extends StatelessWidget {
                   AppLocaleText.tr(
                     context,
                     en: 'L3 Reflect quota',
-                    zhHans: 'L3 深度反思额度',
+                    zhHans: '深度分析额度',
                     zhHant: 'L3 深度反思額度',
                     ja: 'L3 Reflect 枠',
                   ),
@@ -1559,7 +1595,7 @@ class _ReflectQuotaSummary extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                       color: AuroraColors.purple,
                       fontSize: 14,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
             ],
@@ -1627,7 +1663,7 @@ class _UsageSyncCard extends StatelessWidget {
                             ),
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         color: const Color(0xFF071D5E),
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
                 const SizedBox(height: 3),
@@ -1696,7 +1732,7 @@ class _MonthlyUsageCard extends StatelessWidget {
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   color: const Color(0xFF071D5E),
                   fontSize: 17,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           const SizedBox(height: 10),
@@ -1735,7 +1771,7 @@ class _MonthlyUsageRow extends StatelessWidget {
                 _usageFeatureLabel(context, quota.featureKey),
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                       color: const Color(0xFF071D5E),
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               if (progress != null) ...[
@@ -1761,7 +1797,7 @@ class _MonthlyUsageRow extends StatelessWidget {
           quota.displayValue,
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                 color: AuroraColors.purple,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
         ),
       ],
@@ -1795,14 +1831,14 @@ String _usageFeatureLabel(BuildContext context, String featureKey) {
     'l3_reflect_weekly' => AppLocaleText.tr(
         context,
         en: 'Weekly Reflect',
-        zhHans: 'Weekly 深度反思',
+        zhHans: '每周复盘深度分析',
         zhHant: 'Weekly 深度反思',
         ja: 'Weekly Reflect',
       ),
     'l3_reflect_journey' => AppLocaleText.tr(
         context,
         en: 'Journey Reflect',
-        zhHans: 'Journey 深度反思',
+        zhHans: '旅程深度分析',
         zhHant: 'Journey 深度反思',
         ja: 'Journey Reflect',
       ),
@@ -1891,25 +1927,33 @@ BoxDecoration _meCardDecoration({Color accent = const Color(0xFFBEB7F7)}) {
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: [
-        Colors.white.withValues(alpha: 0.88),
-        const Color(0xFFF9F8FF).withValues(alpha: 0.78),
-        accent.withValues(alpha: 0.08),
+        Colors.white.withValues(alpha: 0.86),
+        const Color(0xFFFFF8F4).withValues(alpha: 0.70),
+        const Color(0xFFF4F1FF).withValues(alpha: 0.66),
+        Color.lerp(accent, const Color(0xFFF1F8FF), 0.78)!
+            .withValues(alpha: 0.62),
       ],
-      stops: const [0, 0.68, 1],
+      stops: const [0, 0.36, 0.72, 1],
     ),
     borderRadius: BorderRadius.circular(20),
-    border: Border.all(color: Colors.white.withValues(alpha: 0.88), width: 1.1),
+    border: Border.all(color: Colors.white.withValues(alpha: 0.86), width: 1),
     boxShadow: [
       BoxShadow(
-        color: const Color(0xFF6D61A1).withValues(alpha: 0.09),
+        color: const Color(0xFF7164A8).withValues(alpha: 0.10),
         blurRadius: 30,
-        spreadRadius: -10,
-        offset: const Offset(0, 16),
+        spreadRadius: -14,
+        offset: const Offset(0, 15),
       ),
       BoxShadow(
-        color: Colors.white.withValues(alpha: 0.86),
-        blurRadius: 10,
-        spreadRadius: -8,
+        color: const Color(0xFFFFB17C).withValues(alpha: 0.07),
+        blurRadius: 26,
+        spreadRadius: -14,
+        offset: const Offset(-6, 10),
+      ),
+      BoxShadow(
+        color: Colors.white.withValues(alpha: 0.90),
+        blurRadius: 12,
+        spreadRadius: -7,
         offset: const Offset(-4, -4),
       ),
     ],
@@ -1978,7 +2022,7 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
                 ),
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       color: const Color(0xFF071D5E),
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const SizedBox(height: 16),
@@ -2098,7 +2142,7 @@ class _FocusAreaSettingsPage extends StatelessWidget {
                           style: theme.textTheme.displaySmall?.copyWith(
                             color: const Color(0xFF071D5E),
                             fontSize: 34,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -2204,7 +2248,7 @@ class _FocusAreaSettingsPage extends StatelessWidget {
                                                           : const Color(
                                                               0xFF071D5E),
                                                       fontWeight:
-                                                          FontWeight.w800,
+                                                          FontWeight.w700,
                                                     ),
                                                   ),
                                                 ],

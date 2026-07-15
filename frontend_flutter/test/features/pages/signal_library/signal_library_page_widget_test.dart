@@ -21,14 +21,17 @@ void main() {
     expect(find.text('emotional stability'), findsOneWidget);
     expect(find.text('self boundary'), findsOneWidget);
     expect(find.textContaining('fixed commitments'), findsOneWidget);
-    expect(find.text('Does this match me?'), findsOneWidget);
+    expect(find.text('Accurate'), findsOneWidget);
+    expect(find.text('Somewhat'), findsOneWidget);
+    expect(find.text('Not accurate'), findsOneWidget);
+    expect(find.text('Does this match me?'), findsNothing);
     expect(find.text('Save'), findsNothing);
     expect(find.text('Make it mine'), findsNothing);
     expect(find.textContaining('observation'), findsNothing);
     expect(find.textContaining('you are this kind of person'), findsNothing);
   });
 
-  testWidgets('accurate can edit and add one SignalCard to the timeline',
+  testWidgets('accurate adds one SignalCard without opening a dialog',
       (tester) async {
     final repository = _FakeSignalLibraryRepository();
     await tester.binding.setSurfaceSize(const Size(390, 844));
@@ -36,44 +39,29 @@ void main() {
     await tester.pumpWidget(_buildWidget(repository: repository));
     await tester.pump();
 
-    final review = find.byKey(
-      const ValueKey('library-review-over_scheduled_weeks'),
+    final accurate = find.byKey(
+      const ValueKey('library-signal-accurate-over_scheduled_weeks'),
     );
-    await tester.ensureVisible(review);
-    await tester.tap(review);
-    await tester.pumpAndSettle();
-
-    expect(
-        find.byKey(const ValueKey('library-signal-accurate')), findsOneWidget);
-    expect(
-        find.byKey(const ValueKey('library-signal-partial')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('library-signal-inaccurate')),
-      findsOneWidget,
-    );
+    await tester.ensureVisible(accurate);
     expect(find.text('Try today'), findsNothing);
     expect(find.text('Save'), findsNothing);
     expect(find.textContaining('observation'), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('library-signal-accurate')));
-    await tester.pumpAndSettle();
-    final input = find.byKey(const ValueKey('library-signal-timeline-input'));
-    expect(input, findsOneWidget);
-    await tester.enterText(input, 'I need more room between fixed plans.');
-    await tester.tap(
-      find.byKey(const ValueKey('library-signal-add-timeline')),
-    );
+    await tester.tap(accurate);
     await tester.pumpAndSettle();
 
     expect(repository.responses, hasLength(1));
     expect(repository.responses.single['status'], 'accurate');
-    expect(repository.responses.single['userText'],
-        'I need more room between fixed plans.');
+    expect(repository.responses.single['userText'], isNull);
     expect(repository.responses.single['addToTimeline'], isTrue);
+    expect(
+      find.byKey(const ValueKey('library-signal-timeline-input')),
+      findsNothing,
+    );
     expect(find.text('Added to your timeline.'), findsOneWidget);
   });
 
-  testWidgets('somewhat can edit then decline timeline with zero response',
+  testWidgets('somewhat adds directly while inaccurate saves no response',
       (tester) async {
     final repository = _FakeSignalLibraryRepository();
     await tester.binding.setSurfaceSize(const Size(390, 844));
@@ -81,24 +69,25 @@ void main() {
     await tester.pumpWidget(_buildWidget(repository: repository));
     await tester.pump();
 
-    final review = find.byKey(
-      const ValueKey('library-review-over_scheduled_weeks'),
+    final partial = find.byKey(
+      const ValueKey('library-signal-partial-over_scheduled_weeks'),
     );
-    await tester.ensureVisible(review);
-    await tester.tap(review);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('library-signal-partial')));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey('library-signal-timeline-input')),
-      'Only the lack of buffer feels familiar.',
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('library-signal-do-not-add')),
-    );
+    await tester.ensureVisible(partial);
+    await tester.tap(partial);
     await tester.pumpAndSettle();
 
-    expect(repository.responses, isEmpty);
+    expect(repository.responses, hasLength(1));
+    expect(repository.responses.single['status'], 'partial');
+    expect(repository.responses.single['addToTimeline'], isTrue);
+    expect(find.text('Added to your timeline.'), findsOneWidget);
+
+    final inaccurate = find.byKey(
+      const ValueKey('library-signal-inaccurate-over_scheduled_weeks'),
+    );
+    await tester.tap(inaccurate);
+    await tester.pumpAndSettle();
+
+    expect(repository.responses, hasLength(1));
     expect(
       find.text('Nothing was added to your timeline.'),
       findsOneWidget,
@@ -120,9 +109,7 @@ void main() {
     await tester.pump();
 
     expect(repository.lastLanguage, 'zh-Hans');
-    expect(find.text('看看像不像我'), findsOneWidget);
-    await tester.tap(find.text('看看像不像我'));
-    await tester.pumpAndSettle();
+    expect(find.text('看看像不像我'), findsNothing);
     expect(find.text('准'), findsOneWidget);
     expect(find.text('有一点像'), findsOneWidget);
     expect(find.text('不准'), findsOneWidget);
@@ -132,7 +119,11 @@ void main() {
     expect(find.textContaining('你就是这种人'), findsNothing);
     expect(find.textContaining('你有这个问题'), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('library-signal-inaccurate')));
+    await tester.tap(find.byKey(
+      const ValueKey(
+        'library-signal-inaccurate-over_scheduled_weeks_zh_hans',
+      ),
+    ));
     await tester.pumpAndSettle();
     expect(repository.responses, isEmpty);
     expect(
@@ -233,6 +224,9 @@ void main() {
 
     expect(find.textContaining('rest starts feeling'), findsOneWidget);
     expect(find.textContaining('fixed commitments'), findsNothing);
+    expect(find.textContaining('relationship itself'), findsNothing);
+    expect(
+        find.textContaining('personal time keeps disappearing'), findsNothing);
 
     await tester.drag(
       find.byType(SingleChildScrollView).first,
@@ -247,6 +241,26 @@ void main() {
 
     expect(find.textContaining('fixed commitments'), findsOneWidget);
     expect(find.textContaining('rest starts feeling'), findsNothing);
+    expect(find.textContaining('relationship itself'), findsNothing);
+    expect(
+        find.textContaining('personal time keeps disappearing'), findsNothing);
+
+    await tester.drag(
+      find.byType(SingleChildScrollView).first,
+      const Offset(-520, 0),
+    );
+    await tester.pump();
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('library-category-relationship_connection')));
+    await tester.tap(
+        find.byKey(const ValueKey('library-category-relationship_connection')));
+    await tester.pump();
+
+    expect(find.textContaining('relationship itself'), findsOneWidget);
+    expect(find.textContaining('fixed commitments'), findsNothing);
+    expect(find.textContaining('rest starts feeling'), findsNothing);
+    expect(
+        find.textContaining('personal time keeps disappearing'), findsNothing);
 
     await tester.ensureVisible(
         find.byKey(const ValueKey('library-category-self_boundary')));
@@ -254,7 +268,9 @@ void main() {
         .tap(find.byKey(const ValueKey('library-category-self_boundary')));
     await tester.pump();
 
-    expect(find.textContaining('relationship itself'), findsOneWidget);
+    expect(find.textContaining('personal time keeps disappearing'),
+        findsOneWidget);
+    expect(find.textContaining('relationship itself'), findsNothing);
     expect(find.textContaining('fixed commitments'), findsNothing);
   });
 }
@@ -299,7 +315,12 @@ class _FakeSignalLibraryRepository extends SignalLibraryRepository {
     lastLanguage = language;
     requestedLanguages.add(language);
     if (includeCategorySet && language == 'en') {
-      return [_pattern, _recoveryPattern, _relationshipPattern];
+      return [
+        _pattern,
+        _recoveryPattern,
+        _relationshipPattern,
+        _boundaryPattern
+      ];
     }
     return [language == 'zh-Hans' ? _simplifiedChinesePattern : _pattern];
   }
@@ -380,6 +401,20 @@ final _relationshipPattern = LibraryPatternModel(
   commonFrictions: const ['boundary', 'expectations'],
   energyLoadHint: 'mixed',
   possiblePositiveSignal: 'clear connection',
+  language: 'en',
+  createdAt: DateTime.utc(2026, 5, 29),
+  updatedAt: DateTime.utc(2026, 5, 29),
+);
+
+final _boundaryPattern = LibraryPatternModel(
+  id: 'personal_time_boundary',
+  title: 'Personal time boundary',
+  abstractPattern:
+      'Some people notice personal time keeps disappearing when every open space gets filled by requests.',
+  commonScenes: const ['personal time'],
+  commonFrictions: const ['boundary'],
+  energyLoadHint: 'mixed',
+  possiblePositiveSignal: 'one protected hour',
   language: 'en',
   createdAt: DateTime.utc(2026, 5, 29),
   updatedAt: DateTime.utc(2026, 5, 29),

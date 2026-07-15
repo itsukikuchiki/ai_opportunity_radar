@@ -23,6 +23,17 @@ class BuildEnvironment {
     defaultValue: false,
   );
 
+  /// Enables the isolated TestFlight showcase dataset and Pro preview.
+  ///
+  /// This must only be supplied to an explicitly labelled QA archive. Normal
+  /// debug, staging, release-like and production-like builds all keep the
+  /// value false, so no simulated data or entitlement behavior can leak into
+  /// a production candidate by default.
+  static const bool qaShowcaseData = bool.fromEnvironment(
+    'SIGNALPATH_QA_SHOWCASE_DATA',
+    defaultValue: false,
+  );
+
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue: '',

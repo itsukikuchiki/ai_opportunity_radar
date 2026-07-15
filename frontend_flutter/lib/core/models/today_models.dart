@@ -196,7 +196,24 @@ class RecentSignalModel {
     if (raw == null) return null;
     if (raw is DateTime) return raw;
     if (raw is String && raw.trim().isNotEmpty) {
-      return DateTime.tryParse(raw);
+      final value = raw.trim();
+      final parsed = DateTime.tryParse(value);
+      if (parsed == null) return null;
+      if (parsed.isUtc) return parsed;
+
+      // SignalCard created_at is an absolute server timestamp. Some database
+      // drivers return UTC values without a trailing Z/offset; interpreting
+      // those as device-local time shifts the timeline by the local offset.
+      return DateTime.utc(
+        parsed.year,
+        parsed.month,
+        parsed.day,
+        parsed.hour,
+        parsed.minute,
+        parsed.second,
+        parsed.millisecond,
+        parsed.microsecond,
+      );
     }
     return null;
   }

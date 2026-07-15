@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
+import '../../../core/i18n/energy_budget_text.dart';
 import '../../../core/models/candidate_models.dart';
 import '../../../core/models/energy_budget_models.dart';
 import '../../../core/models/weekly_models.dart';
@@ -161,7 +162,7 @@ class WeeklyPage extends StatelessWidget {
       return AppLocaleText.tr(
         context,
         en: 'Weekly starts after 3 eligible signals in the current local Monday-Sunday week.',
-        zhHans: '当前本地周一至周日记录满 3 条有效信号后，Weekly 开始显示报告。',
+        zhHans: '当前本地周一至周日记录满 3 条有效信号后，每周复盘开始显示报告。',
         zhHant: '當前本地週一至週日記錄滿 3 條有效信號後，Weekly 開始顯示報告。',
         ja: '現在のローカル月曜〜日曜で有効なシグナルが 3 件になると Weekly レポートを表示します。',
       );
@@ -171,7 +172,7 @@ class WeeklyPage extends StatelessWidget {
       return AppLocaleText.tr(
         context,
         en: 'Weekly is forming. The page shows exact X/3 progress before publishing a report.',
-        zhHans: 'Weekly 正在形成。达到门槛前只显示明确的 X/3 进度，不发布推断报告。',
+        zhHans: '每周复盘正在形成。达到门槛前只显示明确的 X/3 进度，不发布推断报告。',
         zhHant: 'Weekly 正在形成。達到門檻前只顯示明確的 X/3 進度，不發布推斷報告。',
         ja: 'Weekly は形成中です。条件を満たすまでは X/3 の進捗だけを表示します。',
       );
@@ -236,6 +237,7 @@ class _WeeklyEmptyReviewState extends StatelessWidget {
   Widget build(BuildContext context) {
     return _WeeklyGlassCard(
       containerKey: const ValueKey('weekly-empty-card'),
+      icon: Icons.auto_awesome_rounded,
       title: AppLocaleText.tr(
         context,
         en: 'Not enough signals yet',
@@ -320,7 +322,7 @@ class _ReportReadinessProgress extends StatelessWidget {
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   color: AuroraColors.purple,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           const SizedBox(height: 8),
@@ -463,24 +465,17 @@ class _WeeklyHeroHeader extends StatelessWidget {
     final titleSize = AuroraMainPageSpec.responsiveHeroTitleSize(context);
     return SizedBox(
       key: const ValueKey('weekly-hero-header'),
-      height: 168,
+      height: 160,
       child: Stack(
-        clipBehavior: Clip.hardEdge,
+        clipBehavior: Clip.none,
         children: [
           Positioned(
             right: -12,
-            top: -10,
-            width: 132,
-            height: 132,
+            top: -26,
             child: IgnorePointer(
-              child: Opacity(
-                opacity: 0.32,
-                child: Image.asset(
-                  'assets/brand-icon-transparent.png',
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) =>
-                      CustomPaint(painter: _WeeklySignalOrbPainter()),
-                ),
+              child: AuroraHeroEmblem(
+                size: MediaQuery.sizeOf(context).width < 360 ? 118 : 142,
+                opacity: 0.86,
               ),
             ),
           ),
@@ -491,25 +486,18 @@ class _WeeklyHeroHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.only(right: 82),
-                  child: Text(
-                    AppLocaleText.tr(
+                  padding: const EdgeInsets.only(right: 88),
+                  child: AuroraHeroTitle(
+                    key: const ValueKey('weekly-hero-title'),
+                    text: AppLocaleText.tr(
                       context,
                       en: 'Weekly Review',
-                      zhHans: '本周复盘',
-                      zhHant: '本週復盤',
+                      zhHans: '每周复盘',
+                      zhHant: '每週復盤',
                       ja: '今週の振り返り',
                     ),
-                    key: const ValueKey('weekly-hero-title'),
+                    fontSize: titleSize,
                     maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                          fontSize: titleSize,
-                          height: 1,
-                          letterSpacing: 0,
-                          color: const Color(0xFF0A1D3D),
-                          fontWeight: FontWeight.w900,
-                        ),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -526,10 +514,10 @@ class _WeeklyHeroHeader extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: const Color(0xFF526076),
+                        color: AuroraColors.ink.withValues(alpha: 0.72),
                         fontSize: AuroraMainPageSpec.heroSubtitleSize,
                         height: 1.3,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w500,
                       ),
                 ),
               ],
@@ -582,7 +570,7 @@ class _WeekRangePill extends StatelessWidget {
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   color: AuroraColors.purple,
                   fontSize: AuroraMainPageSpec.supportingSize,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ],
@@ -610,71 +598,86 @@ class _WeeklyAiQuoteCard extends StatelessWidget {
       key: const ValueKey('weekly-ai-quote-card'),
       padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
       decoration: BoxDecoration(
-        color: Colors.transparent,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFFFFFCFB).withValues(alpha: 0.86),
+            const Color(0xFFF2F0FF).withValues(alpha: 0.78),
+            const Color(0xFFFFF6EE).withValues(alpha: 0.78),
+          ],
+        ),
         borderRadius: BorderRadius.circular(AuroraMainPageSpec.cardRadiusLarge),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.90)),
+        boxShadow: [
+          BoxShadow(
+            color: AuroraColors.purple.withValues(alpha: 0.09),
+            blurRadius: 26,
+            offset: const Offset(0, 13),
+          ),
+        ],
       ),
       child: Stack(
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'This week in one sentence',
-                  zhHans: '本周一句话',
-                  zhHant: '本週一句話',
-                  ja: '今週の一言',
+          Padding(
+            padding: const EdgeInsets.only(right: 48),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'This week in one sentence',
+                    zhHans: '本周一句话',
+                    zhHant: '本週一句話',
+                    ja: '今週の一言',
+                  ),
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: AuroraColors.purple,
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: AuroraColors.purple,
-                      fontWeight: FontWeight.w900,
-                    ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                text,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: const Color(0xFF172440),
-                      fontSize: 17,
-                      height: 1.38,
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'Based on ${readiness.signalCount} eligible signals · $recordDays record days',
-                  zhHans:
-                      '基于本周 ${readiness.signalCount} 条有效信号 · $recordDays 个记录日',
-                  zhHant:
-                      '基於本週 ${readiness.signalCount} 條有效信號 · $recordDays 個記錄日',
-                  ja: '今週の有効なシグナル ${readiness.signalCount} 件・記録日 $recordDays 日に基づく',
+                const SizedBox(height: 6),
+                Text(
+                  text,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: const Color(0xFF172440),
+                        fontSize: 17,
+                        height: 1.38,
+                        fontWeight: FontWeight.w600,
+                      ),
                 ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF647086),
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Based on ${readiness.signalCount} eligible signals · $recordDays record days',
+                    zhHans:
+                        '基于本周 ${readiness.signalCount} 条有效信号 · $recordDays 个记录日',
+                    zhHant:
+                        '基於本週 ${readiness.signalCount} 條有效信號 · $recordDays 個記錄日',
+                    ja: '今週の有効なシグナル ${readiness.signalCount} 件・記録日 $recordDays 日に基づく',
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF647086),
+                        fontWeight: FontWeight.w500,
+                      ),
+                ),
+              ],
+            ),
           ),
-          Positioned(
+          const Positioned(
             right: 0,
             top: 0,
-            child: Opacity(
-              opacity: 0,
-              child: SizedBox(
-                key: const ValueKey('weekly-ai-quote-badge'),
-                width: 40,
-                height: 40,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                ),
+            child: SizedBox(
+              key: ValueKey('weekly-ai-quote-badge'),
+              width: 40,
+              height: 40,
+              child: AuroraSectionIcon(
+                icon: Icons.auto_awesome_rounded,
+                size: 40,
               ),
             ),
           ),
@@ -698,6 +701,7 @@ class _WeeklySignalDistributionCard extends StatelessWidget {
         : (readiness.signalCount > 0 ? 1 : 0);
     return _WeeklyGlassCard(
       containerKey: const ValueKey('weekly-signal-distribution-card'),
+      icon: Icons.bubble_chart_rounded,
       title: AppLocaleText.tr(
         context,
         en: 'Signal distribution',
@@ -731,7 +735,7 @@ class _WeeklySignalDistributionCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
                               color: AuroraColors.purple,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                             ),
                       ),
                     ),
@@ -1080,7 +1084,7 @@ class _WeeklyMetricBox extends StatelessWidget {
                     text: '$value\n',
                     style: const TextStyle(
                       fontSize: 19,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   TextSpan(text: label),
@@ -1127,7 +1131,7 @@ class _WeeklyDomainChip extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: const Color(0xFF25324D),
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
             ),
@@ -1136,7 +1140,7 @@ class _WeeklyDomainChip extends StatelessWidget {
               '${data.count}',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     color: const Color(0xFF172440),
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
           ],
@@ -1163,6 +1167,7 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
     final lead = steps.first;
     return _WeeklyGlassCard(
       containerKey: const ValueKey('weekly-behavior-pattern-card'),
+      icon: Icons.account_tree_rounded,
       title: AppLocaleText.tr(
         context,
         en: 'Behavior pattern',
@@ -1197,7 +1202,7 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
                   ),
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: AuroraColors.purple,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
                 const SizedBox(height: 4),
@@ -1205,7 +1210,7 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
                   lead.title,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: const Color(0xFF22304A),
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
                 const SizedBox(height: 3),
@@ -1228,7 +1233,7 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
   }
 
   List<_BehaviorStep> _stepsFromWeekly(BuildContext context) {
-    final signalSteps = _stepsFromSignalEntries();
+    final signalSteps = _stepsFromSignalEntries(context);
     if (signalSteps.isNotEmpty) return signalSteps;
 
     final rawSteps = <Map<String, dynamic>>[];
@@ -1276,7 +1281,7 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
     ];
   }
 
-  List<_BehaviorStep> _stepsFromSignalEntries() {
+  List<_BehaviorStep> _stepsFromSignalEntries(BuildContext context) {
     final entries = _weeklySignalEntries();
     if (entries.isEmpty) return const [];
 
@@ -1297,6 +1302,7 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
 
     return sorted.take(3).map((bucket) {
       final sample = bucket.value.first;
+      final displayTitle = _localizedSignalTag(context, bucket.key);
       final body = _compact(
         _signalBody(sample),
         '${bucket.value.length} 条信号里出现过这个线索。',
@@ -1307,13 +1313,97 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
         illustrationAsset: _WeeklyIllustrationAsset.forText(
           '$hint ${bucket.key} $body',
         ),
-        title: bucket.key,
+        title: displayTitle,
         body: bucket.value.length > 1
             ? '$body · ${bucket.value.length} 条信号'
             : body,
         color: palette[sorted.indexOf(bucket) % palette.length],
       );
     }).toList();
+  }
+
+  String _localizedSignalTag(BuildContext context, String raw) {
+    final normalized = raw.trim().toLowerCase().replaceAll('-', '_');
+    return switch (normalized) {
+      'work' || 'work_tasks' => AppLocaleText.tr(
+          context,
+          en: 'Work',
+          zhHans: '工作',
+          zhHant: '工作',
+          ja: '仕事',
+        ),
+      'commute' => AppLocaleText.tr(
+          context,
+          en: 'Commute',
+          zhHans: '通勤',
+          zhHant: '通勤',
+          ja: '移動',
+        ),
+      'household' || 'home' => AppLocaleText.tr(
+          context,
+          en: 'Home',
+          zhHans: '家务',
+          zhHant: '家務',
+          ja: '家事',
+        ),
+      'relationship' || 'relationships' => AppLocaleText.tr(
+          context,
+          en: 'Relationships',
+          zhHans: '关系',
+          zhHant: '關係',
+          ja: '人間関係',
+        ),
+      'recovery' || 'restoring' => AppLocaleText.tr(
+          context,
+          en: 'Recovery',
+          zhHans: '恢复',
+          zhHant: '恢復',
+          ja: '回復',
+        ),
+      'interest' || 'interests' || 'hobby' || 'hobbies' => AppLocaleText.tr(
+          context,
+          en: 'Interests',
+          zhHans: '兴趣',
+          zhHant: '興趣',
+          ja: '趣味',
+        ),
+      'schedule' || 'arrangement' => AppLocaleText.tr(
+          context,
+          en: 'Schedule',
+          zhHans: '安排',
+          zhHant: '安排',
+          ja: '予定',
+        ),
+      'emotion' || 'emotional' || 'mood' => AppLocaleText.tr(
+          context,
+          en: 'Emotions',
+          zhHans: '情绪',
+          zhHant: '情緒',
+          ja: '感情',
+        ),
+      'voice' || 'voice_signal' => AppLocaleText.tr(
+          context,
+          en: 'Voice signal',
+          zhHans: '语音信号',
+          zhHant: '語音信號',
+          ja: '音声シグナル',
+        ),
+      'status' || 'quick_status' || 'status_signal' => AppLocaleText.tr(
+          context,
+          en: 'Status signal',
+          zhHans: '状态信号',
+          zhHant: '狀態信號',
+          ja: '状態シグナル',
+        ),
+      'ai_predicted' || 'ai_prediction' => AppLocaleText.tr(
+          context,
+          en: 'AI prediction signal',
+          zhHans: 'AI 预判信号',
+          zhHant: 'AI 預判信號',
+          ja: 'AI 予測シグナル',
+        ),
+      _ => raw.trim(),
+    };
   }
 
   String _illustrationHintFromMap(Map<String, dynamic> map) {
@@ -1356,12 +1446,7 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
     }
     final sourceType = _textFromMap(entry, const ['source_type', 'sourceType']);
     if (sourceType.isNotEmpty && sourceType != 'text') {
-      return switch (sourceType) {
-        'voice' => '语音信号',
-        'status' || 'quick_status' => '状态信号',
-        'ai_predicted' => 'AI 预判信号',
-        _ => sourceType,
-      };
+      return sourceType;
     }
     final emotion = _textFromMap(entry, const ['emotion', 'mood']);
     if (emotion.isNotEmpty) return emotion;
@@ -1506,6 +1591,7 @@ class _WeeklyAttemptsCard extends StatelessWidget {
 
     return _WeeklyGlassCard(
       containerKey: const ValueKey('weekly-action-review-card'),
+      icon: Icons.checklist_rounded,
       title: AppLocaleText.tr(
         context,
         en: 'Small actions and review',
@@ -1662,7 +1748,7 @@ class _WeeklyAttemptEmptyRow extends StatelessWidget {
                 kind,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: const Color(0xFF24314C),
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const SizedBox(height: 3),
@@ -1759,7 +1845,7 @@ class _WeeklyAttemptRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
                             color: const Color(0xFF24314C),
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w700,
                           ),
                     ),
                   ),
@@ -1780,7 +1866,7 @@ class _WeeklyAttemptRow extends StatelessWidget {
                     '$progress/$total',
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           color: AuroraColors.purple,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                   const SizedBox(width: 3),
@@ -2085,7 +2171,7 @@ class _WeeklyExperimentResultCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: AuroraColors.purple,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const SizedBox(height: 8),
@@ -2118,7 +2204,7 @@ class _WeeklyExperimentResultCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color: AuroraColors.purple,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -2174,7 +2260,7 @@ class _EmptyWeeklyExperimentResult extends StatelessWidget {
                 ),
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: const Color(0xFF29334D),
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const SizedBox(height: 8),
@@ -2238,6 +2324,7 @@ class _NextWeekExperimentCard extends StatelessWidget {
     final isAdopted = hasExperiment && !experiment!.id.startsWith('cand_');
     return _WeeklyGlassCard(
       containerKey: const ValueKey('weekly-next-experiment-card'),
+      icon: Icons.science_rounded,
       title: AppLocaleText.tr(
         context,
         en: 'Next week experiment',
@@ -2319,7 +2406,7 @@ class _NextWeekExperimentCard extends StatelessWidget {
                   ? 'Your Weekly report is still available. Try candidate generation again.'
                   : 'Try candidate generation again when you are ready.',
               zhHans: candidateRefreshFailed
-                  ? 'Weekly 报告仍可正常查看，可以单独重试候选生成。'
+                  ? '每周复盘报告仍可正常查看，可以单独重试候选生成。'
                   : '准备好后可以再次生成候选。',
               zhHant: candidateRefreshFailed
                   ? 'Weekly 報告仍可正常查看，可以單獨重試候選生成。'
@@ -2385,7 +2472,7 @@ class _NextWeekExperimentCard extends StatelessWidget {
                     ),
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: const Color(0xFF213052),
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                   if (candidatePreviewTitle?.trim().isNotEmpty == true) ...[
@@ -2498,9 +2585,10 @@ class _NextWeekExperimentCard extends StatelessWidget {
       );
     }
 
-    final adjustment = budget.switchingAdjustment.trim().isNotEmpty
+    final rawAdjustment = budget.switchingAdjustment.trim().isNotEmpty
         ? budget.switchingAdjustment.trim()
         : budget.bufferLocation.trim();
+    final adjustment = EnergyBudgetText.localizeCopy(context, rawAdjustment);
     if (adjustment.isEmpty) {
       return base.isEmpty
           ? AppLocaleText.tr(
@@ -2572,7 +2660,7 @@ class _WeeklyCandidateStatusState extends StatelessWidget {
                   title,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: const Color(0xFF29334D),
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -2638,7 +2726,7 @@ class _WeeklyCandidateTrait extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: Theme.of(context).textTheme.labelMedium?.copyWith(
               color: color,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
             ),
       ),
     );
@@ -2664,18 +2752,28 @@ class _WeeklyProEntryCard extends StatelessWidget {
         onTap: () => context.push(AppRoutes.weeklyReflect),
         child: Container(
           key: const ValueKey('weekly-pro-entry-card'),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
           decoration: BoxDecoration(
             gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
               colors: [
-                const Color(0xFFFFF3DC).withValues(alpha: 0.92),
-                Colors.white.withValues(alpha: 0.72),
+                const Color(0xFFFFF0D1).withValues(alpha: 0.92),
+                const Color(0xFFFFFBF7).withValues(alpha: 0.82),
+                const Color(0xFFF2EEFF).withValues(alpha: 0.72),
               ],
             ),
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: const Color(0xFFE8C27A).withValues(alpha: 0.60),
             ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFD6AA58).withValues(alpha: 0.12),
+                blurRadius: 24,
+                offset: const Offset(0, 12),
+              ),
+            ],
           ),
           child: Row(
             children: [
@@ -2689,7 +2787,7 @@ class _WeeklyProEntryCard extends StatelessWidget {
                   'Pro',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: const Color(0xFF5B4215),
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -2707,7 +2805,7 @@ class _WeeklyProEntryCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF4A3B2A),
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                 ),
               ),
@@ -2752,7 +2850,7 @@ class _NextWeekExperimentFormingState extends StatelessWidget {
             ),
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: const Color(0xFF29334D),
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           const SizedBox(height: 5),
@@ -2781,11 +2879,13 @@ class _NextWeekExperimentFormingState extends StatelessWidget {
 class _WeeklyGlassCard extends StatelessWidget {
   final Key? containerKey;
   final String title;
+  final IconData icon;
   final Widget child;
 
   const _WeeklyGlassCard({
     this.containerKey,
     required this.title,
+    this.icon = Icons.auto_awesome_rounded,
     required this.child,
   });
 
@@ -2795,7 +2895,15 @@ class _WeeklyGlassCard extends StatelessWidget {
       key: containerKey,
       padding: AuroraMainPageSpec.comfortableCardPadding,
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.66),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.84),
+            const Color(0xFFF6F3FF).withValues(alpha: 0.68),
+            const Color(0xFFFFFAF5).withValues(alpha: 0.70),
+          ],
+        ),
         borderRadius: BorderRadius.circular(AuroraMainPageSpec.cardRadiusLarge),
         border: Border.all(color: Colors.white.withValues(alpha: 0.90)),
         boxShadow: [
@@ -2809,13 +2917,21 @@ class _WeeklyGlassCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: const Color(0xFF213052),
-                  fontSize: 17,
-                  fontWeight: FontWeight.w900,
+          Row(
+            children: [
+              AuroraSectionIcon(icon: icon, size: 30),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: const Color(0xFF213052),
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
+              ),
+            ],
           ),
           const SizedBox(height: AuroraMainPageSpec.sectionGap),
           child,
@@ -5111,19 +5227,25 @@ class _EnergyBudgetLiteCard extends StatelessWidget {
         children: [
           Row(
             children: [
+              const AuroraSectionIcon(
+                icon: Icons.battery_charging_full_rounded,
+                color: AuroraColors.mint,
+                size: 30,
+              ),
+              const SizedBox(width: 9),
               Expanded(
                 child: Text(
                   AppLocaleText.tr(
                     context,
                     en: 'Energy Budget',
-                    zhHans: '本周 Energy Budget',
-                    zhHant: '本週 Energy Budget',
-                    ja: '今週の Energy Budget',
+                    zhHans: '本周能量预算',
+                    zhHant: '本週能量預算',
+                    ja: '今週のエネルギー予算',
                   ),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF213052),
                         fontSize: 17,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -5146,7 +5268,7 @@ class _EnergyBudgetLiteCard extends StatelessWidget {
                   ),
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color: AuroraColors.purple,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -5163,7 +5285,10 @@ class _EnergyBudgetLiteCard extends StatelessWidget {
                 ja: 'エネルギー変化',
               ),
               value: value?.mostDrainingSource.trim().isNotEmpty == true
-                  ? value!.mostDrainingSource
+                  ? EnergyBudgetText.localizeCopy(
+                      context,
+                      value!.mostDrainingSource,
+                    )
                   : AppLocaleText.tr(
                       context,
                       en: 'Energy signals are still forming. Keep the next experiment very small.',
@@ -5186,7 +5311,10 @@ class _EnergyBudgetLiteCard extends StatelessWidget {
                       zhHant: '最耗力',
                       ja: '最も消耗',
                     ),
-                    value: value.mostDrainingSource,
+                    value: EnergyBudgetText.localizeCopy(
+                      context,
+                      value.mostDrainingSource,
+                    ),
                   ),
                   _EnergyBudgetCompactTile(
                     icon: Icons.eco_rounded,
@@ -5198,7 +5326,10 @@ class _EnergyBudgetLiteCard extends StatelessWidget {
                       zhHant: '恢復線索',
                       ja: '回復の手がかり',
                     ),
-                    value: value.recoveryClue,
+                    value: EnergyBudgetText.localizeCopy(
+                      context,
+                      value.recoveryClue,
+                    ),
                   ),
                   _EnergyBudgetCompactTile(
                     icon: Icons.schedule_rounded,
@@ -5210,7 +5341,10 @@ class _EnergyBudgetLiteCard extends StatelessWidget {
                       zhHant: '需要緩衝',
                       ja: '余白が必要',
                     ),
-                    value: value.bufferLocation,
+                    value: EnergyBudgetText.localizeCopy(
+                      context,
+                      value.bufferLocation,
+                    ),
                   ),
                   _EnergyBudgetCompactTile(
                     icon: Icons.swap_horiz_rounded,
@@ -5222,7 +5356,10 @@ class _EnergyBudgetLiteCard extends StatelessWidget {
                       zhHant: '切換負荷',
                       ja: '切替負荷',
                     ),
-                    value: value.switchingAdjustment,
+                    value: EnergyBudgetText.localizeCopy(
+                      context,
+                      value.switchingAdjustment,
+                    ),
                   ),
                 ];
                 if (constraints.maxWidth < 300) {
@@ -5270,7 +5407,7 @@ class _EnergyBudgetLiteCard extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: const Color(0xFF536077),
                   height: 1.4,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                 ),
           ),
         ],
@@ -5323,7 +5460,7 @@ class _EnergyBudgetCompactTile extends StatelessWidget {
                   label,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: const Color(0xFF22304A),
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
                 const SizedBox(height: 3),
@@ -5334,7 +5471,7 @@ class _EnergyBudgetCompactTile extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF536077),
                         height: 1.3,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w500,
                       ),
                 ),
               ],
@@ -5364,7 +5501,10 @@ class _EnergyBudgetRows extends StatelessWidget {
           ja: 'エネルギー変化',
         ),
         value: value?.mostDrainingSource.trim().isNotEmpty == true
-            ? value!.mostDrainingSource
+            ? EnergyBudgetText.localizeCopy(
+                context,
+                value!.mostDrainingSource,
+              )
             : AppLocaleText.tr(
                 context,
                 en: 'Energy signals are still forming. The next experiment should stay very small.',
@@ -5384,7 +5524,7 @@ class _EnergyBudgetRows extends StatelessWidget {
           zhHant: '耗力點',
           ja: '消耗点',
         ),
-        value.mostDrainingSource
+        EnergyBudgetText.localizeCopy(context, value.mostDrainingSource)
       ),
       (
         AppLocaleText.tr(
@@ -5394,7 +5534,7 @@ class _EnergyBudgetRows extends StatelessWidget {
           zhHant: '恢復線索',
           ja: '回復の手がかり',
         ),
-        value.recoveryClue
+        EnergyBudgetText.localizeCopy(context, value.recoveryClue)
       ),
       (
         AppLocaleText.tr(
@@ -6098,7 +6238,7 @@ class _WeeklyInclusionCard extends StatelessWidget {
       context,
       en: '$used notes were used for this Weekly. $timelineOnly stayed only in Timeline. $legacy older notes were treated as gentle context.',
       zhHans:
-          '$used 条记录进入了这份 Weekly，$timelineOnly 条只保留在 Timeline。$legacy 条旧记录只作为轻量背景参考。',
+          '$used 条记录进入了这份每周复盘，$timelineOnly 条只保留在时间线。$legacy 条旧记录只作为轻量背景参考。',
       zhHant:
           '$used 條記錄進入了這份 Weekly，$timelineOnly 條只保留在 Timeline。$legacy 條舊記錄只作為輕量背景參考。',
       ja: '$used 件の記録をこの Weekly に使いました。$timelineOnly 件は Timeline にだけ残しています。$legacy 件の古い記録は軽い背景として扱いました。',
@@ -6168,7 +6308,7 @@ class _LifeExperimentCard extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'One medium-range adjustment from this week. Save it to let Today turn it into small optional actions next week.',
-              zhHans: '这是从本周信号里提炼出的一个中期调整。保存后，下周 Today 会把它变成可选的小行动。',
+              zhHans: '这是从本周信号里提炼出的一个中期调整。保存后，下周今天页面会把它变成可选的小行动。',
               zhHant: '這是從本週信號裡提煉出的一個中期調整。保存後，下週 Today 會把它變成可選的小行動。',
               ja: '今週のシグナルから生まれた中期の調整です。保存すると、来週のTodayで小さな任意の行動になります。',
             ),
@@ -6200,7 +6340,7 @@ class _LifeExperimentCard extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'The experiment archive keeps the record and feedback later; Weekly only proposes the next small experiment.',
-              zhHans: '小实验档案负责保存记录和反馈；Weekly 这里只提出下周可以试的小实验。',
+              zhHans: '生活小实验档案负责保存记录和反馈；每周复盘这里只提出下周可以试的小实验。',
               zhHant: '小實驗檔案負責保存記錄和回饋；Weekly 这里只提出下週可以試的小實驗。',
               ja: '実験アーカイブは記録と反応を残す場所です。Weekly は来週試す小さな実験だけを提案します。',
             ),
@@ -6972,7 +7112,7 @@ class _FeedbackCard extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'Did this weekly read feel right?',
-              zhHans: '这份 Weekly 看起来对吗？',
+              zhHans: '这份每周复盘看起来对吗？',
               zhHant: '這份 Weekly 看起來對嗎？',
               ja: 'この Weekly の見立てはしっくりきましたか？',
             ),
@@ -7039,7 +7179,15 @@ class _UnifiedCard extends StatelessWidget {
     return Container(
       padding: AuroraMainPageSpec.comfortableCardPadding,
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.66),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.84),
+            const Color(0xFFF6F3FF).withValues(alpha: 0.68),
+            const Color(0xFFFFFAF5).withValues(alpha: 0.70),
+          ],
+        ),
         borderRadius: BorderRadius.circular(AuroraMainPageSpec.cardRadiusLarge),
         border: Border.all(color: Colors.white.withValues(alpha: 0.90)),
         boxShadow: [

@@ -162,6 +162,39 @@ void main() {
 
       await harness.close();
     });
+
+    test('6) 本地 time_use 直接保存为结构化 SignalCard', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+      );
+
+      await harness.repository.submitCapture(
+        content: '09:00–10:30 · 工作 · 团队会议',
+        sourceType: 'time_use',
+        rawPayloadJson: const {
+          'timeline_type': 'time_use',
+          'title': '团队会议',
+          'category': 'work',
+          'start_at': '2026-07-15T09:00:00+09:00',
+          'end_at': '2026-07-15T10:30:00+09:00',
+          'duration_minutes': 90,
+          'energy_effect': 'draining',
+        },
+      );
+
+      final signals =
+          await harness.localCaptureRepository.listSignalCards(limit: 10);
+      final signal = signals.single;
+      expect(signal.sourceType, 'time_use');
+      expect(signal.isLegacy, isFalse);
+      expect(signal.rawPayloadJson['category'], 'work');
+      expect(signal.rawPayloadJson['duration_minutes'], 90);
+      expect(signal.scene, 'work');
+      expect(signal.energyLoad, 'draining');
+
+      await harness.close();
+    });
   });
 
   group('V3B SignalCard data loop', () {
@@ -247,6 +280,38 @@ void main() {
       });
 
       expect(signal.localDateKey(), '2026-05-19');
+    });
+
+    test('无时区标记的服务端 created_at 按 UTC 解析并正确写入缓存', () async {
+      final api = FakeSignalCardApiClient(
+        recentSignals: const [
+          {
+            'id': 'raw-naive-utc',
+            'signal_card_id': 'sig-naive-utc',
+            'content': '东京下午记录',
+            'created_at': '2026-07-15T04:06:00',
+            'local_date': '2026-07-15',
+            'timezone': 'Asia/Tokyo',
+          },
+        ],
+      );
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+        apiClient: api,
+      );
+
+      final data = await harness.repository.fetchToday();
+      final signal = (data['recentSignals'] as List<RecentSignalModel>).single;
+      final cached =
+          (await harness.localCaptureRepository.listSignalCards()).single;
+
+      expect(signal.createdAt!.toUtc(), DateTime.utc(2026, 7, 15, 4, 6));
+      expect(signal.createdAt!.hour, 13);
+      expect(signal.createdAt!.minute, 6);
+      expect(cached.createdAt!.toUtc(), DateTime.utc(2026, 7, 15, 4, 6));
+
+      await harness.close();
     });
 
     test('user_confirmation 和 user_correction_json 会先写入本地并同步 PATCH', () async {

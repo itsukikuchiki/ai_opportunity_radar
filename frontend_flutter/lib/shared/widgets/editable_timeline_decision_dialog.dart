@@ -79,7 +79,8 @@ class _EditableTimelineDecisionDialogState
   @override
   Widget build(BuildContext context) {
     final canConfirm = !_committed && _controller.text.trim().isNotEmpty;
-    return AlertDialog(
+    return AuroraDialog(
+      key: ValueKey('${widget.keyPrefix}-aurora-dialog'),
       title: Text(
         AppLocaleText.tr(
           context,
@@ -89,46 +90,51 @@ class _EditableTimelineDecisionDialogState
           ja: 'タイムラインに記録しますか？',
         ),
       ),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              AppLocaleText.tr(
-                context,
-                en: 'You can edit the wording first, then choose whether it becomes a timeline entry.',
-                zhHans: '你可以先修改这句话，再决定是否把它作为一条真实记录放进时间线。',
-                zhHant: '你可以先修改這句話，再決定是否把它作為一條真實記錄放進時間線。',
-                ja: '言葉を編集してから、実際の記録としてタイムラインに残すか選べます。',
-              ),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AuroraColors.muted,
-                    height: 1.45,
-                  ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'You can edit the wording first, then choose whether it becomes a timeline entry.',
+              zhHans: '你可以先修改这句话，再决定是否把它作为一条真实记录放进时间线。',
+              zhHant: '你可以先修改這句話，再決定是否把它作為一條真實記錄放進時間線。',
+              ja: '言葉を編集してから、実際の記録としてタイムラインに残すか選べます。',
             ),
-            const SizedBox(height: 14),
-            TextField(
-              key: ValueKey('${widget.keyPrefix}-timeline-input'),
-              controller: _controller,
-              autofocus: true,
-              minLines: 2,
-              maxLines: 4,
-              maxLength: 160,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                labelText: AppLocaleText.tr(
-                  context,
-                  en: 'Timeline text',
-                  zhHans: '时间线内容',
-                  zhHant: '時間線內容',
-                  ja: 'タイムラインの内容',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AuroraColors.muted,
+                  height: 1.45,
                 ),
-                border: const OutlineInputBorder(),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            key: ValueKey('${widget.keyPrefix}-timeline-input'),
+            controller: _controller,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 4,
+            maxLength: 160,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.72),
+              labelText: AppLocaleText.tr(
+                context,
+                en: 'Timeline text',
+                zhHans: '时间线内容',
+                zhHant: '時間線內容',
+                ja: 'タイムラインの内容',
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: AuroraColors.line.withValues(alpha: 0.84),
+                ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
       actions: [
         TextButton(

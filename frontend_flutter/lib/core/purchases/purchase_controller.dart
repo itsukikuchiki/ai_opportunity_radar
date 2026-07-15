@@ -7,6 +7,7 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
+import '../config/build_environment.dart';
 import '../diagnostics/privacy_safe_logger.dart';
 import 'native_storekit_gateway.dart';
 
@@ -106,6 +107,7 @@ class PurchaseController extends ChangeNotifier {
   final Duration _backendVerificationRetryBaseDelay;
   final int _backendVerificationMaxAttempts;
   final bool _silentEntitlementRefreshOnInit;
+  final bool _qaShowcaseMode;
   final PrivacySafeLogger _logger;
 
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
@@ -143,6 +145,7 @@ class PurchaseController extends ChangeNotifier {
     Duration backendVerificationRetryBaseDelay = const Duration(seconds: 2),
     int backendVerificationMaxAttempts = 3,
     bool silentEntitlementRefreshOnInit = true,
+    bool qaShowcaseMode = BuildEnvironment.qaShowcaseData,
     PrivacySafeLogger? logger,
   })  : _purchaseStore = purchaseStore ?? DefaultPurchaseStore(),
         _nativeStoreKitGateway =
@@ -154,8 +157,9 @@ class PurchaseController extends ChangeNotifier {
         _backendVerificationRetryBaseDelay = backendVerificationRetryBaseDelay,
         _backendVerificationMaxAttempts = backendVerificationMaxAttempts,
         _silentEntitlementRefreshOnInit = silentEntitlementRefreshOnInit,
+        _qaShowcaseMode = qaShowcaseMode,
         _logger = logger ?? PrivacySafeLogger.instance {
-    if (_storeSupported) {
+    if (_storeSupported && !_qaShowcaseMode) {
       try {
         _purchaseSubscription = _purchaseStore.purchaseStream.listen(
           _handlePurchaseUpdates,
@@ -251,6 +255,19 @@ class PurchaseController extends ChangeNotifier {
     loading = true;
     errorMessage = null;
     notifyListeners();
+
+    if (_qaShowcaseMode) {
+      isPremium = true;
+      storeAvailable = false;
+      entitlementProductId = 'qa_showcase_preview';
+      entitlementVerificationSource = 'qa_showcase';
+      serverVerified = true;
+      serverVerificationReason = null;
+      restoreStatus = PurchaseRestoreStatus.restored;
+      loading = false;
+      notifyListeners();
+      return;
+    }
 
     try {
       final prefs = await SharedPreferences.getInstance();

@@ -94,6 +94,13 @@ def test_schedule_and_goal_sources_are_compatibility_only_even_without_flag():
             ).reasons == ["legacy_reference"]
 
 
+def test_time_use_is_a_current_signal_card_source():
+    service = SignalEligibilityService()
+
+    for stage in SignalEligibilityStage:
+        assert service.is_eligible(_signal(source_type="time_use"), stage) is True
+
+
 def test_deleted_signal_is_never_eligible_even_without_split_policy_rows():
     service = SignalEligibilityService()
     signal = _signal(deleted_at=datetime.now(timezone.utc))

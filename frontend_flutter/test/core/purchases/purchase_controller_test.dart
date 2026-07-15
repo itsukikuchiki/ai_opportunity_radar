@@ -17,6 +17,33 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  test('QA showcase unlocks Pro without persisting a real entitlement',
+      () async {
+    final store = _FakePurchaseStore();
+    final controller = PurchaseController(
+      purchaseStore: store,
+      storeSupported: true,
+      qaShowcaseMode: true,
+    );
+    addTearDown(() async {
+      controller.dispose();
+      await store.dispose();
+    });
+
+    await controller.init();
+
+    expect(controller.isPremium, isTrue);
+    expect(controller.entitlementProductId, 'qa_showcase_preview');
+    expect(controller.entitlementVerificationSource, 'qa_showcase');
+    expect(controller.serverVerified, isTrue);
+    expect(controller.storeAvailable, isFalse);
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getBool(PurchaseController.premiumEntitlementKey),
+      isNull,
+    );
+  });
+
   test('startup reads current StoreKit entitlement without account sync',
       () async {
     final store = _FakePurchaseStore();

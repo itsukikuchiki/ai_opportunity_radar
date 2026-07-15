@@ -1,6 +1,6 @@
 # SignalPath Active Data Flow
 
-Last updated: 2026-07-13
+Last updated: 2026-07-15
 
 Status: **canonical product and data-flow contract**. When an older document
 describes an embedded Weekly experiment, Schedule/Goal as an active input, or
@@ -23,17 +23,17 @@ SignalCard -> MicroAction -> LifeExperiment
 - `EnergyBudgetSnapshot` is an internal daily/weekly sustainability read model.
   It may change candidate intensity and ordering, but it is not a fourth
   user-visible business grain and never satisfies a SignalCard gate.
-- `Schedule` and `Goal` have no reachable current product flow. They are not
-  active capture types, eligibility inputs, AI evidence, timeline types, or
-  feedback sources. Production writers and summaries are removed. Legacy
-  tables, migration, backup/delete, old-data readers, and startup notification
-  cleanup remain only for compatibility.
+- Legacy standalone `Schedule` and `Goal` objects have no reachable current
+  product flow. Today `Plan` writes a structured `time_use` SignalCard instead;
+  it remains at the SignalCard grain and never writes `schedule_signals` or
+  reads the system Calendar. Legacy tables, migration, backup/delete,
+  old-data readers, and startup notification cleanup remain compatibility-only.
 
 ## 2. Canonical End-To-End Flow
 
 ```mermaid
 flowchart TD
-  IN["Text / Voice / Status"] --> EDIT["Review or edit"]
+  IN["Text / Voice / Status / Time use"] --> EDIT["Review or edit"]
   PRED["AI prediction"] --> RATE["Accurate / Somewhat / Inaccurate"]
   LIB["Signal Library reference"] --> RATE
   RATE -->|"Accurate or Somewhat"| EDIT
@@ -92,8 +92,10 @@ flowchart TD
 
 ### Timeline decision
 
-- Submitting a direct text/voice/status record is the user's explicit timeline
-  decision after the content is reviewable.
+- Submitting a direct text/voice/status/time-use record is the user's explicit
+  timeline decision after the content is reviewable. A time-use record carries
+  a title, today's start/end time, completed/planned status, category, optional
+  energy effect and note in `raw_payload_json` with `source_type=time_use`.
 - AI predictions and Signal Library references must pass the user-rating gate.
   `Accurate` and `Somewhat` open an editable confirmation sheet; only the final
   `Add to timeline` action creates a SignalCard.
@@ -151,6 +153,7 @@ Energy Budget is a derived planning input, never a fact or threshold row:
 ```text
 eligible SignalCards
 + latest explicit local-day quick status / energy level
++ user-entered structured time-use category and optional energy effect
 + MicroAction and LifeExperiment effective feedback
 + optional allowlisted external abstract hints
   -> normalize with user-confirmed evidence first
@@ -169,9 +172,10 @@ evidence.
 also stores period, timezone, evidence ids, feedback-event ids, block list,
 recommended intensity, source hash, policy version, confidence/readiness, and
 updated time. External hints cannot raise intensity or override user-confirmed
-facts, and raw Health data never enters the snapshot. Calendar ingestion is a
-future Target only and is excluded from the current Energy Budget and planning
-context even if compatibility code or old local hints still exist.
+facts, and raw Health data never enters the snapshot. A `time_use` SignalCard
+may contribute its user-selected category and optional energy effect, but
+duration alone never implies drain or recovery. System Calendar ingestion is a
+future Target only and remains excluded even if compatibility code exists.
 
 Candidate groups store `energy_snapshot_id`, `energy_snapshot_hash`, and the
 applied intensity. A relevant state, SignalCard, feedback, or allowed hint
@@ -373,7 +377,7 @@ TestFlight sandbox build.
 | Focus multi-select local round-trip | Implemented locally. |
 | Focus multi-select remote sync | **Gap / Target.** Add remote array contract and migration. |
 | Journey Pro L3 page and evidence entry | **Implemented baseline.** `/memory/pro-l3`, PremiumGate, `14/7/2`, factual comparison, existing summary, raw evidence, and SignalCard follow-up exist. Independent versioned 28-day AI interpretation remains Target. |
-| Schedule/Goal active-flow removal | **Implemented.** Current UI/routes and production writers/summaries are removed. Legacy tables, migration, backup/delete, old-data readers, and startup notification cleanup remain only for compatibility. |
+| Legacy Schedule/Goal active-flow removal | **Implemented.** Standalone UI/routes and production writers/summaries remain removed. Today Plan creates a current `time_use` SignalCard, not a legacy Schedule row. |
 | Restore purchase | **Manual and silent-refresh baseline implemented; Platform QA open.** Verified StoreKit entitlement unlocks immediately, the verified environment is persisted, cross/unknown-environment empty results preserve local Pro for reconciliation, and `AppStore.sync()` is explicit-only. Native transaction updates, modern signed-JWS/server notifications, and separate Sandbox/Production QA remain. |
 
 ## 10. Compatibility Boundary
@@ -385,8 +389,9 @@ TestFlight sandbox build.
   `opportunitySnapshot['_life_experiment']` data is migration input only.
 - Schedule/Goal tables, migration, backup/delete, old-data readers, and startup
   notification cleanup may remain for compatibility. Production writers and
-  summaries are removed; these objects must not re-enter current planning,
-  thresholds, AI, Weekly, or Journey.
+  summaries are removed; these legacy objects must not re-enter current
+  planning, thresholds, AI, Weekly, or Journey. Current user-entered plans are
+  `time_use` SignalCards and follow normal SignalCard eligibility and deletion.
 - Physical deletion requires an observation window with fallback counters at
   zero, realistic legacy-data QA, a reversible migration, and rollback plan.
 

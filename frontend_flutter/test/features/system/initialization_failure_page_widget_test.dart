@@ -7,10 +7,14 @@ import 'package:ai_opportunity_radar/app/app.dart';
 import 'package:ai_opportunity_radar/core/diagnostics/privacy_safe_logger.dart';
 import 'package:ai_opportunity_radar/core/state/app_bootstrap_state.dart';
 import 'package:ai_opportunity_radar/features/system/initialization_failure_page.dart';
+import 'package:ai_opportunity_radar/shared/widgets/aurora_ui.dart';
 
 void main() {
   testWidgets('initialization failure never renders the raw exception',
       (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final semantics = tester.ensureSemantics();
     SharedPreferences.setMockInitialValues({
       'onboarding_completed': true,
       'legacy_schedule_notifications_cleared_v1': true,
@@ -40,16 +44,33 @@ void main() {
     expect(find.textContaining('raw user text'), findsNothing);
     expect(find.textContaining('/private/database/path'), findsNothing);
     expect(find.textContaining('safe-reference-2'), findsOneWidget);
+    expect(find.byType(AuroraPage), findsOneWidget);
+    expect(find.byType(AuroraCard), findsOneWidget);
+    expect(find.byType(AuroraHeroEmblem), findsOneWidget);
+    expect(find.byType(AuroraSectionIcon), findsOneWidget);
 
     final retry = find.byKey(const ValueKey('initialization-retry-action'));
     expect(retry, findsOneWidget);
     expect(tester.getSize(retry).height, greaterThanOrEqualTo(44));
+    expect(
+      tester.getSemantics(retry),
+      matchesSemantics(
+        label: 'Try again',
+        isButton: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        isFocusable: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+      ),
+    );
     await tester.tap(retry);
     await tester.pumpAndSettle();
 
     expect(attempts, 2);
     expect(find.textContaining('raw user text'), findsNothing);
     bootstrap.dispose();
+    semantics.dispose();
   });
 
   const localeCases = <(Locale, String, String)>[
@@ -71,6 +92,9 @@ void main() {
     testWidgets(
       'initialization failure supports ${localeCase.$1} at 1.3x',
       (tester) async {
+        await tester.binding.setSurfaceSize(const Size(390, 844));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final semantics = tester.ensureSemantics();
         await tester.pumpWidget(
           MaterialApp(
             locale: localeCase.$1,
@@ -96,11 +120,34 @@ void main() {
 
         expect(find.text(localeCase.$2), findsOneWidget);
         expect(find.text(localeCase.$3), findsOneWidget);
+        expect(find.byType(AuroraPage), findsOneWidget);
+        expect(find.byType(AuroraCard), findsOneWidget);
+        expect(find.byType(AuroraHeroEmblem), findsOneWidget);
         expect(tester.takeException(), isNull);
         final retry = find.byKey(
           const ValueKey('initialization-retry-action'),
         );
         expect(tester.getSize(retry).height, greaterThanOrEqualTo(44));
+        expect(
+          tester.getSemantics(retry),
+          matchesSemantics(
+            label: localeCase.$3,
+            isButton: true,
+            hasEnabledState: true,
+            isEnabled: true,
+            isFocusable: true,
+            hasTapAction: true,
+            hasFocusAction: true,
+          ),
+        );
+        final title = find.byKey(
+          const ValueKey('initialization-failure-title'),
+        );
+        expect(
+          tester.getSemantics(title),
+          matchesSemantics(label: localeCase.$2, isHeader: true),
+        );
+        semantics.dispose();
       },
     );
   }

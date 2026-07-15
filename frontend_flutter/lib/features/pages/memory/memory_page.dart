@@ -15,6 +15,7 @@ import '../../../core/readiness/report_readiness.dart';
 import '../../../shared/states/load_state.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../../../shared/widgets/empty_state_block.dart';
+import 'journey_display_text.dart';
 import 'memory_view_model.dart';
 
 class MemoryPage extends StatelessWidget {
@@ -44,7 +45,7 @@ class MemoryPage extends StatelessWidget {
                         title: AppLocaleText.tr(
                           context,
                           en: 'Journey failed to load',
-                          zhHans: 'Journey 加载失败了',
+                          zhHans: '旅程加载失败了',
                           zhHant: 'Journey 載入失敗了',
                           ja: 'Journey の読み込みに失敗しました',
                         ),
@@ -53,7 +54,7 @@ class MemoryPage extends StatelessWidget {
                               context,
                               en: 'Reason: local Journey data or generation failed. Report content starts after 7 eligible SignalCards across 3 local days in the current month.',
                               zhHans:
-                                  '原因：本地 Journey 数据或生成过程读取失败。本月达到 7 条有效 SignalCard、覆盖 3 个本地日期后，才开始显示报告内容。',
+                                  '原因：本地旅程数据或生成过程读取失败。本月达到 7 条有效 Signal Card、覆盖 3 个本地日期后，才开始显示报告内容。',
                               zhHant:
                                   '原因：本地 Journey 資料或生成過程讀取失敗。本月達到 7 條有效 SignalCard、覆蓋 3 個本地日期後，才開始顯示報告內容。',
                               ja: '理由: Journey データまたは生成の読み込みに失敗しました。今月、有効な SignalCard 7 件とローカル日付 3 日を満たすとレポートを表示します。',
@@ -225,7 +226,7 @@ class _JourneyFormingSummaryCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF081C4E),
                         fontSize: 17,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
                 const SizedBox(height: 5),
@@ -234,7 +235,7 @@ class _JourneyFormingSummaryCard extends StatelessWidget {
                     context,
                     en: 'The monthly synthesis starts after 7 eligible SignalCards across at least 3 local days. Timeline, calendar, curve, and evidence remain free below.',
                     zhHans:
-                        '本月达到 7 条有效 SignalCard、覆盖至少 3 个记录日后开始显示综合；时间线、日历、曲线和证据仍可免费查看。',
+                        '本月达到 7 条有效 Signal Card、覆盖至少 3 个记录日后开始显示综合；时间线、日历、曲线和证据仍可免费查看。',
                     zhHant:
                         '本月達到 7 條有效 SignalCard、覆蓋至少 3 個記錄日後開始顯示綜合；時間線、日曆、曲線和證據仍可免費查看。',
                     ja: '今月、有効な SignalCard 7 件が 3 日以上に分布すると統合を表示します。時系列、カレンダー、曲線、根拠は無料で確認できます。',
@@ -298,7 +299,7 @@ class JourneyFragmentsPage extends StatelessWidget {
                       style:
                           Theme.of(context).textTheme.headlineSmall?.copyWith(
                                 color: AuroraColors.ink,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w700,
                               ),
                     ),
                   ),
@@ -311,7 +312,7 @@ class JourneyFragmentsPage extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: const Color(0xFF7B57E8),
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const SizedBox(height: 16),
@@ -420,7 +421,7 @@ class _JourneyEvidenceButton extends StatelessWidget {
               label,
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     color: const Color(0xFF7B57E8),
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
           ],
@@ -447,7 +448,7 @@ class _JourneyEvidenceSheet extends StatelessWidget {
         ? AppLocaleText.tr(
             context,
             en: 'Journey evidence',
-            zhHans: 'Journey 依据',
+            zhHans: '旅程依据',
             zhHant: 'Journey 依據',
             ja: 'Journey の根拠',
           )
@@ -496,7 +497,7 @@ class _JourneyEvidenceSheet extends StatelessWidget {
                           style:
                               Theme.of(context).textTheme.titleLarge?.copyWith(
                                     color: const Color(0xFF09286A),
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w700,
                                   ),
                         ),
                         Text(
@@ -574,7 +575,7 @@ class _JourneyEvidenceSourceChips extends StatelessWidget {
               _evidenceSourceLabel(context, sourceType),
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                     color: const Color(0xFF09286A),
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
           ),
@@ -616,7 +617,7 @@ class _JourneyEvidenceTile extends StatelessWidget {
                       label,
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
                             color: const Color(0xFF7B57E8),
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w700,
                           ),
                     ),
                     if (item.localDate.trim().isNotEmpty)
@@ -625,19 +626,21 @@ class _JourneyEvidenceTile extends StatelessWidget {
                         style:
                             Theme.of(context).textTheme.labelMedium?.copyWith(
                                   color: const Color(0xFF5C70A4),
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w700,
                                 ),
                       ),
                   ],
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  item.title.trim().isEmpty ? label : item.title,
+                  item.title.trim().isEmpty
+                      ? label
+                      : localizeJourneyCategoryLabel(context, item.title),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF09286A),
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
                 if (item.summary.trim().isNotEmpty) ...[
@@ -747,60 +750,81 @@ class _JourneyHeroSurface extends StatelessWidget {
       ja: '${now.month}月 · あなたの生活の軌跡',
     );
 
-    return Container(
+    return ConstrainedBox(
       key: const ValueKey('journey-hero-header'),
-      height: 170,
-      clipBehavior: Clip.antiAlias,
-      decoration: _journeyGlassDecoration(
-        radius: AuroraMainPageSpec.cardRadiusLarge,
-      ),
+      constraints: const BoxConstraints(minHeight: 160),
       child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          Positioned.fill(
-            child: Image.asset(
-              'assets/journey/journey-hero-road.png',
-              fit: BoxFit.cover,
-              alignment: Alignment.centerRight,
-              filterQuality: FilterQuality.high,
+          Positioned(
+            right: compact ? -18 : -12,
+            top: compact ? -24 : -30,
+            width: compact ? 120 : 144,
+            height: compact ? 120 : 144,
+            child: IgnorePointer(
+              child: AuroraHeroEmblem(
+                size: compact ? 120 : 144,
+                opacity: 0.82,
+              ),
             ),
           ),
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  colors: [
-                    Colors.white.withValues(alpha: 0.97),
-                    Colors.white.withValues(alpha: 0.84),
-                    Colors.white.withValues(alpha: 0.20),
-                  ],
-                  stops: const [0, 0.58, 1],
+          Positioned(
+            left: -38,
+            top: 52,
+            width: 238,
+            height: 118,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    colors: [
+                      Colors.white.withValues(alpha: 0.58),
+                      Colors.white.withValues(alpha: 0),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 11),
+            padding: EdgeInsets.fromLTRB(2, compact ? 2 : 4, 2, 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
+                Padding(
+                  padding: EdgeInsets.only(right: compact ? 88 : 108),
+                  child: AuroraHeroTitle(
+                    text: AppLocaleText.tr(
+                      context,
+                      en: 'Journey',
+                      zhHans: '旅程',
+                      zhHant: '旅程',
+                      ja: '旅程',
+                    ),
+                    fontSize: compact
+                        ? AuroraMainPageSpec.compactHeroTitleSize
+                        : AuroraMainPageSpec.heroTitleSize,
+                    maxLines: 1,
+                  ),
+                ),
+                const SizedBox(height: 7),
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        'Journey',
+                        monthLabel,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style:
-                            Theme.of(context).textTheme.displaySmall?.copyWith(
-                                  color: const Color(0xFF081C4E),
-                                  fontSize: compact
-                                      ? AuroraMainPageSpec.compactHeroTitleSize
-                                      : AuroraMainPageSpec.heroTitleSize,
-                                  height: 1,
-                                  fontWeight: FontWeight.w900,
-                                ),
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(
+                              color: AuroraColors.ink.withValues(alpha: 0.88),
+                              fontSize: compact ? 13.5 : 15,
+                              height: 1.1,
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
                     ),
                     if (vm != null)
@@ -819,37 +843,28 @@ class _JourneyHeroSurface extends StatelessWidget {
                       ),
                   ],
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  monthLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: const Color(0xFF102B67),
-                        fontSize: 14,
-                        height: 1.1,
-                        fontWeight: FontWeight.w900,
-                      ),
-                ),
-                const SizedBox(height: 7),
-                Expanded(
+                const SizedBox(height: 9),
+                Padding(
+                  padding: EdgeInsets.only(right: compact ? 72 : 94),
                   child: Text(
                     summaryText,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: const Color(0xFF315083),
+                          color: AuroraColors.ink.withValues(alpha: 0.78),
                           fontSize: AuroraMainPageSpec.heroSubtitleSize,
-                          height: 1.35,
-                          fontWeight: FontWeight.w600,
+                          height: 1.32,
+                          fontWeight: FontWeight.w500,
                         ),
                   ),
                 ),
-                if (readiness != null)
+                if (readiness != null) ...[
+                  const SizedBox(height: 9),
                   _JourneyHeroReadiness(
                     readiness: readiness!,
                     reportReady: reportReady,
                   ),
+                ],
               ],
             ),
           ),
@@ -900,7 +915,7 @@ class _JourneyHeroReadiness extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   color: accent,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ),
@@ -922,7 +937,7 @@ class _JourneyHeroReadiness extends StatelessWidget {
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: const Color(0xFF49659A),
                   fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ),
@@ -949,55 +964,7 @@ String _englishJourneyMonth(int month) {
 }
 
 String _localizedGeneratedText(BuildContext context, String text) {
-  final planning = AppLocaleText.tr(
-    context,
-    en: 'rhythm',
-    zhHans: '节奏',
-    zhHant: '節奏',
-    ja: 'リズム',
-  );
-  final labels = {
-    '[planning]': planning,
-    'planning': planning,
-    'work': AppLocaleText.tr(
-      context,
-      en: 'work',
-      zhHans: '工作',
-      zhHant: '工作',
-      ja: '仕事',
-    ),
-    'recovery': AppLocaleText.tr(
-      context,
-      en: 'recovery',
-      zhHans: '恢复',
-      zhHant: '恢復',
-      ja: '回復',
-    ),
-    'relationship': AppLocaleText.tr(
-      context,
-      en: 'relationship',
-      zhHans: '关系',
-      zhHant: '關係',
-      ja: '関係',
-    ),
-    'boundary': AppLocaleText.tr(
-      context,
-      en: 'boundary',
-      zhHans: '边界',
-      zhHant: '邊界',
-      ja: '境界線',
-    ),
-  };
-
-  var output = text;
-  for (final entry in labels.entries) {
-    output = output
-        .replaceAll('"${entry.key}"', '"${entry.value}"')
-        .replaceAll('“${entry.key}”', '“${entry.value}”')
-        .replaceAll('「${entry.key}」', '「${entry.value}」')
-        .replaceAll(entry.key, entry.value);
-  }
-  return output;
+  return localizeJourneyDisplayText(context, text);
 }
 
 class _LongTermPatternStrip extends StatelessWidget {
@@ -1232,7 +1199,7 @@ class _JourneyReadyBodyState extends State<_JourneyReadyBody> {
               context,
               en: 'Reason: no eligible Journey records were found yet. It starts with SignalCard, feedback, Weekly Review, Life Experiment, or manual reflection data.',
               zhHans:
-                  '原因：还没有找到可进入 Journey 的记录。SignalCard、反馈、Weekly Review、Life Experiment 或手动反思出现后会开始显示。',
+                  '原因：还没有找到可进入旅程的记录。Signal Card、反馈、每周复盘、生活小实验或手动反思出现后会开始显示。',
               zhHant:
                   '原因：還沒有找到可進入 Journey 的記錄。SignalCard、回饋、Weekly Review、Life Experiment 或手動反思出現後會開始顯示。',
               ja: '理由: Journey に使える記録がまだありません。SignalCard、反応、Weekly Review、Life Experiment、手動の振り返りで表示が始まります。',
@@ -1372,14 +1339,14 @@ class _JourneyReadinessCard extends StatelessWidget {
         ? AppLocaleText.tr(
             context,
             en: 'Pro L3 report readiness',
-            zhHans: 'Pro L3 深度报告进度',
+            zhHans: 'Pro 深度分析报告进度',
             zhHant: 'Pro L3 深度報告進度',
             ja: 'Pro L3 レポートの準備状況',
           )
         : AppLocaleText.tr(
             context,
             en: 'Journey report readiness',
-            zhHans: 'Journey 报告进度',
+            zhHans: '旅程报告进度',
             zhHant: 'Journey 報告進度',
             ja: 'Journey レポートの準備状況',
           );
@@ -1399,7 +1366,7 @@ class _JourneyReadinessCard extends StatelessWidget {
                       ? AppLocaleText.tr(
                           context,
                           en: 'Pro L3 deep review',
-                          zhHans: 'Pro L3 深度回看',
+                          zhHans: 'Pro 深度分析',
                           zhHant: 'Pro L3 深度回看',
                           ja: 'Pro L3 深い振り返り',
                         )
@@ -1407,7 +1374,7 @@ class _JourneyReadinessCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF081C4E),
                         fontSize: 17,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -1423,7 +1390,7 @@ class _JourneyReadinessCard extends StatelessWidget {
                     'Pro',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                           color: const Color(0xFFB36B13),
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                           fontStyle: FontStyle.italic,
                         ),
                   ),
@@ -1449,7 +1416,7 @@ class _JourneyReadinessCard extends StatelessWidget {
                     : AppLocaleText.tr(
                         context,
                         en: 'Journey report is ready.',
-                        zhHans: 'Journey 报告已经可以显示。',
+                        zhHans: '旅程报告已经可以显示。',
                         zhHant: 'Journey 報告已經可以顯示。',
                         ja: 'Journey レポートを表示できます。',
                       ))
@@ -1537,14 +1504,14 @@ class _JourneyReadinessCard extends StatelessWidget {
                       ? AppLocaleText.tr(
                           context,
                           en: 'Open Pro L3 report',
-                          zhHans: '打开 Pro L3 报告',
+                          zhHans: '打开 Pro 深度分析报告',
                           zhHant: '打開 Pro L3 報告',
                           ja: 'Pro L3 レポートを開く',
                         )
                       : AppLocaleText.tr(
                           context,
                           en: 'View Pro L3 progress',
-                          zhHans: '查看 Pro L3 进度',
+                          zhHans: '查看 Pro 深度分析进度',
                           zhHant: '查看 Pro L3 進度',
                           ja: 'Pro L3 の進捗を見る',
                         ),
@@ -1557,7 +1524,7 @@ class _JourneyReadinessCard extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(999),
                   ),
-                  textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
             ),
@@ -1597,7 +1564,7 @@ class _JourneyReadinessMetric extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
                   color: const Color(0xFF233B69),
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ),
@@ -1721,7 +1688,7 @@ class _JourneyMetricsOverview extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF081C4E),
                         fontSize: 17,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -1735,7 +1702,7 @@ class _JourneyMetricsOverview extends StatelessWidget {
                 ),
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: const Color(0xFF49659A),
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
             ],
@@ -1867,7 +1834,7 @@ class _JourneyFactShortcut extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: const Color(0xFF102B67),
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
           ],
@@ -1935,7 +1902,7 @@ class _JourneyFeaturedPatternCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF081C4E),
                         fontSize: 17,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -1960,7 +1927,7 @@ class _JourneyFeaturedPatternCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF102B67),
                         height: 1.4,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -1994,7 +1961,7 @@ class _JourneyFeaturedPatternCard extends StatelessWidget {
                         ),
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
                               color: const Color(0xFF6957EE),
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w700,
                             ),
                       ),
                       const Icon(
@@ -2010,10 +1977,10 @@ class _JourneyFeaturedPatternCard extends StatelessWidget {
                 _JourneyEvidenceCountChip(
                   label: AppLocaleText.tr(
                     context,
-                    en: '${readiness.signalCount} SignalCards',
-                    zhHans: '${readiness.signalCount} 条 SignalCard',
-                    zhHant: '${readiness.signalCount} 條 SignalCard',
-                    ja: 'SignalCard ${readiness.signalCount} 件',
+                    en: '${readiness.signalCount} signals',
+                    zhHans: '${readiness.signalCount} 条信号',
+                    zhHant: '${readiness.signalCount} 條信號',
+                    ja: '${readiness.signalCount} 件のシグナル',
                   ),
                   color: const Color(0xFF7667F5),
                 ),
@@ -2080,7 +2047,7 @@ class _JourneyPatternClarityPill extends StatelessWidget {
         ),
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: const Color(0xFF319476),
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
             ),
       ),
     );
@@ -2112,7 +2079,7 @@ class _JourneyEvidenceCountChip extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: color,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
             ),
       ),
     );
@@ -2175,7 +2142,7 @@ class _JourneyObservationsCard extends StatelessWidget {
             ),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: const Color(0xFF5C70A4),
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           const SizedBox(height: 12),
@@ -2254,7 +2221,7 @@ class _JourneyObservationRow extends StatelessWidget {
                           style:
                               Theme.of(context).textTheme.labelMedium?.copyWith(
                                     color: const Color(0xFF5C70A4),
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight: FontWeight.w700,
                                   ),
                         ),
                     ],
@@ -2269,7 +2236,7 @@ class _JourneyObservationRow extends StatelessWidget {
                               ? const Color(0xFF7180A8)
                               : const Color(0xFF09286A),
                           height: 1.38,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                   if (observation.suggestedPattern.trim().isNotEmpty) ...[
@@ -2323,7 +2290,7 @@ class _JourneyObservationStatusPill extends StatelessWidget {
         _observationStatusLabel(context, status),
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: color,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
             ),
       ),
     );
@@ -2380,7 +2347,7 @@ class _JourneyMonthFragments extends StatelessWidget {
                             ja: 'すべて見る'),
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
                               color: const Color(0xFF7B57E8),
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                             ),
                       ),
                       const SizedBox(width: 3),
@@ -2466,7 +2433,7 @@ class _JourneyCalendarCard extends StatelessWidget {
                 _monthLabel(context, month),
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       color: const Color(0xFF7B57E8),
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const SizedBox(width: 16),
@@ -2526,7 +2493,7 @@ class _JourneyLifeCurveCard extends StatelessWidget {
                 _monthLabel(context, month),
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: const Color(0xFF5C70A4),
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
             ],
@@ -2700,7 +2667,7 @@ class _JourneySectionTitle extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF09286A),
                         fontSize: 17,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 )
               : Text.rich(
@@ -2722,7 +2689,7 @@ class _JourneySectionTitle extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF09286A),
                         fontSize: 17,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
         ),
@@ -2781,7 +2748,7 @@ class _JourneyMetricTile extends StatelessWidget {
                   style: const TextStyle(
                     color: Color(0xFF315083),
                     fontSize: 11,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
@@ -2792,7 +2759,7 @@ class _JourneyMetricTile extends StatelessWidget {
                   color: data.color,
                   fontSize: 23,
                   height: 1,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           const SizedBox(height: 5),
@@ -2804,7 +2771,7 @@ class _JourneyMetricTile extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: const Color(0xFF233B69),
                   fontSize: AuroraMainPageSpec.supportingSize,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ],
@@ -2862,7 +2829,7 @@ class _JourneyFragmentRow extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: const Color(0xFF09286A),
                           fontSize: 16,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                   const SizedBox(height: 3),
@@ -2940,7 +2907,7 @@ class _JourneyCalendarGrid extends StatelessWidget {
                     day,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           color: const Color(0xFF5C70A4),
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                 ),
@@ -2972,7 +2939,7 @@ class _JourneyCalendarGrid extends StatelessWidget {
                         color: faded
                             ? const Color(0xFFAEB6D7)
                             : const Color(0xFF09286A),
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
                 const SizedBox(height: 2),
@@ -3063,7 +3030,7 @@ class _CurveLegend extends StatelessWidget {
           label,
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
                 color: color,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
         ),
       ],
@@ -3103,7 +3070,7 @@ class _SegmentedPill extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: i == 0 ? Colors.white : const Color(0xFF5C70A4),
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
             ),
@@ -3266,24 +3233,40 @@ class _JourneyCurvePainter extends CustomPainter {
 
 BoxDecoration _journeyGlassDecoration({double radius = 20}) {
   return BoxDecoration(
-    color: Colors.white.withValues(alpha: 0.72),
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Colors.white.withValues(alpha: 0.86),
+        const Color(0xFFFFF8F4).withValues(alpha: 0.72),
+        const Color(0xFFF3F1FF).withValues(alpha: 0.66),
+        const Color(0xFFF1F8FF).withValues(alpha: 0.62),
+      ],
+      stops: const [0, 0.36, 0.72, 1],
+    ),
     borderRadius: BorderRadius.circular(radius),
     border: Border.all(
-      color: const Color(0xFFC7D6F0).withValues(alpha: 0.78),
+      color: Colors.white.withValues(alpha: 0.84),
       width: 1,
     ),
     boxShadow: [
       BoxShadow(
-        color: const Color(0xFF6F7ED5).withValues(alpha: 0.12),
-        blurRadius: 22,
-        spreadRadius: -8,
-        offset: const Offset(0, 11),
+        color: const Color(0xFF7164A8).withValues(alpha: 0.10),
+        blurRadius: 30,
+        spreadRadius: -14,
+        offset: const Offset(0, 15),
       ),
       BoxShadow(
-        color: Colors.white.withValues(alpha: 0.88),
-        blurRadius: 10,
-        spreadRadius: -8,
-        offset: const Offset(-3, -3),
+        color: const Color(0xFFFFB17C).withValues(alpha: 0.07),
+        blurRadius: 26,
+        spreadRadius: -14,
+        offset: const Offset(-6, 10),
+      ),
+      BoxShadow(
+        color: Colors.white.withValues(alpha: 0.90),
+        blurRadius: 12,
+        spreadRadius: -7,
+        offset: const Offset(-4, -4),
       ),
     ],
   );
@@ -3317,7 +3300,7 @@ List<_JourneyFragmentData> _fragmentItems(
     return _JourneyFragmentData(
       icon: _traceIcon(trace.sourceType),
       color: _traceColor(trace),
-      title: _localizedGeneratedText(context, trace.title),
+      title: localizeJourneyCategoryLabel(context, trace.title),
       meta:
           '${_traceDateLabel(trace.localDate)} · ${_traceSourceLabel(context, trace)}',
       localDate: trace.localDate,
@@ -3331,7 +3314,7 @@ String _traceSourceLabel(BuildContext context, JourneyTraceModel trace) {
     case 'observation':
       return AppLocaleText.tr(context,
           en: 'Observation',
-          zhHans: 'Observation 判断',
+          zhHans: '观察判断',
           zhHant: 'Observation 判斷',
           ja: 'Observation');
     case 'manual_reflection':
@@ -3349,7 +3332,7 @@ String _traceSourceLabel(BuildContext context, JourneyTraceModel trace) {
     case 'weekly_review':
       return AppLocaleText.tr(context,
           en: 'Weekly Review',
-          zhHans: 'Weekly 回顾',
+          zhHans: '每周复盘回顾',
           zhHant: 'Weekly 回顧',
           ja: 'Weekly Review');
     case 'goal_feedback':
@@ -3358,13 +3341,13 @@ String _traceSourceLabel(BuildContext context, JourneyTraceModel trace) {
     case 'life_experiment':
       return AppLocaleText.tr(context,
           en: 'Life Experiment',
-          zhHans: '生活实验',
+          zhHans: '生活小实验',
           zhHant: '生活實驗',
           ja: 'Life Experiment');
     default:
       return AppLocaleText.tr(context,
           en: 'SignalCard',
-          zhHans: 'SignalCard',
+          zhHans: 'Signal Card',
           zhHant: 'SignalCard',
           ja: 'SignalCard');
   }
@@ -3427,7 +3410,7 @@ String _evidenceSourceLabel(BuildContext context, String sourceType) {
     case 'observation':
       return AppLocaleText.tr(context,
           en: 'Observation',
-          zhHans: 'Observation 判断',
+          zhHans: '观察判断',
           zhHant: 'Observation 判斷',
           ja: 'Observation');
     case 'micro_action_feedback':
@@ -3439,7 +3422,7 @@ String _evidenceSourceLabel(BuildContext context, String sourceType) {
     case 'weekly_review':
       return AppLocaleText.tr(context,
           en: 'Weekly Reflection',
-          zhHans: 'Weekly Reflection',
+          zhHans: '每周复盘反思',
           zhHant: 'Weekly Reflection',
           ja: 'Weekly Reflection');
     case 'goal_feedback':
@@ -3454,7 +3437,7 @@ String _evidenceSourceLabel(BuildContext context, String sourceType) {
           ja: '実験フィードバック');
     default:
       return AppLocaleText.tr(context,
-          en: 'Signal', zhHans: 'Signal', zhHant: 'Signal', ja: 'Signal');
+          en: 'Signal', zhHans: '信号', zhHant: 'Signal', ja: 'Signal');
   }
 }
 
@@ -3885,7 +3868,7 @@ class _ExperimentTracksCard extends StatelessWidget {
                 AppLocaleText.tr(
                   context,
                   en: 'Life Experiment archive',
-                  zhHans: 'Life Experiment 档案',
+                  zhHans: '生活小实验档案',
                   zhHant: 'Life Experiment 檔案',
                   ja: 'Life Experiment アーカイブ',
                 ),
@@ -4309,7 +4292,7 @@ class _JourneyLoopMetric extends StatelessWidget {
             value.toString(),
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: color,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           const SizedBox(height: 3),
@@ -4638,7 +4621,7 @@ class _JourneyOverviewCard extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'Where your journey stands now',
-              zhHans: '你现在的 Journey，停在这里',
+              zhHans: '你现在的旅程，停在这里',
               zhHant: '你現在的 Journey，停在這裡',
               ja: '今の Journey はこのあたりです',
             ),
@@ -4836,7 +4819,7 @@ class _ReviewAdjustSection extends StatelessWidget {
             fallback: AppLocaleText.tr(
               context,
               en: 'No experiment feedback yet. That does not block Journey.',
-              zhHans: '暂时还没有实验反馈，这不会影响 Journey 继续回看。',
+              zhHans: '暂时还没有实验反馈，这不会影响旅程继续回看。',
               zhHant: '暫時還沒有實驗回饋，這不會影響 Journey 繼續回看。',
               ja: 'まだ実験のフィードバックはありません。Journey の振り返りには影響しません。',
             ),

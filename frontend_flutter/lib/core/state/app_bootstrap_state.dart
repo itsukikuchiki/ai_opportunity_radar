@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/build_environment.dart';
 import '../diagnostics/privacy_safe_logger.dart';
 import '../di/app_dependencies.dart';
 import '../notifications/schedule_notification_service.dart';
+import '../qa/qa_showcase_seeder.dart';
 
 typedef AppDependenciesFactory = Future<AppDependencies> Function();
 
@@ -43,6 +45,11 @@ class AppBootstrapState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _preferences = prefs;
     _readOnboardingCompletion(prefs);
+    if (BuildEnvironment.qaShowcaseData) {
+      await prefs.setBool('onboarding_completed', true);
+      await prefs.setBool('onboardingCompleted', true);
+      _onboardingCompleted = true;
+    }
   }
 
   Future<void> init() async {
@@ -53,7 +60,15 @@ class AppBootstrapState extends ChangeNotifier {
       _preferences = prefs;
       _readOnboardingCompletion(prefs);
 
-      _dependencies = await _dependenciesFactory();
+      final dependencies = await _dependenciesFactory();
+      if (BuildEnvironment.qaShowcaseData) {
+        await QaShowcaseSeeder.seed(
+          dependencies: dependencies,
+          preferences: prefs,
+        );
+        _onboardingCompleted = true;
+      }
+      _dependencies = dependencies;
       await _clearLegacyScheduleNotificationsOnce(prefs);
       _initialized = true;
       _initError = null;

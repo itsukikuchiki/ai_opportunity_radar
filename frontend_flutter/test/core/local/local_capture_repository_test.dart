@@ -35,6 +35,23 @@ void main() {
     }
   });
 
+  test('legacy capture mirror preserves time_use source type', () async {
+    await repository.insertCapture(
+      content: '上午开会两小时，下午专注写方案。',
+      inputMode: 'time_use',
+    );
+
+    await repository.mirrorLegacyCapturesToSignalCards();
+
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'signal_cards',
+      columns: ['source_type'],
+    );
+    expect(rows, hasLength(1));
+    expect(rows.single['source_type'], 'time_use');
+  });
+
   test('SignalCard processing state and analysis policy are split tables',
       () async {
     final signal = await repository.insertLocalDraftSignal(

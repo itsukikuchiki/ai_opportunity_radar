@@ -668,6 +668,12 @@ class TodayRepository {
         rawPayloadJson: rawPayloadJson,
       );
     }
+    if (sourceType == 'time_use') {
+      return _submitLocalTimeUseCapture(
+        content: content,
+        rawPayloadJson: rawPayloadJson,
+      );
+    }
 
     final inserted = await localCaptureRepository.insertCapture(
       content: content,
@@ -744,6 +750,80 @@ class TodayRepository {
         sceneTags: aiReply.sceneTags,
         intentTags: aiReply.intentTags,
       ),
+    };
+  }
+
+  Future<Map<String, dynamic>> _submitLocalTimeUseCapture({
+    required String content,
+    required Map<String, dynamic> rawPayloadJson,
+  }) async {
+    await analyticsRepository?.track(
+      'entry_created',
+      properties: {
+        'content_length': content.trim().length,
+        'source_type': 'time_use',
+        'has_structured_time': rawPayloadJson['start_at'] != null &&
+            rawPayloadJson['end_at'] != null,
+      },
+    );
+    final focusArea = await _readFocusArea();
+    final responseStyle = await _readResponseStyle();
+    final recentAssistantTexts =
+        await localCaptureRepository.listRecentAcknowledgements(limit: 10);
+    late AiCaptureReplyResult aiReply;
+    try {
+      aiReply = await aiRepository.generateCaptureReply(
+        content: content,
+        recentAssistantTexts: recentAssistantTexts,
+        focusArea: focusArea,
+        responseStyle: responseStyle,
+      );
+    } catch (_) {
+      aiReply = AiCaptureReplyResult(
+        acknowledgement: _defaultAcknowledgement(content),
+        observation: _defaultSingleObservation(content),
+        tryNext: _defaultSingleTryNext(content),
+        emotion: _defaultEmotion(content),
+        intensity: _defaultIntensity(content),
+        sceneTags: _defaultSceneTags(content),
+        intentTags: _defaultIntentTags(content),
+        followup: null,
+      );
+    }
+    final category = rawPayloadJson['category']?.toString().trim() ?? '';
+    final energyEffect =
+        rawPayloadJson['energy_effect']?.toString().trim() ?? '';
+    final inserted = await localCaptureRepository.insertConfirmedSignalCard(
+      content: content,
+      sourceType: 'time_use',
+      language: _languageCode(),
+      acknowledgement: aiReply.acknowledgement,
+      observation: aiReply.observation,
+      tryNext: aiReply.tryNext,
+      scene: category.isEmpty ? null : category,
+      energyLoad: energyEffect.isEmpty || energyEffect == 'unknown'
+          ? null
+          : energyEffect,
+      sceneTags: {
+        ...aiReply.sceneTags,
+        if (category.isNotEmpty) category,
+      }.toList(growable: false),
+      intentTags: aiReply.intentTags,
+      rawPayloadJson: rawPayloadJson,
+      userConfirmation: 'unconfirmed',
+      includedInSummary: true,
+      includedInWeekly: true,
+      includedInJourney: true,
+    );
+    final refreshedTodaySignals =
+        await localCaptureRepository.listTodaySignals();
+    await _regenerateTodaySummary(refreshedTodaySignals);
+    cloudBackupSyncService?.markDataChanged();
+    return {
+      'acknowledgement': aiReply.acknowledgement,
+      'followup': aiReply.followup,
+      'updatedRecentSignals': refreshedTodaySignals,
+      'localSignal': inserted,
     };
   }
 

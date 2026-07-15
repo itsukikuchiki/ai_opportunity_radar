@@ -220,6 +220,14 @@ void main() {
     }
   });
 
+  test('time_use is a current Signal Card source across analysis stages', () {
+    final signal = _signal(sourceType: 'time_use');
+
+    for (final stage in SignalEligibilityStage.values) {
+      expect(service.isEligible(signal, stage), isTrue);
+    }
+  });
+
   test('reason labels are user-facing for exclusion display', () {
     expect(
       SignalEligibilityService.reasonLabelZhHans('sync_failed'),

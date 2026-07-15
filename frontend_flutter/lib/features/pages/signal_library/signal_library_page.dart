@@ -7,7 +7,6 @@ import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/signal_library_models.dart';
 import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/widgets/aurora_ui.dart';
-import '../../../shared/widgets/editable_timeline_decision_dialog.dart';
 import '../../../shared/widgets/signal_illustration_kit.dart';
 import 'signal_library_view_model.dart';
 
@@ -21,6 +20,7 @@ class SignalLibraryPage extends StatefulWidget {
 class _SignalLibraryPageState extends State<SignalLibraryPage> {
   String? _loadedLanguage;
   String _query = '';
+  final Set<String> _submittingPatternIds = <String>{};
 
   @override
   void didChangeDependencies() {
@@ -38,7 +38,11 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
   Widget build(BuildContext context) {
     final viewModel = context.watch<SignalLibraryViewModel>();
     final theme = Theme.of(context);
-    final patterns = _filterPatterns(viewModel.visiblePatterns);
+    final patterns = _filterPatterns(
+      context,
+      viewModel.patterns,
+      viewModel.selectedCategory,
+    );
 
     return Scaffold(
       body: Stack(
@@ -56,12 +60,7 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
                 SafeArea(
                   bottom: false,
                   child: ListView(
-                    padding: EdgeInsets.fromLTRB(
-                      22,
-                      58,
-                      22,
-                      MediaQuery.paddingOf(context).bottom + 164,
-                    ),
+                    padding: AuroraMainPageSpec.scrollPadding(context),
                     children: [
                       if (Navigator.of(context).canPop()) ...[
                         Align(
@@ -79,48 +78,45 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 2),
                       ],
-                      Text(
-                        AppLocaleText.tr(
+                      AuroraHeroTitle(
+                        text: AppLocaleText.tr(
                           context,
                           en: 'Signal Library',
                           zhHans: '信号库',
                           zhHant: '信號庫',
                           ja: 'シグナルライブラリ',
                         ),
-                        style: theme.textTheme.displaySmall?.copyWith(
-                          color: AuroraColors.purple,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 42,
-                          height: 1.02,
-                        ),
+                        fontSize:
+                            AuroraMainPageSpec.responsiveHeroTitleSize(context),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 8),
                       Text(
                         AppLocaleText.tr(
                           context,
                           en: 'Browse common SignalCard references and decide whether one matches your recent life.',
-                          zhHans: '浏览常见的 SignalCard 参考，判断它是否像你最近的情况。',
+                          zhHans: '浏览常见的 Signal Card 参考，判断它是否像你最近的情况。',
                           zhHant: '瀏覽常見的 SignalCard 參考，判斷它是否像你最近的情況。',
                           ja: 'よくあるSignalCardの参考から、最近の自分に近いものか判断できます。',
                         ),
-                        style: theme.textTheme.titleMedium?.copyWith(
+                        style: theme.textTheme.bodyMedium?.copyWith(
                           color: AuroraColors.ink.withValues(alpha: 0.74),
-                          height: 1.45,
-                          fontWeight: FontWeight.w500,
+                          height: 1.42,
+                          fontSize: AuroraMainPageSpec.heroSubtitleSize,
+                          fontWeight: FontWeight.w400,
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: AuroraMainPageSpec.heroGap),
                       _LibrarySearchField(
                         onChanged: (value) => setState(() => _query = value),
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: AuroraMainPageSpec.sectionGap),
                       _LibraryCategoryRow(
                         selectedCategory: viewModel.selectedCategory,
                         onSelected: viewModel.selectCategory,
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: AuroraMainPageSpec.sectionGap),
                       if (viewModel.loading)
                         const Center(
                           child: Padding(
@@ -131,11 +127,18 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
                       else
                         ...patterns.map(
                           (pattern) => Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
+                            padding: const EdgeInsets.only(
+                              bottom: AuroraMainPageSpec.sectionGap,
+                            ),
                             child: _PatternCard(
                               pattern: pattern,
-                              onReview: () => _showLibraryActionLoop(
-                                  context, pattern, viewModel),
+                              submitting:
+                                  _submittingPatternIds.contains(pattern.id),
+                              onRespond: (status) => _respondToPattern(
+                                pattern: pattern,
+                                status: status,
+                                viewModel: viewModel,
+                              ),
                             ),
                           ),
                         ),
@@ -154,11 +157,20 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
   }
 
   List<LibraryPatternModel> _filterPatterns(
-      List<LibraryPatternModel> patterns) {
+    BuildContext context,
+    List<LibraryPatternModel> patterns,
+    String selectedCategory,
+  ) {
     final query = _query.trim().toLowerCase();
-    final filtered = query.isEmpty
+    final categoryFiltered = selectedCategory == 'all'
         ? patterns
         : patterns.where((pattern) {
+            return _LibraryDomainStyle.resolve(context, pattern).id ==
+                selectedCategory;
+          }).toList(growable: false);
+    final filtered = query.isEmpty
+        ? categoryFiltered
+        : categoryFiltered.where((pattern) {
             final text = [
               pattern.title,
               pattern.abstractPattern,
@@ -198,272 +210,86 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
     }
   }
 
-  void _showLibraryActionLoop(
-    BuildContext context,
-    LibraryPatternModel pattern,
-    SignalLibraryViewModel viewModel,
-  ) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _LibrarySignalDecisionSheet(
-        pattern: pattern,
-        viewModel: viewModel,
-      ),
-    );
-  }
-}
+  Future<void> _respondToPattern({
+    required LibraryPatternModel pattern,
+    required String status,
+    required SignalLibraryViewModel viewModel,
+  }) async {
+    if (_submittingPatternIds.contains(pattern.id)) return;
+    final messenger = ScaffoldMessenger.of(context);
 
-class _LibrarySignalDecisionSheet extends StatefulWidget {
-  final LibraryPatternModel pattern;
-  final SignalLibraryViewModel viewModel;
-
-  const _LibrarySignalDecisionSheet({
-    required this.pattern,
-    required this.viewModel,
-  });
-
-  @override
-  State<_LibrarySignalDecisionSheet> createState() =>
-      _LibrarySignalDecisionSheetState();
-}
-
-class _LibrarySignalDecisionSheetState
-    extends State<_LibrarySignalDecisionSheet> {
-  bool _submitting = false;
-
-  Future<void> _respond(String status) async {
-    if (_submitting) return;
-    EditableTimelineDecision? decision;
-    if (status != 'inaccurate') {
-      decision = await showEditableTimelineDecisionDialog(
-        context,
-        initialText: widget.pattern.abstractPattern.trim(),
-        keyPrefix: 'library-signal',
-      );
-      if (decision == null || !mounted) return;
-    }
-
-    if (status == 'inaccurate' || decision?.addToTimeline != true) {
-      final messenger = ScaffoldMessenger.of(context);
-      final message = AppLocaleText.tr(
-        context,
-        en: 'Nothing was added to your timeline.',
-        zhHans: '没有加入时间线，也没有保存反馈。',
-        zhHant: '沒有加入時間線，也沒有儲存回饋。',
-        ja: 'タイムラインには追加せず、フィードバックも保存していません。',
-      );
-      Navigator.of(context).pop();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(message),
-        ),
-      );
+    if (status == 'inaccurate') {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Nothing was added to your timeline.',
+                zhHans: '没有加入时间线，也没有保存反馈。',
+                zhHant: '沒有加入時間線，也沒有儲存回饋。',
+                ja: 'タイムラインには追加せず、フィードバックも保存していません。',
+              ),
+            ),
+          ),
+        );
       return;
     }
 
-    setState(() => _submitting = true);
-    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _submittingPatternIds.add(pattern.id));
     try {
-      final original = widget.pattern.abstractPattern.trim();
-      final edited = decision?.text.trim();
-      final signal = await widget.viewModel.respondToPattern(
-        pattern: widget.pattern,
+      final signal = await viewModel.respondToPattern(
+        pattern: pattern,
         status: status,
-        userText: edited == null || edited == original ? null : edited,
-        addToTimeline: decision?.addToTimeline ?? false,
+        addToTimeline: true,
       );
       if (!mounted) return;
-      Navigator.of(context).pop();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            signal != null
-                ? AppLocaleText.tr(
-                    context,
-                    en: 'Added to your timeline.',
-                    zhHans: '已加入你的时间线。',
-                    zhHant: '已加入你的時間線。',
-                    ja: 'タイムラインに追加しました。',
-                  )
-                : AppLocaleText.tr(
-                    context,
-                    en: 'Nothing was added to your timeline.',
-                    zhHans: '没有加入时间线，也没有保存反馈。',
-                    zhHant: '沒有加入時間線，也沒有儲存回饋。',
-                    ja: 'タイムラインには追加せず、フィードバックも保存していません。',
-                  ),
-          ),
-        ),
-      );
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _submitting = false);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Could not complete this action. Please try again.',
-              zhHans: '暂时无法完成，请再试一次。',
-              zhHant: '暫時無法完成，請再試一次。',
-              ja: '操作を完了できませんでした。もう一度お試しください。',
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              signal != null
+                  ? AppLocaleText.tr(
+                      context,
+                      en: 'Added to your timeline.',
+                      zhHans: '已加入你的时间线。',
+                      zhHant: '已加入你的時間線。',
+                      ja: 'タイムラインに追加しました。',
+                    )
+                  : AppLocaleText.tr(
+                      context,
+                      en: 'Nothing was added to your timeline.',
+                      zhHans: '没有加入时间线，也没有保存反馈。',
+                      zhHant: '沒有加入時間線，也沒有儲存回饋。',
+                      ja: 'タイムラインには追加せず、フィードバックも保存していません。',
+                    ),
             ),
           ),
-        ),
-      );
+        );
+    } catch (_) {
+      if (!mounted) return;
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Could not complete this action. Please try again.',
+                zhHans: '暂时无法完成，请再试一次。',
+                zhHant: '暫時無法完成，請再試一次。',
+                ja: '操作を完了できませんでした。もう一度お試しください。',
+              ),
+            ),
+          ),
+        );
+    } finally {
+      if (mounted) {
+        setState(() => _submittingPatternIds.remove(pattern.id));
+      }
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final pattern = widget.pattern;
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.96),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(34)),
-        boxShadow: [
-          BoxShadow(
-            color: AuroraColors.purple.withValues(alpha: 0.18),
-            blurRadius: 36,
-            offset: const Offset(0, -12),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            22,
-            10,
-            22,
-            24 + MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 48,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: AuroraColors.line,
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 22),
-              Row(
-                children: [
-                  const AuroraSoftIconCircle(
-                    icon: Icons.auto_awesome_rounded,
-                    color: AuroraColors.purple,
-                    size: 42,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      AppLocaleText.tr(
-                        context,
-                        en: 'Does this signal match your recent life?',
-                        zhHans: '这条信号像不像你最近的情况？',
-                        zhHant: '這條信號像不像你最近的情況？',
-                        ja: 'このシグナルは最近のあなたに近いですか？',
-                      ),
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: AuroraColors.ink,
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Text(
-                pattern.title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: AuroraColors.ink,
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                pattern.abstractPattern,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AuroraColors.muted,
-                      height: 1.5,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'This is a SignalCard reference. It only enters your timeline if you choose to add it.',
-                  zhHans: '这只是 SignalCard 参考；只有你确认加入时，才会进入自己的时间线。',
-                  zhHant: '這只是 SignalCard 參考；只有你確認加入時，才會進入自己的時間線。',
-                  ja: 'これはSignalCardの参考です。追加を選んだ場合だけ自分のタイムラインに入ります。',
-                ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AuroraColors.muted,
-                      height: 1.45,
-                    ),
-              ),
-              const SizedBox(height: 18),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _LibraryFeedbackButton(
-                    key: const ValueKey('library-signal-accurate'),
-                    label: AppLocaleText.tr(
-                      context,
-                      en: 'Accurate',
-                      zhHans: '准',
-                      zhHant: '準',
-                      ja: '合っている',
-                    ),
-                    icon: Icons.check_circle_outline,
-                    primary: true,
-                    onPressed: _submitting ? null : () => _respond('accurate'),
-                  ),
-                  _LibraryFeedbackButton(
-                    key: const ValueKey('library-signal-partial'),
-                    label: AppLocaleText.tr(
-                      context,
-                      en: 'Somewhat',
-                      zhHans: '有一点像',
-                      zhHant: '有一點像',
-                      ja: '少し近い',
-                    ),
-                    icon: Icons.tune,
-                    onPressed: _submitting ? null : () => _respond('partial'),
-                  ),
-                  _LibraryFeedbackButton(
-                    key: const ValueKey('library-signal-inaccurate'),
-                    label: AppLocaleText.tr(
-                      context,
-                      en: 'Not accurate',
-                      zhHans: '不准',
-                      zhHant: '不準',
-                      ja: '違う',
-                    ),
-                    icon: Icons.remove_circle_outline,
-                    onPressed:
-                        _submitting ? null : () => _respond('inaccurate'),
-                  ),
-                ],
-              ),
-              if (_submitting) ...[
-                const SizedBox(height: 16),
-                const LinearProgressIndicator(),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }
 
@@ -483,27 +309,45 @@ class _LibraryFeedbackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final style = ButtonStyle(
+      minimumSize: const WidgetStatePropertyAll(Size(0, 48)),
+      padding: const WidgetStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+      ),
+      textStyle: WidgetStatePropertyAll(
+        Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+      ),
+      shape: WidgetStatePropertyAll(
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+    );
     if (primary) {
       return FilledButton.icon(
-        style: FilledButton.styleFrom(
-          backgroundColor: AuroraColors.purple,
-          foregroundColor: Colors.white,
+        style: style.merge(
+          FilledButton.styleFrom(
+            backgroundColor: AuroraColors.purple,
+            foregroundColor: Colors.white,
+          ),
         ),
         onPressed: onPressed,
-        icon: Icon(icon, size: 18),
-        label: Text(label),
+        icon: Icon(icon, size: 16),
+        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
       );
     }
     return OutlinedButton.icon(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: AuroraColors.purple,
-        side: BorderSide(
-          color: AuroraColors.purple.withValues(alpha: 0.24),
+      style: style.merge(
+        OutlinedButton.styleFrom(
+          foregroundColor: AuroraColors.purple,
+          side: BorderSide(
+            color: AuroraColors.purple.withValues(alpha: 0.24),
+          ),
         ),
       ),
       onPressed: onPressed,
-      icon: Icon(icon, size: 18),
-      label: Text(label),
+      icon: Icon(icon, size: 16),
+      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
     );
   }
 }
@@ -516,10 +360,12 @@ class _LibrarySearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 66,
+      height: 54,
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.62),
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(
+          AuroraMainPageSpec.cardRadius,
+        ),
         border: Border.all(color: Colors.white.withValues(alpha: 0.88)),
         boxShadow: [
           BoxShadow(
@@ -540,17 +386,17 @@ class _LibrarySearchField extends StatelessWidget {
             zhHant: '搜尋一個信號...',
             ja: 'シグナルを検索...',
           ),
-          hintStyle: Theme.of(context).textTheme.titleMedium?.copyWith(
+          hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: AuroraColors.muted.withValues(alpha: 0.72),
                 fontWeight: FontWeight.w500,
               ),
           prefixIcon: Icon(
             Icons.search_rounded,
             color: AuroraColors.muted.withValues(alpha: 0.78),
-            size: 30,
+            size: 24,
           ),
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.fromLTRB(4, 21, 18, 18),
+          contentPadding: const EdgeInsets.fromLTRB(2, 16, 16, 14),
         ),
       ),
     );
@@ -577,7 +423,7 @@ class _LibraryFooterHint extends StatelessWidget {
               AppLocaleText.tr(
                 context,
                 en: 'Library items are references only. You decide whether one becomes your SignalCard.',
-                zhHans: '信号库内容只是参考；是否成为你自己的 SignalCard，由你决定。',
+                zhHans: '信号库内容只是参考；是否成为你自己的 Signal Card，由你决定。',
                 zhHant: '信號庫內容只是參考；是否成為你自己的 SignalCard，由你決定。',
                 ja: 'ライブラリは参考です。自分のSignalCardにするかは自分で選べます。',
               ),
@@ -599,38 +445,14 @@ class _LibraryHeroDecor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        const Positioned.fill(
-          child: CustomPaint(painter: _LibrarySignalOrbPainter()),
-        ),
-        Positioned(
-          left: 18,
-          bottom: 0,
-          width: 54,
-          height: 86,
-          child: CustomPaint(
-            painter: _LibraryLeafPainter(
-              color: AuroraColors.mint.withValues(alpha: 0.18),
-            ),
-          ),
-        ),
-        Positioned(
-          right: 4,
-          bottom: 10,
-          width: 52,
-          height: 92,
-          child: CustomPaint(
-            painter: _LibraryLeafPainter(
-              color: AuroraColors.purple.withValues(alpha: 0.15),
-            ),
-          ),
-        ),
-      ],
+    return const Center(
+      child: AuroraHeroEmblem(size: 170, opacity: 0.86),
     );
   }
 }
 
+// Retained for compatibility with older visual snapshots.
+// ignore: unused_element
 class _LibrarySignalOrbPainter extends CustomPainter {
   const _LibrarySignalOrbPainter();
 
@@ -721,6 +543,7 @@ class _LibrarySignalOrbPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
+// ignore: unused_element
 class _LibraryLeafPainter extends CustomPainter {
   final Color color;
 
@@ -844,7 +667,7 @@ class _LibraryCategoryChip extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(18),
           child: Ink(
-            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
             decoration: BoxDecoration(
               color: selected
                   ? Colors.white.withValues(alpha: 0.86)
@@ -891,11 +714,13 @@ class _LibraryCategoryChip extends StatelessWidget {
 
 class _PatternCard extends StatelessWidget {
   final LibraryPatternModel pattern;
-  final VoidCallback onReview;
+  final bool submitting;
+  final ValueChanged<String> onRespond;
 
   const _PatternCard({
     required this.pattern,
-    required this.onReview,
+    required this.submitting,
+    required this.onRespond,
   });
 
   @override
@@ -904,9 +729,11 @@ class _PatternCard extends StatelessWidget {
     final domain = _LibraryDomainStyle.resolve(context, pattern);
 
     return AuroraCard(
-      padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
+      padding: AuroraMainPageSpec.comfortableCardPadding,
       color: Colors.white.withValues(alpha: 0.64),
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(
+        AuroraMainPageSpec.cardRadiusLarge,
+      ),
       child: Stack(
         children: [
           Positioned(
@@ -928,21 +755,21 @@ class _PatternCard extends StatelessWidget {
                     color: domain.color,
                     patternId: pattern.id,
                   ),
-                  const SizedBox(width: 22),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _LibraryDomainBadge(domain: domain),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 8),
                         Text(
                           pattern.abstractPattern,
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleMedium?.copyWith(
+                          style: theme.textTheme.titleSmall?.copyWith(
                             color: AuroraColors.ink,
-                            height: 1.42,
-                            fontSize: 21,
+                            height: 1.38,
+                            fontSize: 16,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -951,22 +778,62 @@ class _PatternCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: _LibraryActionButton(
-                  key: ValueKey('library-review-${pattern.id}'),
-                  onPressed: onReview,
-                  icon: Icons.fact_check_outlined,
-                  label: AppLocaleText.tr(
-                    context,
-                    en: 'Does this match me?',
-                    zhHans: '看看像不像我',
-                    zhHant: '看看像不像我',
-                    ja: '自分に近いか確認',
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _LibraryFeedbackButton(
+                      key: ValueKey('library-signal-accurate-${pattern.id}'),
+                      label: AppLocaleText.tr(
+                        context,
+                        en: 'Accurate',
+                        zhHans: '准',
+                        zhHant: '準',
+                        ja: '合っている',
+                      ),
+                      icon: Icons.check_circle_outline,
+                      primary: true,
+                      onPressed:
+                          submitting ? null : () => onRespond('accurate'),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _LibraryFeedbackButton(
+                      key: ValueKey('library-signal-partial-${pattern.id}'),
+                      label: AppLocaleText.tr(
+                        context,
+                        en: 'Somewhat',
+                        zhHans: '有一点像',
+                        zhHant: '有一點像',
+                        ja: '少し近い',
+                      ),
+                      icon: Icons.tune,
+                      onPressed: submitting ? null : () => onRespond('partial'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _LibraryFeedbackButton(
+                      key: ValueKey('library-signal-inaccurate-${pattern.id}'),
+                      label: AppLocaleText.tr(
+                        context,
+                        en: 'Not accurate',
+                        zhHans: '不准',
+                        zhHant: '不準',
+                        ja: '違う',
+                      ),
+                      icon: Icons.remove_circle_outline,
+                      onPressed:
+                          submitting ? null : () => onRespond('inaccurate'),
+                    ),
+                  ),
+                ],
               ),
+              if (submitting) ...[
+                const SizedBox(height: 10),
+                const LinearProgressIndicator(minHeight: 2),
+              ],
             ],
           ),
         ],
@@ -1021,8 +888,8 @@ class _LibrarySignalIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 86,
-      height: 86,
+      width: 68,
+      height: 68,
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -1041,11 +908,11 @@ class _LibrarySignalIcon extends StatelessWidget {
             child: const SizedBox.expand(),
           ),
           SizedBox(
-            width: 58,
-            height: 58,
+            width: 46,
+            height: 46,
             child: PatternIllustration(patternId: patternId),
           ),
-          Icon(icon, color: Colors.white.withValues(alpha: 0.08), size: 58),
+          Icon(icon, color: Colors.white.withValues(alpha: 0.08), size: 46),
         ],
       ),
     );
@@ -1069,74 +936,10 @@ class _LibraryDomainBadge extends StatelessWidget {
         domain.label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
               color: domain.color,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
             ),
-      ),
-    );
-  }
-}
-
-class _LibraryActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback? onPressed;
-
-  const _LibraryActionButton({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(22),
-          child: Ink(
-            height: 50,
-            decoration: BoxDecoration(
-              color: Colors.white
-                  .withValues(alpha: onPressed == null ? 0.40 : 0.58),
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(
-                color: AuroraColors.purple.withValues(alpha: 0.20),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  color: AuroraColors.purple.withValues(
-                    alpha: onPressed == null ? 0.48 : 1,
-                  ),
-                  size: 21,
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: AuroraColors.purple.withValues(
-                            alpha: onPressed == null ? 0.48 : 1,
-                          ),
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -1168,6 +971,42 @@ class _LibraryDomainStyle {
       ...pattern.commonScenes,
       ...pattern.commonFrictions,
     ].join(' ').toLowerCase();
+
+    if (_containsAny(haystack, [
+      'relationship',
+      'relationships',
+      'communication',
+      'connection',
+      'expectation',
+      'expectations',
+      'unclear expectation',
+      '关系',
+      '關係',
+      '沟通',
+      '溝通',
+      '连接',
+      '連結',
+      '期待',
+      '说清楚',
+      '說清楚',
+      '被理解',
+      '関係',
+      'コミュニケーション',
+      'つながり',
+    ])) {
+      return _LibraryDomainStyle(
+        id: 'relationship_connection',
+        label: AppLocaleText.tr(
+          context,
+          en: 'Relationships',
+          zhHans: '关系连接',
+          zhHant: '關係連結',
+          ja: '関係性',
+        ),
+        icon: Icons.groups_rounded,
+        color: AuroraColors.blue,
+      );
+    }
 
     if (_containsAny(haystack, [
       'boundary',

@@ -19,6 +19,20 @@ class SelfReviewPage extends StatelessWidget {
     final vm = context.watch<SelfReviewViewModel>();
     final meVm = context.watch<MeViewModel>();
     final review = vm.review;
+    final heroTitle = AppLocaleText.tr(
+      context,
+      en: 'Why is recovery difficult at night?',
+      zhHans: '本次专题：为什么一到晚上就很难恢复？',
+      zhHant: '本次專題：為什麼一到晚上就很難恢復？',
+      ja: '今回のテーマ：夜になると回復しにくい理由',
+    );
+    final heroSubtitle = AppLocaleText.tr(
+      context,
+      en: 'A slower pass based on recent signals.',
+      zhHans: '基于最近 7 天的信号，做一次证据驱动的自我回顾。',
+      zhHant: '基於最近 7 天的信號，做一次證據驅動的自我回顧。',
+      ja: '最近 7 日のシグナルから、証拠に沿って見直します。',
+    );
 
     return Scaffold(
       body: Stack(
@@ -27,11 +41,12 @@ class SelfReviewPage extends StatelessWidget {
             child: SafeArea(
               bottom: false,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 40),
                 children: [
                   Align(
                     alignment: Alignment.centerLeft,
                     child: AuroraIconButton(
+                      key: const ValueKey('self-review-back'),
                       icon: Icons.arrow_back_rounded,
                       tooltip:
                           MaterialLocalizations.of(context).backButtonTooltip,
@@ -44,61 +59,64 @@ class SelfReviewPage extends StatelessWidget {
                       },
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  AuroraCard(
-                    padding: const EdgeInsets.all(22),
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFFFFFFF), Color(0xFFF7F3FF)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    child: Row(
+                  const SizedBox(height: 12),
+                  ConstrainedBox(
+                    key: const ValueKey('self-review-hero'),
+                    constraints: const BoxConstraints(minHeight: 204),
+                    child: Stack(
+                      clipBehavior: Clip.none,
                       children: [
-                        const AuroraSoftIconCircle(
-                          icon: Icons.spa_rounded,
-                          color: AuroraColors.purple,
-                          size: 64,
+                        const Positioned(
+                          right: -14,
+                          top: -14,
+                          child: IgnorePointer(
+                            child: AuroraHeroEmblem(
+                              size: 142,
+                              opacity: 0.64,
+                            ),
+                          ),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                AppLocaleText.tr(
-                                  context,
-                                  en: 'Why is recovery difficult at night?',
-                                  zhHans: '本次专题：为什么一到晚上就很难恢复？',
-                                  zhHant: '本次專題：為什麼一到晚上就很難恢復？',
-                                  ja: '今回のテーマ：夜になると回復しにくい理由',
+                              Padding(
+                                padding: const EdgeInsets.only(right: 96),
+                                child: Semantics(
+                                  key: const ValueKey(
+                                      'self-review-heading-semantics'),
+                                  container: true,
+                                  excludeSemantics: true,
+                                  header: true,
+                                  label: heroTitle,
+                                  child: AuroraHeroTitle(
+                                    text: heroTitle,
+                                    fontSize: MediaQuery.sizeOf(context).width <
+                                            AuroraMainPageSpec.compactBreakpoint
+                                        ? 30
+                                        : 32,
+                                    maxLines: 3,
+                                  ),
                                 ),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleLarge
-                                    ?.copyWith(
-                                      color: AuroraColors.ink,
-                                      fontWeight: FontWeight.w800,
-                                      height: 1.25,
-                                    ),
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                AppLocaleText.tr(
-                                  context,
-                                  en: 'A slower pass based on recent signals.',
-                                  zhHans: '基于最近 7 天的信号，做一次证据驱动的自我回顾。',
-                                  zhHant: '基於最近 7 天的信號，做一次證據驅動的自我回顧。',
-                                  ja: '最近 7 日のシグナルから、証拠に沿って見直します。',
+                              const SizedBox(height: 12),
+                              Padding(
+                                padding: const EdgeInsets.only(right: 70),
+                                child: Text(
+                                  heroSubtitle,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color: AuroraColors.ink
+                                            .withValues(alpha: 0.68),
+                                        fontWeight: FontWeight.w400,
+                                        height: 1.5,
+                                      ),
                                 ),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.copyWith(
-                                      color: AuroraColors.muted,
-                                      height: 1.45,
-                                    ),
                               ),
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 14),
                               Wrap(
                                 spacing: 8,
                                 runSpacing: 8,
@@ -283,7 +301,7 @@ class _ReviewLoadingState extends StatelessWidget {
             ),
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: AuroraColors.ink,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ],
@@ -318,7 +336,7 @@ class _ReviewMessageState extends StatelessWidget {
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: AuroraColors.ink,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
           if ((subtitle ?? '').trim().isNotEmpty) ...[
@@ -353,28 +371,37 @@ class _RelatedRecordStrip extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(
-                AppLocaleText.tr(context,
-                    en: 'Related records',
-                    zhHans: '相关记录',
-                    zhHant: '相關記錄',
-                    ja: '関連する記録'),
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: AuroraColors.ink,
-                      fontWeight: FontWeight.w800,
-                    ),
+              Expanded(
+                child: Text(
+                  AppLocaleText.tr(context,
+                      en: 'Related records',
+                      zhHans: '相关记录',
+                      zhHant: '相關記錄',
+                      ja: '関連する記録'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
               ),
-              const Spacer(),
-              Text(
-                AppLocaleText.tr(context,
-                    en: 'View all',
-                    zhHans: '查看全部',
-                    zhHant: '查看全部',
-                    ja: 'すべて見る'),
-                style: Theme.of(context)
-                    .textTheme
-                    .labelMedium
-                    ?.copyWith(color: AuroraColors.muted),
+              const SizedBox(width: 12),
+              Flexible(
+                child: Text(
+                  AppLocaleText.tr(context,
+                      en: 'View all',
+                      zhHans: '查看全部',
+                      zhHant: '查看全部',
+                      ja: 'すべて見る'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelMedium
+                      ?.copyWith(color: AuroraColors.muted),
+                ),
               ),
             ],
           ),
@@ -487,7 +514,7 @@ class _SelfReviewActionLoopCard extends StatelessWidget {
                   ),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AuroraColors.ink,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -568,7 +595,7 @@ class _SelfReviewActionLoopCard extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'Next Weekly can use this as a Review & Adjust entry.',
-              zhHans: '下一次 Weekly 可以把它作为 Review & Adjust 的入口。',
+              zhHans: '下一次每周复盘可以把它作为回看与调整的入口。',
               zhHant: '下一次 Weekly 可以把它作為 Review & Adjust 的入口。',
               ja: '次の Weekly で Review & Adjust の入口として使えます。',
             ),
@@ -621,7 +648,7 @@ class _LoopStepTile extends StatelessWidget {
                 children: [
                   TextSpan(
                     text: '$label：',
-                    style: TextStyle(color: color, fontWeight: FontWeight.w800),
+                    style: TextStyle(color: color, fontWeight: FontWeight.w700),
                   ),
                   TextSpan(text: body),
                 ],
@@ -708,17 +735,19 @@ class _ReviewSection extends StatelessWidget {
                   title,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: color,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
-              Text(
-                subtitle,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: AuroraColors.muted,
-                    ),
-              ),
             ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: AuroraColors.muted,
+                  fontWeight: FontWeight.w500,
+                ),
           ),
           const SizedBox(height: 14),
           if (items.isEmpty)

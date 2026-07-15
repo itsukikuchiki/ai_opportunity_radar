@@ -176,7 +176,7 @@ class _AdvancedSignalSettingsPageState
             child: SafeArea(
               bottom: false,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 116),
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 36),
                 children: [
                   _GlassBackButton(
                     onPressed: () => Navigator.of(context).maybePop(),
@@ -187,28 +187,42 @@ class _AdvancedSignalSettingsPageState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          AppLocaleText.tr(
-                            context,
-                            en: 'Advanced signal settings',
-                            zhHans: '高级线索设置',
-                            zhHant: '進階線索設定',
-                            ja: '高度なシグナル設定',
-                          ),
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const AuroraSectionIcon(
+                              icon: Icons.monitor_heart_outlined,
+                              color: AuroraColors.mint,
+                              size: 42,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                AppLocaleText.tr(
+                                  context,
+                                  en: 'Advanced signal settings',
+                                  zhHans: '高级线索设置',
+                                  zhHant: '進階線索設定',
+                                  ja: '高度なシグナル設定',
+                                ),
+                                style: theme.textTheme.headlineSmall?.copyWith(
+                                  color: AuroraColors.ink,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 10),
                         Text(
                           AppLocaleText.tr(
                             context,
                             en: 'Health data is optional. It only adds abstract recovery signals for Energy Budget; raw details are not shown, uploaded, or sent to Signal Library.',
                             zhHans:
-                                '健康数据是可选项，只会为 Energy Budget 增加抽象恢复信号；健康明细不会展示、上传，也不会进入信号库。',
+                                '健康数据是可选项，只会为能量预算增加抽象恢复信号；健康明细不会展示、上传，也不会进入信号库。',
                             zhHant:
-                                '健康資料是可選項，只會為 Energy Budget 增加抽象恢復信號；健康明細不會展示、上傳，也不會進入信號庫。',
-                            ja: 'ヘルスケアデータは任意です。Energy Budget の抽象的な回復シグナルだけに使い、詳細は表示・アップロード・シグナルライブラリ利用しません。',
+                                '健康資料是可選項，只會為能量預算增加抽象恢復信號；健康明細不會展示、上傳，也不會進入信號庫。',
+                            ja: 'ヘルスケアデータは任意です。エネルギー予算の抽象的な回復シグナルだけに使い、詳細は表示・アップロード・シグナルライブラリ利用しません。',
                           ),
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: AuroraColors.muted,
@@ -585,9 +599,9 @@ class _HealthNoticeCard extends StatelessWidget {
         return AppLocaleText.tr(
           context,
           en: 'Health recovery hints are unavailable right now. Energy Budget will keep using your own signals.',
-          zhHans: '健康恢复线索暂不可用。Energy Budget 会继续使用你自己的信号。',
-          zhHant: '健康恢復線索暫不可用。Energy Budget 會繼續使用你自己的信號。',
-          ja: 'ヘルスケア回復ヒントは現在利用できません。Energy Budget は引き続き自分のシグナルを使います。',
+          zhHans: '健康恢复线索暂不可用。能量预算会继续使用你自己的信号。',
+          zhHant: '健康恢復線索暫不可用。能量預算會繼續使用你自己的信號。',
+          ja: 'ヘルスケア回復ヒントは現在利用できません。エネルギー予算は引き続き自分のシグナルを使います。',
         );
       case _HealthNotice.permissionDenied:
         return AppLocaleText.tr(

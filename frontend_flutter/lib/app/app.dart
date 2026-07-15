@@ -18,6 +18,7 @@ import '../features/pages/signal_library/signal_library_view_model.dart';
 import '../features/pages/today/today_view_model.dart';
 import '../features/pages/weekly/weekly_view_model.dart';
 import '../features/system/initialization_failure_page.dart';
+import '../shared/widgets/aurora_ui.dart';
 
 class RadarApp extends StatefulWidget {
   final AppBootstrapState bootstrapState;
@@ -315,7 +316,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
 
   ThemeData _buildTheme() {
     const colorScheme = ColorScheme.light(
-      primary: Color(0xFF7267F0),
+      primary: Color(0xFF7767F4),
       onPrimary: Colors.white,
       primaryContainer: Color(0xFFEDEBFF),
       onPrimaryContainer: Color(0xFF151A33),
@@ -328,7 +329,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
       tertiaryContainer: Color(0xFFEAF8F0),
       onTertiaryContainer: Color(0xFF151A33),
       surface: Color(0xFFFFFCFA),
-      onSurface: Color(0xFF151A33),
+      onSurface: Color(0xFF252B4A),
       surfaceContainerHighest: Color(0xFFF5F4F8),
       onSurfaceVariant: Color(0xFF7F8797),
       outline: Color(0xFFCFCBD8),
@@ -340,15 +341,14 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
       colorScheme: colorScheme,
       scaffoldBackgroundColor: colorScheme.surface,
       cardTheme: const CardThemeData(elevation: 0, margin: EdgeInsets.zero),
-      fontFamily: 'SF Pro Text',
       textTheme: const TextTheme(
         headlineMedium:
-            TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0),
-        headlineSmall: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0),
-        titleLarge: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0),
-        titleMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0),
-        bodyLarge: TextStyle(height: 1.45, letterSpacing: 0),
-        bodyMedium: TextStyle(height: 1.45, letterSpacing: 0),
+            TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.2),
+        headlineSmall: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0),
+        titleLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0),
+        titleMedium: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0),
+        bodyLarge: TextStyle(height: 1.48, letterSpacing: 0),
+        bodyMedium: TextStyle(height: 1.48, letterSpacing: 0),
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0x00FFFCFA),
@@ -397,41 +397,80 @@ class _BrandLaunchScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FBFD),
-      body: Center(
-        child: Transform.translate(
-          offset: const Offset(0, -32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset(
-                'assets/brand-icon-transparent.png',
-                width: 148,
-                height: 148,
-                fit: BoxFit.contain,
-              ),
-              const SizedBox(height: 26),
-              Text(
-                'Signal Path',
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                      color: const Color(0xFF213040),
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.2,
+      body: Stack(
+        children: [
+          AuroraPage(
+            child: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxHeight < 700;
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight - 52,
+                      ),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 344),
+                          child: AuroraCard(
+                            key: const ValueKey('brand-launch-surface'),
+                            padding: EdgeInsets.fromLTRB(
+                              24,
+                              compact ? 24 : 30,
+                              24,
+                              compact ? 26 : 32,
+                            ),
+                            borderRadius: BorderRadius.circular(30),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ExcludeSemantics(
+                                  child: AuroraHeroEmblem(
+                                    size: compact ? 132 : 164,
+                                    opacity: 0.94,
+                                  ),
+                                ),
+                                SizedBox(height: compact ? 14 : 20),
+                                Semantics(
+                                  key: const ValueKey('brand-launch-title'),
+                                  header: true,
+                                  label: 'Signal Path',
+                                  child: const ExcludeSemantics(
+                                    child: AuroraHeroTitle(
+                                      text: 'Signal Path',
+                                      fontSize: 38,
+                                      maxLines: 1,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '看见信号，轻轻调整',
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
+                                        color: AuroraColors.ink
+                                            .withValues(alpha: 0.76),
+                                        height: 1.4,
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
+                  );
+                },
               ),
-              const SizedBox(height: 8),
-              const Text(
-                '看见信号，轻轻调整',
-                style: TextStyle(
-                  color: Color(0xFF394B5C),
-                  fontSize: 17,
-                  height: 1.35,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          const AuroraSafeTopMask(extraHeight: 0),
+        ],
       ),
     );
   }

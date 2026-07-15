@@ -226,6 +226,13 @@ class EnergyBudgetRepository {
     for (final signal in signals) {
       final evidenceLevel = _evidenceLevel(signal);
       _countIfPresent(scenes, signal.scene);
+      if (signal.sourceType == 'time_use') {
+        final category = signal.rawPayloadJson['category']?.toString();
+        if ((category ?? '').trim().toLowerCase() !=
+            (signal.scene ?? '').trim().toLowerCase()) {
+          _countIfPresent(scenes, category);
+        }
+      }
       _countIfPresent(frictions, signal.friction);
       _countIfPresent(positives, signal.positiveSignal);
       for (final stage in signal.linkedLifeChainStages) {
@@ -265,10 +272,16 @@ class EnergyBudgetRepository {
     final friction = (signal.friction ?? '').toLowerCase();
     final scene = (signal.scene ?? '').toLowerCase();
     final positive = (signal.positiveSignal ?? '').toLowerCase();
+    final structuredEnergy =
+        (signal.rawPayloadJson['energy_effect']?.toString() ?? '')
+            .toLowerCase();
+    final timeUseCategory =
+        (signal.rawPayloadJson['category']?.toString() ?? '').toLowerCase();
     final stages =
         signal.linkedLifeChainStages.map((stage) => stage.toLowerCase());
 
     if (_containsAny(energyLoad, const ['drain', 'draining', 'high']) ||
+        structuredEnergy == 'draining' ||
         _containsAny(friction, const ['pressure', 'overload', 'meeting'])) {
       types.add('high_drain');
     }
@@ -288,6 +301,8 @@ class EnergyBudgetRepository {
           const ['restore', 'restoring', 'recovery'],
         ) ||
         positive.isNotEmpty ||
+        structuredEnergy == 'restoring' ||
+        timeUseCategory == 'recovery' ||
         stages.contains('recovery')) {
       types.add('recovery');
     }
@@ -401,7 +416,7 @@ class EnergyBudgetRepository {
       final feedbackText = feedback == null || feedback.isEmpty
           ? '还没有反馈也没关系。'
           : '反馈是：$feedback。';
-      return '可以连接到最近的 Life Experiment：“${latest.title}”。$feedbackText 这里看的不是完成度，而是这个设计有没有帮你省一点力。';
+      return '可以连接到最近的生活小实验：“${latest.title}”。$feedbackText 这里看的不是完成度，而是这个设计有没有帮你省一点力。';
     }
     final weeklyExperiment = weekly?.lifeExperiment;
     if (weeklyExperiment != null) {
@@ -411,7 +426,7 @@ class EnergyBudgetRepository {
     if (journeyAdjustment != null && journeyAdjustment.isNotEmpty) {
       return journeyAdjustment;
     }
-    return '还没有可连接的 Life Experiment。之后可以从一个很小的调整开始。';
+    return '还没有可连接的生活小实验。之后可以从一个很小的调整开始。';
   }
 
   EnergyBudgetModel _emptyBudget({
@@ -423,7 +438,7 @@ class EnergyBudgetRepository {
     return EnergyBudgetModel(
       status: 'insufficient_data',
       mostDrainingSource: '现在还没有足够的内部信号来判断能量流向。',
-      recoveryClue: '可以先从 Today 里记录一个稍微省力或稍微耗力的片段。',
+      recoveryClue: '可以先从今天里记录一个稍微省力或稍微耗力的片段。',
       bufferLocation: '暂时还没有明确需要 buffer 的位置。',
       switchingAdjustment: _switchingAdjustment(
         const _EnergyStats.empty(),
@@ -436,7 +451,7 @@ class EnergyBudgetRepository {
       ),
       scheduleDensityHint: _scheduleDensityHint(externalHints),
       recoverySignalHint: _recoverySignalHint(externalHints),
-      externalConflictNote: '外部提示只是辅助线索。内部 SignalCard 不足时，不自动下结论。',
+      externalConflictNote: '外部提示只是辅助线索。内部 Signal Card 不足时，不自动下结论。',
       abstractExternalHints: externalHints,
       blocks: const [],
     );
@@ -465,7 +480,7 @@ class EnergyBudgetRepository {
   }
 
   String _scheduleDensityHint(Map<String, String> hints) {
-    return '当前版本不使用日程数据调整 Energy Budget。';
+    return '不会读取系统日历；能量预算只使用你主动登记的时间信号。';
   }
 
   String _recoverySignalHint(Map<String, String> hints) {
@@ -476,7 +491,7 @@ class EnergyBudgetRepository {
         hints['workout_load_hint'] ??
         hints['stable_recovery_hint'];
     if (source == null || source.isEmpty) {
-      return '还没有额外的恢复信号提示。Energy Budget 会继续先看你的内部记录。';
+      return '还没有额外的恢复信号提示。能量预算会继续先看你的内部记录。';
     }
     return '恢复信号提示：$source 这不是健康评分，也不是健康评价。';
   }
@@ -486,7 +501,7 @@ class EnergyBudgetRepository {
     Map<String, String> hints,
   ) {
     if (hints.isEmpty) {
-      return '没有外部辅助提示时，Energy Budget 会回到内部 SignalCard。';
+      return '没有外部辅助提示时，能量预算会回到内部 Signal Card。';
     }
     final hasConfirmedInternal = stats.signals.any(
       (signal) =>
@@ -495,7 +510,7 @@ class EnergyBudgetRepository {
           signal.userConfirmation == 'supplemented',
     );
     if (hasConfirmedInternal) {
-      return '如果外部提示和你的确认记录不一致，以你确认过的 SignalCard 和反馈为准。';
+      return '如果外部提示和你的确认记录不一致，以你确认过的 Signal Card 和反馈为准。';
     }
     return '外部提示只是辅助线索，不一定代表你的真实感受。';
   }

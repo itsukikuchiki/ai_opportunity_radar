@@ -1,6 +1,6 @@
 # AI Orchestration
 
-Last updated: 2026-07-12
+Last updated: 2026-07-15
 
 This document is the active product contract for AI stages. SignalPath
 organizes AI by problem depth, not by model name. Model choice may change
@@ -21,8 +21,10 @@ Status vocabulary follows [App Design](app_design.md): **Implemented**,
    `MicroAction` or `LifeExperiment`.
 5. AI may rank eligible evidence and candidates; it may never bypass
    eligibility, period, privacy, entitlement, or deletion rules.
-6. `Schedule` and `Goal` are compatibility-only and must not be active AI
-   inputs, threshold facts, or generated outputs.
+6. Legacy standalone `Schedule` and `Goal` are compatibility-only and must not
+   be active AI inputs, threshold facts, or generated outputs. A user-entered
+   `time_use` record is instead a normal structured SignalCard and may enter AI
+   stages only through the standard eligibility and privacy contract.
 7. A Today acknowledgement or Pro light dialogue is L1 Attune. It is not an
    Observation, candidate, reflection, or report evidence. Pro access never
    upgrades a light conversation to L2/L3 by itself.

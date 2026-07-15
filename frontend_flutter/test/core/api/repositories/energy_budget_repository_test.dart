@@ -76,6 +76,31 @@ void main() {
       await harness.close();
     });
 
+    test('time_use 的场景和用户体感进入 Energy Budget', () async {
+      final harness = await _createHarness(dbPath);
+
+      await harness.seedSignalCard(
+        id: 'time_use_meeting',
+        sourceType: 'time_use',
+        content: '09:00–10:30 · 工作 · 团队会议',
+        rawPayloadJson: const {
+          'timeline_type': 'time_use',
+          'category': 'work',
+          'energy_effect': 'draining',
+          'duration_minutes': 90,
+        },
+      );
+      await harness.seedNeutralGateSignals(count: 2);
+
+      final budget = await harness.repository.fetchBasicEnergyBudget();
+
+      expect(budget.blockByType('high_drain'), isNotNull);
+      expect(budget.mostDrainingSource, contains('work'));
+      expect(budget.scheduleDensityHint, contains('主动登记的时间信号'));
+
+      await harness.close();
+    });
+
     test('legacy / inaccurate 被排除，普通 unconfirmed 只保留轻证据等级', () async {
       final harness = await _createHarness(dbPath);
 
@@ -220,7 +245,7 @@ void main() {
 
       final budget = await harness.repository.fetchBasicEnergyBudget();
 
-      expect(budget.experimentConnection, contains('Life Experiment'));
+      expect(budget.experimentConnection, contains('生活小实验'));
       expect(budget.experimentConnection, contains('帮助不明显'));
       expect(budget.experimentConnection, contains('省一点力'));
       expect(budget.experimentConnection, isNot(contains('失败')));
@@ -293,11 +318,11 @@ void main() {
 
       expect(budget.status, 'ready');
       expect(budget.mostDrainingSource, contains('context_switch'));
-      expect(budget.scheduleDensityHint, contains('不使用日程数据'));
+      expect(budget.scheduleDensityHint, contains('不会读取系统日历'));
       expect(budget.recoverySignalHint, contains('恢复信号提示'));
       expect(budget.recoverySignalHint, isNot(contains('分数低')));
       expect(budget.recoverySignalHint, isNot(contains('诊断')));
-      expect(budget.externalConflictNote, contains('以你确认过的 SignalCard'));
+      expect(budget.externalConflictNote, contains('以你确认过的 Signal Card'));
       expect(
         budget.abstractExternalHints.keys,
         isNot(contains('schedule_density_hint')),
@@ -324,9 +349,9 @@ void main() {
 
       expect(budget.status, 'ready');
       expect(budget.mostDrainingSource, contains('task_switching'));
-      expect(budget.scheduleDensityHint, contains('不使用日程数据'));
+      expect(budget.scheduleDensityHint, contains('不会读取系统日历'));
       expect(budget.recoverySignalHint, contains('内部记录'));
-      expect(budget.externalConflictNote, contains('内部 SignalCard'));
+      expect(budget.externalConflictNote, contains('内部 Signal Card'));
       expect(budget.abstractExternalHints, isEmpty);
 
       await harness.close();
@@ -355,7 +380,7 @@ void main() {
 
       expect(budget.mostDrainingSource, contains('relationship_message'));
       expect(budget.recoveryClue, contains('quiet_evening'));
-      expect(budget.externalConflictNote, contains('以你确认过的 SignalCard'));
+      expect(budget.externalConflictNote, contains('以你确认过的 Signal Card'));
       expect(budget.externalConflictNote, isNot(contains('自动')));
 
       await harness.close();
@@ -455,7 +480,7 @@ void main() {
 
       final budget = await harness.repository.fetchBasicEnergyBudget();
 
-      expect(budget.scheduleDensityHint, contains('不使用日程数据'));
+      expect(budget.scheduleDensityHint, contains('不会读取系统日历'));
       expect(budget.recoverySignalHint, contains('恢复信号提示'));
       expect(
         budget.abstractExternalHints.keys,

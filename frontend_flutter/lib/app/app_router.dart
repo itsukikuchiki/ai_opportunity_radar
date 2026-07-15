@@ -116,7 +116,7 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       GoRoute(
         path: '${AppRoutes.todayDialog}/:captureId',
         builder: (_, state) => PremiumGatePage(
-          source: 'Today 记录',
+          source: '今天记录',
           child: TodayDialogPage(
             captureId: state.pathParameters['captureId']!,
           ),
@@ -125,7 +125,7 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       GoRoute(
         path: AppRoutes.weeklyReflect,
         builder: (_, __) => const PremiumGatePage(
-          source: 'Weekly Deep Review',
+          source: '每周复盘深度分析',
           child: WeeklyReflectPage(),
         ),
       ),
@@ -146,7 +146,7 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       GoRoute(
         path: AppRoutes.journeyPro,
         builder: (_, __) => const PremiumGatePage(
-          source: 'Journey Pro L3',
+          source: '旅程 Pro 深度分析',
           child: JourneyProPage(),
         ),
       ),

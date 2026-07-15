@@ -89,4 +89,57 @@ void main() {
     expect(tester.getBottomRight(cards.at(2)).dy, lessThan(560));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('手帐将 time_use 显示为安排并使用登记开始时间', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final now = DateTime.now();
+    final localDate = now.toIso8601String().split('T').first;
+    final startAt = DateTime(now.year, now.month, now.day, 9, 30);
+    final repository = StubTodayRepository(
+      fetchTodayResult: {
+        'insight': TodayInsightModel(text: '今天可以先这样看。'),
+        'pendingQuestion': null,
+        'bestAction': DailyBestActionModel(text: '先留一点余地。'),
+        'recentSignals': [
+          RecentSignalModel(
+            id: 'time-use-signal',
+            sourceType: 'time_use',
+            content: '09:30–10:30 · 工作 · 团队会议',
+            createdAt: now,
+            localDate: localDate,
+            rawPayloadJson: {
+              'timeline_type': 'time_use',
+              'category': 'work',
+              'start_at': startAt.toIso8601String(),
+              'end_at': startAt.add(const Duration(hours: 1)).toIso8601String(),
+              'duration_minutes': 60,
+            },
+          ),
+        ],
+      },
+    );
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const TodayDiaryPage(),
+        providers: [
+          ChangeNotifierProvider<TodayViewModel>(
+            create: (_) => TodayViewModel(repository),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('安排'), findsOneWidget);
+    expect(find.text('09:30'), findsOneWidget);
+    expect(find.textContaining('团队会议'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

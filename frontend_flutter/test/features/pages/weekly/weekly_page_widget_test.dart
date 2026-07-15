@@ -140,7 +140,12 @@ void main() {
     );
     expect(
       tester
-          .widget<Text>(find.byKey(const ValueKey('weekly-hero-title')))
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(const ValueKey('weekly-hero-title')),
+              matching: find.byType(Text),
+            ),
+          )
           .style
           ?.fontSize,
       36,
@@ -404,6 +409,12 @@ void main() {
 
   testWidgets('Weekly Reflect smoke: 标题/入口使用 Weekly Reflect 语义',
       (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
     final weeklyRepo = StubWeeklyRepository(
       weekly: WeeklyInsightModel(
         weekStart: '2026-07-01',
@@ -442,7 +453,10 @@ void main() {
 
     await tester.pumpWidget(
       buildTestApp(
-        child: const WeeklyReflectPage(),
+        child: const MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(1.3)),
+          child: WeeklyReflectPage(),
+        ),
         providers: [
           Provider<AppDependencies>.value(value: deps),
         ],
@@ -451,10 +465,194 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(WeeklyReflectPage), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('weekly-reflect-hero')),
+      findsOneWidget,
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('weekly-reflect-back'))).width,
+      greaterThanOrEqualTo(44),
+    );
+    final reflectScroll = tester.widget<ListView>(
+      find.byKey(const ValueKey('weekly-reflect-scroll-view')),
+    );
+    expect(
+      reflectScroll.padding,
+      const EdgeInsets.fromLTRB(18, 14, 18, 96),
+    );
     expect(find.text('Weekly Deep Review'), findsOneWidget);
     expect(find.text('Reflect'), findsOneWidget);
     expect(find.textContaining('Weekly Reflect keeps'), findsOneWidget);
     expect(find.textContaining('Keep the next experiment light'), findsWidgets);
+  });
+
+  testWidgets('每周复盘深度分析在 390x844 与 1.3x 字体下使用正文层级且本地化旧 L3 文案', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final weeklyRepo = StubWeeklyRepository(
+      weekly: WeeklyInsightModel(
+        weekStart: '2026-07-13',
+        weekEnd: '2026-07-19',
+        status: 'ready',
+        keyInsight: '本周的信号已经开始聚合。',
+        patterns: const [],
+        frictions: const [],
+        bestAction: '下周先保留一个轻量尝试。',
+        opportunitySnapshot: const {
+          '_weekly_inclusion': {
+            'used_count': 3,
+            'timeline_only_count': 0,
+            'excluded_count': 0,
+            'legacy_reference_count': 0,
+          },
+        },
+        feedbackSubmitted: false,
+        chartData: const [
+          WeeklyChartPointModel(
+            date: '2026-07-15',
+            signalCount: 3,
+            moodScore: 0,
+            frictionScore: 0.4,
+            hasPositiveSignal: false,
+          ),
+        ],
+      ),
+      weeklyReflect: const WeeklyReflectModel(
+        summary: '这周已经有足够线索，可以先看它的重复方式。L3 Reflect 要看的更像是结构，而不是把每一条记录拉长。',
+        rootTension: '表层事件是几条不同记录；底层 tension 是不断重启判断和重新找回节奏。',
+        hiddenPattern: '把图和文字放在一起看，线索更密的节点和状态低点互相牵引。',
+        nextFocus: '下周先不要扩大观察面，只盯一个小问题：摩擦出现在哪个阶段。',
+        riskNote: '这份 Pro L3 只用来收窄观察面。',
+        keyNodes: ['L3 Reflect 线索'],
+      ),
+    );
+    final deps = await buildTestDependencies(
+      todayRepository: StubTodayRepository(
+        fetchTodayResult: const <String, dynamic>{},
+      ),
+      weeklyRepository: weeklyRepo,
+    );
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(1.3)),
+          child: WeeklyReflectPage(),
+        ),
+        providers: [Provider<AppDependencies>.value(value: deps)],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('L3 Reflect'), findsNothing);
+    expect(find.textContaining('Pro L3'), findsNothing);
+    expect(find.textContaining('tension'), findsNothing);
+    expect(find.textContaining('深度分析'), findsWidgets);
+    expect(find.textContaining('内在拉扯'), findsWidgets);
+
+    final summary = tester.widget<Text>(
+      find.byKey(const ValueKey('weekly-reflect-summary')),
+    );
+    expect(summary.maxLines, isNull);
+    expect(summary.overflow, isNull);
+    expect(summary.style?.fontSize, 16);
+    expect(summary.style?.fontWeight, FontWeight.w600);
+    expect(summary.style?.height, 1.5);
+
+    final scrollable = find.byKey(
+      const ValueKey('weekly-reflect-scroll-view'),
+    );
+    await tester.dragUntilVisible(
+      find.text('核心主题'),
+      scrollable,
+      const Offset(0, -280),
+    );
+    await tester.pumpAndSettle();
+
+    for (var index = 0; index < 4; index++) {
+      final tile = find.byKey(
+        ValueKey('weekly-reflect-core-topic-$index'),
+      );
+      expect(tile, findsOneWidget);
+      expect(tester.getSize(tile).width, greaterThan(290));
+    }
+    for (final content in const [
+      '表层事件是几条不同记录；底层 内在拉扯 是不断重启判断和重新找回节奏。',
+      '把图和文字放在一起看，线索更密的节点和状态低点互相牵引。',
+      '下周先不要扩大观察面，只盯一个小问题：摩擦出现在哪个阶段。',
+    ]) {
+      final topicText = tester.widget<Text>(find.text(content).last);
+      expect(topicText.maxLines, isNull);
+      expect(topicText.overflow, isNull);
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('英文深度分析将旧 L3 Reflect 术语显示为 Deep Analysis', (tester) async {
+    final weeklyRepo = StubWeeklyRepository(
+      weekly: WeeklyInsightModel(
+        weekStart: '2026-07-13',
+        weekEnd: '2026-07-19',
+        status: 'ready',
+        keyInsight: 'Signals are starting to form a weekly pattern.',
+        patterns: const [],
+        frictions: const [],
+        bestAction: 'Keep the next experiment light.',
+        opportunitySnapshot: const {
+          '_weekly_inclusion': {
+            'used_count': 3,
+            'timeline_only_count': 0,
+            'excluded_count': 0,
+            'legacy_reference_count': 0,
+          },
+        },
+        feedbackSubmitted: false,
+        chartData: const [
+          WeeklyChartPointModel(
+            date: '2026-07-15',
+            signalCount: 3,
+            moodScore: 0,
+            frictionScore: 0.4,
+            hasPositiveSignal: false,
+          ),
+        ],
+      ),
+      weeklyReflect: const WeeklyReflectModel(
+        summary: 'L3 Reflect keeps the deeper read tied to this week.',
+        rootTension: 'Energy dropped when meetings compressed recovery.',
+        hiddenPattern: 'Small recovery actions worked better than plans.',
+        nextFocus: 'Keep the next experiment light and observable.',
+        riskNote: 'Use ProL3 as a hypothesis, not a judgement.',
+      ),
+    );
+    final deps = await buildTestDependencies(
+      todayRepository: StubTodayRepository(
+        fetchTodayResult: const <String, dynamic>{},
+      ),
+      weeklyRepository: weeklyRepo,
+    );
+
+    await tester.pumpWidget(
+      buildTestApp(
+        child: const WeeklyReflectPage(),
+        providers: [Provider<AppDependencies>.value(value: deps)],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('L3 Reflect'), findsNothing);
+    expect(find.textContaining('ProL3'), findsNothing);
+    expect(find.textContaining('Deep Analysis'), findsWidgets);
   });
 
   testWidgets('Weekly Reflect 未达 3 条时显示报告进度而不生成 L3 内容', (tester) async {
@@ -500,6 +698,10 @@ void main() {
 
     expect(
       find.byKey(const ValueKey('weekly-reflect-readiness-card')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('weekly-reflect-hero')),
       findsOneWidget,
     );
     expect(find.textContaining('2 / 3 eligible signals'), findsOneWidget);
@@ -853,6 +1055,75 @@ void main() {
     expect(find.text('会议接得太紧，切换很明显。'), findsNothing);
   });
 
+  for (final testCase in <({Locale locale, String expected})>[
+    (locale: const Locale('en'), expected: 'Work'),
+    (
+      locale: const Locale.fromSubtags(
+        languageCode: 'zh',
+        scriptCode: 'Hans',
+      ),
+      expected: '工作',
+    ),
+    (
+      locale: const Locale.fromSubtags(
+        languageCode: 'zh',
+        scriptCode: 'Hant',
+      ),
+      expected: '工作',
+    ),
+    (locale: const Locale('ja'), expected: '仕事'),
+  ]) {
+    testWidgets(
+      'Weekly 行为模式将 work 标签本地化为 ${testCase.expected}',
+      (tester) async {
+        final repo = StubWeeklyRepository(
+          weekly: WeeklyInsightModel(
+            weekStart: '2026-07-13',
+            weekEnd: '2026-07-19',
+            status: 'ready',
+            keyInsight: '这周已经有足够线索。',
+            patterns: const [],
+            frictions: const [],
+            bestAction: '下周先继续这个小尝试。',
+            opportunitySnapshot: const {
+              '_weekly_signal_entries': [
+                {
+                  'id': 'work-signal-1',
+                  'source_type': 'text',
+                  'content': '把复杂任务拆成第一步后更容易开始。',
+                  'scene_tags': ['work'],
+                },
+                {
+                  'id': 'work-signal-2',
+                  'source_type': 'text',
+                  'content': '今天专注的时间更长了。',
+                  'scene_tags': ['work'],
+                },
+              ],
+            },
+            feedbackSubmitted: false,
+          ),
+        );
+
+        await tester.pumpWidget(
+          buildTestApp(
+            locale: testCase.locale,
+            child: const WeeklyPage(),
+            providers: [
+              ChangeNotifierProvider<WeeklyViewModel>(
+                create: (_) => WeeklyViewModel(repo),
+              ),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text(testCase.expected), findsOneWidget);
+        expect(find.text('work'), findsNothing);
+      },
+    );
+  }
+
   testWidgets('Weekly Energy Budget 数据不足时显示低压力 fallback', (tester) async {
     final repo = StubWeeklyRepository(
       weekly: WeeklyInsightModel(
@@ -922,6 +1193,126 @@ void main() {
         find.textContaining('After 3 eligible life signals'), findsOneWidget);
   });
 
+  testWidgets('Weekly 能量预算不显示内部 scene/friction/positive key', (tester) async {
+    final repo = StubWeeklyRepository(
+      weekly: WeeklyInsightModel(
+        weekStart: '2026-07-13',
+        weekEnd: '2026-07-19',
+        status: 'ready',
+        keyInsight: '本周已经有足够线索。',
+        patterns: const [],
+        frictions: const [],
+        bestAction: '下周先继续这个小尝试。',
+        opportunitySnapshot: const {
+          '_weekly_signal_entries': [
+            {
+              'id': 'signal-1',
+              'source_type': 'text',
+              'content': '把复杂任务拆成第一步后更容易开始。',
+              'scene_tags': ['work'],
+            },
+          ],
+        },
+        feedbackSubmitted: false,
+      ),
+    );
+    final energyRepo = StubEnergyBudgetRepository(
+      budget: const EnergyBudgetModel(
+        status: 'ready',
+        mostDrainingSource: '这段时间最耗能的来源可能是“starting”。',
+        recoveryClue: '一个恢复线索是“small_start”。',
+        bufferLocation: '可以先把“work”看作需要缓冲的位置。',
+        switchingAdjustment: '先给“context_switching”留一点余地。',
+        experimentConnection: '保持小一点。',
+        blocks: [],
+      ),
+    );
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const WeeklyPage(),
+        providers: [
+          ChangeNotifierProvider<WeeklyViewModel>(
+            create: (_) => WeeklyViewModel(
+              repo,
+              energyBudgetRepository: energyRepo,
+            ),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.dragUntilVisible(
+      find.text('本周能量预算'),
+      find.byType(ListView).first,
+      const Offset(0, -360),
+    );
+
+    expect(find.text('本周能量预算'), findsOneWidget);
+    expect(find.textContaining('“启动阻力”'), findsOneWidget);
+    expect(find.textContaining('“小步启动”'), findsOneWidget);
+    expect(find.textContaining('“工作”'), findsOneWidget);
+    expect(find.textContaining('“频繁切换”'), findsOneWidget);
+    expect(find.textContaining('small_start'), findsNothing);
+    expect(find.textContaining('context_switching'), findsNothing);
+  });
+
+  for (final testCase in <({Locale locale, String title})>[
+    (
+      locale: const Locale.fromSubtags(
+        languageCode: 'zh',
+        scriptCode: 'Hant',
+      ),
+      title: '本週能量預算',
+    ),
+    (locale: const Locale('ja'), title: '今週のエネルギー予算'),
+  ]) {
+    testWidgets('Weekly Energy Budget title is ${testCase.title}',
+        (tester) async {
+      final repo = StubWeeklyRepository(weekly: _readyWeeklyInsight());
+      final energyRepo = StubEnergyBudgetRepository(
+        budget: const EnergyBudgetModel(
+          status: 'ready',
+          mostDrainingSource: '“starting”',
+          recoveryClue: '“small_start”',
+          bufferLocation: '“work”',
+          switchingAdjustment: '“context_switching”',
+          experimentConnection: 'Keep it small.',
+          blocks: [],
+        ),
+      );
+
+      await tester.pumpWidget(
+        buildTestApp(
+          locale: testCase.locale,
+          child: const WeeklyPage(),
+          providers: [
+            ChangeNotifierProvider<WeeklyViewModel>(
+              create: (_) => WeeklyViewModel(
+                repo,
+                energyBudgetRepository: energyRepo,
+              ),
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.dragUntilVisible(
+        find.text(testCase.title),
+        find.byType(ListView).first,
+        const Offset(0, -360),
+      );
+      expect(find.text(testCase.title), findsOneWidget);
+      expect(find.textContaining('Energy Budget'), findsNothing);
+    });
+  }
+
   testWidgets('Weekly 第一天 gate 会显示对应空态', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(350, 844);
@@ -974,7 +1365,12 @@ void main() {
     );
     expect(
       tester
-          .widget<Text>(find.byKey(const ValueKey('weekly-hero-title')))
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(const ValueKey('weekly-hero-title')),
+              matching: find.byType(Text),
+            ),
+          )
           .style
           ?.fontSize,
       34,

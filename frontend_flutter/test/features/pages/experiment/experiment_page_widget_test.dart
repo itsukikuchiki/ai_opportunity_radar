@@ -23,6 +23,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Life Experiment'), findsOneWidget);
+    expect(find.byType(AuroraHeroTitle), findsOneWidget);
+    expect(find.byType(AuroraHeroEmblem), findsOneWidget);
     expect(find.text('Record 10 minutes in the morning'), findsOneWidget);
     expect(find.text('In progress this week'), findsOneWidget);
     expect(find.text('This week progress'), findsOneWidget);
@@ -43,6 +45,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Experiment detail'), findsOneWidget);
+    expect(find.byType(AuroraHeroEmblem), findsOneWidget);
     expect(find.text('Overview'), findsOneWidget);
     expect(find.text('Experiment timeline summary'), findsOneWidget);
     expect(find.text('Lifecycle timeline'), findsOneWidget);
@@ -134,6 +137,7 @@ void main() {
     expect(tester.getSize(hero).height, lessThanOrEqualTo(170));
     final title = tester.widget<Text>(find.text('Life Experiment'));
     expect(title.style?.fontSize, AuroraMainPageSpec.heroTitleSize);
+    expect(title.style?.fontWeight, FontWeight.w700);
 
     expect(
       tester.getSize(find.byKey(const ValueKey('experiment-search-bar'))),
@@ -143,7 +147,7 @@ void main() {
       tester
           .getSize(find.byKey(const ValueKey('experiment-filter-tabs')))
           .height,
-      lessThanOrEqualTo(46),
+      92,
     );
     final searchField = tester.widget<TextField>(find.byType(TextField));
     expect(searchField.decoration?.hintStyle?.fontSize, 14);
@@ -166,6 +170,65 @@ void main() {
         tester.widget<Text>(find.text('In progress this week'));
     expect(sectionTitle.style?.fontSize, 17);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'status filters fit at supported phone widths with large text and 44pt targets',
+      (tester) async {
+    for (final surfaceSize in const [Size(390, 844), Size(440, 956)]) {
+      await tester.binding.setSurfaceSize(surfaceSize);
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => WeeklyViewModel(
+            StubWeeklyRepository(weekly: _weeklyModel),
+          ),
+          child: const MaterialApp(
+            locale: Locale.fromSubtags(
+              languageCode: 'zh',
+              scriptCode: 'Hans',
+            ),
+            home: MediaQuery(
+              data: MediaQueryData(textScaler: TextScaler.linear(1.3)),
+              child: ExperimentPage(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final tabs = find.byKey(const ValueKey('experiment-filter-tabs'));
+      expect(tabs, findsOneWidget);
+      expect(tester.getSize(tabs).height, 92);
+      final tabsRect = tester.getRect(tabs);
+
+      for (final filterName in const [
+        'active',
+        'adjusted',
+        'completed',
+        'paused',
+        'stopped',
+      ]) {
+        final tab = find.byKey(ValueKey('experiment-filter-$filterName'));
+        expect(tab, findsOneWidget);
+        final tabRect = tester.getRect(tab);
+        expect(tabRect.height, greaterThanOrEqualTo(44));
+        expect(tabRect.left, greaterThanOrEqualTo(tabsRect.left));
+        expect(tabRect.right, lessThanOrEqualTo(tabsRect.right));
+        final labeledSemantics = tester
+            .widgetList<Semantics>(
+              find.ancestor(of: tab, matching: find.byType(Semantics)),
+            )
+            .where(
+              (semantics) =>
+                  semantics.properties.label?.trim().isNotEmpty ?? false,
+            );
+        expect(labeledSemantics, isNotEmpty);
+        expect(labeledSemantics.first.properties.button, isTrue);
+      }
+
+      expect(tester.takeException(), isNull);
+    }
+    addTearDown(() => tester.binding.setSurfaceSize(null));
   });
 
   testWidgets('compact archive and empty state stay dense without overflow',

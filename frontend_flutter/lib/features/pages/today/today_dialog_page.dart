@@ -123,6 +123,13 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
   @override
   Widget build(BuildContext context) {
     final signal = _signal;
+    final dialogTitle = AppLocaleText.tr(
+      context,
+      en: 'Chat With AI',
+      zhHans: '和 AI 聊聊',
+      zhHant: '和 AI 聊聊',
+      ja: 'AI と話す',
+    );
     return Scaffold(
       resizeToAvoidBottomInset: true,
       body: Stack(
@@ -152,22 +159,14 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                                       const EdgeInsets.fromLTRB(18, 4, 18, 0),
                                   child: Row(
                                     children: [
-                                      Material(
-                                        color: Colors.white
-                                            .withValues(alpha: 0.62),
-                                        shape: const CircleBorder(),
-                                        child: InkWell(
-                                          onTap: _goBack,
-                                          customBorder: const CircleBorder(),
-                                          child: const SizedBox(
-                                            width: 54,
-                                            height: 54,
-                                            child: Icon(
-                                              Icons.chevron_left_rounded,
-                                              size: 34,
-                                            ),
-                                          ),
-                                        ),
+                                      AuroraIconButton(
+                                        key:
+                                            const ValueKey('today-dialog-back'),
+                                        icon: Icons.chevron_left_rounded,
+                                        tooltip:
+                                            MaterialLocalizations.of(context)
+                                                .backButtonTooltip,
+                                        onPressed: _goBack,
                                       ),
                                     ],
                                   ),
@@ -177,23 +176,17 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                                     padding: const EdgeInsets.fromLTRB(
                                         20, 34, 20, 18),
                                     children: [
-                                      Text(
-                                        AppLocaleText.tr(
-                                          context,
-                                          en: 'Chat With AI',
-                                          zhHans: '和 AI 聊聊',
-                                          zhHant: '和 AI 聊聊',
-                                          ja: 'AI と話す',
+                                      Semantics(
+                                        key: const ValueKey(
+                                            'today-dialog-heading-semantics'),
+                                        container: true,
+                                        excludeSemantics: true,
+                                        header: true,
+                                        label: dialogTitle,
+                                        child: AuroraHeroTitle(
+                                          text: dialogTitle,
+                                          fontSize: 42,
                                         ),
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .displaySmall
-                                            ?.copyWith(
-                                              color: AuroraColors.purple,
-                                              fontSize: 42,
-                                              fontWeight: FontWeight.w900,
-                                              height: 1.05,
-                                            ),
                                       ),
                                       const SizedBox(height: 16),
                                       Text(
@@ -211,7 +204,7 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                                               color: AuroraColors.ink
                                                   .withValues(alpha: 0.72),
                                               height: 1.5,
-                                              fontWeight: FontWeight.w500,
+                                              fontWeight: FontWeight.w400,
                                             ),
                                       ),
                                       const SizedBox(height: 24),
@@ -373,7 +366,7 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                     'AI',
                     style: TextStyle(
                       color: Colors.white,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                       fontSize: 20,
                     ),
                   ),
@@ -513,7 +506,7 @@ class _SignalSummaryCard extends StatelessWidget {
                 ),
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: AuroraColors.purple,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
             ],
@@ -536,9 +529,9 @@ class _SignalSummaryCard extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                       ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 10),
                 _SignalRoundIcon(signal: signal),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     signal.content,
@@ -551,7 +544,7 @@ class _SignalSummaryCard extends StatelessWidget {
                         ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 _SignalDomainPill(signal: signal),
               ],
             ),
@@ -696,34 +689,8 @@ class _DialogHeroArt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        const Positioned.fill(
-          child: CustomPaint(painter: _DialogRingPainter()),
-        ),
-        Positioned(
-          left: 18,
-          bottom: 4,
-          width: 58,
-          height: 96,
-          child: CustomPaint(
-            painter: _DialogLeafPainter(
-              color: AuroraColors.mint.withValues(alpha: 0.15),
-            ),
-          ),
-        ),
-        Positioned(
-          right: 8,
-          bottom: 10,
-          width: 58,
-          height: 104,
-          child: CustomPaint(
-            painter: _DialogLeafPainter(
-              color: AuroraColors.purple.withValues(alpha: 0.15),
-            ),
-          ),
-        ),
-      ],
+    return const Center(
+      child: AuroraHeroEmblem(size: 196, opacity: 0.84),
     );
   }
 }
@@ -882,7 +849,7 @@ class _LegacySignalSummaryCard extends StatelessWidget {
                       signal.content,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             color: AuroraColors.ink,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             height: 1.28,
                           ),
                     ),
@@ -988,7 +955,7 @@ class _DialogSectionTitle extends StatelessWidget {
           text,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: AuroraColors.ink,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
               ),
         ),
       ],
@@ -1040,7 +1007,7 @@ class _DialogQuickAction extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: AuroraColors.ink.withValues(alpha: 0.78),
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -1111,7 +1078,7 @@ class _DialogMicroActionCard extends StatelessWidget {
                   ),
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: AuroraColors.ink,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -1297,7 +1264,7 @@ class _RelatedEvidenceStrip extends StatelessWidget {
                 ),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       color: AuroraColors.ink,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const Spacer(),
@@ -1359,7 +1326,7 @@ class _RelatedEvidenceStrip extends StatelessWidget {
                             style: Theme.of(context)
                                 .textTheme
                                 .labelMedium
-                                ?.copyWith(fontWeight: FontWeight.w800),
+                                ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                         ],
                       ),
@@ -1491,7 +1458,7 @@ class _NotFoundState extends StatelessWidget {
                 ),
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: AuroraColors.ink,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const SizedBox(height: 14),
@@ -1502,7 +1469,7 @@ class _NotFoundState extends StatelessWidget {
                   en: 'Back to Today',
                   zhHans: '回到今天',
                   zhHant: '回到今天',
-                  ja: 'Today に戻る',
+                  ja: '今日に戻る',
                 ),
                 filled: true,
                 onPressed: onBack,

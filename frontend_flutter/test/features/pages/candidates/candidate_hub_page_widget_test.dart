@@ -112,6 +112,89 @@ void main() {
     expect(repository.adoptedMicroIds, hasLength(2));
   });
 
+  testWidgets('候选编辑与进度反馈在 390x844 使用 Aurora 弹层且可关闭', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    const candidate = MicroActionCandidateModel(
+      id: 'candidate-modal',
+      candidateGroupId: 'group-modal',
+      localUserId: 'local',
+      localDate: '2026-07-12',
+      rank: 1,
+      title: '留出十分钟缓冲',
+      reason: '来自三条符合条件的真实信号。',
+      difficulty: 'very_light',
+      linkedSignalCardIds: ['signal-1', 'signal-2', 'signal-3'],
+      focusDomainIds: [],
+      status: 'generated',
+      sourceHash: 'source-modal',
+    );
+    const action = MicroActionModel(
+      id: 'active-modal',
+      judgementId: '',
+      title: '先放慢一件事',
+      reason: '看看今天的真实进度。',
+      status: 'active',
+    );
+    final repository = StubCandidatePlanningRepository(
+      microSnapshot: _microSnapshot(count: 3, candidates: const [candidate]),
+      activeActions: [
+        AdoptedMicroActionProgress(
+          action: action,
+          progress: _progress(action.id, completed: 0),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        providers: [Provider<int>.value(value: 0)],
+        child: CandidateHubPage(
+          kind: CandidateKind.microAction,
+          repositoryOverride: repository,
+          nowLoader: () => DateTime(2026, 7, 12),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final todayCell = find.byKey(const ValueKey('progress-cell-2026-07-12'));
+    await tester.ensureVisible(todayCell);
+    await tester.tap(todayCell);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('candidate-progress-aurora-sheet')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+
+    await tester.tapAt(const Offset(8, 8));
+    await tester.pumpAndSettle();
+
+    final editButton = find.byIcon(Icons.edit_outlined);
+    await tester.ensureVisible(editButton);
+    await tester.tap(editButton);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('candidate-edit-aurora-dialog')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('candidate-edit-title')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('candidate-edit-aurora-dialog')),
+      findsNothing,
+    );
+  });
+
   testWidgets('小实验候选页使用当周门槛，最多显示三个并可多选采纳', (tester) async {
     final candidates = List.generate(
       4,
@@ -264,6 +347,84 @@ void main() {
     expect(find.text('查看全部'), findsOneWidget);
     expect(find.textContaining('还有 1 项已采纳内容'), findsNWidgets(2));
     expect(find.text('来源已变化 · 已采纳内容继续保留'), findsOneWidget);
+  });
+
+  testWidgets('今日尝试的查看全部使用根弹层并遮住底部导航栏', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final repository = StubCandidatePlanningRepository(
+      microSnapshot: _microSnapshot(count: 3, candidates: const []),
+    );
+    var bottomNavigationTapCount = 0;
+    var actionHubOpenCount = 0;
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        providers: [Provider<int>.value(value: 0)],
+        child: Scaffold(
+          body: Navigator(
+            onGenerateRoute: (_) => MaterialPageRoute<void>(
+              builder: (_) => SingleChildScrollView(
+                child: TodayAdoptedPlansSection(
+                  signals: const [],
+                  compatibilityAction: null,
+                  compatibilityExperiment: null,
+                  isBusy: false,
+                  repositoryOverride: repository,
+                  onActionFeedback: (_, __) async {},
+                  onOpenActionHub: () => actionHubOpenCount += 1,
+                  onOpenExperimentHub: () {},
+                  onOpenExperiment: () {},
+                ),
+              ),
+            ),
+          ),
+          bottomNavigationBar: SizedBox(
+            height: 88,
+            child: TextButton(
+              key: const ValueKey('fake-shell-bottom-navigation'),
+              onPressed: () => bottomNavigationTapCount += 1,
+              child: const Text('底部导航'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('查看全部'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('today-attempts-all-sheet')),
+      findsOneWidget,
+    );
+    expect(find.text('今日小行动'), findsNWidgets(2));
+    expect(find.text('进行中的小实验'), findsOneWidget);
+    final sheetAction = find.descendant(
+      of: find.byKey(const ValueKey('today-attempts-all-sheet')),
+      matching: find.text('今日小行动'),
+    );
+    expect(sheetAction, findsOneWidget);
+
+    await tester.tap(sheetAction);
+    await tester.pumpAndSettle();
+    expect(actionHubOpenCount, 1);
+
+    await tester.tap(find.text('查看全部'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('fake-shell-bottom-navigation')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+    expect(bottomNavigationTapCount, 0);
   });
 }
 

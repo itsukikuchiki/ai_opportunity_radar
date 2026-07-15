@@ -8,6 +8,7 @@ import 'package:ai_opportunity_radar/core/api/api_client.dart';
 import 'package:ai_opportunity_radar/core/state/app_bootstrap_state.dart';
 import 'package:ai_opportunity_radar/features/onboarding/onboarding_page.dart';
 import 'package:ai_opportunity_radar/features/onboarding/onboarding_view_model.dart';
+import 'package:ai_opportunity_radar/shared/widgets/aurora_ui.dart';
 
 void main() {
   testWidgets('fresh launch first frame is the onboarding opening scene',
@@ -47,6 +48,13 @@ void main() {
 
   testWidgets('completed onboarding keeps the returning launch screen',
       (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    addTearDown(
+      tester.platformDispatcher.clearTextScaleFactorTestValue,
+    );
+    final semantics = tester.ensureSemantics();
     SharedPreferences.setMockInitialValues({
       'onboarding_completed': true,
     });
@@ -59,6 +67,25 @@ void main() {
     expect(bootstrap.onboardingCompleted, isTrue);
     expect(find.byType(OnboardingLaunchPage), findsNothing);
     expect(find.text('Signal Path'), findsOneWidget);
+    expect(find.text('看见信号，轻轻调整'), findsOneWidget);
+    expect(find.byType(AuroraPage), findsOneWidget);
+    expect(find.byType(AuroraCard), findsOneWidget);
+    expect(find.byType(AuroraHeroEmblem), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    final surface = find.byKey(const ValueKey('brand-launch-surface'));
+    final surfaceRect = tester.getRect(surface);
+    expect(surfaceRect.left, greaterThanOrEqualTo(0));
+    expect(surfaceRect.top, greaterThanOrEqualTo(0));
+    expect(surfaceRect.right, lessThanOrEqualTo(390));
+    expect(surfaceRect.bottom, lessThanOrEqualTo(844));
+    expect(
+      tester.getSemantics(
+        find.byKey(const ValueKey('brand-launch-title')),
+      ),
+      matchesSemantics(label: 'Signal Path', isHeader: true),
+    );
+    semantics.dispose();
   });
 
   testWidgets('combined onboarding previews fit supported phone sizes',

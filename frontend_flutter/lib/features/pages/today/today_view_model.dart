@@ -308,6 +308,110 @@ class TodayViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> submitTimeUseSignal({
+    required String title,
+    required DateTime startAt,
+    required DateTime endAt,
+    required String category,
+    required String categoryLabel,
+    required String recordStatus,
+    String? energyEffect,
+    String? note,
+    AppLanguage language = AppLanguage.english,
+  }) async {
+    final normalizedTitle = title.trim();
+    final normalizedNote = note?.trim() ?? '';
+    if (normalizedTitle.isEmpty) {
+      _state = _state.copyWith(errorMessage: 'empty_input');
+      notifyListeners();
+      return;
+    }
+    if (!endAt.isAfter(startAt)) {
+      _state = _state.copyWith(errorMessage: 'invalid_time_range');
+      notifyListeners();
+      return;
+    }
+
+    final durationMinutes = endAt.difference(startAt).inMinutes;
+    final rawPayloadJson = <String, dynamic>{
+      'timeline_type': 'time_use',
+      'schema_version': 1,
+      'title': normalizedTitle,
+      'record_status': recordStatus,
+      'category': category,
+      'start_at': startAt.toIso8601String(),
+      'end_at': endAt.toIso8601String(),
+      'duration_minutes': durationMinutes,
+      if (energyEffect != null && energyEffect.trim().isNotEmpty)
+        'energy_effect': energyEffect.trim(),
+      if (normalizedNote.isNotEmpty) 'note': normalizedNote,
+      'user_triggered': true,
+    };
+    final content = _timeUseContent(
+      title: normalizedTitle,
+      startAt: startAt,
+      endAt: endAt,
+      categoryLabel: categoryLabel,
+      recordStatus: recordStatus,
+      energyEffect: energyEffect,
+      note: normalizedNote,
+      language: language,
+    );
+
+    _state = _state.copyWith(
+      captureSubmitState: SubmitState.submitting,
+      clearErrorMessage: true,
+    );
+    notifyListeners();
+
+    try {
+      await repository.submitCapture(
+        content: content,
+        sourceType: 'time_use',
+        rawPayloadJson: rawPayloadJson,
+      );
+      final localFallbackSignals = _signalsWithSubmittedLocal(
+        content: content,
+        sourceType: 'time_use',
+        rawPayloadJson: rawPayloadJson,
+        language: language,
+      );
+      final refreshed = await repository.fetchToday();
+      final refreshedSignals =
+          refreshed['recentSignals'] as List<RecentSignalModel>?;
+      final refreshedIncludesSubmitted = refreshedSignals?.any(
+            (signal) =>
+                signal.sourceType == 'time_use' &&
+                signal.rawPayloadJson['start_at'] ==
+                    rawPayloadJson['start_at'] &&
+                signal.content == content,
+          ) ??
+          false;
+      _state = _state.copyWith(
+        captureSubmitState: SubmitState.success,
+        insight: refreshed['insight'] as TodayInsightModel?,
+        bestAction: refreshed['bestAction'] as DailyBestActionModel?,
+        recentSignals: refreshedIncludesSubmitted
+            ? refreshedSignals
+            : localFallbackSignals,
+        aiJudgement: refreshed['aiJudgement'] as AiJudgementModel?,
+        microActions:
+            refreshed['microActions'] as List<MicroActionModel>? ?? const [],
+        todayLifeExperiment:
+            refreshed['todayLifeExperiment'] as LifeExperimentModel?,
+        captureSuccessTick: _state.captureSuccessTick + 1,
+        clearErrorMessage: true,
+      );
+    } catch (e) {
+      _state = _state.copyWith(
+        captureSubmitState: SubmitState.failure,
+        errorMessage: e.toString(),
+      );
+    }
+
+    notifyListeners();
+  }
+
   List<RecentSignalModel> _signalsWithSubmittedLocal({
     required String content,
     required String sourceType,
@@ -324,7 +428,13 @@ class TodayViewModel extends ChangeNotifier {
       localDate: _dateKey(now),
       acknowledgement: _quickSavedAcknowledgement(sourceType, language),
       rawPayloadJson: rawPayloadJson,
-      sceneTags: sourceType == 'one_tap' ? const ['state'] : const [],
+      sceneTags: switch (sourceType) {
+        'one_tap' => const ['state'],
+        'time_use' => [
+            rawPayloadJson['category']?.toString() ?? 'time_use',
+          ],
+        _ => const <String>[],
+      },
       userConfirmation: 'unconfirmed',
       privacyLevel: 'private',
     );
@@ -341,6 +451,15 @@ class TodayViewModel extends ChangeNotifier {
           'This state has been added to your diary timeline.',
       };
     }
+    if (sourceType == 'time_use') {
+      return switch (language) {
+        AppLanguage.simplifiedChinese => '这段时间安排已经放进你的手帐时间线。',
+        AppLanguage.traditionalChinese => '這段時間安排已經放進你的手帳時間線。',
+        AppLanguage.japanese => 'この時間の予定を手帳タイムラインに残しました。',
+        AppLanguage.english =>
+          'This time entry has been added to your diary timeline.',
+      };
+    }
     return switch (language) {
       AppLanguage.simplifiedChinese => '这条信号已经保存。',
       AppLanguage.traditionalChinese => '這條信號已經保存。',
@@ -348,6 +467,61 @@ class TodayViewModel extends ChangeNotifier {
       AppLanguage.english => 'This signal has been saved.',
     };
   }
+
+  String _timeUseContent({
+    required String title,
+    required DateTime startAt,
+    required DateTime endAt,
+    required String categoryLabel,
+    required String recordStatus,
+    required String? energyEffect,
+    required String note,
+    required AppLanguage language,
+  }) {
+    final range = '${_clock(startAt)}–${_clock(endAt)}';
+    final statusLabel = switch ((language, recordStatus)) {
+      (AppLanguage.simplifiedChinese, 'planned') => '接下来安排',
+      (AppLanguage.traditionalChinese, 'planned') => '接下來安排',
+      (AppLanguage.japanese, 'planned') => 'これからの予定',
+      (AppLanguage.english, 'planned') => 'Planned',
+      (AppLanguage.simplifiedChinese, _) => '已经发生',
+      (AppLanguage.traditionalChinese, _) => '已經發生',
+      (AppLanguage.japanese, _) => '完了',
+      (AppLanguage.english, _) => 'Completed',
+    };
+    final energyLabel = _timeUseEnergyLabel(energyEffect, language);
+    return switch (language) {
+      AppLanguage.simplifiedChinese =>
+        '$range · $categoryLabel · $title（$statusLabel${energyLabel.isEmpty ? '' : '，$energyLabel'}）${note.isEmpty ? '' : '。补充：$note'}',
+      AppLanguage.traditionalChinese =>
+        '$range · $categoryLabel · $title（$statusLabel${energyLabel.isEmpty ? '' : '，$energyLabel'}）${note.isEmpty ? '' : '。補充：$note'}',
+      AppLanguage.japanese =>
+        '$range・$categoryLabel・$title（$statusLabel${energyLabel.isEmpty ? '' : '、$energyLabel'}）${note.isEmpty ? '' : '。メモ：$note'}',
+      AppLanguage.english =>
+        '$range · $categoryLabel · $title ($statusLabel${energyLabel.isEmpty ? '' : ', $energyLabel'})${note.isEmpty ? '' : '. Note: $note'}',
+    };
+  }
+
+  String _timeUseEnergyLabel(String? value, AppLanguage language) {
+    if (value == null || value.trim().isEmpty || value == 'unknown') return '';
+    return switch ((language, value)) {
+      (AppLanguage.simplifiedChinese, 'draining') => '偏耗力',
+      (AppLanguage.simplifiedChinese, 'restoring') => '偏恢复',
+      (AppLanguage.simplifiedChinese, _) => '体感一般',
+      (AppLanguage.traditionalChinese, 'draining') => '偏耗力',
+      (AppLanguage.traditionalChinese, 'restoring') => '偏恢復',
+      (AppLanguage.traditionalChinese, _) => '體感一般',
+      (AppLanguage.japanese, 'draining') => '消耗気味',
+      (AppLanguage.japanese, 'restoring') => '回復寄り',
+      (AppLanguage.japanese, _) => '負荷は普通',
+      (AppLanguage.english, 'draining') => 'draining',
+      (AppLanguage.english, 'restoring') => 'restoring',
+      (AppLanguage.english, _) => 'neutral',
+    };
+  }
+
+  String _clock(DateTime value) =>
+      '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
 
   String _dateKey(DateTime date) {
     final month = date.month.toString().padLeft(2, '0');

@@ -1773,6 +1773,8 @@ class LocalCaptureRepository {
         return 'library_saved';
       case 'ai_predicted':
         return 'ai_predicted';
+      case 'time_use':
+        return 'time_use';
       default:
         return 'text';
     }

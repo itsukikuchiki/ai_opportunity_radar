@@ -13,6 +13,7 @@ import 'package:ai_opportunity_radar/core/readiness/report_readiness.dart';
 import 'package:ai_opportunity_radar/core/state/app_bootstrap_state.dart';
 import 'package:ai_opportunity_radar/features/pages/memory/journey_pro_page.dart';
 import 'package:ai_opportunity_radar/features/pages/memory/memory_view_model.dart';
+import 'package:ai_opportunity_radar/shared/widgets/aurora_ui.dart';
 
 import '../../../helpers/widget_test_helpers.dart';
 
@@ -51,6 +52,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(JourneyProPage), findsOneWidget);
+    expect(find.byType(AuroraHeroTitle), findsOneWidget);
+    expect(find.byType(AuroraHeroEmblem), findsOneWidget);
     expect(find.textContaining('5/14 eligible SignalCards'), findsOneWidget);
     expect(find.textContaining('3/7 recorded days'), findsOneWidget);
     expect(find.textContaining('1/2 local weeks'), findsOneWidget);
@@ -141,6 +144,75 @@ void main() {
     expect(find.text('Current week to date'), findsOneWidget);
     expect(find.text('Ask from this evidence'), findsOneWidget);
     expect(find.textContaining('Why is recovery difficult'), findsNothing);
+  });
+
+  testWidgets('简体中文深度分析本地化分析枚举与证据来源', (tester) async {
+    tester.view.physicalSize = const Size(390, 2600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final repo = StubMemoryRepository(
+      result: MemoryFetchResult(
+        isFirstDayGate: false,
+        summary: MemorySummaryModel(
+          patterns: const [
+            JourneySignalItemModel(
+              name: 'work',
+              summary: '目前最清楚的是“work”。',
+              signalLevel: 'repeated_pattern',
+            ),
+          ],
+          frictions: const [
+            JourneySignalItemModel(
+              name: '可能的长期消耗',
+              summary: '如果“work”继续出现，先保持轻观察。',
+              signalLevel: 'repeated_pattern',
+            ),
+          ],
+          desires: const [],
+          experiments: const [],
+        ),
+        proReadiness: _readyReadiness,
+      ),
+      proReportResult: _report(
+        signalCount: 18,
+        dayCount: 14,
+        weekCount: 3,
+        evidence: const [
+          JourneyProEvidenceModel(
+            signalId: 'localized-evidence',
+            content: '一条可追溯的真实记录。',
+            localDate: '2026-07-15',
+            sourceType: 'text',
+          ),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const JourneyProPage(),
+        providers: [
+          ChangeNotifierProvider<MemoryViewModel>(
+            create: (_) => MemoryViewModel(repo),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('工作'), findsOneWidget);
+    expect(find.text('目前最清楚的是“工作”。'), findsOneWidget);
+    expect(find.text('如果“工作”继续出现，先保持轻观察。'), findsOneWidget);
+    expect(find.text('文字'), findsOneWidget);
+    expect(find.text('work'), findsNothing);
+    expect(find.text('text'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('AppRoutes.journeyPro 直接访问时未订阅只能看到付费门槛', (tester) async {

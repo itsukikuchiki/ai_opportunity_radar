@@ -1053,6 +1053,8 @@ class CaptureRepository:
             return "ai_predicted"
         if value in {"library_saved", "library"}:
             return "library_saved"
+        if value == "time_use":
+            return "time_use"
         if value == "calendar":
             return "calendar"
         if value == "health":

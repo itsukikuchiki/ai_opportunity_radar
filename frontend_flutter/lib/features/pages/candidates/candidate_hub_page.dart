@@ -483,67 +483,86 @@ Future<String?> _showProgressChoiceSheet(BuildContext context) {
   return showModalBottomSheet<String>(
     context: context,
     useSafeArea: true,
-    showDragHandle: true,
-    builder: (sheetContext) => Padding(
-      padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'How did it go today?',
-              zhHans: '今天的实际进度怎么样？',
-              zhHant: '今天的實際進度怎麼樣？',
-              ja: '今日の進捗はどうでしたか？',
-            ),
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: AuroraColors.ink,
-                  fontWeight: FontWeight.w900,
-                ),
-          ),
-          const SizedBox(height: 12),
-          _ProgressChoiceTile(
-            icon: Icons.check_circle_rounded,
-            color: AuroraColors.mint,
-            label: AppLocaleText.tr(
-              context,
-              en: 'Happened',
-              zhHans: '发生了',
-              zhHant: '發生了',
-              ja: 'できた',
-            ),
-            onTap: () => Navigator.pop(sheetContext, 'occurred'),
-          ),
-          const SizedBox(height: 8),
-          _ProgressChoiceTile(
-            icon: Icons.close_rounded,
-            color: AuroraColors.orange,
-            label: AppLocaleText.tr(
-              context,
-              en: 'Did not happen',
-              zhHans: '没发生',
-              zhHant: '沒發生',
-              ja: 'できなかった',
-            ),
-            onTap: () => Navigator.pop(sheetContext, 'not_occurred'),
-          ),
-          const SizedBox(height: 8),
-          _ProgressChoiceTile(
-            icon: Icons.remove_circle_outline_rounded,
-            color: AuroraColors.muted,
-            label: AppLocaleText.tr(
-              context,
-              en: 'Not suitable today',
-              zhHans: '今天不适合',
-              zhHant: '今天不適合',
-              ja: '今日は合わなかった',
-            ),
-            onTap: () => Navigator.pop(sheetContext, 'not_suitable_today'),
-          ),
-        ],
+    showDragHandle: false,
+    backgroundColor: Colors.transparent,
+    barrierColor: AuroraColors.ink.withValues(alpha: 0.34),
+    builder: (sheetContext) => AuroraModalSurface(
+      key: const ValueKey('candidate-progress-aurora-sheet'),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      padding: EdgeInsets.fromLTRB(
+        18,
+        10,
+        18,
+        18 + MediaQuery.paddingOf(sheetContext).bottom,
       ),
+      child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AuroraColors.muted.withValues(alpha: 0.46),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              AppLocaleText.tr(
+                context,
+                en: 'How did it go today?',
+                zhHans: '今天的实际进度怎么样？',
+                zhHant: '今天的實際進度怎麼樣？',
+                ja: '今日の進捗はどうでしたか？',
+              ),
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: AuroraColors.ink,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            _ProgressChoiceTile(
+              icon: Icons.check_circle_rounded,
+              color: AuroraColors.mint,
+              label: AppLocaleText.tr(
+                context,
+                en: 'Happened',
+                zhHans: '发生了',
+                zhHant: '發生了',
+                ja: 'できた',
+              ),
+              onTap: () => Navigator.pop(sheetContext, 'occurred'),
+            ),
+            const SizedBox(height: 8),
+            _ProgressChoiceTile(
+              icon: Icons.close_rounded,
+              color: AuroraColors.orange,
+              label: AppLocaleText.tr(
+                context,
+                en: 'Did not happen',
+                zhHans: '没发生',
+                zhHant: '沒發生',
+                ja: 'できなかった',
+              ),
+              onTap: () => Navigator.pop(sheetContext, 'not_occurred'),
+            ),
+            const SizedBox(height: 8),
+            _ProgressChoiceTile(
+              icon: Icons.remove_circle_outline_rounded,
+              color: AuroraColors.muted,
+              label: AppLocaleText.tr(
+                context,
+                en: 'Not suitable today',
+                zhHans: '今天不适合',
+                zhHant: '今天不適合',
+                ja: '今日は合わなかった',
+              ),
+              onTap: () => Navigator.pop(sheetContext, 'not_suitable_today'),
+            ),
+          ]),
     ),
   );
 }
@@ -557,7 +576,8 @@ Future<(String, String?)?> _showCandidateEditDialog(
   final actionController = TextEditingController(text: action);
   final result = await showDialog<(String, String?)>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
+    builder: (dialogContext) => AuroraDialog(
+      key: const ValueKey('candidate-edit-aurora-dialog'),
       title: Text(
         AppLocaleText.tr(
           context,
@@ -567,54 +587,64 @@ Future<(String, String?)?> _showCandidateEditDialog(
           ja: '採用前に編集',
         ),
       ),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            key: const ValueKey('candidate-edit-title'),
+            controller: titleController,
+            minLines: 1,
+            maxLines: 3,
+            maxLength: 120,
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.72),
+              labelText: AppLocaleText.tr(
+                context,
+                en: 'Title',
+                zhHans: '标题',
+                zhHant: '標題',
+                ja: 'タイトル',
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          if (action != null) ...[
+            const SizedBox(height: 8),
             TextField(
-              key: const ValueKey('candidate-edit-title'),
-              controller: titleController,
-              minLines: 1,
-              maxLines: 3,
-              maxLength: 120,
+              key: const ValueKey('candidate-edit-action'),
+              controller: actionController,
+              minLines: 2,
+              maxLines: 5,
+              maxLength: 240,
               decoration: InputDecoration(
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.72),
                 labelText: AppLocaleText.tr(
                   context,
-                  en: 'Title',
-                  zhHans: '标题',
-                  zhHant: '標題',
-                  ja: 'タイトル',
+                  en: 'How to try it',
+                  zhHans: '怎么尝试',
+                  zhHant: '怎麼嘗試',
+                  ja: '試し方',
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
             ),
-            if (action != null) ...[
-              const SizedBox(height: 8),
-              TextField(
-                key: const ValueKey('candidate-edit-action'),
-                controller: actionController,
-                minLines: 2,
-                maxLines: 5,
-                maxLength: 240,
-                decoration: InputDecoration(
-                  labelText: AppLocaleText.tr(
-                    context,
-                    en: 'How to try it',
-                    zhHans: '怎么尝试',
-                    zhHant: '怎麼嘗試',
-                    ja: '試し方',
-                  ),
-                ),
-              ),
-            ],
           ],
-        ),
+        ],
       ),
       actions: [
         TextButton(
+          style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
           onPressed: () => Navigator.pop(dialogContext),
           child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
         ),
         FilledButton(
+          style: FilledButton.styleFrom(minimumSize: const Size(88, 44)),
           onPressed: () {
             final updatedTitle = titleController.text.trim();
             final updatedAction = actionController.text.trim();
@@ -713,7 +743,7 @@ class _AdoptedProgressSection extends StatelessWidget {
           ),
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: AuroraColors.ink,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
         ),
         const SizedBox(height: AuroraMainPageSpec.sectionGap),
@@ -786,7 +816,7 @@ class _AdoptedProgressCard extends StatelessWidget {
                   title,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AuroraColors.ink,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -860,21 +890,15 @@ class _CandidateHubHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                AppLocaleText.tr(
+              AuroraHeroTitle(
+                text: AppLocaleText.tr(
                   context,
                   en: isMicroAction ? 'Small actions' : 'Weekly experiments',
                   zhHans: isMicroAction ? '今日小行动' : '下周小实验',
                   zhHant: isMicroAction ? '今日小行動' : '下週小實驗',
                   ja: isMicroAction ? '今日の小さな行動' : '来週の小さな実験',
                 ),
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: AuroraColors.ink,
-                      fontSize:
-                          AuroraMainPageSpec.responsiveHeroTitleSize(context),
-                      height: 1.05,
-                      fontWeight: FontWeight.w900,
-                    ),
+                fontSize: AuroraMainPageSpec.responsiveHeroTitleSize(context),
               ),
               const SizedBox(height: 6),
               Text(
@@ -888,11 +912,15 @@ class _CandidateHubHeader extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: AuroraColors.muted,
                       height: 1.4,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w400,
                     ),
               ),
             ],
           ),
+        ),
+        const SizedBox(width: 4),
+        const IgnorePointer(
+          child: AuroraHeroEmblem(size: 78, opacity: 0.76),
         ),
       ],
     );
@@ -919,7 +947,7 @@ class _CandidateSectionIntro extends StatelessWidget {
             ),
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: AuroraColors.ink,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ),

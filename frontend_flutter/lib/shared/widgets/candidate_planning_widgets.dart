@@ -72,14 +72,10 @@ class CandidateGateCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: accent.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: Icon(icon, color: accent, size: 23),
+                AuroraSectionIcon(
+                  icon: icon,
+                  color: accent,
+                  size: 44,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -91,7 +87,7 @@ class CandidateGateCard extends StatelessWidget {
                         style:
                             Theme.of(context).textTheme.titleMedium?.copyWith(
                                   color: AuroraColors.ink,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w700,
                                 ),
                       ),
                       const SizedBox(height: 2),
@@ -100,7 +96,7 @@ class CandidateGateCard extends StatelessWidget {
                         key: const ValueKey('candidate-gate-count'),
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: accent,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w700,
                             ),
                       ),
                     ],
@@ -230,7 +226,7 @@ class CandidateRefreshBanner extends StatelessWidget {
                     title,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           color: AuroraColors.ink,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                         ),
                   ),
                   const SizedBox(height: 3),
@@ -368,7 +364,7 @@ class _CandidateOptionCardState extends State<CandidateOptionCard> {
                       '${widget.rank}',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             color: accent,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w700,
                           ),
                     ),
                   ),
@@ -382,7 +378,7 @@ class _CandidateOptionCardState extends State<CandidateOptionCard> {
                           style:
                               Theme.of(context).textTheme.titleMedium?.copyWith(
                                     color: AuroraColors.ink,
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w700,
                                   ),
                         ),
                         if (widget.secondaryText?.trim().isNotEmpty ==
@@ -666,7 +662,7 @@ class SevenDayProgressGrid extends StatelessWidget {
                 '${progress.completedDays}/7',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: AuroraColors.purple,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const SizedBox(width: 8),

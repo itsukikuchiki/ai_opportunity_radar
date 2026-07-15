@@ -156,7 +156,7 @@ class _HomeShellPageState extends State<HomeShellPage>
                   label: AppLocaleText.tr(
                     context,
                     en: 'Weekly',
-                    zhHans: '每周',
+                    zhHans: '每周复盘',
                     zhHant: '每週',
                     ja: 'Weekly',
                   ),
@@ -169,7 +169,7 @@ class _HomeShellPageState extends State<HomeShellPage>
                   label: AppLocaleText.tr(
                     context,
                     en: 'Experiment',
-                    zhHans: '小实验',
+                    zhHans: '生活小实验',
                     zhHant: '小實驗',
                     ja: '実験',
                   ),

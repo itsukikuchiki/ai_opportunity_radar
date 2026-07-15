@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+from datetime import timedelta
 from importlib import import_module, reload
 
 from sqlalchemy import select, func
@@ -158,6 +159,8 @@ def test_recent_signal_query_reads_back_saved_capture_with_acknowledgement():
             assert isinstance(signals[0].acknowledgement, str)
             assert signals[0].acknowledgement.strip() != ""
             assert signals[0].acknowledgement == result.acknowledgement
+            assert signals[0].created_at.tzinfo is not None
+            assert signals[0].created_at.utcoffset() == timedelta(0)
 
         finally:
             db.close()

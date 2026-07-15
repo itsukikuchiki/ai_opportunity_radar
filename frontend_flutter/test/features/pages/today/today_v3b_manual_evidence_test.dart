@@ -56,7 +56,7 @@ void main() {
     );
 
     expect(repo.signals.any((s) => s.content.contains('正常联网新增')), isTrue);
-    expect(find.text('快速记录'), findsOneWidget);
+    expect(find.text('今天过得怎么样？'), findsOneWidget);
     expect(find.text('今日小行动'), findsOneWidget);
   });
 
@@ -92,7 +92,7 @@ void main() {
 
     expect(repo.signals.any((s) => s.content.contains('断网新增')), isTrue);
     expect(repo.signals.any((s) => s.isLocalDraft && s.syncFailed), isTrue);
-    expect(find.text('快速记录'), findsOneWidget);
+    expect(find.text('今天过得怎么样？'), findsOneWidget);
     expect(find.text('今日时间线'), findsOneWidget);
   });
 

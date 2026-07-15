@@ -8,6 +8,7 @@ import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/purchases/purchase_controller.dart';
 import 'package:ai_opportunity_radar/features/pages/me/me_page.dart';
 import 'package:ai_opportunity_radar/features/pages/me/me_view_model.dart';
+import 'package:ai_opportunity_radar/shared/widgets/aurora_ui.dart';
 
 import '../../../helpers/widget_test_helpers.dart';
 
@@ -46,6 +47,14 @@ void main() {
           ?.fontSize,
       36,
     );
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('me-hero-title')))
+          .style
+          ?.fontWeight,
+      FontWeight.w700,
+    );
+    expect(find.byType(AuroraHeroEmblem), findsOneWidget);
     expect(
       tester.getSize(find.byKey(const ValueKey('me-profile-avatar'))),
       const Size(68, 68),

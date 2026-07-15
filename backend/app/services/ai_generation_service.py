@@ -311,12 +311,12 @@ class AiGenerationService:
                 rebound_phrase = "后半段有一点回收，说明这一周不是一路往下掉，而是有被拉回来一点"
 
         summary = (
-            f"{key_insight} L3 Reflect 要看的更像是结构："
+            f"{key_insight} 深度分析要看的更像是结构："
             f"“{pattern_name}”并不是孤立出现，它和“{friction_name}”在同一周里互相牵住，"
             "让你反复在想推进和被消耗之间切换。"
         )
         root_tension = (
-            f"表层事件是几条不同记录；底层 tension 是你想让“{pattern_name}”更顺一点，"
+            f"表层事件是几条不同记录；底层的内在拉扯是你想让“{pattern_name}”更顺一点，"
             f"但每次靠近时，“{friction_name}”又把注意力拉走。所以真正累的不是某一天，"
             "而是不断重启判断、不断重新找回节奏。"
         )
@@ -329,7 +329,7 @@ class AiGenerationService:
             f"下周先不要扩大观察面，只盯一个小问题：当“{friction_name}”再次出现时，"
             f"它是在打断“{pattern_name}”的开始、推进中段，还是收尾阶段。这个位置比事件本身更值得记。"
         )
-        risk_note = "这份 L3 Reflect 更适合拿来收窄注意力，不适合一次解释完整个自己；如果这一周本来就很早期，它只能给方向，不能当结论。"
+        risk_note = "这份深度分析更适合拿来收窄注意力，不适合一次解释完整个自己；如果这一周本来就很早期，它只能给方向，不能当结论。"
         key_nodes = [
             f"重复主题：{pattern_name}",
             f"主要摩擦：{friction_name}",

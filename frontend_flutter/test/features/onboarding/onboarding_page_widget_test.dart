@@ -108,8 +108,11 @@ void main() {
     expect(find.text('本周行为模式'), findsOneWidget);
     expect(find.text('下周小实验'), findsOneWidget);
     expect(find.text('加入下周'), findsOneWidget);
+    expect(find.text('每周复盘'), findsOneWidget);
+    expect(find.textContaining('采纳后进入生活小实验'), findsOneWidget);
     expect(find.textContaining('小实验档案'), findsOneWidget);
     expect(find.textContaining('想调整'), findsOneWidget);
+    expect(find.textContaining('Life Experiment'), findsNothing);
 
     await tester.drag(find.byType(PageView), const Offset(-390, 0));
     await tester.pumpAndSettle();
@@ -125,8 +128,11 @@ void main() {
     );
     expect(find.text('本月反复出现的观察'), findsOneWidget);
     expect(find.text('查看依据'), findsOneWidget);
-    expect(find.text('Weekly 本周深读'), findsOneWidget);
+    expect(find.text('旅程'), findsOneWidget);
+    expect(find.text('每周复盘 · 深度分析'), findsOneWidget);
     expect(find.text('PRO'), findsOneWidget);
+    expect(find.textContaining('Weekly 本周深读'), findsNothing);
+    expect(find.textContaining('Pro 的 L3'), findsNothing);
 
     await tester.drag(find.byType(PageView), const Offset(-390, 0));
     await tester.pumpAndSettle();
