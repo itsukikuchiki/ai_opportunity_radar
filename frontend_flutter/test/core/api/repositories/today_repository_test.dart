@@ -305,10 +305,12 @@ void main() {
       final signal = (data['recentSignals'] as List<RecentSignalModel>).single;
       final cached =
           (await harness.localCaptureRepository.listSignalCards()).single;
+      final expectedLocal = DateTime.utc(2026, 7, 15, 4, 6).toLocal();
 
       expect(signal.createdAt!.toUtc(), DateTime.utc(2026, 7, 15, 4, 6));
-      expect(signal.createdAt!.hour, 13);
-      expect(signal.createdAt!.minute, 6);
+      expect(signal.createdAt!.isUtc, isFalse);
+      expect(signal.createdAt!.hour, expectedLocal.hour);
+      expect(signal.createdAt!.minute, expectedLocal.minute);
       expect(cached.createdAt!.toUtc(), DateTime.utc(2026, 7, 15, 4, 6));
 
       await harness.close();
