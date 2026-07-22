@@ -80,6 +80,18 @@ Pre-archive engineering evidence recorded on 2026-07-23:
 | Backend suite | `104 passed / 2 PostgreSQL-only skipped` |
 | Formatting, CI manifest, diff whitespace | Passed |
 
+Delivery evidence recorded on 2026-07-23:
+
+| Field | Result |
+| --- | --- |
+| Source commit | `f4c4321751432eea2f655c2bc469f661c4533b45` |
+| Archive | `Runner`; `4.0.0 (14)`; bundle `jp.sunrise.signalpath`; minimum iOS `13.0` |
+| Local StoreKit resource check | `SignalPath.storekit` absent from the IPA |
+| App Store validation | Passed with no errors |
+| Delivery / ASC build id | `771213e4-db8b-468f-8c39-11154f3e7e96` |
+| Processing | `VALID`; not expired |
+| Internal group | `Signal Path Internal Testers`; relationship verified |
+
 These are automated engineering checks. VoiceOver speech order/pronunciation,
 keyboard and safe-area behavior on hardware, HealthKit native permissions,
 TestFlight Sandbox products, purchase, Restore Purchase, and entitlement/quota

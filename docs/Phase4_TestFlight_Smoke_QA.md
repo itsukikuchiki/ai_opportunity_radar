@@ -8,8 +8,8 @@ read-only App Store Connect API check: 2026-07-23.
 > Plural candidates, zero-to-many adoption, and real per-object `X/7` progress
 > are implemented engineering baseline, not pending implementation. They remain
 > pending TestFlight / real-device regression. System Calendar is outside this
-> QA round; any Calendar permission sheet is a failure. No new archive or
-> upload is implied by this document update.
+> QA round; any Calendar permission sheet is a failure. Build `14` is the
+> signed QA showcase package currently assigned to the internal tester group.
 
 Scope: prepare the next major TestFlight validation package for Phase 3+ / Phase 4 platform QA. This version is for platform validation first, not production release sign-off.
 
@@ -18,25 +18,25 @@ Scope: prepare the next major TestFlight validation package for Phase 3+ / Phase
 | Field | Value |
 | --- | --- |
 | Current repository version | `4.0.0+14` |
-| Latest ASC build | `4.0.0 (13)`; `VALID`, not expired, assigned to the internal group |
-| Next unused ASC build number | `14`, confirmed by read-only API on 2026-07-23 |
-| Next current-worktree archive | `4.0.0 (14)`, user-authorized QA showcase build |
+| Latest ASC build | `4.0.0 (14)`; `VALID`, not expired, assigned to the internal group |
+| Next unused ASC build number | `15`, after successful delivery of build `14` on 2026-07-23 |
+| Current QA showcase archive | `4.0.0 (14)`, uploaded and linked to internal testers |
 | ASC version record | `4.0.0`; `PREPARE_FOR_SUBMISSION` |
 | Bundle ID | jp.sunrise.signalpath |
 | Purpose | TestFlight platform validation |
 | Production ready | No |
 
-Build `13` already exists in ASC. The current worktree must not reuse any
-earlier build number; this QA showcase upload uses build `14`.
+Build `14` is the current internal QA package. Future archives must use build
+`15` or a later unused build number.
 
 ## Current Baseline Status
 
 | Area | Status |
 | --- | --- |
 | Current source version | `4.0.0+14` |
-| Latest ASC build in the `4.0.0` train | Build `13`, `VALID`, not expired, assigned to `Signal Path Internal Testers` |
+| Latest ASC build in the `4.0.0` train | Build `14`, `VALID`, not expired, assigned to `Signal Path Internal Testers` |
 | Latest automated baseline | Flutter `595 / 595` passed; Flutter analyzer clean; release UI guardrails `11 / 11`; backend `104 passed / 2 PostgreSQL-only skipped`; formatting dry-run, CI manifest, and `git diff --check` passed. |
-| Current-worktree IPA | Build `14` QA showcase archive authorized; archive/upload evidence is recorded only after delivery |
+| Current-worktree IPA | Build `14` QA showcase archive validated, uploaded, processed, and linked to internal testers |
 | Candidate/progress engineering baseline | Implemented; automated coverage passed |
 | Current TestFlight real-device regression | Pending |
 | Platform QA | Open |
@@ -59,8 +59,8 @@ Read-only API confirmation on 2026-07-23:
 
 | Check | Confirmed result | Release status |
 | --- | --- | --- |
-| Highest uploaded build in `4.0.0` | `13`, `VALID`, not expired, assigned to the internal group | Confirmed |
-| Next unused build number | `14` | Confirmed; reserved for this user-requested QA showcase archive |
+| Highest uploaded build in `4.0.0` | `14`, `VALID`, not expired, assigned to the internal group | Confirmed |
+| Next unused build number | `15` | Confirmed from the successful build `14` delivery sequence |
 | Monthly product `jp.sunrise.signalpath.pro.monthly` | `APPROVED`, `ONE_MONTH` | Confirmed |
 | Yearly product `jp.sunrise.signalpath.pro.yearly` | `APPROVED`, `ONE_YEAR` | Confirmed |
 | Monthly product localizations | `en-US`, `ja`, `zh-Hant` approved | **`zh-Hans` missing in ASC; add before release** |
@@ -68,7 +68,7 @@ Read-only API confirmation on 2026-07-23:
 | Subscription group localizations | `en-US`, `ja`, `zh-Hant` approved | **`zh-Hans` missing in ASC; add before release** |
 | App version `4.0.0` metadata | `ja`, `en-US`, `zh-Hans`, `zh-Hant`; description, keywords, and support URL present | Confirmed structurally; final copy still needs human review |
 | Sandbox testers | One tester exists | Existence confirmed; sign-in, storefront, renewal/reset state, and purchase history require manual ASC/device check |
-| Build `13` internal tester-group visibility | Assigned to `Signal Path Internal Testers` | Confirmed by read-only API |
+| Build `14` internal tester-group visibility | Assigned to `Signal Path Internal Testers` | Confirmed by App Store Connect API relationship check |
 | TestFlight product discovery | Monthly and yearly returned by StoreKit in the TestFlight Sandbox | Pending real-device confirmation |
 
 Do not store a Sandbox tester password in this repository or QA document. Record
@@ -78,7 +78,7 @@ The repository's local StoreKit fixture contains four-language product copy, but
 that fixture is not ASC evidence. The missing `zh-Hans` subscription and group
 localizations above are therefore an external release-preflight gap.
 
-## Current ASC Build Evidence - `4.0.0 (13)`
+## Previous ASC Build Evidence - `4.0.0 (13)`
 
 ```text
 Marketing version: 4.0.0
@@ -86,25 +86,26 @@ Build number: 13
 Internal group: Signal Path Internal Testers
 Processing state: VALID
 Expired: false
-Next unused build: 14
+Succeeded by build: 14
 ```
 
-This proves the ASC train state only. It does not prove that unarchived current
-worktree changes are present in build `13`.
+This record is retained for comparison only. Current QA uses build `14`.
 
-## Pending Delivery Evidence - `4.0.0 (14)`
+## Delivery Evidence - `4.0.0 (14)`
 
-Do not replace these fields with assumptions. Fill them only from the signed
-archive, upload response, and App Store Connect API after processing:
+Recorded from the signed archive, `altool` upload response, and App Store
+Connect API after processing:
 
 ```text
-Source commit SHA: <record after candidate commit>
+Source commit SHA: f4c4321751432eea2f655c2bc469f661c4533b45
 Archive scheme: Runner
 Archive profile: staging QA showcase
-Delivery UUID: <record after upload>
-ASC build id: <record after processing>
-Processing state: <record after processing>
-Internal group relationship: <record after HTTP 204 and relationship check>
+Delivery UUID: 771213e4-db8b-468f-8c39-11154f3e7e96
+ASC build id: 771213e4-db8b-468f-8c39-11154f3e7e96
+Processing state: VALID
+Expired: false
+Minimum OS: 13.0
+Internal group relationship: Signal Path Internal Testers; verified true
 ```
 
 Build `14` uses staging API data plus the isolated QA showcase fixture. The
