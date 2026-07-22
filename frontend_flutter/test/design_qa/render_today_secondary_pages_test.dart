@@ -3,7 +3,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -17,24 +16,14 @@ import 'package:ai_opportunity_radar/features/pages/signal_library/signal_librar
 import 'package:ai_opportunity_radar/features/pages/today/today_diary_page.dart';
 import 'package:ai_opportunity_radar/features/pages/today/today_view_model.dart';
 
+import '../helpers/design_qa_font_loader.dart';
 import '../helpers/widget_test_helpers.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
-    final fontBytes =
-        await File('/System/Library/Fonts/Hiragino Sans GB.ttc').readAsBytes();
-    await (FontLoader(_designReviewFontFamily)
-          ..addFont(Future.value(ByteData.sublistView(fontBytes))))
-        .load();
-    final iconBytes = await File(
-      '/Users/yangyang/development/flutter/bin/cache/artifacts/material_fonts/'
-      'MaterialIcons-Regular.otf',
-    ).readAsBytes();
-    await (FontLoader('MaterialIcons')
-          ..addFont(Future.value(ByteData.sublistView(iconBytes))))
-        .load();
+    await loadDesignQaFonts(_designReviewFontFamily);
   });
 
   testWidgets('renders the current Today diary timeline for design review',
