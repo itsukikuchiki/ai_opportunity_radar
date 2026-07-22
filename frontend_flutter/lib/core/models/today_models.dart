@@ -70,6 +70,7 @@ class RecentSignalModel {
   final String? friction;
   final String? positiveSignal;
   final String? energyLoad;
+  final String? energyState;
   final List<String> linkedLifeChainStages;
   final Map<String, dynamic> rawPayloadJson;
   final List<String> sceneTags;
@@ -104,6 +105,7 @@ class RecentSignalModel {
     this.friction,
     this.positiveSignal,
     this.energyLoad,
+    this.energyState,
     this.linkedLifeChainStages = const [],
     this.rawPayloadJson = const {},
     this.sceneTags = const [],
@@ -163,6 +165,8 @@ class RecentSignalModel {
           (json['positiveSignal'] as String?),
       energyLoad:
           (json['energy_load'] as String?) ?? (json['energyLoad'] as String?),
+      energyState:
+          (json['energy_state'] as String?) ?? (json['energyState'] as String?),
       linkedLifeChainStages: _parseStringList(
         json['linked_life_chain_stage'] ?? json['linkedLifeChainStage'],
       ),

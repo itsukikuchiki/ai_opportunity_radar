@@ -6,7 +6,10 @@ import '../../../app/app_router.dart';
 import '../../../core/di/app_dependencies.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/weekly_models.dart';
+import '../../../core/navigation/app_back_navigation.dart';
 import '../../../shared/widgets/aurora_ui.dart';
+
+enum _GoalRecordAvailability { active, notStarted, ended }
 
 class TodayExperimentFeedbackPage extends StatefulWidget {
   final String experimentId;
@@ -16,6 +19,9 @@ class TodayExperimentFeedbackPage extends StatefulWidget {
     required this.experimentId,
   });
 
+  @visibleForTesting
+  static String normalizedFeedbackText(String rawText) => rawText.trim();
+
   @override
   State<TodayExperimentFeedbackPage> createState() =>
       _TodayExperimentFeedbackPageState();
@@ -24,7 +30,7 @@ class TodayExperimentFeedbackPage extends StatefulWidget {
 class _TodayExperimentFeedbackPageState
     extends State<TodayExperimentFeedbackPage> {
   final _noteController = TextEditingController();
-  String _status = 'tried';
+  String? _status;
   bool _loading = true;
   bool _saving = false;
   LifeExperimentModel? _experiment;
@@ -55,29 +61,53 @@ class _TodayExperimentFeedbackPageState
 
   Future<void> _save() async {
     final experiment = _experiment;
-    if (experiment == null || _saving) return;
+    final status = _status;
+    if (experiment == null ||
+        status == null ||
+        _saving ||
+        _goalRecordAvailability(experiment) != _GoalRecordAvailability.active) {
+      return;
+    }
     setState(() => _saving = true);
     final deps = context.read<AppDependencies>();
-    await deps.localLifeExperimentRepository.recordFeedback(
+    final saved = await deps.localLifeExperimentRepository.recordFeedback(
       experimentId: experiment.id,
       localUserId: deps.localUserId,
-      completionStatus: _status,
-      feedbackText: _noteController.text.trim().isEmpty
-          ? _defaultFeedbackText(_status)
-          : _noteController.text.trim(),
+      completionStatus: status,
+      feedbackText: TodayExperimentFeedbackPage.normalizedFeedbackText(
+        _noteController.text,
+      ),
       feedbackDate: DateTime.now(),
-      conditionTags: [_status],
+      conditionTags: [status],
+      enforceProgressWindow: true,
     );
     if (!mounted) return;
+    if (saved == null) {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocaleText.tr(
+              context,
+              en: 'This goal is not currently within its planned record period.',
+              zhHans: '当前不在这条目标的计划记录期内。',
+              zhHant: '目前不在這個目標的計畫記錄期內。',
+              ja: '現在はこの目標の予定記録期間外です。',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           AppLocaleText.tr(
             context,
-            en: 'Experiment feedback saved.',
-            zhHans: '实验反馈已保存。',
-            zhHant: '實驗回饋已保存。',
-            ja: '実験のフィードバックを保存しました。',
+            en: 'Goal feedback saved.',
+            zhHans: '目标反馈已保存。',
+            zhHant: '目標回饋已保存。',
+            ja: '目標のフィードバックを保存しました。',
           ),
         ),
       ),
@@ -85,23 +115,12 @@ class _TodayExperimentFeedbackPageState
     context.go(AppRoutes.today);
   }
 
-  String _defaultFeedbackText(String status) {
-    switch (status) {
-      case 'helpful':
-        return 'This helped today.';
-      case 'adjusted':
-      case 'too_hard':
-        return 'This could be adjusted next time.';
-      case 'not_today':
-        return 'This was not suitable today.';
-      default:
-        return 'This experiment happened today.';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final experiment = _experiment;
+    final recordAvailability = experiment == null
+        ? _GoalRecordAvailability.ended
+        : _goalRecordAvailability(experiment);
     return Scaffold(
       body: Stack(
         children: [
@@ -109,10 +128,17 @@ class _TodayExperimentFeedbackPageState
             child: Stack(
               children: [
                 const Positioned(
-                  right: -24,
-                  top: 24,
+                  key: ValueKey('experiment-feedback-experiment-pattern'),
+                  right: -22,
+                  top: 10,
+                  width: 182,
+                  height: 124,
                   child: IgnorePointer(
-                    child: AuroraHeroEmblem(size: 150, opacity: 0.24),
+                    child: AuroraExperimentHeroPattern(
+                      opacity: 0.68,
+                      alignment: Alignment.centerRight,
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
                 SafeArea(
@@ -129,7 +155,7 @@ class _TodayExperimentFeedbackPageState
                       Row(
                         children: [
                           AuroraIconButton(
-                            onPressed: () => context.go(AppRoutes.today),
+                            onPressed: () => context.popOrGo(AppRoutes.today),
                             icon: Icons.chevron_left_rounded,
                             tooltip: AppLocaleText.tr(
                               context,
@@ -143,10 +169,10 @@ class _TodayExperimentFeedbackPageState
                             child: Text(
                               AppLocaleText.tr(
                                 context,
-                                en: 'Experiment feedback',
-                                zhHans: '实验反馈',
-                                zhHant: '實驗回饋',
-                                ja: '実験フィードバック',
+                                en: 'Goal feedback',
+                                zhHans: '目标反馈',
+                                zhHant: '目標回饋',
+                                ja: '目標フィードバック',
                               ),
                               textAlign: TextAlign.center,
                               style: Theme.of(context)
@@ -173,10 +199,10 @@ class _TodayExperimentFeedbackPageState
                           child: Text(
                             AppLocaleText.tr(
                               context,
-                              en: 'This experiment could not be found.',
-                              zhHans: '没有找到这条实验。',
-                              zhHant: '沒有找到這條實驗。',
-                              ja: 'この実験が見つかりません。',
+                              en: 'This goal could not be found.',
+                              zhHans: '没有找到这个目标。',
+                              zhHant: '沒有找到這個目標。',
+                              ja: 'この目標が見つかりません。',
                             ),
                           ),
                         )
@@ -236,145 +262,159 @@ class _TodayExperimentFeedbackPageState
                           ),
                         ),
                         const SizedBox(height: 12),
-                        AuroraCard(
-                          padding: AuroraMainPageSpec.comfortableCardPadding,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const AuroraSectionIcon(
-                                    icon: Icons.rate_review_rounded,
-                                    color: AuroraColors.mint,
-                                    size: 32,
+                        if (recordAvailability !=
+                            _GoalRecordAvailability.active)
+                          AuroraCard(
+                            key: const ValueKey(
+                              'goal-feedback-record-window-read-only',
+                            ),
+                            padding: AuroraMainPageSpec.comfortableCardPadding,
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.history_rounded,
+                                  color: AuroraColors.muted,
+                                ),
+                                const SizedBox(width: 9),
+                                Expanded(
+                                  child: Text(
+                                    _recordAvailabilityLabel(
+                                      context,
+                                      recordAvailability,
+                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: AuroraColors.muted,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                   ),
-                                  const SizedBox(width: 9),
-                                  Expanded(
-                                    child: Text(
-                                      AppLocaleText.tr(
-                                        context,
-                                        en: 'What happened today?',
-                                        zhHans: '今天发生了什么？',
-                                        zhHant: '今天發生了什麼？',
-                                        ja: '今日どうでしたか？',
+                                ),
+                              ],
+                            ),
+                          )
+                        else ...[
+                          AuroraCard(
+                            padding: AuroraMainPageSpec.comfortableCardPadding,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const AuroraSectionIcon(
+                                      icon: Icons.rate_review_rounded,
+                                      color: AuroraColors.mint,
+                                      size: 32,
+                                    ),
+                                    const SizedBox(width: 9),
+                                    Expanded(
+                                      child: Text(
+                                        AppLocaleText.tr(
+                                          context,
+                                          en: 'Did you complete it today?',
+                                          zhHans: '今天完成了吗？',
+                                          zhHant: '今天完成了嗎？',
+                                          ja: '今日は完了しましたか？',
+                                        ),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium
+                                            ?.copyWith(
+                                              color: AuroraColors.ink,
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                       ),
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium
-                                          ?.copyWith(
-                                            color: AuroraColors.ink,
-                                            fontWeight: FontWeight.w700,
-                                          ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 14),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _FeedbackChoice(
-                                    selected: _status == 'tried',
-                                    label: AppLocaleText.tr(context,
-                                        en: 'Happened',
-                                        zhHans: '发生了',
-                                        zhHant: '發生了',
-                                        ja: 'できた'),
-                                    onTap: () =>
-                                        setState(() => _status = 'tried'),
-                                  ),
-                                  _FeedbackChoice(
-                                    selected: _status == 'helpful',
-                                    label: AppLocaleText.tr(context,
-                                        en: 'Helpful',
-                                        zhHans: '有帮助',
-                                        zhHant: '有幫助',
-                                        ja: '役立った'),
-                                    onTap: () =>
-                                        setState(() => _status = 'helpful'),
-                                  ),
-                                  _FeedbackChoice(
-                                    selected: _status == 'adjusted' ||
-                                        _status == 'too_hard',
-                                    label: AppLocaleText.tr(context,
-                                        en: 'Want to adjust',
-                                        zhHans: '想调整',
-                                        zhHant: '想調整',
-                                        ja: '調整したい'),
-                                    onTap: () =>
-                                        setState(() => _status = 'adjusted'),
-                                  ),
-                                  _FeedbackChoice(
-                                    selected: _status == 'not_today',
-                                    label: AppLocaleText.tr(context,
-                                        en: 'Not today',
-                                        zhHans: '今天不适合',
-                                        zhHant: '今天不適合',
-                                        ja: '今日は合わない'),
-                                    onTap: () =>
-                                        setState(() => _status = 'not_today'),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 14),
-                              TextField(
-                                controller: _noteController,
-                                maxLines: 4,
-                                decoration: InputDecoration(
-                                  hintText: AppLocaleText.tr(
-                                    context,
-                                    en: 'Add one sentence if you want.',
-                                    zhHans: '如果愿意，可以补一句。',
-                                    zhHant: '如果願意，可以補一句。',
-                                    ja: '必要なら一言足せます。',
-                                  ),
-                                  filled: true,
-                                  fillColor:
-                                      Colors.white.withValues(alpha: 0.58),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(18),
-                                    borderSide: BorderSide(
-                                      color: AuroraColors.line
-                                          .withValues(alpha: 0.74),
+                                  ],
+                                ),
+                                const SizedBox(height: 14),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _FeedbackChoice(
+                                      selected: _status == 'completed',
+                                      label: AppLocaleText.tr(context,
+                                          en: 'Completed',
+                                          zhHans: '已完成',
+                                          zhHant: '已完成',
+                                          ja: '完了'),
+                                      onTap: () =>
+                                          setState(() => _status = 'completed'),
                                     ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(18),
-                                    borderSide: const BorderSide(
-                                      color: AuroraColors.purple,
-                                      width: 1.2,
+                                    _FeedbackChoice(
+                                      selected: _status == 'not_completed',
+                                      label: AppLocaleText.tr(context,
+                                          en: 'Not completed',
+                                          zhHans: '未完成',
+                                          zhHant: '未完成',
+                                          ja: '未完了'),
+                                      onTap: () => setState(
+                                          () => _status = 'not_completed'),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 14),
+                                TextField(
+                                  controller: _noteController,
+                                  maxLines: 4,
+                                  decoration: InputDecoration(
+                                    hintText: AppLocaleText.tr(
+                                      context,
+                                      en: 'Add one sentence if you want.',
+                                      zhHans: '如果愿意，可以补一句。',
+                                      zhHant: '如果願意，可以補一句。',
+                                      ja: '必要なら一言足せます。',
+                                    ),
+                                    filled: true,
+                                    fillColor:
+                                        Colors.white.withValues(alpha: 0.58),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(18),
+                                      borderSide: BorderSide(
+                                        color: AuroraColors.line
+                                            .withValues(alpha: 0.74),
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(18),
+                                      borderSide: const BorderSide(
+                                        color: AuroraColors.purple,
+                                        width: 1.2,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          height: 52,
-                          child: AuroraPillButton(
-                            filled: true,
-                            icon: Icons.check_rounded,
-                            label: _saving
-                                ? AppLocaleText.tr(
-                                    context,
-                                    en: 'Saving',
-                                    zhHans: '保存中',
-                                    zhHant: '保存中',
-                                    ja: '保存中',
-                                  )
-                                : AppLocaleText.tr(
-                                    context,
-                                    en: 'Save feedback',
-                                    zhHans: '保存反馈',
-                                    zhHant: '保存回饋',
-                                    ja: '保存する',
-                                  ),
-                            onPressed: _saving ? null : _save,
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            height: 52,
+                            child: AuroraPillButton(
+                              filled: true,
+                              icon: Icons.check_rounded,
+                              label: _saving
+                                  ? AppLocaleText.tr(
+                                      context,
+                                      en: 'Saving',
+                                      zhHans: '保存中',
+                                      zhHant: '保存中',
+                                      ja: '保存中',
+                                    )
+                                  : AppLocaleText.tr(
+                                      context,
+                                      en: 'Save feedback',
+                                      zhHans: '保存反馈',
+                                      zhHant: '保存回饋',
+                                      ja: '保存する',
+                                    ),
+                              onPressed:
+                                  _saving || _status == null ? null : _save,
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ],
                   ),
@@ -387,6 +427,58 @@ class _TodayExperimentFeedbackPageState
       ),
     );
   }
+}
+
+_GoalRecordAvailability _goalRecordAvailability(
+  LifeExperimentModel experiment, {
+  DateTime? now,
+}) {
+  final status = experiment.status.trim().toLowerCase();
+  if (!const {'accepted', 'saved', 'active', 'in_progress'}.contains(status)) {
+    return _GoalRecordAvailability.ended;
+  }
+  final start = _parseLocalDate(experiment.progressStartDate) ??
+      _parseLocalDate(experiment.sourceWeekStart) ??
+      experiment.adoptedAt?.toLocal() ??
+      experiment.createdAt?.toLocal();
+  if (start == null) return _GoalRecordAvailability.ended;
+  final end = _parseLocalDate(experiment.progressEndDate);
+  final today = _dateOnly((now ?? DateTime.now()).toLocal());
+  final localStart = _dateOnly(start.toLocal());
+  if (today.isBefore(localStart)) return _GoalRecordAvailability.notStarted;
+  if (end != null && today.isAfter(_dateOnly(end.toLocal()))) {
+    return _GoalRecordAvailability.ended;
+  }
+  return _GoalRecordAvailability.active;
+}
+
+DateTime? _parseLocalDate(String? value) {
+  final raw = value?.trim() ?? '';
+  return raw.isEmpty ? null : DateTime.tryParse(raw);
+}
+
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);
+
+String _recordAvailabilityLabel(
+  BuildContext context,
+  _GoalRecordAvailability availability,
+) {
+  return availability == _GoalRecordAvailability.notStarted
+      ? AppLocaleText.tr(
+          context,
+          en: 'The planned record period has not started yet.',
+          zhHans: '计划记录期尚未开始',
+          zhHant: '計畫記錄期尚未開始',
+          ja: '予定された記録期間はまだ始まっていません',
+        )
+      : AppLocaleText.tr(
+          context,
+          en: 'The planned record period has ended.',
+          zhHans: '计划记录期已结束',
+          zhHant: '計畫記錄期已結束',
+          ja: '予定された記録期間は終了しました',
+        );
 }
 
 class _FeedbackChoice extends StatelessWidget {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +11,7 @@ import '../../local/local_daily_snapshot_repository.dart';
 import '../../local/local_life_experiment_repository.dart';
 import '../../local/local_pipeline_run_repository.dart';
 import '../../local/local_phase3_plus_repository.dart';
+import '../../models/experiment_evaluation_models.dart';
 import '../../models/phase3_plus_models.dart';
 import '../../models/today_models.dart';
 import '../../i18n/app_locale_text.dart';
@@ -90,7 +92,7 @@ class TodayRepository {
     var aiJudgement =
         await localPhase3PlusRepository?.getAiJudgementForDate(todayKey);
     final shouldRefreshAiJudgement = aiJudgement == null ||
-        _pendingAiJudgementSourcesChanged(
+        _aiJudgementSourcesChanged(
           aiJudgement,
           allSignals: allSignals,
           todayKey: todayKey,
@@ -139,25 +141,29 @@ class TodayRepository {
       experimentId: experimentId,
       completionStatus: status,
       feedbackText: feedbackText,
+      enforceProgressWindow: true,
     );
-    if (feedback != null) cloudBackupSyncService?.markDataChanged();
-    unawaited(analyticsRepository?.track(
-      'life_experiment_feedback_submitted',
-      properties: {
-        'status': status,
-        'has_note': feedbackText.trim().isNotEmpty,
-      },
-    ));
+    if (feedback != null) {
+      cloudBackupSyncService?.markDataChanged();
+      unawaited(analyticsRepository?.track(
+        'life_experiment_feedback_submitted',
+        properties: {
+          'status': status,
+          'has_note': feedbackText.trim().isNotEmpty,
+        },
+      ));
+    }
     return fetchToday();
   }
 
   Future<AiJudgementModel?> createAiJudgementForToday({
     AppLanguage language = AppLanguage.english,
+    int variationIndex = 0,
   }) async {
     final repo = localPhase3PlusRepository;
     if (repo == null) return null;
 
-    final todayKey = _dateKey(DateTime.now());
+    final todayKey = _dateKey(nowLoader?.call() ?? DateTime.now());
     final allSignals = await localCaptureRepository.listSignalCards(limit: 200);
     final eligibleSignals = allSignals
         .where((signal) => _isEligibleForAiJudgement(signal, todayKey))
@@ -166,16 +172,45 @@ class TodayRepository {
       return null;
     }
 
-    final existing = await repo.getAiJudgementForDate(todayKey);
-    final generated = _buildAiJudgementCopy(eligibleSignals, language);
-    final now = DateTime.now();
+    final latestForDate = await repo.getAiJudgementForDate(todayKey);
+    final sourceSignalCardIds = eligibleSignals
+        .map((signal) => signal.signalCardId ?? signal.id ?? '')
+        .where((id) => id.isNotEmpty)
+        .take(5)
+        .toList();
+    final sourceVersionId = _stableAiJudgementId(
+      repo.localUserId,
+      todayKey,
+      sourceSignalCardIds,
+    );
+    AiJudgementModel? matchingExisting;
+    if (latestForDate != null &&
+        _sameIds(
+          sourceSignalCardIds.toSet(),
+          latestForDate.sourceSignalCardIds,
+        ) &&
+        latestForDate.sourceScheduleSignalIds.isEmpty &&
+        latestForDate.sourceGoalTaskInstanceIds.isEmpty) {
+      matchingExisting = latestForDate;
+    } else {
+      final versioned = await repo.getAiJudgementById(sourceVersionId);
+      if (versioned != null &&
+          _sameIds(
+            sourceSignalCardIds.toSet(),
+            versioned.sourceSignalCardIds,
+          )) {
+        matchingExisting = versioned;
+      }
+    }
+    final generated = _buildAiJudgementCopy(
+      eligibleSignals,
+      language,
+      variationIndex: variationIndex,
+    );
+    final now = nowLoader?.call() ?? DateTime.now();
     final judgement = AiJudgementModel(
-      id: existing?.id ?? _stableAiJudgementId(repo.localUserId, todayKey),
-      sourceSignalCardIds: eligibleSignals
-          .map((signal) => signal.signalCardId ?? signal.id ?? '')
-          .where((id) => id.isNotEmpty)
-          .take(5)
-          .toList(),
+      id: matchingExisting?.id ?? sourceVersionId,
+      sourceSignalCardIds: sourceSignalCardIds,
       sourceScheduleSignalIds: const [],
       sourceGoalTaskInstanceIds: const [],
       localDate: todayKey,
@@ -186,24 +221,27 @@ class TodayRepository {
       suggestedPattern: generated[2],
       suggestedLifeChainStage: generated[3],
       confidenceLevel: eligibleSignals.length >= 3 ? 'medium' : 'low',
-      status: existing?.status ?? 'pending',
-      userAdjustmentText: existing?.userAdjustmentText,
-      confirmationNote: existing?.confirmationNote,
-      linkedMicroActionId: existing?.linkedMicroActionId,
-      includedInWeekly: existing?.includedInWeekly ?? false,
-      includedInJourney: existing?.includedInJourney ?? false,
-      createdAt: existing?.createdAt ?? now,
+      status: matchingExisting?.status ?? 'pending',
+      userAdjustmentText: matchingExisting?.userAdjustmentText,
+      confirmationNote: matchingExisting?.confirmationNote,
+      linkedMicroActionId: matchingExisting?.linkedMicroActionId,
+      includedInWeekly: matchingExisting?.includedInWeekly ?? false,
+      includedInJourney: matchingExisting?.includedInJourney ?? false,
+      createdAt: matchingExisting?.createdAt ?? now,
       updatedAt: now,
     );
-    await repo.upsertAiJudgement(judgement);
-    cloudBackupSyncService?.markDataChanged();
-    unawaited(analyticsRepository?.track(
-      'ai_judgement_generated',
-      properties: {
-        'signal_count': eligibleSignals.length,
-        'confidence_level': judgement.confidenceLevel,
-      },
-    ));
+    if (variationIndex == 0) {
+      await repo.upsertAiJudgement(judgement);
+      cloudBackupSyncService?.markDataChanged();
+      unawaited(analyticsRepository?.track(
+        'ai_judgement_generated',
+        properties: {
+          'signal_count': eligibleSignals.length,
+          'confidence_level': judgement.confidenceLevel,
+          'variation_index': variationIndex,
+        },
+      ));
+    }
     return judgement;
   }
 
@@ -211,6 +249,7 @@ class TodayRepository {
     required String judgementId,
     required String status,
     String? userAdjustmentText,
+    AiJudgementModel? displayedJudgement,
     bool addToTimeline = true,
     AppLanguage language = AppLanguage.english,
   }) async {
@@ -231,8 +270,26 @@ class TodayRepository {
     final repo = localPhase3PlusRepository;
     if (repo == null) return fetchToday();
 
-    final judgement = await repo.getAiJudgementById(judgementId);
-    if (judgement == null) return fetchToday();
+    final persistedJudgement = await repo.getAiJudgementById(judgementId);
+    if (persistedJudgement == null) return fetchToday();
+    // Session-only replacement predictions intentionally are not persisted.
+    // Save the exact candidate the user saw, while keeping the persisted
+    // judgement as the authoritative source link and status record.
+    final judgement = displayedJudgement?.id == judgementId &&
+            _sameIds(
+              displayedJudgement!.sourceSignalCardIds.toSet(),
+              persistedJudgement.sourceSignalCardIds,
+            )
+        ? displayedJudgement
+        : persistedJudgement;
+    final acceptedSessionReplacement = judgement.predictedSignalText !=
+            persistedJudgement.predictedSignalText ||
+        judgement.suggestedPattern != persistedJudgement.suggestedPattern ||
+        judgement.suggestedLifeChainStage !=
+            persistedJudgement.suggestedLifeChainStage;
+    if (acceptedSessionReplacement) {
+      await repo.upsertAiJudgement(judgement);
+    }
 
     final confirmationNote = _confirmationNote(
       language,
@@ -380,6 +437,8 @@ class TodayRepository {
   Future<Map<String, dynamic>> submitMicroActionFeedback({
     required String microActionId,
     required String feedback,
+    String? effect,
+    String? difficulty,
     String? userNote,
   }) async {
     final repo = localPhase3PlusRepository;
@@ -388,61 +447,95 @@ class TodayRepository {
     final action = await repo.getMicroActionById(microActionId);
     if (action == null) return fetchToday();
 
-    final now = DateTime.now();
-    final happened = switch (feedback) {
-      'occurred' => 'yes',
-      'happened' => 'yes',
-      'not_occurred' => 'no',
-      'not_happened' => 'no',
-      'not_suitable_today' => 'not_suitable_today',
-      _ => 'unknown',
+    final now = nowLoader?.call() ?? DateTime.now();
+    if (!_canRecordMicroActionFeedbackOn(action: action, date: now)) {
+      return fetchToday();
+    }
+    final canonicalFeedback = switch (feedback) {
+      'completed' || 'done' || 'occurred' || 'happened' => 'completed',
+      'not_completed' ||
+      'not_done' ||
+      'not_occurred' ||
+      'not_happened' ||
+      'not_suitable_today' =>
+        'not_completed',
+      _ => feedback,
     };
-    final effect = feedback == 'helpful' ? 'helpful' : 'unclear';
-    final difficulty = switch (feedback) {
-      'too_hard' => 'too_hard',
-      'not_suitable_today' => 'not_suitable_today',
-      _ => 'okay',
-    };
-    final nextAdjustment = switch (feedback) {
-      'too_hard' => 'make_lighter',
-      'not_suitable_today' => 'try_another_day',
-      _ => 'continue',
-    };
+    final isCompleted = canonicalFeedback == 'completed';
+    final normalizedEffect = isCompleted ? effect : null;
+    final normalizedDifficulty = isCompleted ? difficulty : null;
+    final nextAdjustment = normalizedDifficulty == SmallTryDifficulty.difficult
+        ? SmallTryNextAdjustment.makeLighter
+        : SmallTryNextAdjustment.keep;
 
-    await repo.insertMicroActionFeedback(
-      MicroActionFeedbackModel(
-        id: repo.createId('maf'),
-        microActionId: microActionId,
-        localDate: _dateKey(now),
-        happened: happened,
-        effect: effect,
-        difficulty: difficulty,
-        userNote: userNote,
-        nextAdjustment: nextAdjustment,
-        createdAt: now,
-      ),
+    await repo.recordStructuredMicroActionFeedback(
+      microActionId: microActionId,
+      localDate: _dateKey(now),
+      completionStatus: canonicalFeedback,
+      effect: normalizedEffect,
+      difficulty: normalizedDifficulty,
+      note: userNote,
+      nextAdjustment: nextAdjustment,
+      createdAt: now,
     );
     await repo.updateMicroActionStatus(
       id: microActionId,
-      status: const {'not_happened', 'not_occurred', 'not_suitable_today'}
-              .contains(feedback)
-          ? action.status
-          : 'done',
-      feedbackStatus: feedback,
+      // An attempt result is not the lifecycle of the small try. Only an
+      // explicit round review may retain, lighten, or end the adopted object.
+      status: action.status,
+      feedbackStatus: canonicalFeedback,
     );
     cloudBackupSyncService?.markDataChanged();
     unawaited(analyticsRepository?.track(
       'micro_action_feedback_submitted',
       properties: {
-        'feedback': feedback,
-        'happened': happened,
-        'effect': effect,
-        'difficulty': difficulty,
+        'feedback': canonicalFeedback,
+        'happened': canonicalFeedback,
+        'effect': normalizedEffect,
+        'difficulty': normalizedDifficulty,
         'next_adjustment': nextAdjustment,
         'has_note': userNote?.trim().isNotEmpty ?? false,
       },
     ));
     return fetchToday();
+  }
+
+  bool _canRecordMicroActionFeedbackOn({
+    required MicroActionModel action,
+    required DateTime date,
+  }) {
+    final lifecycle = action.status.trim().toLowerCase();
+    if (lifecycle.contains('pause') ||
+        lifecycle.contains('stop') ||
+        lifecycle.contains('skip') ||
+        lifecycle.contains('archive') ||
+        lifecycle.contains('complete') ||
+        lifecycle.contains('done') ||
+        lifecycle.contains('finish') ||
+        lifecycle.contains('dismiss')) {
+      return false;
+    }
+
+    final start = DateTime.tryParse(
+          action.progressStartDate ?? action.plannedDate ?? '',
+        ) ??
+        action.adoptedAt ??
+        action.createdAt;
+    if (start == null) return false;
+    final configuredEnd = DateTime.tryParse(action.progressEndDate ?? '');
+    final localDate = DateTime(date.year, date.month, date.day);
+    final localStart = DateTime(start.year, start.month, start.day);
+    if (localDate.isBefore(localStart)) return false;
+    // A source/adoption week is not a lifecycle deadline. Small tries remain
+    // writable until their lifecycle is explicitly closed, unless an actual
+    // progress_end_date was persisted for this object.
+    if (configuredEnd == null) return true;
+    final localEnd = DateTime(
+      configuredEnd.year,
+      configuredEnd.month,
+      configuredEnd.day,
+    );
+    return !localDate.isAfter(localEnd);
   }
 
   bool _isEligibleForAiJudgement(RecentSignalModel signal, String todayKey) {
@@ -457,8 +550,9 @@ class TodayRepository {
 
   List<String> _buildAiJudgementCopy(
     List<RecentSignalModel> signals,
-    AppLanguage language,
-  ) {
+    AppLanguage language, {
+    int variationIndex = 0,
+  }) {
     final haystack = signals
         .map((signal) => [
               signal.content,
@@ -487,6 +581,13 @@ class TodayRepository {
         haystack.contains('relationship');
 
     final sample = signals.isEmpty ? '' : signals.first.content.trim();
+    if (variationIndex > 0) {
+      return _buildAlternativeAiJudgementCopy(
+        sample: sample,
+        language: language,
+        variationIndex: variationIndex,
+      );
+    }
     switch (language) {
       case AppLanguage.simplifiedChinese:
         if (hasSwitching) {
@@ -545,6 +646,96 @@ class TodayRepository {
           'daily_pattern',
         ];
     }
+  }
+
+  List<String> _buildAlternativeAiJudgementCopy({
+    required String sample,
+    required AppLanguage language,
+    required int variationIndex,
+  }) {
+    final variant = ((variationIndex - 1) % 3) + 1;
+    return switch ((language, variant)) {
+      (AppLanguage.simplifiedChinese, 1) => [
+          '换一个角度：今天更值得确认的，可能是某个具体场景后你的能量变化。',
+          sample.isEmpty ? '线索来自今天已记录的信号。' : '可以先对照「$sample」发生前后的状态。',
+          '场景后的能量变化',
+          'energy_shift',
+        ],
+      (AppLanguage.simplifiedChinese, 2) => [
+          '再看另一条：今天的几条信号里，也许有一个相似的卡点在重复出现。',
+          sample.isEmpty ? '线索来自今天已记录的信号。' : '这个判断也参考了「$sample」。',
+          '重复出现的卡点',
+          'repeated_friction',
+        ],
+      (AppLanguage.simplifiedChinese, _) => [
+          '还可以确认一点：今天是否有什么瞬间，让你的节奏稍微恢复了一些。',
+          sample.isEmpty ? '线索来自今天已记录的信号。' : '这是从「$sample」周边重新看到的角度。',
+          '微小的恢复瞬间',
+          'recovery_cue',
+        ],
+      (AppLanguage.traditionalChinese, 1) => [
+          '換一個角度：今天更值得確認的，可能是某個具體場景後你的能量變化。',
+          sample.isEmpty ? '線索來自今天已記錄的信號。' : '可以先對照「$sample」發生前後的狀態。',
+          '場景後的能量變化',
+          'energy_shift',
+        ],
+      (AppLanguage.traditionalChinese, 2) => [
+          '再看另一條：今天的幾條信號裡，也許有一個相似的卡點在重複出現。',
+          sample.isEmpty ? '線索來自今天已記錄的信號。' : '這個判斷也參考了「$sample」。',
+          '重複出現的卡點',
+          'repeated_friction',
+        ],
+      (AppLanguage.traditionalChinese, _) => [
+          '還可以確認一點：今天是否有什麼瞬間，讓你的節奏稍微恢復了一些。',
+          sample.isEmpty ? '線索來自今天已記錄的信號。' : '這是從「$sample」周邊重新看到的角度。',
+          '微小的恢復瞬間',
+          'recovery_cue',
+        ],
+      (AppLanguage.japanese, 1) => [
+          '別の角度では、今日の具体的な場面の後でエネルギーがどう変わったかを確かめてもよさそうです。',
+          sample.isEmpty
+              ? '今日記録したシグナルからの手がかりです。'
+              : '「$sample」の前後の状態を手がかりにしています。',
+          '場面の後のエネルギー変化',
+          'energy_shift',
+        ],
+      (AppLanguage.japanese, 2) => [
+          'もう一つ、今日のシグナルに同じ引っかかりが繰り返し出ていないか確かめられます。',
+          sample.isEmpty ? '今日記録したシグナルからの手がかりです。' : 'この見方も「$sample」を参考にしています。',
+          '繰り返す引っかかり',
+          'repeated_friction',
+        ],
+      (AppLanguage.japanese, _) => [
+          '別の手がかりとして、今日のリズムが少し戻った瞬間があったかも確かめられます。',
+          sample.isEmpty ? '今日記録したシグナルからの手がかりです。' : '「$sample」の周りを見直した角度です。',
+          '小さな回復の瞬間',
+          'recovery_cue',
+        ],
+      (AppLanguage.english, 1) => [
+          'Another angle to check is how your energy changed after one specific situation today.',
+          sample.isEmpty
+              ? 'This comes from today’s recorded signals.'
+              : 'This uses the state around “$sample” as a clue.',
+          'energy shift after a situation',
+          'energy_shift',
+        ],
+      (AppLanguage.english, 2) => [
+          'Another possible signal is that a similar point of friction may have repeated across today’s entries.',
+          sample.isEmpty
+              ? 'This comes from today’s recorded signals.'
+              : 'This angle also refers to “$sample”.',
+          'repeated point of friction',
+          'repeated_friction',
+        ],
+      (AppLanguage.english, _) => [
+          'One more thing to check is whether any small moment helped your rhythm recover today.',
+          sample.isEmpty
+              ? 'This comes from today’s recorded signals.'
+              : 'This is another angle around “$sample”.',
+          'small recovery moment',
+          'recovery_cue',
+        ],
+    };
   }
 
   MicroActionModel _copyMicroAction(
@@ -606,12 +797,11 @@ class TodayRepository {
     };
   }
 
-  bool _pendingAiJudgementSourcesChanged(
+  bool _aiJudgementSourcesChanged(
     AiJudgementModel judgement, {
     required List<RecentSignalModel> allSignals,
     required String todayKey,
   }) {
-    if (!judgement.isPending) return false;
     final signalIds = allSignals
         .where((signal) => _isEligibleForAiJudgement(signal, todayKey))
         .map((signal) => signal.signalCardId ?? signal.id ?? '')
@@ -628,10 +818,30 @@ class TodayRepository {
     return current.length == storedSet.length && current.containsAll(storedSet);
   }
 
-  String _stableAiJudgementId(String localUserId, String localDate) {
+  String _stableAiJudgementId(
+    String localUserId,
+    String localDate,
+    Iterable<String> sourceSignalCardIds,
+  ) {
     final user = localUserId.replaceAll(RegExp(r'[^A-Za-z0-9_]'), '_');
     final date = localDate.replaceAll('-', '');
-    return 'aj_${user}_$date';
+    final sources = sourceSignalCardIds
+        .where((id) => id.trim().isNotEmpty)
+        .map((id) => id.trim())
+        .toList(growable: false)
+      ..sort();
+    final fingerprint = _stableFnv64(sources.join('\u241f'));
+    return 'aj_${user}_${date}_$fingerprint';
+  }
+
+  String _stableFnv64(String value) {
+    var hash = BigInt.parse('cbf29ce484222325', radix: 16);
+    final prime = BigInt.parse('100000001b3', radix: 16);
+    final mask = (BigInt.one << 64) - BigInt.one;
+    for (final byte in utf8.encode(value)) {
+      hash = ((hash ^ BigInt.from(byte)) * prime) & mask;
+    }
+    return hash.toRadixString(16).padLeft(16, '0');
   }
 
   Future<RecentSignalModel?> getCaptureById(String captureId) {
@@ -649,6 +859,7 @@ class TodayRepository {
       signal: signal,
       history: history,
       userMessage: userMessage,
+      language: _languageCode(),
       focusArea: focusArea,
       responseStyle: responseStyle,
     );
@@ -660,18 +871,21 @@ class TodayRepository {
     String sourceType = 'text',
     Map<String, dynamic> rawPayloadJson = const {},
   }) async {
+    final normalizedRawPayloadJson = sourceType == 'time_use'
+        ? _normalizeTimeUsePayload(rawPayloadJson)
+        : rawPayloadJson;
     if (apiClient != null) {
       return _submitCaptureViaSignalCard(
         content: content,
         tagHint: tagHint,
         sourceType: sourceType,
-        rawPayloadJson: rawPayloadJson,
+        rawPayloadJson: normalizedRawPayloadJson,
       );
     }
     if (sourceType == 'time_use') {
       return _submitLocalTimeUseCapture(
         content: content,
-        rawPayloadJson: rawPayloadJson,
+        rawPayloadJson: normalizedRawPayloadJson,
       );
     }
 
@@ -790,7 +1004,11 @@ class TodayRepository {
         followup: null,
       );
     }
-    final category = rawPayloadJson['category']?.toString().trim() ?? '';
+    final category =
+        (rawPayloadJson['focus_domain_id'] ?? rawPayloadJson['category'])
+                ?.toString()
+                .trim() ??
+            '';
     final energyEffect =
         rawPayloadJson['energy_effect']?.toString().trim() ?? '';
     final inserted = await localCaptureRepository.insertConfirmedSignalCard(
@@ -825,6 +1043,60 @@ class TodayRepository {
       'updatedRecentSignals': refreshedTodaySignals,
       'localSignal': inserted,
     };
+  }
+
+  Map<String, dynamic> _normalizeTimeUsePayload(
+    Map<String, dynamic> rawPayloadJson,
+  ) {
+    final normalized = <String, dynamic>{...rawPayloadJson};
+    final rawFocusDomain = normalized['focus_domain_id']?.toString().trim();
+    final rawCategory = normalized['category']?.toString().trim();
+    final canonicalFocusDomain = FocusDomains.optionFor(rawFocusDomain)?.id ??
+        FocusDomains.optionFor(rawCategory)?.id;
+    if (canonicalFocusDomain != null) {
+      normalized['focus_domain_id'] = canonicalFocusDomain;
+      // Keep category during the schema transition so older timeline readers
+      // render the same canonical value instead of maintaining a second
+      // taxonomy.
+      normalized['category'] = canonicalFocusDomain;
+    } else {
+      // focus_domain_id is a canonical field; keep unknown historical values
+      // only under category instead of writing an invalid canonical id.
+      normalized.remove('focus_domain_id');
+      if ((normalized['category']?.toString().trim() ?? '').isEmpty) {
+        normalized.remove('category');
+      }
+    }
+
+    final recordStatus =
+        normalized['record_status']?.toString().trim().toLowerCase() ?? '';
+    final rawEnergyLevel = normalized['energy_level'];
+    final energyLevel = switch (rawEnergyLevel) {
+      final int value => value,
+      final num value when value == value.roundToDouble() => value.toInt(),
+      _ => int.tryParse(rawEnergyLevel?.toString() ?? ''),
+    };
+    if (recordStatus == 'planned' ||
+        energyLevel == null ||
+        energyLevel < 0 ||
+        energyLevel > 2) {
+      normalized.remove('energy_level');
+    } else {
+      normalized['energy_level'] = energyLevel;
+    }
+
+    final legacyEnergyEffect =
+        normalized['energy_effect']?.toString().trim().toLowerCase() ?? '';
+    if (legacyEnergyEffect.isEmpty ||
+        legacyEnergyEffect == 'unknown' ||
+        normalized.containsKey('energy_level')) {
+      normalized.remove('energy_effect');
+    } else {
+      // Non-empty historical values remain readable while new callers use
+      // energy_level exclusively.
+      normalized['energy_effect'] = legacyEnergyEffect;
+    }
+    return normalized;
   }
 
   Future<void> retryPendingDrafts() async {
@@ -1018,13 +1290,16 @@ class TodayRepository {
     String? tagHint,
     Map<String, dynamic> rawPayloadJson = const {},
   }) async {
+    final normalizedRawPayloadJson = sourceType == 'time_use'
+        ? _normalizeTimeUsePayload(rawPayloadJson)
+        : rawPayloadJson;
     final draft = await localCaptureRepository.insertLocalDraftSignal(
       content: content,
       sourceType: sourceType,
       tagHint: tagHint,
       language: _languageCode(),
       timezone: _timezoneName(),
-      rawPayloadJson: rawPayloadJson,
+      rawPayloadJson: normalizedRawPayloadJson,
     );
     cloudBackupSyncService?.markDataChanged();
     await analyticsRepository?.track(
@@ -1224,29 +1499,67 @@ class TodayRepository {
 
   String _defaultAcknowledgement(String content) {
     final trimmed = content.trim();
+    final language = _languageCode();
+    if (_isImmediateSafetyRisk(content)) {
+      return switch (language) {
+        'ja' =>
+          '今の言葉をとても心配しています。今すぐ自分や誰かを傷つける可能性があるなら、危険な物から離れ、地域の緊急窓口か、すぐそばに来られる信頼できる人へ連絡してください。',
+        'en' =>
+          'I am very concerned about what you just said. If you might hurt yourself or someone else right now, move away from anything dangerous and contact local emergency services or a trusted person who can be with you now.',
+        'zh-Hant' =>
+          '我很在意你剛才這句話。若你現在可能馬上傷害自己或他人，請先離開危險物品，並聯絡當地緊急服務或一位能立刻到你身邊的可信任的人。',
+        _ => '我很在意你刚才这句话。若你现在可能马上伤害自己或他人，请先离开危险物品，并联系当地紧急服务或一位能立刻到你身边的可信任的人。',
+      };
+    }
     if (trimmed.isEmpty) {
-      return '先把这一条留在这里。';
+      return switch (language) {
+        'ja' => '書いてくれたことを、そのままここに残します。',
+        'en' => 'I am keeping what you wrote here as it is.',
+        'zh-Hant' => '你寫下的這件事已經留在這裡了。',
+        _ => '你写下的这件事已经留在这里了。',
+      };
     }
 
     final emotion = _defaultEmotion(content);
-    final sceneTags = _defaultSceneTags(content);
+    return switch ((language, emotion)) {
+      ('ja', 'mixed') => 'いくつかの気持ちが混ざっていることを、そのまま残します。',
+      ('ja', 'positive') => '今いい気分だと書いてくれましたね。そのまま残します。',
+      ('ja', 'negative') => '今つらい、しんどいと感じていることを、ここに残します。',
+      ('ja', _) => '書いてくれたことを、そのままここに残します。',
+      ('en', 'mixed') =>
+        'You wrote down several mixed feelings, and I am keeping them as they are.',
+      ('en', 'positive') =>
+        'I hear that this moment felt good, and I am keeping it here.',
+      ('en', 'negative') =>
+        'I hear that this moment felt hard, and I am keeping that feeling here.',
+      ('en', _) => 'I am keeping what you wrote here as it is.',
+      ('zh-Hant', 'mixed') => '你寫下了幾種交在一起的感受，先原樣留在這裡。',
+      ('zh-Hant', 'positive') => '我聽見你說這一刻感覺不錯，先把它留在這裡。',
+      ('zh-Hant', 'negative') => '我聽見你說這一刻很難受，這份感受先留在這裡。',
+      ('zh-Hant', _) => '這一條已經按你寫下的內容記下來了。',
+      (_, 'mixed') => '你写下了几种交在一起的感受，先原样留在这里。',
+      (_, 'positive') => '我听见你说这一刻感觉不错，先把它留在这里。',
+      (_, 'negative') => '我听见你说这一刻很难受，这份感受先留在这里。',
+      _ => '这一条已经按你写下的内容记下来了。',
+    };
+  }
 
-    if (emotion == 'mixed') {
-      return '这条里能感觉到你先被拉扯了一下，后面又靠一点具体的小事缓回来一些。';
-    }
-    if (emotion == 'positive') {
-      if (sceneTags.contains('achievement')) {
-        return '这一下不是普通地“还不错”，而是你真的感受到一点推进和成形。';
-      }
-      return '这条里有一个很具体的小好时刻，被你好好接住了。';
-    }
-    if (emotion == 'negative') {
-      if (sceneTags.contains('work')) {
-        return '这一下更像是工作里的节奏或失控感在消耗你，难怪会觉得烦。';
-      }
-      return '这一下听起来确实挺消耗人的，先把它放在这里就好。';
-    }
-    return '先把这一条留在这里也很好，它本身就是一个值得继续看的线索。';
+  bool _isImmediateSafetyRisk(String content) {
+    final normalized = content.trim().toLowerCase();
+    return const [
+      '想自杀',
+      '要自杀',
+      '不想活了',
+      '结束生命',
+      '傷害自己',
+      '自殺したい',
+      '今すぐ死にたい',
+      'kill myself',
+      'suicide now',
+      'end my life',
+      'hurt myself',
+      'hurt someone',
+    ].any(normalized.contains);
   }
 
   String _defaultSingleObservation(String content) {

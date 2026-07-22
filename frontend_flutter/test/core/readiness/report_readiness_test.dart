@@ -71,35 +71,6 @@ void main() {
     expect(ready.distinctDayCount, 3);
   });
 
-  test('Journey Pro requires 14 signals, 7 days, and 2 Monday-week buckets',
-      () {
-    final signals = <RecentSignalModel>[];
-    for (var day = 0; day < 7; day += 1) {
-      final date = DateTime(2026, 7, 6).add(Duration(days: day));
-      final key = _dateKey(date);
-      signals
-        ..add(_signal('$day-a', key))
-        ..add(_signal('$day-b', key));
-    }
-
-    final oneWeek = evaluator.evaluate(
-      signals,
-      ReportReadinessEvaluator.journeyProRule,
-    );
-    expect(oneWeek.signalCount, 14);
-    expect(oneWeek.distinctDayCount, 7);
-    expect(oneWeek.distinctWeekCount, 1);
-    expect(oneWeek.isReady, isFalse);
-
-    signals[signals.length - 1] = _signal('next-week', '2026-07-13');
-    final ready = evaluator.evaluate(
-      signals,
-      ReportReadinessEvaluator.journeyProRule,
-    );
-    expect(ready.distinctWeekCount, 2);
-    expect(ready.isReady, isTrue);
-  });
-
   test('Duplicate SignalCard identities do not inflate report readiness', () {
     final result = evaluator.evaluate(
       [
@@ -123,10 +94,4 @@ RecentSignalModel _signal(String id, String localDate) {
     localDate: localDate,
     userConfirmation: 'accurate',
   );
-}
-
-String _dateKey(DateTime date) {
-  final month = date.month.toString().padLeft(2, '0');
-  final day = date.day.toString().padLeft(2, '0');
-  return '${date.year}-$month-$day';
 }

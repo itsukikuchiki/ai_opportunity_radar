@@ -3,16 +3,19 @@ import 'package:sqflite/sqflite.dart';
 
 import '../debug/legacy_fallback_monitor.dart';
 import '../local/local_database.dart';
+import '../notifications/signal_reminder_repository.dart';
 
 class BackupBundleRepository {
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 6;
 
   final LocalDatabase localDatabase;
   final SharedPreferences preferences;
+  final SignalReminderRepository? signalReminderRepository;
 
   const BackupBundleRepository({
     required this.localDatabase,
     required this.preferences,
+    this.signalReminderRepository,
   });
 
   Future<Map<String, dynamic>> exportBundle({
@@ -66,6 +69,7 @@ class BackupBundleRepository {
       for (final table in _backupTables) {
         final rawRows = rawTables[table];
         if (rawRows is! List) continue;
+        final supportedColumns = await _tableColumnNames(txn, table);
         for (final rawRow in rawRows) {
           if (rawRow is! Map) {
             skipped += 1;
@@ -77,9 +81,21 @@ class BackupBundleRepository {
             skipped += 1;
             continue;
           }
+          // Older bundles simply lack additive candidate-decision and effect
+          // review fields, so database defaults apply. Conversely, filtering
+          // unknown columns lets a newer additive bundle restore safely into
+          // this schema.
+          final compatibleRow = <String, Object?>{
+            for (final entry in row.entries)
+              if (supportedColumns.contains(entry.key)) entry.key: entry.value,
+          };
+          if (compatibleRow.isEmpty) {
+            skipped += 1;
+            continue;
+          }
           await txn.insert(
             table,
-            row,
+            compatibleRow,
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
           imported += 1;
@@ -99,6 +115,12 @@ class BackupBundleRepository {
         deletedRows += await txn.delete(table);
       }
     });
+    // Reminders are local-only and must not survive a local-data/account
+    // deletion. Clearing through the repository cancels native notifications
+    // before removing the persisted rule set.
+    await (signalReminderRepository ??
+            SignalReminderRepository(preferences: preferences))
+        .clearAll();
     await _deleteLocalAccountPreferences();
     return deletedRows;
   }
@@ -115,6 +137,17 @@ class BackupBundleRepository {
       );
     }
     return db.query(table);
+  }
+
+  Future<Set<String>> _tableColumnNames(
+    DatabaseExecutor db,
+    String table,
+  ) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    return rows
+        .map((row) => row['name']?.toString() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toSet();
   }
 
   Map<String, Object?> _exportPreferences() {
@@ -179,6 +212,7 @@ class BackupBundleRepository {
       'me_life_direction_created_at',
       'onboarding_completed',
       'onboardingCompleted',
+      SignalReminderRepository.preferencesKey,
     ];
     for (final key in keys) {
       await preferences.remove(key);
@@ -213,13 +247,16 @@ const _backupTables = [
   'journey_snapshots',
   'monthly_snapshots',
   'reflection_results',
+  'observation_plans',
   'pipeline_runs',
   'candidate_groups',
   'micro_action_candidates',
   'micro_actions',
   'micro_action_feedback',
+  'micro_action_review_events',
   'experiment_candidates',
   'life_experiments',
+  'plan_content_versions',
   'life_experiment_strategies',
   'life_experiment_feedback',
   'life_experiment_lifecycle_events',
@@ -251,12 +288,15 @@ const _localDeleteTables = [
   'life_experiment_lifecycle_events',
   'life_experiment_feedback',
   'life_experiment_strategies',
+  'plan_content_versions',
   'life_experiments',
   'experiment_candidates',
   'micro_action_feedback',
+  'micro_action_review_events',
   'micro_actions',
   'micro_action_candidates',
   'candidate_groups',
+  'observation_plans',
   'pipeline_runs',
   'reflection_results',
   'monthly_snapshots',

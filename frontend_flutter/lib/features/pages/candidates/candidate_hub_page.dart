@@ -3,12 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/app_router.dart';
 import '../../../core/di/app_dependencies.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/local/local_candidate_planning_repository.dart';
 import '../../../core/models/candidate_models.dart';
+import '../../../core/navigation/app_back_navigation.dart';
+import '../../../core/policies/planning_content_edit_policy.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../../../shared/widgets/candidate_planning_widgets.dart';
+import '../../../shared/widgets/experiment_feedback_sheets.dart';
 
 class CandidateHubPage extends StatefulWidget {
   final CandidateKind kind;
@@ -31,10 +35,12 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
   CandidateGateState? _gate;
   CandidateGenerationState? _generation;
   List<MicroActionCandidateModel> _microCandidates = const [];
+  List<MicroActionCandidateModel> _nextWeekSmallTryCandidates = const [];
   List<ExperimentCandidateRecord> _experimentCandidates = const [];
   List<AdoptedMicroActionProgress> _activeActions = const [];
-  List<AdoptedLifeExperimentProgress> _activeExperiments = const [];
+  List<AdoptedLifeExperimentProgress> _continuableExperiments = const [];
   final Set<String> _selectedIds = {};
+  final Set<String> _selectedContinuationIds = {};
   StreamSubscription<CandidateGenerationState>? _generationSubscription;
   bool _initialized = false;
   bool _loading = true;
@@ -88,13 +94,29 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
         if (!mounted) return;
         _applyExperimentSnapshot(initial);
         _watchGeneration(initial.gate);
-        final refreshed = await repository.refreshWeeklyWithGroundedSuggestions(
+        await repository.refreshNextWeekPlanWithGroundedSuggestions(
           day: _today,
           language: AppLocaleText.resolve(context),
-          debounce: const Duration(milliseconds: 180),
+        );
+        final refreshed = await repository.weeklyCandidateSnapshot(_today);
+        final nextWeekPlan = await repository.nextWeekPlanCandidateSnapshot(
+          _today,
         );
         if (!mounted) return;
         _applyExperimentSnapshot(refreshed);
+        setState(() {
+          _nextWeekSmallTryCandidates = nextWeekPlan.smallTryCandidates
+              .where(
+                (candidate) => !candidate.isAdopted && !candidate.isConsidering,
+              )
+              .toList(growable: false);
+          _selectedIds.removeWhere(
+            (id) =>
+                !_experimentCandidates.any((candidate) => candidate.id == id) &&
+                !_nextWeekSmallTryCandidates
+                    .any((candidate) => candidate.id == id),
+          );
+        });
       }
       await _loadActiveProgress();
     } catch (error) {
@@ -139,7 +161,12 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
     setState(() {
       _gate = snapshot.gate;
       _generation = snapshot.generation;
-      _microCandidates = snapshot.candidates.take(3).toList(growable: false);
+      _microCandidates = snapshot.candidates
+          .where(
+            (candidate) => !candidate.isAdopted && !candidate.isConsidering,
+          )
+          .take(3)
+          .toList(growable: false);
       _selectedIds.removeWhere(
         (id) => !_microCandidates.any((candidate) => candidate.id == id),
       );
@@ -154,8 +181,12 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
     setState(() {
       _gate = snapshot.gate;
       _generation = snapshot.generation;
-      _experimentCandidates =
-          snapshot.candidates.take(3).toList(growable: false);
+      _experimentCandidates = snapshot.candidates
+          .where(
+            (candidate) => !candidate.isAdopted && !candidate.isConsidering,
+          )
+          .take(3)
+          .toList(growable: false);
       _selectedIds.removeWhere(
         (id) => !_experimentCandidates.any((candidate) => candidate.id == id),
       );
@@ -165,7 +196,10 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
   }
 
   Future<void> _adoptSelected() async {
-    if (_adopting || _selectedIds.isEmpty || _repository == null) return;
+    final hasSelection = _selectedIds.isNotEmpty ||
+        (widget.kind == CandidateKind.lifeExperiment &&
+            _selectedContinuationIds.isNotEmpty);
+    if (_adopting || !hasSelection || _repository == null) return;
     setState(() => _adopting = true);
     try {
       if (widget.kind == CandidateKind.microAction) {
@@ -174,12 +208,40 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
         if (!mounted) return;
         _applyMicroSnapshot(snapshot);
       } else {
-        await _repository!.adoptExperimentCandidates(_selectedIds);
+        await _repository!.continueExperimentsForNextWeek(
+          experimentIds: _selectedContinuationIds,
+          day: _today,
+        );
+        final smallTryIds = _selectedIds
+            .where((id) => _nextWeekSmallTryCandidates
+                .any((candidate) => candidate.id == id))
+            .toList(growable: false);
+        final goalIds = _selectedIds
+            .where((id) =>
+                _experimentCandidates.any((candidate) => candidate.id == id))
+            .toList(growable: false);
+        if (smallTryIds.isNotEmpty) {
+          await _repository!.adoptMicroActionCandidates(smallTryIds);
+        }
+        if (goalIds.isNotEmpty) {
+          await _repository!.adoptExperimentCandidates(goalIds);
+        }
         final snapshot = await _repository!.weeklyCandidateSnapshot(_today);
+        final nextWeekPlan = await _repository!.nextWeekPlanCandidateSnapshot(
+          _today,
+        );
         if (!mounted) return;
         _applyExperimentSnapshot(snapshot);
+        setState(() {
+          _nextWeekSmallTryCandidates = nextWeekPlan.smallTryCandidates
+              .where(
+                (candidate) => !candidate.isAdopted && !candidate.isConsidering,
+              )
+              .toList(growable: false);
+        });
       }
       _selectedIds.clear();
+      _selectedContinuationIds.clear();
       await _loadActiveProgress();
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -190,17 +252,74 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
               AppLocaleText.tr(
                 context,
                 en: widget.kind == CandidateKind.microAction
-                    ? 'Your choices are adopted. Progress starts today.'
-                    : 'Your choices are adopted. Progress starts next Monday.',
+                    ? 'Your small experiments are adopted. Progress starts today.'
+                    : 'Your selected next-week items are saved. Progress starts next Monday.',
                 zhHans: widget.kind == CandidateKind.microAction
-                    ? '已采纳所选内容，七日进度从今天开始。'
-                    : '已采纳所选实验，七日进度从下周一开始。',
+                    ? '已采纳所选小实验，七日进度从今天开始。'
+                    : '下周尝试已确认，七日进度从下周一开始。',
                 zhHant: widget.kind == CandidateKind.microAction
-                    ? '已採納所選內容，七日進度從今天開始。'
-                    : '已採納所選實驗，七日進度從下週一開始。',
+                    ? '已採納所選小實驗，七日進度從今天開始。'
+                    : '下週嘗試已確認，七日進度從下週一開始。',
                 ja: widget.kind == CandidateKind.microAction
-                    ? '選んだ内容を採用しました。7 日間の進捗は今日から始まります。'
-                    : '選んだ実験を採用しました。7 日間の進捗は来週月曜日から始まります。',
+                    ? '選んだ小実験を採用しました。7 日間の進捗は今日から始まります。'
+                    : '選んだ来週の試みを保存しました。7 日間の進捗は来週月曜日から始まります。',
+              ),
+            ),
+          ),
+        );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _adopting = false);
+    }
+  }
+
+  Future<void> _considerSelected() async {
+    final hasSelection = _selectedIds.isNotEmpty ||
+        (widget.kind == CandidateKind.lifeExperiment &&
+            _selectedContinuationIds.isNotEmpty);
+    if (_adopting || !hasSelection || _repository == null) return;
+    setState(() => _adopting = true);
+    try {
+      if (_selectedIds.isNotEmpty) {
+        await _repository!.markCandidatesConsidering(_selectedIds);
+      }
+      if (widget.kind == CandidateKind.microAction) {
+        final snapshot = await _repository!.dailyCandidateSnapshot(_today);
+        if (!mounted) return;
+        _applyMicroSnapshot(snapshot);
+      } else {
+        final snapshot = await _repository!.weeklyCandidateSnapshot(_today);
+        final nextWeekPlan = await _repository!.nextWeekPlanCandidateSnapshot(
+          _today,
+        );
+        if (!mounted) return;
+        _applyExperimentSnapshot(snapshot);
+        setState(() {
+          _nextWeekSmallTryCandidates = nextWeekPlan.smallTryCandidates
+              .where(
+                (candidate) => !candidate.isAdopted && !candidate.isConsidering,
+              )
+              .toList(growable: false);
+        });
+      }
+      _selectedIds.clear();
+      // Continuations are already canonical goals. “Consider / observe”
+      // leaves this week's object untouched and does not clone it next week.
+      _selectedContinuationIds.clear();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Saved for consideration / observation. No plan or progress was created.',
+                zhHans: '已保存为考虑/观察，不会创建计划或进度。',
+                zhHant: '已儲存為考慮/觀察，不會建立計畫或進度。',
+                ja: '検討・観察として保存しました。計画や進捗は作成されません。',
               ),
             ),
           ),
@@ -216,11 +335,25 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
   @override
   Widget build(BuildContext context) {
     final isMicroAction = widget.kind == CandidateKind.microAction;
+    final fallbackRoute = isMicroAction ? AppRoutes.today : AppRoutes.weekly;
     final gate = _gate;
     final generation = _generation;
     final candidatesDisabled =
         generation?.status == CandidateGenerationStatus.regenerating ||
             generation?.status == CandidateGenerationStatus.stale;
+    final selectedCount = _selectedIds.length +
+        (isMicroAction ? 0 : _selectedContinuationIds.length);
+    final showExperimentProposals = !isMicroAction &&
+        gate?.isOpen == true &&
+        (_experimentCandidates.isNotEmpty ||
+            _nextWeekSmallTryCandidates.isNotEmpty ||
+            candidatesDisabled ||
+            _loading);
+    final showDecisionControls = isMicroAction
+        ? gate?.isOpen == true
+        : _continuableExperiments.isNotEmpty || showExperimentProposals;
+    final selectionBlockedByCandidateRefresh =
+        candidatesDisabled && (isMicroAction || _selectedIds.isNotEmpty);
 
     return Scaffold(
       body: Stack(
@@ -238,10 +371,13 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
                 children: [
                   _CandidateHubHeader(
                     kind: widget.kind,
-                    onBack: () => Navigator.of(context).pop(true),
+                    onBack: () => context.popOrGo<bool>(fallbackRoute, true),
                   ),
                   const SizedBox(height: AuroraMainPageSpec.heroGap),
-                  if (gate != null)
+                  if (!isMicroAction) _NextWeekPeriodCard(today: _today),
+                  if (!isMicroAction)
+                    const SizedBox(height: AuroraMainPageSpec.sectionGap),
+                  if (gate != null && (isMicroAction || gate.isOpen == false))
                     CandidateGateCard(
                       gate: gate,
                       icon: isMicroAction
@@ -251,7 +387,7 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
                           ? AuroraColors.mint
                           : AuroraColors.purple,
                     )
-                  else if (_loading)
+                  else if (gate == null && _loading)
                     const Center(child: CircularProgressIndicator()),
                   if (generation != null &&
                       generation.status != CandidateGenerationStatus.gated) ...[
@@ -264,19 +400,30 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
                       onRetry: _loadAndRefresh,
                     ),
                   ],
-                  if ((isMicroAction && _activeActions.isNotEmpty) ||
-                      (!isMicroAction && _activeExperiments.isNotEmpty)) ...[
+                  if (isMicroAction && _activeActions.isNotEmpty) ...[
                     const SizedBox(height: AuroraMainPageSpec.sectionGap),
                     _AdoptedProgressSection(
                       kind: widget.kind,
                       actions: _activeActions,
-                      experiments: _activeExperiments,
+                      experiments: const [],
                       today: _today,
                       onActionProgress: _recordActionProgress,
                       onExperimentProgress: _recordExperimentProgress,
+                      onActionEdit: _editAdoptedAction,
+                      onExperimentEdit: _editAdoptedExperiment,
                     ),
                   ],
-                  if (gate?.isOpen == true) ...[
+                  if (!isMicroAction && _continuableExperiments.isNotEmpty) ...[
+                    const SizedBox(height: AuroraMainPageSpec.sectionGap),
+                    _ContinuingExperimentSection(
+                      experiments: _continuableExperiments,
+                      selectedIds: _selectedContinuationIds,
+                      disabled: _adopting,
+                      onSelected: _setContinuationSelected,
+                    ),
+                  ],
+                  if (isMicroAction && gate?.isOpen == true ||
+                      showExperimentProposals) ...[
                     const SizedBox(height: AuroraMainPageSpec.sectionGap),
                     _CandidateSectionIntro(kind: widget.kind),
                     const SizedBox(height: AuroraMainPageSpec.sectionGap),
@@ -295,73 +442,144 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
                               onSelected: _setSelected,
                               onEdit: _editMicroCandidate,
                             )
-                          : _ExperimentCandidateList(
-                              key: ValueKey(
-                                _experimentCandidates
-                                    .map((candidate) => candidate.id)
-                                    .join('|'),
-                              ),
-                              candidates: _experimentCandidates,
-                              selectedIds: _selectedIds,
-                              disabled: candidatesDisabled || _adopting,
-                              onSelected: _setSelected,
-                              onEdit: _editExperimentCandidate,
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (_nextWeekSmallTryCandidates.isNotEmpty) ...[
+                                  Text(
+                                    AppLocaleText.tr(context,
+                                        en: 'Small experiments',
+                                        zhHans: '小实验提案',
+                                        zhHant: '小實驗提案',
+                                        ja: '小実験の提案'),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _MicroCandidateList(
+                                    key: ValueKey(_nextWeekSmallTryCandidates
+                                        .map((candidate) => candidate.id)
+                                        .join('|')),
+                                    candidates: _nextWeekSmallTryCandidates,
+                                    selectedIds: _selectedIds,
+                                    disabled: candidatesDisabled || _adopting,
+                                    onSelected: _setSelected,
+                                    onEdit: _editMicroCandidate,
+                                  ),
+                                ],
+                                if (_nextWeekSmallTryCandidates.isNotEmpty &&
+                                    _experimentCandidates.isNotEmpty)
+                                  const SizedBox(height: 16),
+                                if (_experimentCandidates.isNotEmpty) ...[
+                                  Text(
+                                    AppLocaleText.tr(context,
+                                        en: 'Goal proposals',
+                                        zhHans: '目标提案',
+                                        zhHant: '目標提案',
+                                        ja: '目標の提案'),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _ExperimentCandidateList(
+                                    key: ValueKey(_experimentCandidates
+                                        .map((candidate) => candidate.id)
+                                        .join('|')),
+                                    candidates: _experimentCandidates,
+                                    selectedIds: _selectedIds,
+                                    disabled: candidatesDisabled || _adopting,
+                                    onSelected: _setSelected,
+                                    onEdit: _editExperimentCandidate,
+                                  ),
+                                ],
+                              ],
                             ),
                     ),
+                  ],
+                  if (showDecisionControls) ...[
                     const SizedBox(height: 14),
-                    FilledButton.icon(
-                      key: const ValueKey('candidate-adopt-selected'),
-                      onPressed: candidatesDisabled ||
-                              _adopting ||
-                              _selectedIds.isEmpty
-                          ? null
-                          : _adoptSelected,
-                      icon: _adopting
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.check_circle_outline_rounded),
-                      label: Text(
-                        _selectedIds.isEmpty
-                            ? AppLocaleText.tr(
-                                context,
-                                en: 'Select what fits you',
-                                zhHans: '选择适合你的内容',
-                                zhHant: '選擇適合你的內容',
-                                ja: '自分に合う内容を選ぶ',
-                              )
-                            : AppLocaleText.tr(
-                                context,
-                                en: 'Adopt ${_selectedIds.length} selected',
-                                zhHans: '采纳已选 ${_selectedIds.length} 项',
-                                zhHant: '採納已選 ${_selectedIds.length} 項',
-                                ja: '選択した ${_selectedIds.length} 件を採用',
-                              ),
+                    Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: '$selectedCount selected',
+                        zhHans: '已选择 $selectedCount 项',
+                        zhHant: '已選擇 $selectedCount 項',
+                        ja: '$selectedCount 件を選択中',
                       ),
+                      key: const ValueKey('candidate-selected-count'),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AuroraColors.muted,
+                            fontWeight: FontWeight.w700,
+                          ),
                     ),
                     const SizedBox(height: 8),
-                    TextButton(
-                      key: const ValueKey('candidate-adopt-none'),
-                      style: TextButton.styleFrom(
-                        minimumSize: const Size.fromHeight(44),
-                      ),
-                      onPressed: _adopting
-                          ? null
-                          : () => Navigator.of(context).pop(false),
-                      child: Text(
-                        AppLocaleText.tr(
-                          context,
-                          en: 'Adopt none for now',
-                          zhHans: '这次先不采纳',
-                          zhHant: '這次先不採納',
-                          ja: '今回は採用しない',
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            key: const ValueKey('candidate-adopt-selected'),
+                            onPressed: selectionBlockedByCandidateRefresh ||
+                                    _adopting ||
+                                    selectedCount == 0
+                                ? null
+                                : _adoptSelected,
+                            icon: _adopting
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.check_circle_outline_rounded,
+                                  ),
+                            label: Text(
+                              AppLocaleText.tr(
+                                context,
+                                en: 'Adopt',
+                                zhHans: '采纳',
+                                zhHant: '採納',
+                                ja: '採用',
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            key: const ValueKey(
+                              'candidate-consider-selected',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                            ),
+                            onPressed: selectionBlockedByCandidateRefresh ||
+                                    _adopting ||
+                                    selectedCount == 0
+                                ? null
+                                : _considerSelected,
+                            icon: const Icon(Icons.visibility_outlined),
+                            label: Text(
+                              AppLocaleText.tr(
+                                context,
+                                en: 'Consider / observe',
+                                zhHans: '考虑/观察',
+                                zhHant: '考慮/觀察',
+                                ja: '検討・観察',
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ],
@@ -384,6 +602,16 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
     });
   }
 
+  void _setContinuationSelected(String id, bool selected) {
+    setState(() {
+      if (selected) {
+        _selectedContinuationIds.add(id);
+      } else {
+        _selectedContinuationIds.remove(id);
+      }
+    });
+  }
+
   Future<void> _editMicroCandidate(
     MicroActionCandidateModel candidate,
   ) async {
@@ -396,8 +624,21 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
       candidateId: candidate.id,
       title: title.$1,
     );
-    final snapshot = await _repository!.dailyCandidateSnapshot(_today);
-    if (mounted) _applyMicroSnapshot(snapshot);
+    if (widget.kind == CandidateKind.microAction) {
+      final snapshot = await _repository!.dailyCandidateSnapshot(_today);
+      if (mounted) _applyMicroSnapshot(snapshot);
+      return;
+    }
+    final snapshot = await _repository!.nextWeekPlanCandidateSnapshot(_today);
+    if (!mounted) return;
+    setState(() {
+      _nextWeekSmallTryCandidates = snapshot.smallTryCandidates;
+      _selectedIds.removeWhere(
+        (id) =>
+            !_experimentCandidates.any((candidate) => candidate.id == id) &&
+            !_nextWeekSmallTryCandidates.any((candidate) => candidate.id == id),
+      );
+    });
   }
 
   Future<void> _editExperimentCandidate(
@@ -418,6 +659,50 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
     if (mounted) _applyExperimentSnapshot(snapshot);
   }
 
+  Future<void> _editAdoptedAction(AdoptedMicroActionProgress item) async {
+    final result = await _showCandidateEditDialog(
+      context,
+      title: item.action.title,
+      editingAdoptedContent: true,
+    );
+    if (result == null || _repository == null) return;
+    final updated = await _repository!.updateAdoptedMicroActionContent(
+      microActionId: item.action.id,
+      title: result.$1,
+    );
+    if (!mounted) return;
+    if (updated == null) {
+      _showPlanningEditUnavailable(context);
+      return;
+    }
+    await _loadActiveProgress();
+  }
+
+  Future<void> _editAdoptedExperiment(
+    AdoptedLifeExperimentProgress item,
+  ) async {
+    final repository =
+        context.read<AppDependencies>().localLifeExperimentRepository;
+    final result = await _showCandidateEditDialog(
+      context,
+      title: item.experiment.title,
+      action: item.experiment.suggestedAction,
+      editingAdoptedContent: true,
+    );
+    if (result == null) return;
+    final updated = await repository.updateDetails(
+      experimentId: item.experiment.id,
+      title: result.$1,
+      suggestedAction: result.$2!,
+    );
+    if (!mounted) return;
+    if (updated == null) {
+      _showPlanningEditUnavailable(context);
+      return;
+    }
+    await _loadActiveProgress();
+  }
+
   Future<void> _loadActiveProgress() async {
     final repository = _repository;
     if (repository == null) return;
@@ -426,9 +711,15 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
       if (!mounted) return;
       setState(() => _activeActions = actions);
     } else {
-      final experiments = await repository.listActiveExperimentsForDate(_today);
+      final experiments =
+          await repository.listContinuableExperimentsForNextWeek(_today);
       if (!mounted) return;
-      setState(() => _activeExperiments = experiments);
+      setState(() {
+        _continuableExperiments = experiments;
+        _selectedContinuationIds.removeWhere(
+          (id) => !experiments.any((item) => item.experiment.id == id),
+        );
+      });
     }
   }
 
@@ -437,14 +728,20 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
     SevenDayProgressCell cell,
   ) async {
     if (!_isTodayCell(cell)) return;
-    final feedback = await _showProgressChoiceSheet(context);
+    final feedback = await showSmallTryAttemptFeedbackSheet(
+      context,
+      title: item.action.title,
+    );
     if (feedback == null || !mounted) return;
     await context
         .read<AppDependencies>()
         .todayRepository
         .submitMicroActionFeedback(
           microActionId: item.action.id,
-          feedback: feedback,
+          feedback: feedback.completionStatus,
+          effect: feedback.effect,
+          difficulty: feedback.difficulty,
+          userNote: feedback.note,
         );
     await _loadActiveProgress();
   }
@@ -456,17 +753,12 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
     if (!_isTodayCell(cell)) return;
     final feedback = await _showProgressChoiceSheet(context);
     if (feedback == null || !mounted) return;
-    final completionStatus = switch (feedback) {
-      'occurred' => 'done',
-      'not_occurred' => 'not_done',
-      _ => 'not_suitable_today',
-    };
     await context
         .read<AppDependencies>()
         .localLifeExperimentRepository
         .recordFeedback(
           experimentId: item.experiment.id,
-          completionStatus: completionStatus,
+          completionStatus: feedback,
           feedbackDate: _today,
         );
     await _loadActiveProgress();
@@ -513,10 +805,10 @@ Future<String?> _showProgressChoiceSheet(BuildContext context) {
             Text(
               AppLocaleText.tr(
                 context,
-                en: 'How did it go today?',
-                zhHans: '今天的实际进度怎么样？',
-                zhHant: '今天的實際進度怎麼樣？',
-                ja: '今日の進捗はどうでしたか？',
+                en: 'Did you complete it today?',
+                zhHans: '今天完成了吗？',
+                zhHant: '今天完成了嗎？',
+                ja: '今日は完了しましたか？',
               ),
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: AuroraColors.ink,
@@ -529,12 +821,12 @@ Future<String?> _showProgressChoiceSheet(BuildContext context) {
               color: AuroraColors.mint,
               label: AppLocaleText.tr(
                 context,
-                en: 'Happened',
-                zhHans: '发生了',
-                zhHant: '發生了',
-                ja: 'できた',
+                en: 'Completed',
+                zhHans: '已完成',
+                zhHant: '已完成',
+                ja: '完了',
               ),
-              onTap: () => Navigator.pop(sheetContext, 'occurred'),
+              onTap: () => Navigator.pop(sheetContext, 'completed'),
             ),
             const SizedBox(height: 8),
             _ProgressChoiceTile(
@@ -542,25 +834,12 @@ Future<String?> _showProgressChoiceSheet(BuildContext context) {
               color: AuroraColors.orange,
               label: AppLocaleText.tr(
                 context,
-                en: 'Did not happen',
-                zhHans: '没发生',
-                zhHant: '沒發生',
-                ja: 'できなかった',
+                en: 'Not completed',
+                zhHans: '未完成',
+                zhHant: '未完成',
+                ja: '未完了',
               ),
-              onTap: () => Navigator.pop(sheetContext, 'not_occurred'),
-            ),
-            const SizedBox(height: 8),
-            _ProgressChoiceTile(
-              icon: Icons.remove_circle_outline_rounded,
-              color: AuroraColors.muted,
-              label: AppLocaleText.tr(
-                context,
-                en: 'Not suitable today',
-                zhHans: '今天不适合',
-                zhHant: '今天不適合',
-                ja: '今日は合わなかった',
-              ),
-              onTap: () => Navigator.pop(sheetContext, 'not_suitable_today'),
+              onTap: () => Navigator.pop(sheetContext, 'not_completed'),
             ),
           ]),
     ),
@@ -571,6 +850,7 @@ Future<(String, String?)?> _showCandidateEditDialog(
   BuildContext context, {
   required String title,
   String? action,
+  bool editingAdoptedContent = false,
 }) async {
   final titleController = TextEditingController(text: title);
   final actionController = TextEditingController(text: action);
@@ -581,10 +861,12 @@ Future<(String, String?)?> _showCandidateEditDialog(
       title: Text(
         AppLocaleText.tr(
           context,
-          en: 'Edit before adopting',
-          zhHans: '采纳前修改内容',
-          zhHant: '採納前修改內容',
-          ja: '採用前に編集',
+          en: editingAdoptedContent
+              ? 'Edit this week’s content'
+              : 'Edit before adopting',
+          zhHans: editingAdoptedContent ? '修改本周内容' : '采纳前修改内容',
+          zhHant: editingAdoptedContent ? '修改本週內容' : '採納前修改內容',
+          ja: editingAdoptedContent ? '今週の内容を編集' : '採用前に編集',
         ),
       ),
       content: Column(
@@ -675,6 +957,24 @@ Future<(String, String?)?> _showCandidateEditDialog(
   return result;
 }
 
+void _showPlanningEditUnavailable(BuildContext context) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocaleText.tr(
+            context,
+            en: 'Past content and feedback records cannot be changed.',
+            zhHans: '过去内容和反馈记录不能修改。',
+            zhHant: '過去內容和回饋記錄不能修改。',
+            ja: '過去の内容とフィードバック記録は変更できません。',
+          ),
+        ),
+      ),
+    );
+}
+
 class _ProgressChoiceTile extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -717,6 +1017,8 @@ class _AdoptedProgressSection extends StatelessWidget {
     AdoptedLifeExperimentProgress item,
     SevenDayProgressCell cell,
   ) onExperimentProgress;
+  final ValueChanged<AdoptedMicroActionProgress> onActionEdit;
+  final ValueChanged<AdoptedLifeExperimentProgress> onExperimentEdit;
 
   const _AdoptedProgressSection({
     required this.kind,
@@ -725,6 +1027,8 @@ class _AdoptedProgressSection extends StatelessWidget {
     required this.today,
     required this.onActionProgress,
     required this.onExperimentProgress,
+    required this.onActionEdit,
+    required this.onExperimentEdit,
   });
 
   @override
@@ -752,10 +1056,18 @@ class _AdoptedProgressSection extends StatelessWidget {
             _AdoptedProgressCard(
               title: actions[index].action.title,
               reason: actions[index].action.reason,
+              isSmallTry: true,
               sourceChanged: actions[index].action.sourceChanged,
               progress: actions[index].progress,
               today: today,
               onCellTap: (cell) => onActionProgress(actions[index], cell),
+              onEdit: PlanningContentEditPolicy.canEditMicroAction(
+                actions[index].action,
+                now: today,
+              )
+                  ? () => onActionEdit(actions[index])
+                  : null,
+              editKey: 'adopted-small-try-${actions[index].action.id}-edit',
             ),
             if (index != actions.length - 1)
               const SizedBox(height: AuroraMainPageSpec.sectionGap),
@@ -765,11 +1077,19 @@ class _AdoptedProgressSection extends StatelessWidget {
             _AdoptedProgressCard(
               title: experiments[index].experiment.title,
               reason: experiments[index].experiment.suggestedAction,
+              isSmallTry: false,
               sourceChanged: experiments[index].experiment.sourceChanged,
               progress: experiments[index].progress,
               today: today,
               onCellTap: (cell) =>
                   onExperimentProgress(experiments[index], cell),
+              onEdit: PlanningContentEditPolicy.canEditLifeExperiment(
+                experiments[index].experiment,
+                now: today,
+              )
+                  ? () => onExperimentEdit(experiments[index])
+                  : null,
+              editKey: 'adopted-goal-${experiments[index].experiment.id}-edit',
             ),
             if (index != experiments.length - 1)
               const SizedBox(height: AuroraMainPageSpec.sectionGap),
@@ -779,21 +1099,295 @@ class _AdoptedProgressSection extends StatelessWidget {
   }
 }
 
+class _NextWeekPeriodCard extends StatelessWidget {
+  final DateTime today;
+
+  const _NextWeekPeriodCard({required this.today});
+
+  @override
+  Widget build(BuildContext context) {
+    final localDay = DateTime(today.year, today.month, today.day);
+    final currentWeekStart = localDay.subtract(
+      Duration(days: localDay.weekday - DateTime.monday),
+    );
+    final start = currentWeekStart.add(const Duration(days: 7));
+    final end = start.add(const Duration(days: 6));
+    final localizations = MaterialLocalizations.of(context);
+    final range = '${localizations.formatShortMonthDay(start)}–'
+        '${localizations.formatShortMonthDay(end)}';
+
+    return AuroraCard(
+      key: const ValueKey('next-week-period-card'),
+      padding: AuroraMainPageSpec.comfortableCardPadding,
+      borderRadius: BorderRadius.circular(AuroraMainPageSpec.cardRadiusLarge),
+      color: Colors.white.withValues(alpha: 0.74),
+      border: Border.all(
+        color: AuroraColors.purple.withValues(alpha: 0.22),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 4,
+            height: 54,
+            decoration: BoxDecoration(
+              color: AuroraColors.purple.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Next week · $range',
+                    zhHans: '下周 · $range',
+                    zhHant: '下週 · $range',
+                    ja: '来週 · $range',
+                  ),
+                  key: const ValueKey('next-week-period-label'),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Choose only what you want to continue or begin next week.',
+                    zhHans: '这里只选择下周要继续或开始的生活小实验。',
+                    zhHant: '這裡只選擇下週要繼續或開始的生活小實驗。',
+                    ja: '来週も続ける、または新しく始める生活実験だけを選びます。',
+                  ),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AuroraColors.muted,
+                        height: 1.4,
+                        fontWeight: FontWeight.w400,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContinuingExperimentSection extends StatelessWidget {
+  final List<AdoptedLifeExperimentProgress> experiments;
+  final Set<String> selectedIds;
+  final bool disabled;
+  final void Function(String id, bool selected) onSelected;
+
+  const _ContinuingExperimentSection({
+    required this.experiments,
+    required this.selectedIds,
+    required this.disabled,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          AppLocaleText.tr(
+            context,
+            en: 'Goals in progress',
+            zhHans: '进行中的目标',
+            zhHant: '進行中的目標',
+            ja: '進行中の目標',
+          ),
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: AuroraColors.ink,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          AppLocaleText.tr(
+            context,
+            en: 'Select the ones you want to continue next week. This week’s records stay unchanged.',
+            zhHans: '选择要延续到下周的项目；本周已经留下的记录不会改变。',
+            zhHant: '選擇要延續到下週的項目；本週已經留下的記錄不會改變。',
+            ja: '来週も続ける項目を選びます。今週の記録は変わりません。',
+          ),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AuroraColors.muted,
+                height: 1.4,
+                fontWeight: FontWeight.w400,
+              ),
+        ),
+        const SizedBox(height: AuroraMainPageSpec.sectionGap),
+        for (var index = 0; index < experiments.length; index++) ...[
+          _ContinuingExperimentCard(
+            item: experiments[index],
+            selected: selectedIds.contains(experiments[index].experiment.id),
+            disabled: disabled,
+            onSelected: (selected) =>
+                onSelected(experiments[index].experiment.id, selected),
+          ),
+          if (index != experiments.length - 1)
+            const SizedBox(height: AuroraMainPageSpec.sectionGap),
+        ],
+      ],
+    );
+  }
+}
+
+class _ContinuingExperimentCard extends StatelessWidget {
+  final AdoptedLifeExperimentProgress item;
+  final bool selected;
+  final bool disabled;
+  final ValueChanged<bool> onSelected;
+
+  const _ContinuingExperimentCard({
+    required this.item,
+    required this.selected,
+    required this.disabled,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final experiment = item.experiment;
+    return Semantics(
+      key: ValueKey('continuation-option-${experiment.id}'),
+      container: true,
+      selected: selected,
+      enabled: !disabled,
+      label: AppLocaleText.tr(
+        context,
+        en: '${experiment.title}. Continue next week.',
+        zhHans: '${experiment.title}。延续到下周。',
+        zhHant: '${experiment.title}。延續到下週。',
+        ja: '${experiment.title}。来週も続ける。',
+      ),
+      child: AuroraCard(
+        padding: AuroraMainPageSpec.comfortableCardPadding,
+        borderRadius: BorderRadius.circular(AuroraMainPageSpec.cardRadiusLarge),
+        color: Colors.white.withValues(alpha: 0.74),
+        border: Border.all(
+          color: selected
+              ? AuroraColors.mint.withValues(alpha: 0.74)
+              : AuroraColors.line,
+          width: selected ? 1.8 : 1,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        experiment.title,
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: AuroraColors.ink,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        experiment.suggestedAction,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: AuroraColors.ink.withValues(alpha: 0.76),
+                              height: 1.4,
+                              fontWeight: FontWeight.w400,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Checkbox(
+                  value: selected,
+                  onChanged: disabled
+                      ? null
+                      : (value) {
+                          if (value != null) onSelected(value);
+                        },
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(
+                  Icons.insights_rounded,
+                  size: 18,
+                  color: AuroraColors.mint,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'This week ${item.progress.completedDays}/7 completed',
+                      zhHans: '本周已完成 ${item.progress.completedDays}/7',
+                      zhHant: '本週已完成 ${item.progress.completedDays}/7',
+                      ja: '今週 ${item.progress.completedDays}/7 完了',
+                    ),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AuroraColors.muted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Continue next week',
+                    zhHans: '下周继续',
+                    zhHant: '下週繼續',
+                    ja: '来週も続ける',
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color:
+                            selected ? AuroraColors.mint : AuroraColors.muted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AdoptedProgressCard extends StatelessWidget {
   final String title;
   final String reason;
+  final bool isSmallTry;
   final bool sourceChanged;
   final SevenDayProgressModel progress;
   final DateTime today;
   final ValueChanged<SevenDayProgressCell> onCellTap;
+  final VoidCallback? onEdit;
+  final String? editKey;
 
   const _AdoptedProgressCard({
     required this.title,
     required this.reason,
+    required this.isSmallTry,
     required this.sourceChanged,
     required this.progress,
     required this.today,
     required this.onCellTap,
+    this.onEdit,
+    this.editKey,
   });
 
   @override
@@ -820,6 +1414,23 @@ class _AdoptedProgressCard extends StatelessWidget {
                       ),
                 ),
               ),
+              if (onEdit != null)
+                IconButton(
+                  key: editKey == null ? null : ValueKey(editKey!),
+                  tooltip: AppLocaleText.tr(
+                    context,
+                    en: 'Edit this week’s content',
+                    zhHans: '修改本周内容',
+                    zhHant: '修改本週內容',
+                    ja: '今週の内容を編集',
+                  ),
+                  constraints: const BoxConstraints.tightFor(
+                    width: 44,
+                    height: 44,
+                  ),
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined),
+                ),
             ],
           ),
           if (reason.trim().isNotEmpty) ...[
@@ -847,7 +1458,7 @@ class _AdoptedProgressCard extends StatelessWidget {
                   en: 'Source changed. This adopted item stays in your history.',
                   zhHans: '来源已变化；这个已采纳项目仍会保留在你的记录中。',
                   zhHant: '來源已變化；這個已採納項目仍會保留在你的記錄中。',
-                  ja: '根拠が変更されました。採用済みの項目は履歴に残ります。',
+                  ja: 'Signal ソースが変更されました。採用済みの項目は履歴に残ります。',
                 ),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: AuroraColors.ink.withValues(alpha: 0.76),
@@ -862,6 +1473,33 @@ class _AdoptedProgressCard extends StatelessWidget {
             onCellTap: onCellTap,
             isCellEnabled: (cell) => cell.localDate == todayKey,
           ),
+          if (progress.cells.any((cell) => cell.localDate == todayKey)) ...[
+            const SizedBox(height: 8),
+            Text(
+              isSmallTry
+                  ? AppLocaleText.tr(
+                      context,
+                      en: 'Tap today’s cell to record whether you tried it.',
+                      zhHans: '点击今天的格子，登记这次是否试了。',
+                      zhHant: '點擊今天的格子，登記這次是否試了。',
+                      ja: '今日のマスをタップして、今回試したかを記録します。',
+                    )
+                  : AppLocaleText.tr(
+                      context,
+                      en: 'Tap today’s cell to record “Completed” or “Not completed”.',
+                      zhHans: '点击今天的格子，登记“已完成”或“未完成”。',
+                      zhHant: '點擊今天的格子，登記「已完成」或「未完成」。',
+                      ja: '今日のマスをタップして「完了」または「未完了」を記録します。',
+                    ),
+              key: ValueKey(
+                'candidate-daily-completion-hint-${progress.subjectId}',
+              ),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AuroraColors.muted,
+                    height: 1.4,
+                  ),
+            ),
+          ],
         ],
       ),
     );
@@ -877,52 +1515,91 @@ class _CandidateHubHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isMicroAction = kind == CandidateKind.microAction;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AuroraIconButton(
-          icon: Icons.arrow_back_ios_new_rounded,
-          tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-          onPressed: onBack,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AuroraHeroTitle(
-                text: AppLocaleText.tr(
-                  context,
-                  en: isMicroAction ? 'Small actions' : 'Weekly experiments',
-                  zhHans: isMicroAction ? '今日小行动' : '下周小实验',
-                  zhHant: isMicroAction ? '今日小行動' : '下週小實驗',
-                  ja: isMicroAction ? '今日の小さな行動' : '来週の小さな実験',
-                ),
-                fontSize: AuroraMainPageSpec.responsiveHeroTitleSize(context),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'Choose only what feels useful. Suggestions are not tasks.',
-                  zhHans: '只选择真正有用的建议；这里不是任务清单。',
-                  zhHant: '只選擇真正有用的建議；這裡不是任務清單。',
-                  ja: '役立ちそうな提案だけを選びます。タスクリストではありません。',
-                ),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AuroraColors.muted,
-                      height: 1.4,
-                      fontWeight: FontWeight.w400,
-                    ),
-              ),
-            ],
+    return AuroraCard(
+      key: const ValueKey('candidate-hub-hero-card'),
+      padding: const EdgeInsets.fromLTRB(12, 12, 10, 14),
+      borderRadius: BorderRadius.circular(24),
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          const Color(0xFFFFFBF6).withValues(alpha: 0.94),
+          const Color(0xFFF7F1FF).withValues(alpha: 0.86),
+          const Color(0xFFEEF5FF).withValues(alpha: 0.80),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AuroraIconButton(
+            icon: Icons.arrow_back_ios_new_rounded,
+            tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+            onPressed: onBack,
           ),
-        ),
-        const SizedBox(width: 4),
-        const IgnorePointer(
-          child: AuroraHeroEmblem(size: 78, opacity: 0.76),
-        ),
-      ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AuroraHeroTitle(
+                  text: AppLocaleText.tr(
+                    context,
+                    en: isMicroAction
+                        ? 'Life Experiment · Small experiments'
+                        : 'Next week’s tries',
+                    zhHans: isMicroAction ? '生活小实验 · 小实验' : '下周尝试',
+                    zhHant: isMicroAction ? '生活小實驗 · 小實驗' : '下週嘗試',
+                    ja: isMicroAction ? '生活実験 · 小実験' : '来週の試み',
+                  ),
+                  fontSize: AuroraMainPageSpec.responsiveHeroTitleSize(context),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: isMicroAction
+                        ? 'Choose an immediate, low-cost behavior you can pause at any time.'
+                        : 'Choose next week’s small experiments and goals. Selected items begin next Monday.',
+                    zhHans: isMicroAction
+                        ? '选择现在就能开始、成本很低、随时可以暂停的轻行为。'
+                        : '在这里统一选择下周的小实验和目标；选定内容下周一开始出现在今天。',
+                    zhHant: isMicroAction
+                        ? '選擇現在就能開始、成本很低、隨時可以暫停的輕行為。'
+                        : '在這裡統一選擇下週的小實驗和目標；選定內容下週一開始出現在今天。',
+                    ja: isMicroAction
+                        ? '今すぐ始められ、負担が少なく、いつでも止められる行動を選びます。'
+                        : '来週の小実験と目標をここで選びます。選んだ内容は月曜日から今日に表示されます。',
+                  ),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AuroraColors.muted,
+                        height: 1.4,
+                        fontWeight: FontWeight.w400,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 2),
+          SizedBox(
+            key: ValueKey(
+              isMicroAction
+                  ? 'candidate-hub-experiment-pattern'
+                  : 'candidate-hub-review-pattern',
+            ),
+            width: isMicroAction ? 112 : 92,
+            height: 86,
+            child: IgnorePointer(
+              child: isMicroAction
+                  ? const AuroraExperimentHeroPattern(
+                      opacity: 0.82,
+                      alignment: Alignment.centerRight,
+                      fit: BoxFit.cover,
+                    )
+                  : const AuroraReviewHeroPattern(opacity: 0.92),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -934,6 +1611,41 @@ class _CandidateSectionIntro extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (kind == CandidateKind.lifeExperiment) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Goal proposals',
+              zhHans: '目标提案',
+              zhHant: '目標提案',
+              ja: '目標の提案',
+            ),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Goals grounded in this week’s Signals. Small experiment proposals join this page when available.',
+              zhHans: '基于本周 Signal 的目标提案；小实验提案准备好后也会显示在这里。',
+              zhHant: '基於本週 Signal 的目標提案；小實驗提案準備好後也會顯示在這裡。',
+              ja: '今週の Signal に基づく目標の提案です。小実験の提案も準備でき次第ここに表示されます。',
+            ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AuroraColors.muted,
+                  height: 1.4,
+                  fontWeight: FontWeight.w400,
+                ),
+          ),
+        ],
+      );
+    }
     return Row(
       children: [
         Expanded(
@@ -1075,10 +1787,10 @@ class _ExperimentCandidateList extends StatelessWidget {
             reason: candidates[index].hypothesis,
             difficultyLabel: AppLocaleText.tr(
               context,
-              en: '7-day experiment',
-              zhHans: '七日实验',
-              zhHant: '七日實驗',
-              ja: '7 日間の実験',
+              en: '7-day goal',
+              zhHans: '七日目标',
+              zhHant: '七日目標',
+              ja: '7 日間の目標',
             ),
             evidenceCount: candidates[index].linkedSignalCardIds.length,
             selected: selectedIds.contains(candidates[index].id),

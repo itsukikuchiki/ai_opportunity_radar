@@ -1,5 +1,6 @@
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -44,6 +45,10 @@ class ExperimentCandidate(Base):
             "candidate_group_id",
             "candidate_rank",
         ),
+        CheckConstraint(
+            "decision_status IN ('undecided', 'considering', 'adopted')",
+            name="ck_experiment_candidates_decision_status",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -68,6 +73,12 @@ class ExperimentCandidate(Base):
         nullable=False,
     )
     status: Mapped[str] = mapped_column(String, default="generated")
+    decision_status: Mapped[str] = mapped_column(
+        String,
+        default="undecided",
+        server_default="undecided",
+        nullable=False,
+    )
     confidence_level: Mapped[str] = mapped_column(
         String,
         default="medium",

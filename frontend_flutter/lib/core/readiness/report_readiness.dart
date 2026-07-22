@@ -9,7 +9,6 @@ import '../models/today_models.dart';
 enum ReportSurface {
   weekly,
   journey,
-  journeyPro,
 }
 
 class ReportReadinessRule {
@@ -125,16 +124,6 @@ class ReportReadinessEvaluator {
     minimumDistinctDays: 3,
     minimumDistinctWeeks: 1,
     windowDays: 31,
-  );
-
-  /// Journey Pro L3 uses a rolling 28-day evidence window and must cross two
-  /// user-local Monday-Sunday week buckets before period comparison is valid.
-  static const journeyProRule = ReportReadinessRule(
-    surface: ReportSurface.journeyPro,
-    minimumSignals: 14,
-    minimumDistinctDays: 7,
-    minimumDistinctWeeks: 2,
-    windowDays: 28,
   );
 
   const ReportReadinessEvaluator();

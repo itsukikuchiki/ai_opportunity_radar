@@ -163,11 +163,10 @@ class AiGenerationService:
                 name=f"本周小观察：{top_token}",
                 summary=f"{confidence_line} 记录里最先浮出来的是“{top_token}”，先看它在哪些场景里回来。",
                 illustration_hint=behavior_hint,
-            ),
-            WeeklyInsightItem(
-                name="证据来源",
-                summary=self._evidence_summary(contents=contents, fallback=top_token),
-                illustration_hint="只是观察也有帮助",
+                trigger=self._weekly_pattern_trigger(
+                    day_counts=request.day_counts,
+                    top_token=top_token,
+                ),
             ),
         ]
 
@@ -238,49 +237,339 @@ class AiGenerationService:
         if not capture_content or not user_message:
             raise ValueError("capture_content and user_message are required")
 
+        language = self._dialog_language(
+            requested=request.language,
+            user_message=user_message,
+            capture_content=capture_content,
+        )
         history_text = " ".join(turn.text for turn in request.history)
         safety_text = " ".join(
             part for part in (capture_content, history_text, user_message) if part
         )
         if self._is_immediate_safety_risk(safety_text):
             return LightDialogResponse(
-                reply=self._immediate_safety_reply(),
-                suggested_prompts=[
-                    "我现在处于立即危险中",
-                    "我没有立即危险，但需要有人陪我",
-                    "我可以先联系一个可信任的人",
-                ],
+                reply=self._dialog_safety_reply(language),
+                suggested_prompts=[],
             )
 
-        analysis = self._analyze_capture(capture_content)
-        emotion = analysis["emotion"]
-        response_style = request.response_style or 'gentle'
-        history_len = len(request.history)
+        # The Flutter chat surface historically included the just-submitted user
+        # turn in `history` as well as `user_message`.  Treat that as one turn so
+        # the first response does not accidentally become a generic continuation.
+        history = list(request.history)
+        if (
+            history
+            and history[-1].role == "user"
+            and history[-1].text.strip() == user_message
+        ):
+            history = history[:-1]
 
-        if history_len <= 1:
-            prefix = {
-                "negative": "听起来这一下确实让你有些难受，我先接住你现在说的这部分。",
-                "mixed": "这条里有些拉扯感，我们先不用急着把它解释完整。",
-                "positive": "这个片刻对你有一点分量，值得先好好留下。",
-            }.get(emotion, "我在听，我们先只看你现在最想说的这一点。")
-        else:
-            prefix = "我继续听着你刚才那句。"
-
-        if any(token in user_message for token in ["为什么", "為什麼", "why"]):
-            answer = f"{prefix}现在的这一条还不足以替你判断原因。可以先说说：事情本身和它带给你的感受，哪一部分此刻更重一点？"
-        elif any(token in user_message for token in ["怎么办", "怎麼辦", "怎么办啊", "what should", "怎么办呢"]):
-            answer = f"{prefix}先不用一次解决整件事。你愿意的话，我们只找一个现在负担最小、能让你稍微稳一点的动作。"
-        elif any(token in user_message for token in ["其实", "其實", "其实是", "actually"]):
-            answer = f"{prefix}你补的这句让重点更清楚了一点。哪一部分是你最不想被轻轻带过的？"
-        else:
-            answer = f"{prefix}如果愿意，可以只补一句：当时最让你停住的是哪个瞬间？"
-
-        prompts = [
-            "我最卡住的是哪一个瞬间？",
-            "这件事让我不舒服的核心是什么？",
-            "下次再遇到时我想先做什么？",
+        recent_assistant_texts = [
+            turn.text.strip()
+            for turn in history
+            if turn.role == "assistant" and turn.text.strip()
         ]
-        return LightDialogResponse(reply=self._style_text(answer, response_style, kind='reply'), suggested_prompts=prompts)
+        capture_acknowledgement = (request.capture_acknowledgement or "").strip()
+        if capture_acknowledgement:
+            recent_assistant_texts.append(capture_acknowledgement)
+
+        source_analysis = self._analyze_capture(capture_content)
+        source_emotion = source_analysis["emotion"]
+        source_axis = self.classification_service._detect_axis(capture_content)
+        source_acknowledgement = self._dialog_source_acknowledgement(
+            capture_content=capture_content,
+            language=language,
+            axis=source_axis,
+            emotion=source_emotion,
+            recent_assistant_texts=recent_assistant_texts,
+        )
+        intent = self._dialog_turn_intent(user_message)
+        light_followup = self._dialog_light_followup(
+            language=language,
+            intent=intent,
+            axis=source_axis,
+            emotion=source_emotion,
+        )
+        response_style = request.response_style or 'gentle'
+        answer = f"{source_acknowledgement} {light_followup}".strip()
+        return LightDialogResponse(
+            reply=self._style_dialog_reply(answer, response_style, language),
+            suggested_prompts=[],
+        )
+
+    def _dialog_language(
+        self,
+        *,
+        requested: str | None,
+        user_message: str,
+        capture_content: str,
+    ) -> str:
+        normalized = (requested or "").strip().lower().replace("_", "-")
+        if normalized.startswith("ja"):
+            return "ja"
+        if normalized.startswith("en"):
+            return "en"
+        if normalized in {"zh-hant", "zh-tw", "zh-hk", "zh-mo"}:
+            return "zh-Hant"
+        if normalized.startswith("zh"):
+            return "zh-Hans"
+
+        combined = f"{user_message} {capture_content}"
+        if any(char in combined for char in "這裡麼為會覺讓與還說體來時個後點願該辦實復"):
+            return "zh-Hant"
+        detected = self.classification_service._detect_language(
+            user_message or capture_content
+        )
+        return {"ja": "ja", "en": "en"}.get(detected, "zh-Hans")
+
+    def _dialog_source_acknowledgement(
+        self,
+        *,
+        capture_content: str,
+        language: str,
+        axis: str,
+        emotion: str,
+        recent_assistant_texts: list[str],
+    ) -> str:
+        detected = self.classification_service._detect_language(capture_content)
+        expected = {"ja": "ja", "en": "en"}.get(language, "zh")
+        if detected != expected:
+            return self._localized_dialog_source_ack(language, axis, emotion)
+
+        acknowledgement = self.classification_service.generate_acknowledgement(
+            content=capture_content,
+            recent_assistant_texts=recent_assistant_texts,
+        ).strip()
+        if language == "zh-Hant":
+            return self._to_traditional_chinese(acknowledgement)
+        return acknowledgement
+
+    def _localized_dialog_source_ack(
+        self,
+        language: str,
+        axis: str,
+        emotion: str,
+    ) -> str:
+        keys = {
+            "unfairness": "unfairness",
+            "interruption": "interruption",
+            "repetition": "repetition",
+            "confirmation": "confirmation",
+            "overload": "overload",
+            "confusion": "confusion",
+            "pleasant_moment": "positive",
+        }
+        key = keys.get(axis, emotion if emotion in {"positive", "negative", "mixed"} else "general")
+        messages = {
+            "zh-Hans": {
+                "unfairness": "你写下了本不该由你承担的事情落到了你这里。",
+                "interruption": "你写下了节奏一直被打断和切换。",
+                "repetition": "你写下了又要重来一遍。",
+                "confirmation": "你写下了反复确认和对齐。",
+                "overload": "你写下了事情太多、太杂。",
+                "confusion": "你写下了现在还不知道怎么办。",
+                "positive": "你写下了这个开心或轻松的片刻。",
+                "negative": "我听见你说这一刻很难受。",
+                "mixed": "你写下了几种交在一起的感受。",
+                "general": "你写下的这件事已经留在这里了。",
+            },
+            "zh-Hant": {
+                "unfairness": "你寫下了本不該由你承擔的事情落到了你這裡。",
+                "interruption": "你寫下了節奏一直被打斷和切換。",
+                "repetition": "你寫下了又要重來一遍。",
+                "confirmation": "你寫下了反覆確認和對齊。",
+                "overload": "你寫下了事情太多、太雜。",
+                "confusion": "你寫下了現在還不知道怎麼辦。",
+                "positive": "你寫下了這個開心或輕鬆的片刻。",
+                "negative": "我聽見你說這一刻很難受。",
+                "mixed": "你寫下了幾種交在一起的感受。",
+                "general": "你寫下的這件事已經留在這裡了。",
+            },
+            "ja": {
+                "unfairness": "本来あなたが引き受けるはずではないことが来た、と書いてくれましたね。",
+                "interruption": "流れが何度も中断され、切り替えが続いたと書いてくれましたね。",
+                "repetition": "またやり直すことになった、と書いてくれましたね。",
+                "confirmation": "確認や調整を何度も繰り返した、と書いてくれましたね。",
+                "overload": "やることが多く、いろいろ重なっていると書いてくれましたね。",
+                "confusion": "今はどうしたらよいかわからない、と書いてくれましたね。",
+                "positive": "嬉しい、楽しいと感じたこの瞬間を、ここに残します。",
+                "negative": "今つらい、しんどいと感じていることを、ここに残します。",
+                "mixed": "いくつかの気持ちが混ざっていることを、そのまま残します。",
+                "general": "書いてくれたことを、そのままここに残します。",
+            },
+            "en": {
+                "unfairness": "You wrote that something you should not have had to carry landed on you.",
+                "interruption": "You wrote that your flow kept being interrupted and switched.",
+                "repetition": "You wrote that you had to do it over again.",
+                "confirmation": "You wrote that you had to check and align things repeatedly.",
+                "overload": "You wrote that there are too many things at once.",
+                "confusion": "You wrote that you do not know what to do right now.",
+                "positive": "You wrote that this moment felt happy or light.",
+                "negative": "I hear that this moment felt hard.",
+                "mixed": "You wrote down several mixed feelings.",
+                "general": "I am keeping what you wrote here as it is.",
+            },
+        }
+        return messages[language][key]
+
+    def _dialog_turn_intent(self, user_message: str) -> str:
+        normalized = user_message.strip().lower()
+        # An explicit request for a way forward wins over a simultaneous
+        # "why".  That preserves the user's confirmed exception: default L1
+        # chat only acknowledges, while an explicit advice request may receive
+        # one light, reversible response.
+        if any(token in normalized for token in [
+            "怎么办", "怎麼辦", "怎么做", "怎麼做", "该怎么", "該怎麼", "如何",
+            "该做什么", "該做什麼", "what should", "what can i do", "what do i do",
+            "how should", "how do i", "どうしたら", "どうすれば", "何をすれば", "どうすべき",
+        ]):
+            return "advice"
+        if any(token in normalized for token in [
+            "为什么", "為什麼", "为何", "為何", "why", "なぜ", "どうして", "なんで",
+        ]):
+            return "why"
+        if any(token in normalized for token in [
+            "其实", "其實", "actually", "実は", "本当は", "本當是",
+        ]):
+            return "clarify"
+        return "share"
+
+    def _dialog_light_followup(
+        self,
+        *,
+        language: str,
+        intent: str,
+        axis: str,
+        emotion: str,
+    ) -> str:
+        if intent == "why":
+            return {
+                "zh-Hans": "只凭这一条还不能替你判断原因，但你正在困惑为什么会这样，我接到了。",
+                "zh-Hant": "只憑這一條還不能替你判斷原因，但你正在困惑為什麼會這樣，我接到了。",
+                "ja": "この一件だけで理由を決めることはできませんが、なぜこうなるのか戸惑っていることは受け取りました。",
+                "en": "This one entry is not enough to decide the reason, but I hear that you are wondering why this keeps feeling this way.",
+            }[language]
+        if intent == "clarify":
+            return {
+                "zh-Hans": "你补的这句让此刻的重点更清楚了一点，我接到了。",
+                "zh-Hant": "你補的這句讓此刻的重點更清楚了一點，我接到了。",
+                "ja": "今の一言で大事なところが少しはっきりしたことを、そのまま受け取りました。",
+                "en": "What you added makes the important part a little clearer, and I hear it.",
+            }[language]
+        if intent == "advice":
+            advice_key = axis if axis in {
+                "unfairness", "interruption", "repetition", "confirmation",
+                "overload", "confusion",
+            } else ("positive" if emotion == "positive" else "general")
+            advice = {
+                "zh-Hans": {
+                    "unfairness": "如果愿意，先说清哪一部分其实不该由你承担，不必马上解决整件事。",
+                    "interruption": "如果愿意，下一次切换前只停一下，确认手上的事做到哪里就够了。",
+                    "repetition": "如果愿意，先分清这次最耗你的是重做本身，还是再次被打断的感觉。",
+                    "confirmation": "如果愿意，先停在最需要反复确认的那一步，不必一次理清全部。",
+                    "overload": "如果愿意，先只说出此刻最压着你的那一件，不必马上处理。",
+                    "confusion": "现在不用找完整答案，只选一个最想先稳住的部分就够了。",
+                    "positive": "如果愿意，可以先留意这个片刻里哪一点最让你松下来。",
+                    "general": "如果愿意，先找一个现在负担最小、能让你稍微稳一点的起点就够了。",
+                },
+                "zh-Hant": {
+                    "unfairness": "如果願意，先說清哪一部分其實不該由你承擔，不必馬上解決整件事。",
+                    "interruption": "如果願意，下一次切換前只停一下，確認手上的事做到哪裡就夠了。",
+                    "repetition": "如果願意，先分清這次最耗你的是重做本身，還是再次被打斷的感覺。",
+                    "confirmation": "如果願意，先停在最需要反覆確認的那一步，不必一次理清全部。",
+                    "overload": "如果願意，先只說出此刻最壓著你的那一件，不必馬上處理。",
+                    "confusion": "現在不用找完整答案，只選一個最想先穩住的部分就夠了。",
+                    "positive": "如果願意，可以先留意這個片刻裡哪一點最讓你鬆下來。",
+                    "general": "如果願意，先找一個現在負擔最小、能讓你稍微穩一點的起點就夠了。",
+                },
+                "ja": {
+                    "unfairness": "よければ、まず本来あなたが背負わなくてよい部分だけ言葉にして、全部を今すぐ解決しなくて大丈夫です。",
+                    "interruption": "よければ、次に切り替える直前に一度だけ止まり、今の作業がどこまで進んだか確かめるだけで十分です。",
+                    "repetition": "よければ、やり直し自体と再び流れを切られることのどちらがより消耗するかだけ見てみましょう。",
+                    "confirmation": "よければ、いちばん確認が繰り返される一か所だけに目を向け、全部を一度に整理しなくて大丈夫です。",
+                    "overload": "よければ、今いちばん重くのしかかっている一つだけを言葉にして、すぐ処理しなくても大丈夫です。",
+                    "confusion": "今は完全な答えを探さず、まず少し安定させたい部分を一つ選ぶだけで十分です。",
+                    "positive": "よければ、この瞬間の何がいちばん力を抜かせてくれたかだけ見てみましょう。",
+                    "general": "よければ、今いちばん負担が小さく、少し落ち着ける入口を一つ探すだけで十分です。",
+                },
+                "en": {
+                    "unfairness": "If you want, name just the part that should not have been yours to carry without solving the whole situation now.",
+                    "interruption": "If you want, pause once before the next switch and simply note where you are leaving the current task.",
+                    "repetition": "If you want, notice whether redoing it or having your flow broken again is the more draining part.",
+                    "confirmation": "If you want, stay with the one step that needs the most repeated checking without sorting out everything at once.",
+                    "overload": "If you want, name only the one thing pressing on you most right now without handling it immediately.",
+                    "confusion": "You do not need a complete answer now; choosing one part you most want to steady is enough.",
+                    "positive": "If you want, notice what in this moment helped you loosen up the most.",
+                    "general": "If you want, finding the lowest-pressure place to begin and feel a little steadier is enough.",
+                },
+            }
+            return advice[language][advice_key]
+        return {
+            "zh-Hans": "你刚补充的这一句，我也接住了。",
+            "zh-Hant": "你剛補充的這一句，我也接住了。",
+            "ja": "今付け加えてくれた一言も、そのまま受け取りました。",
+            "en": "I hear what you just added, too.",
+        }[language]
+
+    def _dialog_safety_reply(self, language: str) -> str:
+        return {
+            "zh-Hans": self._immediate_safety_reply(),
+            "zh-Hant": (
+                "我很在意你剛才這句話。若你現在可能馬上傷害自己或他人，"
+                "請先離開危險物品並聯絡當地緊急服務，或立刻聯絡一個能到你身邊的可信任的人。"
+                "如果可以，只回覆我：你現在是否處於立即危險中？"
+            ),
+            "ja": (
+                "今の言葉をとても心配しています。今すぐ自分や誰かを傷つける可能性があるなら、"
+                "危険な物から離れ、地域の緊急窓口か、すぐそばに来られる信頼できる人へ連絡してください。"
+                "できれば、今すぐの危険があるかだけ教えてください。"
+            ),
+            "en": (
+                "I am very concerned about what you just said. If you may hurt yourself or someone else now, "
+                "move away from anything dangerous and contact local emergency services or a trusted person who can reach you. "
+                "If you can, tell me only whether you are in immediate danger right now."
+            ),
+        }[language]
+
+    def _style_dialog_reply(
+        self,
+        text: str,
+        response_style: str,
+        language: str,
+    ) -> str:
+        text = (text or "").strip()
+        if not text or response_style == "gentle":
+            return text
+        prefixes = {
+            "direct": {
+                "zh-Hans": "重点是：",
+                "zh-Hant": "重點是：",
+                "ja": "要点は、",
+                "en": "The main point: ",
+            },
+            "clear": {
+                "zh-Hans": "更具体一点，",
+                "zh-Hant": "更具體一點，",
+                "ja": "もう少し具体的に言うと、",
+                "en": "More specifically, ",
+            },
+        }
+        prefix = prefixes.get(response_style, {}).get(language, "")
+        return f"{prefix}{text}" if prefix and not text.startswith(prefix) else text
+
+    def _to_traditional_chinese(self, text: str) -> str:
+        # This path only converts the bounded L1 acknowledgement catalog above;
+        # it is intentionally not a general-purpose user-content transformer.
+        table = str.maketrans({
+            "这": "這", "里": "裡", "让": "讓", "难": "難", "责": "責",
+            "务": "務", "压": "壓", "烦": "煩", "错": "錯", "变": "變",
+            "实": "實", "节": "節", "总": "總", "断": "斷", "稳": "穩",
+            "个": "個", "复": "復", "觉": "覺", "来": "來", "会": "會",
+            "认": "認", "顺": "順", "对": "對", "协": "協", "轻": "輕",
+            "说": "說", "够": "夠", "现": "現", "观": "觀", "发": "發",
+            "过": "過", "种": "種", "为": "為", "应": "應", "担": "擔",
+            "并": "並", "没": "沒", "开": "開", "带": "帶", "与": "與",
+        })
+        return text.translate(table)
 
     def _is_immediate_safety_risk(self, text: str) -> bool:
         return self.classification_service.is_immediate_safety_risk(text)
@@ -291,11 +580,14 @@ class AiGenerationService:
     def generate_deep_weekly(self, request: DeepWeeklyRequest) -> DeepWeeklyResponse:
         pattern_name = self._pick_name(request.patterns, fallback="这周反复回来的主题")
         friction_name = self._pick_name(request.frictions, fallback="这周最稳定的消耗点")
+        illustration_hint = self._pick_illustration_hint(
+            request.patterns
+        ) or self._pick_illustration_hint(request.frictions)
         key_insight = (request.key_insight or "").strip() or f"这周的记录在“{pattern_name}”附近逐渐聚起来。"
 
         peak_day = "这周中段"
         low_day = "这周某个低点"
-        rebound_phrase = "后半段还没有足够证据说明已经回弹"
+        rebound_phrase = "后半段还没有足够 Signal 说明已经回弹"
         chart_data = request.chart_data or []
         if chart_data:
             peak = max(chart_data, key=lambda item: item.get("signal_count", 0))
@@ -310,26 +602,37 @@ class AiGenerationService:
             if last.get("mood_score", 0) > low.get("mood_score", 0):
                 rebound_phrase = "后半段有一点回收，说明这一周不是一路往下掉，而是有被拉回来一点"
 
-        summary = (
-            f"{key_insight} 深度分析要看的更像是结构："
-            f"“{pattern_name}”并不是孤立出现，它和“{friction_name}”在同一周里互相牵住，"
-            "让你反复在想推进和被消耗之间切换。"
+        relationship_summary = (
+            f"“{pattern_name}”与“{friction_name}”在本周同一范围内反复同时出现，"
+            "值得继续看它们怎样牵动节奏。"
         )
+        summary = f"{key_insight} 深度分析看到：{relationship_summary}"
         root_tension = (
-            f"表层事件是几条不同记录；底层的内在拉扯是你想让“{pattern_name}”更顺一点，"
-            f"但每次靠近时，“{friction_name}”又把注意力拉走。所以真正累的不是某一天，"
-            "而是不断重启判断、不断重新找回节奏。"
+            f"内在拉扯：想让“{pattern_name}”推进时，"
+            f"“{friction_name}”也会反复出现。"
         )
-        hidden_pattern = (
-            f"把图和文字放在一起看，{peak_day} 是线索密度更高的节点，{low_day} 更像状态低点。"
-            f"{rebound_phrase}。这说明本周的重点不是简单问“哪天最糟”，而是看压力聚集后，"
-            "你有没有机会把自己重新带回比较可判断的位置。"
+        timing_summary = f"{peak_day} 的 Signal 更密，{low_day} 更像状态低点；{rebound_phrase}。"
+        hidden_pattern = timing_summary
+        next_question = (
+            f"“{friction_name}”再次出现时，它发生在“{pattern_name}”的开始、推进还是收尾？"
         )
-        next_focus = (
-            f"下周先不要扩大观察面，只盯一个小问题：当“{friction_name}”再次出现时，"
-            f"它是在打断“{pattern_name}”的开始、推进中段，还是收尾阶段。这个位置比事件本身更值得记。"
+        next_focus = f"下周只验证一个问题：{next_question}"
+        scope_note = (
+            "这份深度分析只说明本周 Signal 中反复同时出现的关系，"
+            "用于确定下周观察点，不代表因果、人格判断或长期结论。"
         )
-        risk_note = "这份深度分析更适合拿来收窄注意力，不适合一次解释完整个自己；如果这一周本来就很早期，它只能给方向，不能当结论。"
+        risk_note = scope_note
+
+        if request.completed_attempt_day_count > 0:
+            impact_label = f"已有 {request.completed_attempt_day_count} 个完成日"
+        elif request.recorded_attempt_day_count > 0:
+            impact_label = f"已有 {request.recorded_attempt_day_count} 个反馈日"
+        elif request.attempt_count > 0:
+            impact_label = f"已参与 {request.attempt_count} 项尝试"
+        else:
+            impact_label = "尝试反馈仍在形成"
+        if request.dominant_feedback_pattern:
+            impact_label = request.dominant_feedback_pattern.strip() or impact_label
         key_nodes = [
             f"重复主题：{pattern_name}",
             f"主要摩擦：{friction_name}",
@@ -343,6 +646,15 @@ class AiGenerationService:
             next_focus=next_focus,
             risk_note=risk_note,
             key_nodes=key_nodes,
+            pattern_label=pattern_name,
+            friction_label=friction_name,
+            impact_label=impact_label,
+            relationship_summary=relationship_summary,
+            timing_summary=timing_summary,
+            next_question=next_question,
+            illustration_hint=illustration_hint,
+            source_signal_card_ids=request.source_signal_card_ids,
+            scope_note=scope_note,
         )
 
     def _pick_name(self, items, fallback: str) -> str:
@@ -354,6 +666,16 @@ class AiGenerationService:
             return name or fallback
         name = getattr(first, "name", "")
         return name.strip() or fallback
+
+    def _pick_illustration_hint(self, items) -> str | None:
+        if not items:
+            return None
+        first = items[0]
+        if isinstance(first, dict):
+            value = str(first.get("illustration_hint") or "").strip()
+            return value or None
+        value = str(getattr(first, "illustration_hint", "") or "").strip()
+        return value or None
 
     def generate_journey_summary(
         self,
@@ -624,30 +946,16 @@ class AiGenerationService:
         intensity: str,
         scene_tags: list[str],
     ) -> str:
-        scene = scene_tags[0] if scene_tags else "daily_life"
-
         if emotion == "positive":
-            if scene == "achievement":
-                return "这一下不是普通地“还不错”，而是你真的感受到一点推进和成形。"
-            if scene == "daily_life":
-                return "这条里有一个很具体的小好时刻，被你好好接住了。"
-            return "这一下确实有把你往好的状态里带一点，不只是轻轻划过去。"
+            return "我听见你说这一刻感觉不错，先把它留在这里。"
 
         if emotion == "mixed":
-            if scene in {"work", "daily_friction"}:
-                return "这条里能感觉到你先被拉扯了一下，后面又靠一点具体的小事缓回来一些。"
-            return "这不是单纯的好或不好，更像是一整段状态在来回拉扯。"
+            return "你写下了几种交在一起的感受，先原样留在这里。"
 
         if emotion == "negative":
-            if scene == "work":
-                return "这一下更像是工作里的节奏或失控感在消耗你，难怪会觉得烦。"
-            if scene == "commute":
-                return "这条里那股不顺和消耗感很明显，像是整个人都被路上的状态拖住了一下。"
-            if scene == "body":
-                return "这一下更像是身体和情绪一起在往下掉，先不用急着把它想明白。"
-            return "这一下听起来确实挺消耗人的，先把它放在这里就好。"
+            return "我听见你说这一刻很难受，这份感受先留在这里。"
 
-        return "先把这一条留在这里也很好，它本身就是一个值得继续看的线索。"
+        return "这一条已经按你写下的内容记下来了。"
 
     def _fallback_observation(
         self,
@@ -766,13 +1074,21 @@ class AiGenerationService:
             return "钱和成本压力"
         return self._safe_top_token(top_tokens)
 
-    def _evidence_summary(self, *, contents: list[str], fallback: str) -> str:
-        samples = [item for item in contents if item][:2]
-        if not samples:
-            return f"目前证据还少，先把“{fallback}”作为待观察线索。"
-        if len(samples) == 1:
-            return f"目前主要来自一条记录：“{samples[0][:28]}”。先不要过度判断。"
-        return f"目前主要来自这些记录：“{samples[0][:18]}”和“{samples[1][:18]}”。先看它们是否还会重复。"
+    def _weekly_pattern_trigger(
+        self,
+        *,
+        day_counts: dict[str, int],
+        top_token: str,
+    ) -> str | None:
+        supported_parts: list[str] = []
+        if day_counts:
+            peak_day, peak_count = max(day_counts.items(), key=lambda item: item[1])
+            supported_parts.append(
+                f"{peak_day} 记录了 {peak_count} 条 Signal，是本周较密集的日子"
+            )
+        if top_token and top_token != "最近的记录":
+            supported_parts.append(f"本周 Signal 主题集中在“{top_token}”")
+        return "；".join(supported_parts) or None
 
     def _peak_day(self, day_counts: dict[str, int]) -> str:
         if not day_counts:

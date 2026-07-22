@@ -221,6 +221,7 @@ class AiRepository {
     required RecentSignalModel signal,
     required List<LightDialogTurnModel> history,
     required String userMessage,
+    required String language,
     String? focusArea,
     String? responseStyle,
   }) async {
@@ -234,6 +235,7 @@ class AiRepository {
           'capture_acknowledgement': signal.acknowledgement,
           'history': history.map((e) => e.toJson()).toList(),
           'user_message': userMessage,
+          'language': language,
           'focus_area': focusArea,
           'response_style': style,
         },
@@ -244,15 +246,67 @@ class AiRepository {
     } catch (_) {
       return LightDialogResponseModel(
         reply: _styleText(
-          '我先顺着这条陪你多看一点。先别急着解释完整，只要把最卡住你的那个瞬间说得更具体一点，就已经很有用了。',
+          _fallbackLightDialogReply(
+            signalContent: signal.content,
+            userMessage: userMessage,
+            language: language,
+          ),
           style,
         ),
-        suggestedPrompts: const [
-          '我最卡住的是哪一个瞬间？',
-          '这件事让我最在意的是什么？',
-          '下次再遇到时我想先做什么？',
-        ],
       );
+    }
+  }
+
+  String _fallbackLightDialogReply({
+    required String signalContent,
+    required String userMessage,
+    required String language,
+  }) {
+    final safetyText = '$signalContent $userMessage';
+    if (_isImmediateSafetyRisk(safetyText)) {
+      return _offlineSafetyAcknowledgement(
+        language == 'zh-Hant' || language == 'ja' || language == 'en'
+            ? language
+            : 'zh-Hans',
+      );
+    }
+    final normalized = userMessage.trim().toLowerCase();
+    final asksForAction = [
+      '怎么办',
+      '怎么做',
+      '该做什么',
+      '該怎麼',
+      '怎麼做',
+      '該做什麼',
+      '如何',
+      'どうすれば',
+      'どうしたら',
+      '何をすれば',
+      'what should',
+      'what can i do',
+      'what do i do',
+      'how should',
+    ].any(normalized.contains);
+
+    switch (language) {
+      case 'zh-Hant':
+        return asksForAction
+            ? '聽起來這一下確實很消耗。先不用一次解決整件事；如果你願意，只選一個現在負擔最小、能讓自己稍微穩一點的動作。'
+            : '我有接到你剛才補的這一句。你可以繼續說最在意的那一小段，不用急著把整件事解釋完整。';
+      case 'ja':
+        return asksForAction
+            ? 'かなり消耗する状況だったのですね。全部を一度に解決せず、今いちばん負担が少なく、少し落ち着けることを一つだけ選んでみても大丈夫です。'
+            : '今付け足してくれたことも、ちゃんと受け取っています。全部を説明しようとせず、いちばん気になっている部分だけ続けて話して大丈夫です。';
+      case 'en':
+        return asksForAction
+            ? 'That sounds genuinely draining. You do not have to solve all of it at once; if you want, choose just one low-effort thing that might help you feel a little steadier now.'
+            : 'I hear the part you just added. You can stay with the smallest part that matters most, without having to explain the whole situation.';
+      case 'zh-Hans':
+      default:
+        final acknowledgement = _fallbackAcknowledgement(signalContent);
+        return asksForAction
+            ? '$acknowledgement 先不用一次解决整件事；如果愿意，只选一个现在负担最小、能让自己稍微稳一点的动作。'
+            : '$acknowledgement 你可以继续说最在意的那一小段，不用急着把整件事解释完整。';
     }
   }
 
@@ -260,6 +314,8 @@ class AiRepository {
     required WeeklyInsightModel weekly,
     String? focusArea,
   }) async {
+    final attemptFacts = _deepWeeklyAttemptFacts(weekly);
+    final sourceSignalCardIds = _weeklySourceSignalCardIds(weekly);
     try {
       final res = await apiClient.postJson(
         '/api/v1/ai/reflect-weekly',
@@ -272,6 +328,12 @@ class AiRepository {
           'best_action': weekly.bestAction,
           'chart_data': weekly.chartData.map((e) => e.toJson()).toList(),
           'focus_area': focusArea,
+          'attempt_count': attemptFacts.attemptCount,
+          'recorded_attempt_day_count': attemptFacts.recordedDayCount,
+          'completed_attempt_day_count': attemptFacts.completedDayCount,
+          'signal_attempt_overlap_day_count': attemptFacts.overlapDayCount,
+          'dominant_feedback_pattern': attemptFacts.dominantFeedbackPattern,
+          'source_signal_card_ids': sourceSignalCardIds,
         },
       );
       final data = (res['data'] as Map<String, dynamic>?) ?? res;
@@ -305,8 +367,109 @@ class AiRepository {
           '线索密集点：$peakLabel',
           '走势低点：$lowLabel',
         ],
+        patternLabel: topic.headline,
+        frictionLabel: topic.reason,
+        impactLabel: attemptFacts.completedDayCount > 0
+            ? '已有 ${attemptFacts.completedDayCount} 个完成日'
+            : attemptFacts.recordedDayCount > 0
+                ? '已有 ${attemptFacts.recordedDayCount} 个反馈日'
+                : '尝试反馈仍在形成',
+        relationshipSummary: '本周的重复模式与主要摩擦在同一范围内反复同时出现。',
+        timingSummary: '$peakLabel 的 Signal 更密，$lowLabel 更像状态低点。',
+        nextQuestion: '${topic.nextWatch} 它发生在开始、推进还是收尾？',
+        illustrationHint: _weeklyIllustrationHint(weekly),
+        sourceSignalCardIds: sourceSignalCardIds,
+        scopeNote: '这份深度分析只说明本周 Signal 中反复同时出现的关系，用于确定下周观察点，不代表因果、人格判断或长期结论。',
       );
     }
+  }
+
+  ({
+    int attemptCount,
+    int recordedDayCount,
+    int completedDayCount,
+    int overlapDayCount,
+    String? dominantFeedbackPattern,
+  }) _deepWeeklyAttemptFacts(WeeklyInsightModel weekly) {
+    final raw = weekly.opportunitySnapshot?['_feedback_event_summary'];
+    final summary = raw is Map
+        ? raw.map((key, value) => MapEntry('$key', value))
+        : const <String, dynamic>{};
+    final rawEvents = summary['events'];
+    final events = rawEvents is List
+        ? rawEvents
+            .whereType<Map>()
+            .map((event) => event.map((key, value) => MapEntry('$key', value)))
+            .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+    final subjectIds = <String>{};
+    final feedbackDates = <String>{};
+    final completedDates = <String>{};
+    for (final event in events) {
+      final subjectId = event['subject_id']?.toString().trim() ?? '';
+      if (subjectId.isNotEmpty) subjectIds.add(subjectId);
+      final date = event['local_date']?.toString().trim() ?? '';
+      if (date.isNotEmpty) feedbackDates.add(date);
+      final status = event['status']?.toString().trim().toLowerCase() ?? '';
+      if (date.isNotEmpty &&
+          const {'done', 'completed', 'happened', 'yes', 'helpful'}
+              .contains(status)) {
+        completedDates.add(date);
+      }
+    }
+
+    final signalDates = <String>{};
+    final rawSignals = weekly.opportunitySnapshot?['_weekly_signal_entries'];
+    if (rawSignals is List) {
+      for (final item in rawSignals.whereType<Map>()) {
+        final date =
+            (item['local_date'] ?? item['created_at'])?.toString().trim() ?? '';
+        if (date.length >= 10) signalDates.add(date.substring(0, 10));
+      }
+    }
+    final overlap = signalDates.intersection(feedbackDates);
+    final review = weekly.actionReview;
+    final dominantFeedbackPattern = [
+      review.nextAdjustment,
+      review.mostHelpfulAction,
+      review.hardestAction,
+    ].map((value) => value.trim()).firstWhere(
+          (value) => value.isNotEmpty,
+          orElse: () => '',
+        );
+    final summaryTotal = (summary['total_count'] as num?)?.toInt() ?? 0;
+    return (
+      attemptCount: subjectIds.isNotEmpty
+          ? subjectIds.length
+          : review.triedActionCount > 0
+              ? review.triedActionCount
+              : summaryTotal,
+      recordedDayCount: feedbackDates.length,
+      completedDayCount: completedDates.length,
+      overlapDayCount: overlap.length,
+      dominantFeedbackPattern:
+          dominantFeedbackPattern.isEmpty ? null : dominantFeedbackPattern,
+    );
+  }
+
+  List<String> _weeklySourceSignalCardIds(WeeklyInsightModel weekly) {
+    final raw = weekly.opportunitySnapshot?['_weekly_signal_entries'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((entry) => entry['id']?.toString().trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+  }
+
+  String? _weeklyIllustrationHint(WeeklyInsightModel weekly) {
+    for (final item in [...weekly.patterns, ...weekly.frictions]) {
+      if (item is! Map) continue;
+      final value = item['illustration_hint']?.toString().trim() ?? '';
+      if (value.isNotEmpty) return value;
+    }
+    return null;
   }
 
   String? _shortDateLabel(String? raw) {
@@ -353,36 +516,46 @@ class AiRepository {
 
   String _fallbackAcknowledgement(String content) {
     final trimmed = content.trim();
-    if (trimmed.isEmpty) return '先把这一条留在这里。';
+    final language = _fallbackLanguage(content);
+    if (_isImmediateSafetyRisk(content)) {
+      return _offlineSafetyAcknowledgement(language);
+    }
+    if (trimmed.isEmpty) {
+      return switch (language) {
+        'ja' => '書いてくれたことを、そのままここに残します。',
+        'en' => 'I am keeping what you wrote here as it is.',
+        'zh-Hant' => '你寫下的這件事已經留在這裡了。',
+        _ => '你写下的这件事已经留在这里了。',
+      };
+    }
 
     final topic = _topicHint(content);
     if (topic != null) {
-      return _topicAcknowledgement(topic);
+      return _topicAcknowledgement(topic, language);
     }
 
     final emotion = _fallbackEmotion(content);
-    final sceneTags = _fallbackSceneTags(content);
-
-    if (emotion == 'mixed') {
-      return '这条里能感觉到你先被拉扯了一下，后面又靠一点具体的小事缓回来一些。';
-    }
-    if (emotion == 'positive') {
-      if (sceneTags.contains('achievement')) {
-        return '这一下不是普通地“还不错”，而是你真的感受到一点推进和成形。';
-      }
-      return '这条里有一个很具体的小好时刻，被你好好接住了。';
-    }
-    if (emotion == 'negative') {
-      if (sceneTags.contains('work')) {
-        return '这一下更像是工作里的节奏或失控感在消耗你，难怪会觉得烦。';
-      }
-      if (sceneTags.contains('body')) {
-        return '这一下更像是身体和情绪一起在往下掉，先不用急着把它想明白。';
-      }
-      return '这一下听起来确实挺消耗人的，先把它放在这里就好。';
-    }
-
-    return '先把这一条留在这里也很好，它本身就是一个值得继续看的线索。';
+    return switch ((language, emotion)) {
+      ('ja', 'mixed') => 'いくつかの気持ちが混ざっていることを、そのまま残します。',
+      ('ja', 'positive') => '今いい気分だと書いてくれましたね。そのまま残します。',
+      ('ja', 'negative') => '今つらい、しんどいと感じていることを、ここに残します。',
+      ('ja', _) => '書いてくれたことを、そのままここに残します。',
+      ('en', 'mixed') =>
+        'You wrote down several mixed feelings, and I am keeping them as they are.',
+      ('en', 'positive') =>
+        'I hear that this moment felt good, and I am keeping it here.',
+      ('en', 'negative') =>
+        'I hear that this moment felt hard, and I am keeping that feeling here.',
+      ('en', _) => 'I am keeping what you wrote here as it is.',
+      ('zh-Hant', 'mixed') => '你寫下了幾種交在一起的感受，先原樣留在這裡。',
+      ('zh-Hant', 'positive') => '我聽見你說這一刻感覺不錯，先把它留在這裡。',
+      ('zh-Hant', 'negative') => '我聽見你說這一刻很難受，這份感受先留在這裡。',
+      ('zh-Hant', _) => '這一條已經按你寫下的內容記下來了。',
+      (_, 'mixed') => '你写下了几种交在一起的感受，先原样留在这里。',
+      (_, 'positive') => '我听见你说这一刻感觉不错，先把它留在这里。',
+      (_, 'negative') => '我听见你说这一刻很难受，这份感受先留在这里。',
+      _ => '这一条已经按你写下的内容记下来了。',
+    };
   }
 
   String _fallbackSingleObservation(String content) {
@@ -632,25 +805,95 @@ class AiRepository {
     return null;
   }
 
-  String _topicAcknowledgement(String topic) {
-    switch (topic) {
-      case 'cost':
-        return '你在意的不是小情绪，而是成本突然变得很明显：token 花费这件事需要被认真看一下。';
-      case 'horse_expectation':
-        return '这一条的重点很清楚：骑马像是这一周里真正能让你期待的一块恢复时间。';
-      case 'tomorrow_uncertainty':
-        return '你写到的是对明天不可控的提醒，也是在把注意力轻轻拉回当下。';
-      case 'retirement_wish':
-        return '“想早点退休”背后更像是持续被工作消耗后的逃离感，不只是随口一说。';
-      case 'weather_good':
-        return '天气不错这件小事已经让今天亮了一点，它本身就值得被留下来。';
-      case 'rest_wish':
-        return '这里最明显的是想停下来休息的念头，可能是身体和心力都在要一点空间。';
-      case 'money':
-        return '这条和钱有关，真正牵动你的可能是支出、价值感或安全感之间的拉扯。';
-      default:
-        return '这条可以先作为一个具体线索留下来。';
+  String _topicAcknowledgement(String topic, String language) {
+    return switch ((language, topic)) {
+      ('ja', 'cost') => 'token のコストが高いと感じたことを、そのままここに残します。',
+      ('ja', 'horse_expectation') => '乗馬を楽しみにしている気持ちを、ここに残します。',
+      ('ja', 'tomorrow_uncertainty') => '明日は予測できず、今を大切にしたいと書いてくれましたね。',
+      ('ja', 'retirement_wish') => '早く引退したいという今の気持ちを、まずここに残します。',
+      ('ja', 'weather_good') => '今日は天気がいいと感じた、その小さな瞬間を残します。',
+      ('ja', 'rest_wish') => '少し止まって休みたいという気持ちを、ここに残します。',
+      ('ja', 'money') => 'お金やコスト、予算が気になったことを、ここに残します。',
+      ('en', 'cost') =>
+        'You wrote that token cost feels high, and I am keeping that concern here.',
+      ('en', 'horse_expectation') =>
+        'You mentioned looking forward to horse riding, and I am keeping that moment here.',
+      ('en', 'tomorrow_uncertainty') =>
+        'You wrote that tomorrow cannot be predicted and that you want to stay with the present.',
+      ('en', 'retirement_wish') =>
+        'You wrote that you want to retire early, and I am keeping that thought here.',
+      ('en', 'weather_good') =>
+        'You noticed that the weather feels good today, and I am keeping that small moment here.',
+      ('en', 'rest_wish') =>
+        'You wrote that you want to stop and rest for a while, and I am keeping that feeling here.',
+      ('en', 'money') =>
+        'You wrote that money, cost, or budget is on your mind, and I am keeping that here.',
+      ('zh-Hant', 'cost') => '你寫下了 token 成本很高，這份在意先留在這裡。',
+      ('zh-Hant', 'horse_expectation') => '你提到了騎馬和期待，這個片刻先留在這裡。',
+      ('zh-Hant', 'tomorrow_uncertainty') => '你寫下了明天無法預測，也想好好看著當下。',
+      ('zh-Hant', 'retirement_wish') => '你寫下了想早點退休，這個念頭先留在這裡。',
+      ('zh-Hant', 'weather_good') => '你留意到今天天氣不錯，這個小片刻先記下來了。',
+      ('zh-Hant', 'rest_wish') => '你寫下了想停下來休息，這個感受先留在這裡。',
+      ('zh-Hant', 'money') => '你寫下了對錢、成本或預算的在意，這一條先留在這裡。',
+      (_, 'cost') => '你写下了 token 成本很高，这份在意先留在这里。',
+      (_, 'horse_expectation') => '你提到了骑马和期待，这个片刻先留在这里。',
+      (_, 'tomorrow_uncertainty') => '你写下了明天无法预测，也想好好看着当下。',
+      (_, 'retirement_wish') => '你写下了想早点退休，这个念头先留在这里。',
+      (_, 'weather_good') => '你留意到今天天气不错，这个小片刻先记下来了。',
+      (_, 'rest_wish') => '你写下了想停下来休息，这个感受先留在这里。',
+      (_, 'money') => '你写下了对钱、成本或预算的在意，这一条先留在这里。',
+      ('ja', _) => '書いてくれたことを、そのままここに残します。',
+      ('en', _) => 'I am keeping what you wrote here as it is.',
+      ('zh-Hant', _) => '這一條已經按你寫下的內容記下來了。',
+      _ => '这一条已经按你写下的内容记下来了。',
+    };
+  }
+
+  String _fallbackLanguage(String content) {
+    final hasKana = content.runes.any(
+      (code) =>
+          (code >= 0x3040 && code <= 0x30FF) ||
+          (code >= 0x31F0 && code <= 0x31FF),
+    );
+    if (hasKana) return 'ja';
+    if (RegExp(r'[這裡為會覺讓與還說體來時個後點願該辦實復錢預測寫]').hasMatch(content)) {
+      return 'zh-Hant';
     }
+    final hasCjk = content.runes.any(
+      (code) => code >= 0x4E00 && code <= 0x9FFF,
+    );
+    if (!hasCjk && RegExp(r'[A-Za-z]').hasMatch(content)) return 'en';
+    return 'zh-Hans';
+  }
+
+  bool _isImmediateSafetyRisk(String content) {
+    final normalized = content.trim().toLowerCase();
+    return const [
+      '想自杀',
+      '要自杀',
+      '不想活了',
+      '结束生命',
+      '傷害自己',
+      '自殺したい',
+      '今すぐ死にたい',
+      'kill myself',
+      'suicide now',
+      'end my life',
+      'hurt myself',
+      'hurt someone',
+    ].any(normalized.contains);
+  }
+
+  String _offlineSafetyAcknowledgement(String language) {
+    return switch (language) {
+      'ja' =>
+        '今の言葉をとても心配しています。今すぐ自分や誰かを傷つける可能性があるなら、危険な物から離れ、地域の緊急窓口か、すぐそばに来られる信頼できる人へ連絡してください。',
+      'en' =>
+        'I am very concerned about what you just said. If you might hurt yourself or someone else right now, move away from anything dangerous and contact local emergency services or a trusted person who can be with you now.',
+      'zh-Hant' =>
+        '我很在意你剛才這句話。若你現在可能馬上傷害自己或他人，請先離開危險物品，並聯絡當地緊急服務或一位能立刻到你身邊的可信任的人。',
+      _ => '我很在意你刚才这句话。若你现在可能马上伤害自己或他人，请先离开危险物品，并联系当地紧急服务或一位能立刻到你身边的可信任的人。',
+    };
   }
 
   String _topicObservation(String topic) {
@@ -993,7 +1236,7 @@ class AiRepository {
           'summary': '$confidenceLine 先看它在哪些场景里回来。',
         },
         {
-          'name': '证据来源',
+          'name': 'Signal 来源',
           'summary':
               _evidenceSummary(contents: contents, fallback: topTokenText),
         },
@@ -1099,7 +1342,7 @@ class AiRepository {
   }) {
     final samples = contents.take(2).toList();
     if (samples.isEmpty) {
-      return '目前证据还少，先把“$fallback”作为待观察线索。';
+      return '目前 Signal 还少，先把“$fallback”作为待观察线索。';
     }
     if (samples.length == 1) {
       return '目前主要来自一条记录：“${_truncateEvidence(samples.first)}”。先不要过度判断。';

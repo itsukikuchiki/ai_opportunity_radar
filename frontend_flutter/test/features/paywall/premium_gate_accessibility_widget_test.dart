@@ -29,6 +29,7 @@ void main() {
           ),
           child: PremiumGatePage(
             source: 'accessibility_test',
+            fallbackRoute: '/today',
             child: SizedBox.shrink(),
           ),
         ),
@@ -52,5 +53,42 @@ void main() {
     );
     expect(tester.takeException(), isNull);
     semantics.dispose();
+  });
+
+  testWidgets('PremiumGate describes deep analysis as next-week reference',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final purchase = PurchaseController(storeSupported: false);
+    addTearDown(purchase.dispose);
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const PremiumGatePage(
+          source: 'copy_test',
+          fallbackRoute: '/today',
+          child: SizedBox.shrink(),
+        ),
+        providers: [
+          ChangeNotifierProvider<PurchaseController>.value(value: purchase),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('作为下周尝试生成时的参考'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('不自动创建'), findsNothing);
+    expect(find.textContaining('不自动采纳'), findsNothing);
+    expect(find.textContaining('不会自动创建'), findsNothing);
+    expect(find.textContaining('不会自动采纳'), findsNothing);
   });
 }

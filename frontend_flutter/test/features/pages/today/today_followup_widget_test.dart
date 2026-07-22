@@ -12,7 +12,7 @@ import '../../../helpers/widget_test_helpers.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Today 页面会提交 follow-up 选项并清掉问题卡片', (tester) async {
+  testWidgets('Today 不展示旧 capture follow-up 问题或创建第二写入路径', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -49,29 +49,12 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    await tester.dragUntilVisible(
-      find.text('Where did this friction show up most clearly?'),
-      find.byType(ListView).first,
-      const Offset(0, -240),
-    );
-    expect(
-      find.text('Where did this friction show up most clearly?'),
-      findsOneWidget,
-    );
-    expect(find.text('Work'), findsOneWidget);
-    expect(find.text('Home'), findsOneWidget);
-
-    await tester.ensureVisible(find.text('Work'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Work'));
-    await tester.pumpAndSettle();
-
-    expect(repo.followupCalls.length, 1);
-    expect(repo.followupCalls.first['followupId'], 'followup-1');
-    expect(repo.followupCalls.first['answerValue'], 'work');
     expect(
       find.text('Where did this friction show up most clearly?'),
       findsNothing,
     );
+    expect(find.text('Work'), findsNothing);
+    expect(find.text('Home'), findsNothing);
+    expect(repo.followupCalls, isEmpty);
   });
 }

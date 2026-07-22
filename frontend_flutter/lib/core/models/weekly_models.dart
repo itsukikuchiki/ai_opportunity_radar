@@ -111,6 +111,168 @@ class WeeklyInclusionSummaryModel {
   }
 }
 
+/// A read-only bridge from the last completed local week into the current
+/// Weekly page.  It is deliberately fact-backed: this object never reuses the
+/// current week's report or lets AI copy pretend to be last week's data.
+class PreviousWeekSummaryModel {
+  final String weekStart;
+  final String weekEnd;
+  final ReportReadiness readiness;
+  final int signalCount;
+  final int recordedDayCount;
+  final String factualSummary;
+  final String thisWeekWatchpoint;
+  final List<String> sourceSignalCardIds;
+  final String sourceHash;
+
+  const PreviousWeekSummaryModel({
+    required this.weekStart,
+    required this.weekEnd,
+    required this.readiness,
+    required this.signalCount,
+    required this.recordedDayCount,
+    required this.factualSummary,
+    required this.thisWeekWatchpoint,
+    this.sourceSignalCardIds = const [],
+    required this.sourceHash,
+  });
+
+  bool get hasSignals => signalCount > 0;
+
+  Map<String, dynamic> toMap() => {
+        'week_start': weekStart,
+        'week_end': weekEnd,
+        'readiness': readiness.toMap(),
+        'signal_count': signalCount,
+        'recorded_day_count': recordedDayCount,
+        'factual_summary': factualSummary,
+        'this_week_watchpoint': thisWeekWatchpoint,
+        'source_signal_card_ids': sourceSignalCardIds,
+        'source_hash': sourceHash,
+      };
+
+  factory PreviousWeekSummaryModel.fromMap(Map<String, dynamic> map) {
+    final rawReadiness = map['readiness'];
+    return PreviousWeekSummaryModel(
+      weekStart: map['week_start']?.toString() ?? '',
+      weekEnd: map['week_end']?.toString() ?? '',
+      readiness: rawReadiness is Map
+          ? ReportReadiness.fromMap(
+              rawReadiness.map((key, value) => MapEntry('$key', value)),
+              fallbackRule: ReportReadinessEvaluator.weeklyRule,
+            )
+          : ReportReadiness.empty(ReportReadinessEvaluator.weeklyRule),
+      signalCount: (map['signal_count'] as num?)?.toInt() ?? 0,
+      recordedDayCount: (map['recorded_day_count'] as num?)?.toInt() ?? 0,
+      factualSummary: map['factual_summary']?.toString() ?? '',
+      thisWeekWatchpoint: map['this_week_watchpoint']?.toString() ?? '',
+      sourceSignalCardIds:
+          ((map['source_signal_card_ids'] as List?) ?? const [])
+              .map((value) => value?.toString().trim() ?? '')
+              .where((value) => value.isNotEmpty)
+              .toList(growable: false),
+      sourceHash: map['source_hash']?.toString() ?? '',
+    );
+  }
+}
+
+/// One of one to three fact-supported behavioral interpretations for a week.
+/// The supporting Signal ids and dates are part of the model so the UI can
+/// explain its basis without presenting a causal or personality judgement.
+class WeeklyBehaviorPatternModel {
+  final String id;
+  final String label;
+  final String summary;
+  final String kind;
+  final List<String> sourceSignalCardIds;
+  final List<String> supportDates;
+  final String? illustrationHint;
+
+  const WeeklyBehaviorPatternModel({
+    required this.id,
+    required this.label,
+    required this.summary,
+    required this.kind,
+    this.sourceSignalCardIds = const [],
+    this.supportDates = const [],
+    this.illustrationHint,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'label': label,
+        'summary': summary,
+        'kind': kind,
+        'source_signal_card_ids': sourceSignalCardIds,
+        'support_dates': supportDates,
+        'illustration_hint': illustrationHint,
+      };
+
+  factory WeeklyBehaviorPatternModel.fromMap(Map<String, dynamic> map) {
+    List<String> listFor(String key) => ((map[key] as List?) ?? const [])
+        .map((value) => value?.toString().trim() ?? '')
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    return WeeklyBehaviorPatternModel(
+      id: map['id']?.toString() ?? '',
+      label: map['label']?.toString() ?? map['name']?.toString() ?? '',
+      summary: map['summary']?.toString() ?? '',
+      kind: map['kind']?.toString() ?? 'context_response',
+      sourceSignalCardIds: listFor('source_signal_card_ids'),
+      supportDates: listFor('support_dates'),
+      illustrationHint: map['illustration_hint']?.toString(),
+    );
+  }
+}
+
+class WeeklyEnergyDayModel {
+  final String date;
+  final int signalCount;
+  final int feedbackCount;
+  final Map<String, int> stateCounts;
+  final String dominantState;
+
+  const WeeklyEnergyDayModel({
+    required this.date,
+    required this.signalCount,
+    required this.feedbackCount,
+    required this.stateCounts,
+    required this.dominantState,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'date': date,
+        'signal_count': signalCount,
+        'feedback_count': feedbackCount,
+        'state_counts': stateCounts,
+        'dominant_state': dominantState,
+      };
+}
+
+/// A seven-day, exhaustive energy projection for deep analysis.  It reports
+/// observed Signal categories and feedback only; its recommendation never
+/// creates, adopts, or mutates a plan.
+class WeeklyEnergyProjectionModel {
+  final List<WeeklyEnergyDayModel> days;
+  final Map<String, int> totals;
+  final String recommendation;
+  final String rationale;
+
+  const WeeklyEnergyProjectionModel({
+    required this.days,
+    required this.totals,
+    required this.recommendation,
+    required this.rationale,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'days': days.map((day) => day.toMap()).toList(growable: false),
+        'totals': totals,
+        'recommendation': recommendation,
+        'rationale': rationale,
+      };
+}
+
 class LifeExperimentModel {
   final String id;
   final String localUserId;
@@ -130,6 +292,7 @@ class LifeExperimentModel {
   final String? plannedFrequency;
   final int? plannedDurationMinutes;
   final int? plannedTotalDays;
+  final int minimumObservationDays;
   final String? originCandidateId;
   final DateTime? adoptedAt;
   final String? progressStartDate;
@@ -158,6 +321,7 @@ class LifeExperimentModel {
     this.plannedFrequency,
     this.plannedDurationMinutes,
     this.plannedTotalDays,
+    this.minimumObservationDays = 3,
     this.originCandidateId,
     this.adoptedAt,
     this.progressStartDate,
@@ -213,6 +377,13 @@ class LifeExperimentModel {
       plannedTotalDays: _parseInt(
         json['planned_total_days'] ?? json['plannedTotalDays'],
       ),
+      minimumObservationDays: (_parseInt(
+                json['minimum_observation_days'] ??
+                    json['minimumObservationDays'],
+              ) ??
+              3)
+          .clamp(1, 36500)
+          .toInt(),
       originCandidateId: _nullableString(
         json,
         const ['origin_candidate_id', 'originCandidateId'],
@@ -257,6 +428,7 @@ class LifeExperimentModel {
       'planned_frequency': plannedFrequency,
       'planned_duration_minutes': plannedDurationMinutes,
       'planned_total_days': plannedTotalDays,
+      'minimum_observation_days': minimumObservationDays,
       'origin_candidate_id': originCandidateId,
       'adopted_at': adoptedAt?.toUtc().toIso8601String(),
       'progress_start_date': progressStartDate,
@@ -282,6 +454,7 @@ class LifeExperimentModel {
     String? plannedFrequency,
     int? plannedDurationMinutes,
     int? plannedTotalDays,
+    int? minimumObservationDays,
     String? originCandidateId,
     DateTime? adoptedAt,
     String? progressStartDate,
@@ -310,6 +483,8 @@ class LifeExperimentModel {
       plannedDurationMinutes:
           plannedDurationMinutes ?? this.plannedDurationMinutes,
       plannedTotalDays: plannedTotalDays ?? this.plannedTotalDays,
+      minimumObservationDays:
+          minimumObservationDays ?? this.minimumObservationDays,
       originCandidateId: originCandidateId ?? this.originCandidateId,
       adoptedAt: adoptedAt ?? this.adoptedAt,
       progressStartDate: progressStartDate ?? this.progressStartDate,
@@ -617,6 +792,9 @@ class WeeklyInsightModel {
   final Map<String, dynamic>? opportunitySnapshot;
   final bool feedbackSubmitted;
   final List<WeeklyChartPointModel> chartData;
+  final PreviousWeekSummaryModel? previousWeekSummary;
+  final List<WeeklyBehaviorPatternModel> behaviorPatterns;
+  final WeeklyEnergyProjectionModel? energyProjection;
 
   WeeklyInsightModel({
     required this.weekStart,
@@ -629,6 +807,9 @@ class WeeklyInsightModel {
     required this.opportunitySnapshot,
     required this.feedbackSubmitted,
     this.chartData = const [],
+    this.previousWeekSummary,
+    this.behaviorPatterns = const [],
+    this.energyProjection,
   });
 
   factory WeeklyInsightModel.fromJson(Map<String, dynamic> json) {
@@ -647,11 +828,90 @@ class WeeklyInsightModel {
           .whereType<Map>()
           .map((e) => WeeklyChartPointModel.fromJson(e.cast<String, dynamic>()))
           .toList(),
+      previousWeekSummary: _previousWeekSummaryFromDynamic(
+        json['previous_week_summary'],
+      ),
+      behaviorPatterns: _behaviorPatternsFromDynamic(json['behavior_patterns']),
+      energyProjection: _energyProjectionFromDynamic(json['energy_projection']),
     );
   }
 
   bool get isLightReady => status == 'light_ready';
   bool get isReady => status == 'ready';
+
+  static PreviousWeekSummaryModel? _previousWeekSummaryFromDynamic(
+    Object? raw,
+  ) {
+    if (raw is Map<String, dynamic>) {
+      return PreviousWeekSummaryModel.fromMap(raw);
+    }
+    if (raw is Map) {
+      return PreviousWeekSummaryModel.fromMap(
+        raw.map((key, value) => MapEntry('$key', value)),
+      );
+    }
+    return null;
+  }
+
+  static List<WeeklyBehaviorPatternModel> _behaviorPatternsFromDynamic(
+    Object? raw,
+  ) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((item) {
+          return WeeklyBehaviorPatternModel.fromMap(
+            item.map((key, value) => MapEntry('$key', value)),
+          );
+        })
+        .where((item) => item.label.trim().isNotEmpty)
+        .take(3)
+        .toList();
+  }
+
+  static WeeklyEnergyProjectionModel? _energyProjectionFromDynamic(
+    Object? raw,
+  ) {
+    if (raw is! Map) return null;
+    final map = raw.map((key, value) => MapEntry('$key', value));
+    final rawDays = map['days'];
+    final days = rawDays is List
+        ? rawDays.whereType<Map>().map((rawDay) {
+            final day = rawDay.map((key, value) => MapEntry('$key', value));
+            final rawStates = day['state_counts'];
+            final stateCounts = rawStates is Map
+                ? rawStates.map(
+                    (key, value) => MapEntry(
+                      '$key',
+                      value is num ? value.toInt() : 0,
+                    ),
+                  )
+                : const <String, int>{};
+            return WeeklyEnergyDayModel(
+              date: day['date']?.toString() ?? '',
+              signalCount: (day['signal_count'] as num?)?.toInt() ?? 0,
+              feedbackCount: (day['feedback_count'] as num?)?.toInt() ?? 0,
+              stateCounts: stateCounts,
+              dominantState: day['dominant_state']?.toString() ?? 'steady',
+            );
+          }).toList(growable: false)
+        : const <WeeklyEnergyDayModel>[];
+    final rawTotals = map['totals'];
+    final totals = rawTotals is Map
+        ? rawTotals.map(
+            (key, value) => MapEntry(
+              '$key',
+              value is num ? value.toInt() : 0,
+            ),
+          )
+        : const <String, int>{};
+    return WeeklyEnergyProjectionModel(
+      days: days,
+      totals: totals,
+      recommendation: map['recommendation']?.toString() ?? 'maintain_load',
+      rationale: map['rationale']?.toString() ?? '',
+    );
+  }
 
   WeeklyInclusionSummaryModel get inclusionSummary {
     final raw = opportunitySnapshot?['_weekly_inclusion'];
@@ -753,7 +1013,7 @@ class WeeklyInsightModel {
         isLightReady ? '这周先冒头的一个线索' : '这周最明显的一个模式',
       ),
       oneExperiment: actionText.ifEmpty(
-        '下周可以试试一个很小的实验：同类场景出现时，只补一句它发生在哪里。',
+        '下周可以先试一个生活小实验目标：同类场景出现时，只补一句它发生在哪里。',
       ),
       positiveSignal: (opportunitySummary ?? opportunityName ?? '').ifEmpty(
         '也留意一下哪些时刻让状态稍微往回收一点，它们可能是恢复线索。',
@@ -851,6 +1111,15 @@ class WeeklyReflectModel {
   final String nextFocus;
   final String riskNote;
   final List<String> keyNodes;
+  final String patternLabel;
+  final String frictionLabel;
+  final String impactLabel;
+  final String relationshipSummary;
+  final String timingSummary;
+  final String nextQuestion;
+  final String? illustrationHint;
+  final List<String> sourceSignalCardIds;
+  final String scopeNote;
 
   const WeeklyReflectModel({
     required this.summary,
@@ -859,6 +1128,15 @@ class WeeklyReflectModel {
     required this.nextFocus,
     required this.riskNote,
     this.keyNodes = const [],
+    this.patternLabel = '',
+    this.frictionLabel = '',
+    this.impactLabel = '',
+    this.relationshipSummary = '',
+    this.timingSummary = '',
+    this.nextQuestion = '',
+    this.illustrationHint,
+    this.sourceSignalCardIds = const [],
+    this.scopeNote = '',
   });
 
   factory WeeklyReflectModel.fromJson(Map<String, dynamic> json) {
@@ -872,6 +1150,19 @@ class WeeklyReflectModel {
           .map((e) => e?.toString() ?? '')
           .where((e) => e.trim().isNotEmpty)
           .toList(),
+      patternLabel: (json['pattern_label'] as String?) ?? '',
+      frictionLabel: (json['friction_label'] as String?) ?? '',
+      impactLabel: (json['impact_label'] as String?) ?? '',
+      relationshipSummary: (json['relationship_summary'] as String?) ?? '',
+      timingSummary: (json['timing_summary'] as String?) ?? '',
+      nextQuestion: (json['next_question'] as String?) ?? '',
+      illustrationHint: json['illustration_hint'] as String?,
+      sourceSignalCardIds:
+          ((json['source_signal_card_ids'] as List?) ?? const [])
+              .map((e) => e?.toString() ?? '')
+              .where((e) => e.trim().isNotEmpty)
+              .toList(),
+      scopeNote: (json['scope_note'] as String?) ?? '',
     );
   }
 }

@@ -1,57 +1,131 @@
-import '../readiness/report_readiness.dart';
-
-/// A verifiable, local-data projection for the Journey Pro L3 surface.
+/// A factual three-calendar-month projection for the Journey Pro surface.
 ///
-/// This model deliberately contains counts and user-owned SignalCard excerpts
-/// only. Interpretive copy belongs to an actually generated Journey summary;
-/// the Pro page must never manufacture one from placeholder text.
+/// The window contains the selected local calendar month and the two preceding
+/// local calendar months. Raw Signal content, source drill-downs, experiments,
+/// goals, and AI chat deliberately do not belong to this projection.
 class JourneyProReportModel {
-  final ReportReadiness readiness;
+  static const minimumSignalsPerMonth = 7;
+  static const minimumActiveDaysPerMonth = 3;
+  static const minimumComparableMonths = 2;
+
+  final String selectedMonthKey;
   final String periodStart;
   final String periodEnd;
-  final JourneyProWeekStats currentWeek;
-  final JourneyProWeekStats previousWeek;
-  final List<JourneyProEvidenceModel> evidence;
+  final String sourceHash;
+  final List<JourneyProMonthChangeModel> months;
+  final JourneyProContextCoverageModel contextCoverage;
 
   const JourneyProReportModel({
-    required this.readiness,
+    required this.selectedMonthKey,
     required this.periodStart,
     required this.periodEnd,
-    required this.currentWeek,
-    required this.previousWeek,
-    required this.evidence,
+    required this.sourceHash,
+    required this.months,
+    required this.contextCoverage,
   });
 
-  bool get isReady => readiness.isReady;
-  int get weekSignalDelta => currentWeek.signalCount - previousWeek.signalCount;
-  int get weekActiveDayDelta =>
-      currentWeek.activeDayCount - previousWeek.activeDayCount;
+  bool get hasData => months.any((month) => month.signalCount > 0);
+
+  int get totalSignalCount => months.fold(
+        0,
+        (total, month) => total + month.signalCount,
+      );
+
+  int get readyMonthCount =>
+      months.where((month) => month.meetsComparisonMinimum).length;
+
+  bool get canShowChange => readyMonthCount >= minimumComparableMonths;
+
+  int get remainingComparableMonths =>
+      (minimumComparableMonths - readyMonthCount).clamp(
+        0,
+        minimumComparableMonths,
+      );
+
+  int get latestSignalDelta {
+    if (months.length < 2) return 0;
+    return months.last.signalCount - months[months.length - 2].signalCount;
+  }
+
+  int get latestActiveDayDelta {
+    if (months.length < 2) return 0;
+    return months.last.activeDayCount -
+        months[months.length - 2].activeDayCount;
+  }
 }
 
-class JourneyProWeekStats {
-  final String weekStart;
-  final String weekEnd;
+/// Privacy-safe coverage of non-Signal context used by the integrated summary.
+///
+/// These counts describe source breadth since first app use. They never count
+/// toward report readiness and never expose the underlying private text.
+class JourneyProContextCoverageModel {
+  final int feedbackCount;
+  final int reviewCount;
+  final int experimentContextCount;
+  final int observationCount;
+
+  const JourneyProContextCoverageModel({
+    required this.feedbackCount,
+    required this.reviewCount,
+    required this.experimentContextCount,
+    required this.observationCount,
+  });
+
+  int get totalContextCount =>
+      feedbackCount + reviewCount + experimentContextCount + observationCount;
+
+  int get coveredKindCount => [
+        feedbackCount,
+        reviewCount,
+        experimentContextCount,
+        observationCount,
+      ].where((count) => count > 0).length;
+
+  bool get hasContext => totalContextCount > 0;
+
+  bool get hasBroadContext => coveredKindCount >= 3 && totalContextCount >= 6;
+}
+
+/// One user-local calendar month's reproducible change metrics.
+///
+/// Signal identities and active dates are deduplicated before these counts are
+/// created. The current month is intentionally month-to-date.
+class JourneyProMonthChangeModel {
+  final String monthKey;
+  final String periodStart;
+  final String periodEnd;
   final int signalCount;
   final int activeDayCount;
+  final Map<String, int> energyStateCounts;
+  final Map<String, int> domainCounts;
 
-  const JourneyProWeekStats({
-    required this.weekStart,
-    required this.weekEnd,
+  const JourneyProMonthChangeModel({
+    required this.monthKey,
+    required this.periodStart,
+    required this.periodEnd,
     required this.signalCount,
     required this.activeDayCount,
+    required this.energyStateCounts,
+    required this.domainCounts,
   });
-}
 
-class JourneyProEvidenceModel {
-  final String signalId;
-  final String content;
-  final String localDate;
-  final String sourceType;
+  int energyCount(String state) => energyStateCounts[state] ?? 0;
 
-  const JourneyProEvidenceModel({
-    required this.signalId,
-    required this.content,
-    required this.localDate,
-    required this.sourceType,
-  });
+  int domainCount(String domainId) => domainCounts[domainId] ?? 0;
+
+  bool get meetsComparisonMinimum =>
+      signalCount >= JourneyProReportModel.minimumSignalsPerMonth &&
+      activeDayCount >= JourneyProReportModel.minimumActiveDaysPerMonth;
+
+  int get remainingSignals =>
+      (JourneyProReportModel.minimumSignalsPerMonth - signalCount).clamp(
+        0,
+        JourneyProReportModel.minimumSignalsPerMonth,
+      );
+
+  int get remainingActiveDays =>
+      (JourneyProReportModel.minimumActiveDaysPerMonth - activeDayCount).clamp(
+        0,
+        JourneyProReportModel.minimumActiveDaysPerMonth,
+      );
 }

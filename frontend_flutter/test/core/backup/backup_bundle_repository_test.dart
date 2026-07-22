@@ -7,6 +7,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:ai_opportunity_radar/core/backup/backup_bundle_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
+import 'package:ai_opportunity_radar/core/notifications/schedule_notification_service.dart';
+import 'package:ai_opportunity_radar/core/notifications/signal_reminder_repository.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -51,6 +53,10 @@ void main() {
       rawText: '只留在本机',
       privacyLevel: 'local_only',
     );
+    await prefs.setString(
+      SignalReminderRepository.preferencesKey,
+      '[{"id":"reminder-1"}]',
+    );
 
     final bundle = await repository.exportBundle(
       localUserId: 'local-user',
@@ -65,6 +71,12 @@ void main() {
     expect((bundle['counts'] as Map)['signal_cards'], 1);
     expect(
         (bundle['preferences'] as Map)['response_style_preference'], 'gentle');
+    expect(
+      (bundle['preferences'] as Map)
+          .containsKey(SignalReminderRepository.preferencesKey),
+      isFalse,
+      reason: 'local notification rules must never be exported in a backup',
+    );
 
     await localDatabase.close();
   });
@@ -110,6 +122,69 @@ void main() {
     expect(restoredRows.first['raw_text'], '可以被恢复的记录');
 
     await targetDatabase.close();
+  });
+
+  test('v4 candidate backup defaults decisions and v6 exports them', () async {
+    final localDatabase = await _openDatabase(tempDir, 'candidate-v4.db');
+    final prefs = await SharedPreferences.getInstance();
+    final repository = BackupBundleRepository(
+      localDatabase: localDatabase,
+      preferences: prefs,
+    );
+    final result = await repository.importBundle({
+      'schema_version': 4,
+      'tables': {
+        'micro_action_candidates': [
+          {
+            'id': 'legacy-candidate',
+            'candidate_group_id': 'legacy-group',
+            'local_user_id': 'local-user',
+            'local_date': '2026-07-16',
+            'rank': 1,
+            'title': '先观察这个小尝试',
+            'reason': '',
+            'difficulty': 'very_light',
+            'linked_signal_card_ids_json': '[]',
+            'focus_domain_ids_json': '[]',
+            'status': 'generated',
+            'source_hash': 'legacy-source',
+            'dirty': 0,
+            'is_stale': 0,
+            'created_at': '2026-07-16T00:00:00.000Z',
+            'updated_at': '2026-07-16T00:00:00.000Z',
+            // A future additive column must be ignored rather than making
+            // the otherwise compatible backup fail.
+            'future_only_column': 'ignored',
+          },
+        ],
+      },
+    });
+    expect(result.importedRows, 1);
+    final db = await localDatabase.database;
+    final restored = (await db.query(
+      'micro_action_candidates',
+      where: 'id = ?',
+      whereArgs: ['legacy-candidate'],
+    ))
+        .single;
+    expect(restored['decision_status'], 'undecided');
+
+    await db.update(
+      'micro_action_candidates',
+      {'decision_status': 'considering'},
+      where: 'id = ?',
+      whereArgs: ['legacy-candidate'],
+    );
+    final exported = await repository.exportBundle(
+      localUserId: 'local-user',
+      deviceId: 'device-a',
+    );
+    expect(exported['schema_version'], 6);
+    final exportedCandidates =
+        ((exported['tables'] as Map)['micro_action_candidates'] as List)
+            .cast<Map>();
+    expect(exportedCandidates.single['decision_status'], 'considering');
+    await localDatabase.close();
   });
 
   test('roundtrips AI judgement and Observation feedback, then deletes it',
@@ -228,6 +303,172 @@ void main() {
     await targetDatabase.close();
   });
 
+  test('roundtrips and deletes immutable plan content versions', () async {
+    final sourceDatabase = await _openDatabase(tempDir, 'plan-source.db');
+    final prefs = await SharedPreferences.getInstance();
+    final sourceRepository = BackupBundleRepository(
+      localDatabase: sourceDatabase,
+      preferences: prefs,
+    );
+    final sourceDb = await sourceDatabase.database;
+    await sourceDb.insert('plan_content_versions', {
+      'id': 'plan-version-1',
+      'local_user_id': 'local-user',
+      'object_kind': 'quick_try',
+      'object_id': 'quick-try-1',
+      'version_no': 1,
+      'effective_from_local_date': '2026-07-13',
+      'content_json': '{"title":"原始小尝试"}',
+      'created_at': '2026-07-13T00:00:00.000Z',
+    });
+
+    final bundle = await sourceRepository.exportBundle(
+      localUserId: 'local-user',
+      deviceId: 'device-a',
+    );
+    expect(bundle['schema_version'], 6);
+    expect(
+      ((bundle['tables'] as Map)['plan_content_versions'] as List),
+      hasLength(1),
+    );
+    await sourceDatabase.close();
+
+    final targetDatabase = await _openDatabase(tempDir, 'plan-target.db');
+    final targetRepository = BackupBundleRepository(
+      localDatabase: targetDatabase,
+      preferences: prefs,
+    );
+    await targetRepository.importBundle(bundle);
+    final targetDb = await targetDatabase.database;
+    final restored = await targetDb.query('plan_content_versions');
+    expect(restored, hasLength(1));
+    expect(restored.single['content_json'], '{"title":"原始小尝试"}');
+
+    await targetRepository.deleteAllLocalData();
+    expect(await targetDb.query('plan_content_versions'), isEmpty);
+    await targetDatabase.close();
+  });
+
+  test('roundtrips and deletes explicitly adopted deepening observation plans',
+      () async {
+    final sourceDatabase =
+        await _openDatabase(tempDir, 'deepening-observation-source.db');
+    final prefs = await SharedPreferences.getInstance();
+    final sourceRepository = BackupBundleRepository(
+      localDatabase: sourceDatabase,
+      preferences: prefs,
+    );
+    await _insertObservationPlan(sourceDatabase);
+
+    final bundle = await sourceRepository.exportBundle(
+      localUserId: 'local-user',
+      deviceId: 'device-a',
+    );
+    expect(
+      ((bundle['tables'] as Map)['observation_plans'] as List),
+      hasLength(1),
+    );
+    await sourceDatabase.close();
+
+    final targetDatabase =
+        await _openDatabase(tempDir, 'deepening-observation-target.db');
+    final targetRepository = BackupBundleRepository(
+      localDatabase: targetDatabase,
+      preferences: prefs,
+    );
+    await targetRepository.importBundle(bundle);
+    final targetDb = await targetDatabase.database;
+    final restored = await targetDb.query('observation_plans');
+    expect(restored, hasLength(1));
+    expect(restored.single['question'], '恢复是否更容易开始？');
+
+    await targetRepository.deleteAllLocalData();
+    expect(await targetDb.query('observation_plans'), isEmpty);
+    await targetDatabase.close();
+  });
+
+  test('roundtrips append-only small-try and goal outcome reviews', () async {
+    final sourceDatabase = await _openDatabase(tempDir, 'review-source.db');
+    final prefs = await SharedPreferences.getInstance();
+    final sourceRepository = BackupBundleRepository(
+      localDatabase: sourceDatabase,
+      preferences: prefs,
+    );
+    final sourceDb = await sourceDatabase.database;
+    const now = '2026-07-22T03:00:00.000Z';
+    await sourceDb.insert('micro_action_review_events', {
+      'id': 'small-review-1',
+      'micro_action_id': 'small-1',
+      'local_user_id': 'local-user',
+      'reviewed_at': now,
+      'local_date': '2026-07-22',
+      'result': 'worth_keeping',
+      'effort': 'easy',
+      'next_adjustment': 'keep',
+      'note': '值得保留',
+      'completed_days_at_review': 2,
+      'created_at': now,
+    });
+    await sourceDb.insert('life_experiments', {
+      'id': 'goal-review-1',
+      'local_user_id': 'local-user',
+      'source_week_start': '2026-07-20',
+      'source_week_end': '2026-08-20',
+      'title': '长期目标',
+      'hypothesis': '连续观察后可能有变化',
+      'suggested_action': '持续记录',
+      'linked_signal_card_ids_json': '[]',
+      'status': 'active',
+      'minimum_observation_days': 5,
+      'created_at': now,
+      'updated_at': now,
+    });
+    await sourceDb.insert('life_experiment_lifecycle_events', {
+      'id': 'goal-outcome-1',
+      'experiment_id': 'goal-review-1',
+      'local_user_id': 'local-user',
+      'event_type': 'outcome_reviewed',
+      'event_date': now,
+      'local_date': '2026-07-22',
+      'payload_json':
+          '{"outcome_result":"somewhat_improved","burden":"acceptable","completed_days_at_review":3,"minimum_observation_days":5}',
+      'created_at': now,
+    });
+
+    final bundle = await sourceRepository.exportBundle(
+      localUserId: 'local-user',
+      deviceId: 'device-a',
+    );
+    expect(bundle['schema_version'], 6);
+    await sourceDatabase.close();
+
+    final targetDatabase = await _openDatabase(tempDir, 'review-target.db');
+    final targetRepository = BackupBundleRepository(
+      localDatabase: targetDatabase,
+      preferences: prefs,
+    );
+    await targetRepository.importBundle(bundle);
+    final targetDb = await targetDatabase.database;
+    expect(await targetDb.query('micro_action_review_events'), hasLength(1));
+    final goals = await targetDb.query(
+      'life_experiments',
+      where: 'id = ?',
+      whereArgs: ['goal-review-1'],
+    );
+    expect(goals.single['minimum_observation_days'], 5);
+    expect(
+      await targetDb.query(
+        'life_experiment_lifecycle_events',
+        where: 'event_type = ?',
+        whereArgs: ['outcome_reviewed'],
+      ),
+      hasLength(1),
+    );
+    await targetRepository.deleteAllLocalData();
+    expect(await targetDb.query('micro_action_review_events'), isEmpty);
+    await targetDatabase.close();
+  });
+
   test('deletes local account data and account preferences', () async {
     final localDatabase = await _openDatabase(tempDir, 'delete.db');
     SharedPreferences.setMockInitialValues({
@@ -249,11 +490,17 @@ void main() {
       'me_life_direction_created_at': '2026-07-13T00:00:00Z',
       'premium_entitlement_active': true,
       'premium_entitlement_product_id': 'pro.yearly',
+      SignalReminderRepository.preferencesKey: '[{"id":"reminder-1"}]',
     });
     final prefs = await SharedPreferences.getInstance();
+    final reminderScheduler = _FakeSignalReminderScheduler();
     final repository = BackupBundleRepository(
       localDatabase: localDatabase,
       preferences: prefs,
+      signalReminderRepository: SignalReminderRepository(
+        preferences: prefs,
+        scheduler: reminderScheduler,
+      ),
     );
 
     await _insertSignalCard(
@@ -281,12 +528,44 @@ void main() {
     expect(prefs.getString('external_calendar_abstract_hints_json'), isNull);
     expect(prefs.getString('installation_date'), isNull);
     expect(prefs.getString('local_app_started_date'), isNull);
+    expect(prefs.getString(SignalReminderRepository.preferencesKey), isNull);
+    expect(reminderScheduler.cancelAllCalls, 1,
+        reason: 'account deletion must cancel native Signal reminders');
     expect(prefs.getBool('premium_entitlement_active'), isTrue,
         reason: 'StoreKit entitlement is independent from diary deletion');
     expect(prefs.getString('premium_entitlement_product_id'), 'pro.yearly');
 
     await localDatabase.close();
   });
+}
+
+class _FakeSignalReminderScheduler implements SignalReminderScheduler {
+  int cancelAllCalls = 0;
+
+  @override
+  Future<bool> cancelAllSignalReminders() async {
+    cancelAllCalls += 1;
+    return true;
+  }
+
+  @override
+  Future<bool> cancelSignalReminder(String notificationId) async => true;
+
+  @override
+  Future<SignalReminderPermissionResult>
+      requestSignalReminderPermission() async {
+    return const SignalReminderPermissionResult(
+      SignalReminderPermissionStatus.granted,
+    );
+  }
+
+  @override
+  Future<bool> scheduleSignalReminder({
+    required String notificationId,
+    required DateTime scheduledAt,
+    String? localeTag,
+  }) async =>
+      true;
 }
 
 Future<LocalDatabase> _openDatabase(Directory tempDir, String fileName) async {
@@ -346,6 +625,24 @@ Future<void> _insertDraft(LocalDatabase localDatabase) async {
     'status': 'pending',
     'retry_count': 0,
     'updated_at': now,
+  });
+}
+
+Future<void> _insertObservationPlan(LocalDatabase localDatabase) async {
+  final db = await localDatabase.database;
+  await db.insert('observation_plans', {
+    'id': 'observation-plan-1',
+    'local_user_id': 'local-user',
+    'source_week_start': '2026-07-06',
+    'source_week_end': '2026-07-12',
+    'target_week_start': '2026-07-13',
+    'question': '恢复是否更容易开始？',
+    'what_to_watch_json': '["恢复"]',
+    'source_signal_card_ids_json': '["sig-1"]',
+    'source_hash': 'source-hash',
+    'status': 'planned',
+    'result_signal_card_ids_json': '[]',
+    'created_at': '2026-07-13T00:00:00.000Z',
   });
 }
 

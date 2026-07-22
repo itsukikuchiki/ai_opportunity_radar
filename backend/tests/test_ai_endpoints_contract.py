@@ -137,6 +137,61 @@ def test_weekly_generate_contract(client):
         "feedback_submitted",
     }
     assert expected_keys.issubset(data.keys())
+    assert len(data["patterns"]) == 1
+    assert all(item["name"] != "证据来源" for item in data["patterns"])
+
+    pattern = data["patterns"][0]
+    assert set(pattern) >= {
+        "name",
+        "summary",
+        "illustration_hint",
+        "trigger",
+        "reaction",
+        "short_result",
+        "long_impact",
+    }
+    assert "2026-04-14" in pattern["trigger"]
+    assert "Signal" in pattern["trigger"]
+    assert "烦" in pattern["trigger"]
+    assert pattern["reaction"] is None
+    assert pattern["short_result"] is None
+    assert pattern["long_impact"] is None
+
+
+def test_weekly_generate_only_populates_pattern_fields_supported_by_input(client):
+    resp = client.post(
+        "/api/v1/ai/weekly-generate",
+        headers=_headers("weekly-structured-pattern-contract"),
+        json={
+            "week_start": "2026-04-08",
+            "week_end": "2026-04-14",
+            "entry_count": 2,
+            "entries": [
+                {
+                    "id": "1",
+                    "content": "下午会议很多",
+                    "created_at": "2026-04-12T01:00:00Z",
+                },
+                {
+                    "id": "2",
+                    "content": "下午又被会议打断",
+                    "created_at": "2026-04-12T03:00:00Z",
+                },
+            ],
+            "day_counts": {"2026-04-12": 2},
+            "top_tokens": ["会议"],
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    patterns = resp.json()["data"]["patterns"]
+    assert len(patterns) == 1
+    assert [item["name"] for item in patterns] == ["本周小观察：会议"]
+    assert "2026-04-12 记录了 2 条 Signal" in patterns[0]["trigger"]
+    assert "本周 Signal 主题集中在“会议”" in patterns[0]["trigger"]
+    assert patterns[0]["reaction"] is None
+    assert patterns[0]["short_result"] is None
+    assert patterns[0]["long_impact"] is None
 
 
 def test_journey_generate_contract(client):
@@ -180,6 +235,7 @@ def test_light_dialog_contract(client):
                 {"role": "user", "text": "为什么我会这么烦？"},
             ],
             "user_message": "为什么我会这么烦？",
+            "language": "zh-Hans",
             "focus_area": "emotion_stress",
         },
     )
@@ -188,7 +244,256 @@ def test_light_dialog_contract(client):
     assert set(data.keys()) >= {"reply", "suggested_prompts"}
     assert isinstance(data["reply"], str)
     assert data["reply"].strip() != ""
-    assert isinstance(data["suggested_prompts"], list)
+    assert data["suggested_prompts"] == []
+    assert "我继续听着你刚才那句" not in data["reply"]
+    assert "如果愿意" not in data["reply"]
+    assert "可以先" not in data["reply"]
+
+
+def test_light_dialog_matches_timeline_attunement_for_current_turn(client):
+    response = client.post(
+        "/api/v1/ai/light-dialog",
+        headers=_headers("attune-current-turn"),
+        json={
+            "capture_content": "今天任务之间一直来回切换，很消耗。",
+            "capture_acknowledgement": "这种一直被切断的感觉，很容易把人磨烦。",
+            "history": [
+                {
+                    "role": "assistant",
+                    "text": "这种一直被切断的感觉，很容易把人磨烦。",
+                },
+                {"role": "user", "text": "我该怎么做？"},
+            ],
+            "user_message": "我该怎么做？",
+            "language": "zh-Hans",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert any(token in data["reply"] for token in ["切换", "节奏", "切断"])
+    assert "如果愿意" in data["reply"]
+    assert "我继续听着你刚才那句" not in data["reply"]
+    assert "小行动" not in data["reply"]
+    assert "模式" not in data["reply"]
+    assert data["suggested_prompts"] == []
+
+
+def test_light_dialog_defensively_deduplicates_latest_user_turn(client):
+    payload = {
+        "capture_content": "今天任务之间一直来回切换，很消耗。",
+        "capture_acknowledgement": "这种一直被切断的感觉，很容易把人磨烦。",
+        "user_message": "我该怎么做？",
+        "language": "zh-Hans",
+    }
+    without_duplicate = client.post(
+        "/api/v1/ai/light-dialog",
+        headers=_headers("attune-without-duplicate"),
+        json={
+            **payload,
+            "history": [
+                {
+                    "role": "assistant",
+                    "text": "这种一直被切断的感觉，很容易把人磨烦。",
+                },
+            ],
+        },
+    )
+    with_duplicate = client.post(
+        "/api/v1/ai/light-dialog",
+        headers=_headers("attune-with-duplicate"),
+        json={
+            **payload,
+            "history": [
+                {
+                    "role": "assistant",
+                    "text": "这种一直被切断的感觉，很容易把人磨烦。",
+                },
+                {"role": "user", "text": "我该怎么做？"},
+            ],
+        },
+    )
+
+    assert without_duplicate.status_code == 200, without_duplicate.text
+    assert with_duplicate.status_code == 200, with_duplicate.text
+    assert (
+        without_duplicate.json()["data"]["reply"]
+        == with_duplicate.json()["data"]["reply"]
+    )
+
+
+def test_light_dialog_localizes_l1_attunement_in_four_app_languages(client):
+    cases = [
+        {
+            "user_id": "attune-zh-hans",
+            "language": "zh-Hans",
+            "capture_content": "今天一直在来回切换，很累。",
+            "user_message": "我该怎么做？",
+            "expected": "如果愿意",
+            "unexpected": "如果願意",
+            "source_terms": ["切换", "节奏", "切断"],
+        },
+        {
+            "user_id": "attune-zh-hant",
+            "language": "zh-Hant",
+            "capture_content": "今天一直在來回切換，很累。",
+            "user_message": "我該怎麼做？",
+            "expected": "如果願意",
+            "unexpected": "如果愿意",
+            "source_terms": ["切換", "節奏", "切斷"],
+        },
+        {
+            "user_id": "attune-ja",
+            "language": "ja",
+            "capture_content": "今日は切り替えが多くて疲れた。",
+            "user_message": "どうしたらいい？",
+            "expected": "よければ",
+            "unexpected": "如果愿意",
+            "source_terms": ["切り替え", "流れ"],
+        },
+        {
+            "user_id": "attune-en",
+            "language": "en",
+            "capture_content": "Context switching all day was exhausting.",
+            "user_message": "What should I do?",
+            "expected": "If you want",
+            "unexpected": "如果愿意",
+            "source_terms": ["switch", "rhythm", "flow"],
+        },
+    ]
+
+    for case in cases:
+        response = client.post(
+            "/api/v1/ai/light-dialog",
+            headers=_headers(case["user_id"]),
+            json={
+                "capture_content": case["capture_content"],
+                "history": [],
+                "user_message": case["user_message"],
+                "language": case["language"],
+            },
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()["data"]
+        assert case["expected"] in data["reply"]
+        assert case["unexpected"] not in data["reply"]
+        assert any(term in data["reply"] for term in case["source_terms"])
+        assert data["suggested_prompts"] == []
+
+
+def test_light_dialog_share_turn_only_acknowledges_without_prompting_or_advice(client):
+    cases = [
+        {
+            "user_id": "attune-share-zh-hans",
+            "language": "zh-Hans",
+            "capture_content": "今天一直在来回切换，很累。",
+            "user_message": "下午也一直没停下来。",
+            "expected": "你刚补充的这一句，我也接住了。",
+            "forbidden": ["如果愿意", "可以再说", "？"],
+        },
+        {
+            "user_id": "attune-share-zh-hant",
+            "language": "zh-Hant",
+            "capture_content": "今天一直在來回切換，很累。",
+            "user_message": "下午也一直沒有停下來。",
+            "expected": "你剛補充的這一句，我也接住了。",
+            "forbidden": ["如果願意", "可以再說", "？"],
+        },
+        {
+            "user_id": "attune-share-ja",
+            "language": "ja",
+            "capture_content": "今日は切り替えが多くて疲れた。",
+            "user_message": "午後もずっと止まれなかった。",
+            "expected": "今付け加えてくれた一言も、そのまま受け取りました。",
+            "forbidden": ["よければ", "聞かせて", "？"],
+        },
+        {
+            "user_id": "attune-share-en",
+            "language": "en",
+            "capture_content": "Context switching all day was exhausting.",
+            "user_message": "I never really got a break this afternoon either.",
+            "expected": "I hear what you just added, too.",
+            "forbidden": ["If you want", "say a little more", "?"],
+        },
+    ]
+
+    for case in cases:
+        response = client.post(
+            "/api/v1/ai/light-dialog",
+            headers=_headers(case["user_id"]),
+            json={
+                "capture_content": case["capture_content"],
+                "history": [],
+                "user_message": case["user_message"],
+                "language": case["language"],
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        data = response.json()["data"]
+        assert case["expected"] in data["reply"]
+        assert all(token not in data["reply"] for token in case["forbidden"])
+        assert data["suggested_prompts"] == []
+
+
+def test_light_dialog_explicit_advice_request_keeps_one_light_response(client):
+    response = client.post(
+        "/api/v1/ai/light-dialog",
+        headers=_headers("attune-explicit-advice"),
+        json={
+            "capture_content": "今天任务之间一直来回切换，很消耗。",
+            "history": [],
+            "user_message": "我该怎么做？",
+            "language": "zh-Hans",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert "如果愿意" in data["reply"]
+    assert "下一次切换前只停一下" in data["reply"]
+    assert "你刚补充的这一句，我也接住了。" not in data["reply"]
+    assert data["suggested_prompts"] == []
+
+
+def test_light_dialog_compound_why_and_advice_uses_explicit_advice_exception(client):
+    response = client.post(
+        "/api/v1/ai/light-dialog",
+        headers=_headers("attune-compound-advice"),
+        json={
+            "capture_content": "今天任务之间一直来回切换，很消耗。",
+            "history": [],
+            "user_message": "为什么总是这样，我该怎么办？",
+            "language": "zh-Hans",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert "如果愿意" in data["reply"]
+    assert "下一次切换前只停一下" in data["reply"]
+    assert data["suggested_prompts"] == []
+
+
+def test_light_dialog_clarification_only_acknowledges_without_invitation(client):
+    response = client.post(
+        "/api/v1/ai/light-dialog",
+        headers=_headers("attune-clarification"),
+        json={
+            "capture_content": "今天任务之间一直来回切换，很消耗。",
+            "history": [],
+            "user_message": "其实我更难受的是总被临时打断。",
+            "language": "zh-Hans",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert "重点更清楚了一点" in data["reply"]
+    assert "如果愿意" not in data["reply"]
+    assert "继续说" not in data["reply"]
+    assert "？" not in data["reply"]
+    assert data["suggested_prompts"] == []
 
 
 def test_reflect_weekly_contract(client):
@@ -199,11 +504,21 @@ def test_reflect_weekly_contract(client):
             "week_start": "2026-04-08",
             "week_end": "2026-04-14",
             "key_insight": "这周的记录开始围绕工作里的打断聚集。",
-            "patterns": [{"name": "重复出现的主题", "summary": "工作里的打断反复回来。"}],
+            "patterns": [{
+                "name": "重复出现的主题",
+                "summary": "工作里的打断反复回来。",
+                "illustration_hint": "任务堆积，开始变困难",
+            }],
             "frictions": [{"name": "本周的主要消耗", "summary": "被打断时最容易烦躁。"}],
             "best_action": "下次再出现时补一句发生在什么场景。",
             "chart_data": [{"date": "2026-04-11", "signal_count": 3, "mood_score": -0.6, "friction_score": 0.8, "has_positive_signal": False}],
             "focus_area": "emotion_stress",
+            "attempt_count": 2,
+            "recorded_attempt_day_count": 2,
+            "completed_attempt_day_count": 1,
+            "signal_attempt_overlap_day_count": 1,
+            "dominant_feedback_pattern": "被安排打断",
+            "source_signal_card_ids": ["signal-1", "signal-2"],
         },
     )
     assert resp.status_code == 200, resp.text
@@ -215,6 +530,15 @@ def test_reflect_weekly_contract(client):
         "next_focus",
         "risk_note",
         "key_nodes",
+        "pattern_label",
+        "friction_label",
+        "impact_label",
+        "relationship_summary",
+        "timing_summary",
+        "next_question",
+        "illustration_hint",
+        "source_signal_card_ids",
+        "scope_note",
     }
     assert "深度分析" in data["summary"]
     assert "L3 Reflect" not in data["summary"]
@@ -222,6 +546,14 @@ def test_reflect_weekly_contract(client):
     assert "L3 Reflect" not in data["risk_note"]
     assert "tension" not in data["root_tension"].lower()
     assert "内在拉扯" in data["root_tension"]
+    assert data["pattern_label"] == "重复出现的主题"
+    assert data["friction_label"] == "本周的主要消耗"
+    assert data["impact_label"] == "被安排打断"
+    assert "同时出现" in data["relationship_summary"]
+    assert data["illustration_hint"] == "任务堆积，开始变困难"
+    assert data["source_signal_card_ids"] == ["signal-1", "signal-2"]
+    assert "不代表因果" in data["scope_note"]
+    assert "证据" not in data["timing_summary"]
 
 
 def test_deep_weekly_compat_endpoint_records_legacy_telemetry(client):
@@ -310,6 +642,58 @@ def test_capture_reply_stays_grounded_in_specific_user_text(client):
         assert any(term in combined for term in required_terms), combined
         assert "这种小瞬间其实也很有信息量" not in combined
         assert "先不用急着解释清楚" not in combined
+
+
+def test_timeline_acknowledgement_only_reflects_without_root_cause_inference(client):
+    cases = [
+        {
+            "user_id": "ack-no-cause-retirement-zh",
+            "content": "好想早日退休",
+            "required": ["退休"],
+            "forbidden": ["工作消耗", "逃离感", "背后", "根因"],
+        },
+        {
+            "user_id": "ack-no-cause-rest-zh",
+            "content": "今天只想停下来休息",
+            "required": ["休息"],
+            "forbidden": ["身体和心力", "恢复需求", "空间", "根因"],
+        },
+        {
+            "user_id": "ack-no-cause-money-zh",
+            "content": "这个月的钱有点不够",
+            "required": ["钱"],
+            "forbidden": ["价值感", "安全感", "资源", "拉扯", "根因"],
+        },
+        {
+            "user_id": "ack-no-cause-retirement-ja",
+            "content": "早く引退したい",
+            "required": ["引退"],
+            "forbidden": ["仕事で削られ", "言葉の奥", "原因"],
+        },
+        {
+            "user_id": "ack-no-cause-money-en",
+            "content": "Money is tight this month",
+            "required": ["money"],
+            "forbidden": ["value", "safety", "worth it", "root cause"],
+        },
+    ]
+
+    for case in cases:
+        response = client.post(
+            "/api/v1/ai/capture-reply",
+            headers=_headers(case["user_id"]),
+            json={
+                "content": case["content"],
+                "recent_assistant_texts": [],
+            },
+        )
+        assert response.status_code == 200, response.text
+        acknowledgement = response.json()["data"]["acknowledgement"]
+        normalized = acknowledgement.lower()
+        assert any(term.lower() in normalized for term in case["required"])
+        assert all(term.lower() not in normalized for term in case["forbidden"])
+        assert "?" not in acknowledgement
+        assert "？" not in acknowledgement
 
 
 def test_today_summary_contract_accepts_response_style(client):

@@ -63,6 +63,7 @@ jobs:
         working-directory: frontend_flutter
         run: >
           flutter test
+          test/core/api/repositories/journey_pro_repository_test.dart
           test/core/api/app_locale_text_test.dart
           test/core/api/api_client_observability_test.dart
           test/core/diagnostics/privacy_safe_logger_test.dart
@@ -72,10 +73,15 @@ jobs:
           test/core/eligibility/signal_eligibility_service_test.dart
           test/core/local/local_capture_repository_test.dart
           test/core/local/local_candidate_planning_repository_test.dart
+          test/core/local/local_deepening_observation_repository_test.dart
           test/core/local/local_feedback_event_repository_test.dart
           test/core/local/local_life_experiment_repository_test.dart
+          test/core/local/local_plan_content_version_repository_test.dart
           test/core/local/local_phase3_plus_repository_test.dart
           test/core/local/local_reflection_result_repository_test.dart
+          test/core/models/weekly_illustration_catalog_test.dart
+          test/core/notifications/signal_reminder_repository_test.dart
+          test/core/notifications/signal_reminder_rule_test.dart
           test/core/api/repositories/today_repository_test.dart
           test/core/api/repositories/weekly_repository_test.dart
           test/core/api/repositories/memory_repository_test.dart
@@ -137,8 +143,16 @@ jobs:
         working-directory: frontend_flutter
         run: >
           flutter test
+          test/app/app_router_test.dart
+          test/core/navigation/app_back_navigation_test.dart
+          test/design_qa/render_current_main_pages_test.dart
+          test/design_qa/render_experiment_secondary_pages_test.dart
+          test/design_qa/render_journey_secondary_pages_test.dart
+          test/design_qa/render_today_secondary_pages_test.dart
+          test/design_qa/render_weekly_secondary_pages_test.dart
           test/features/pages/today/today_page_widget_test.dart
           test/features/pages/today/today_diary_density_widget_test.dart
+          test/features/pages/today/today_diary_adopted_plans_widget_test.dart
           test/features/pages/today/today_followup_widget_test.dart
           test/features/pages/today/today_v3b_manual_evidence_test.dart
           test/features/pages/weekly/weekly_page_widget_test.dart
@@ -146,11 +160,13 @@ jobs:
           test/features/pages/experiment/today_experiment_feedback_page_widget_test.dart
           test/features/pages/candidates/candidate_hub_page_widget_test.dart
           test/shared/widgets/candidate_planning_widgets_test.dart
-          test/features/pages/memory/journal_page_widget_test.dart
           test/features/pages/memory/journey_pro_page_widget_test.dart
+          test/features/pages/memory/journey_display_text_test.dart
           test/features/pages/memory/memory_page_widget_test.dart
           test/features/pages/me/me_page_widget_test.dart
           test/features/pages/me/me_view_model_test.dart
+          test/features/pages/me/data_privacy_page_widget_test.dart
+          test/features/pages/me/signal_reminder_settings_page_widget_test.dart
           test/features/pages/self_review/self_review_page_accessibility_widget_test.dart
           test/features/pages/me/advanced_signal_settings_page_widget_test.dart
           test/features/pages/signal_library/signal_library_page_widget_test.dart
@@ -164,7 +180,9 @@ jobs:
           test/features/system/initialization_failure_page_widget_test.dart
           test/features/shell/home_shell_navigation_test.dart
           test/features/release_qa/release_ui_guardrails_test.dart
+          test/shared/widgets/aurora_ui_test.dart
           test/shared/widgets/editable_timeline_decision_dialog_test.dart
+          test/shared/widgets/experiment_feedback_sheets_test.dart
 
   ci-backend-core:
     name: ci-backend-core
@@ -202,6 +220,7 @@ jobs:
           backend/tests/test_phase3_signal_cards.py
           backend/tests/test_capture_service_integration.py
           backend/tests/test_database_config.py
+          backend/tests/test_energy_state_service.py
           backend/tests/test_alembic_schema_contract.py
           backend/tests/test_postgres_alembic_schema_contract.py
           backend/tests/test_large_legacy_migration_performance.py

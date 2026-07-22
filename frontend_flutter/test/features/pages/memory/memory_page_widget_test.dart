@@ -15,6 +15,79 @@ import '../../../helpers/widget_test_helpers.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets('Journey 历史月份切换会按所选月份重新取数且禁止未来月', (tester) async {
+    final now = DateTime.now();
+    final currentMonth = DateTime(now.year, now.month);
+    final previousMonth = DateTime(now.year, now.month - 1);
+    final repo = _MonthAwareMemoryRepository(
+      currentMonth: currentMonth,
+      currentResult: const MemoryFetchResult(
+        isFirstDayGate: false,
+        summary: null,
+      ),
+      previousResult: MemoryFetchResult(
+        isFirstDayGate: false,
+        summary: MemorySummaryModel(
+          patterns: const [],
+          frictions: const [],
+          desires: const [],
+          experiments: const [],
+          journeyTraces: [
+            JourneyTraceModel(
+              id: 'previous-month-signal',
+              sourceType: 'signal_card',
+              title: '上个月的一个轨迹点',
+              summary: 'This content belongs only to the selected month.',
+              localDate:
+                  '${previousMonth.year}-${previousMonth.month.toString().padLeft(2, '0')}-08',
+              cluster: 'steady',
+              intensity: 0.5,
+              signalLevel: 'weak_signal',
+              metadata: const {'display_lane': 'monthly_path'},
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const MemoryPage(),
+        providers: [
+          ChangeNotifierProvider<MemoryViewModel>(
+            create: (_) => MemoryViewModel(repo),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repo.requestedMonths, [currentMonth]);
+    expect(find.text('这个月没有留下记录。'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('journey-previous-month')));
+    await tester.pumpAndSettle();
+    expect(repo.requestedMonths.last, previousMonth);
+    expect(
+      find.text('${previousMonth.year}年${previousMonth.month}月 · 你的生活轨迹'),
+      findsOneWidget,
+    );
+    expect(find.text('上个月的一个轨迹点'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('journey-next-month')));
+    await tester.pumpAndSettle();
+    expect(repo.requestedMonths.last, currentMonth);
+    expect(find.text('上个月的一个轨迹点'), findsNothing);
+    expect(find.text('这个月没有留下记录。'), findsOneWidget);
+    final requestCount = repo.requestedMonths.length;
+    await tester.tap(find.byKey(const ValueKey('journey-next-month')));
+    await tester.pump();
+    expect(repo.requestedMonths.length, requestCount);
+  });
+
   testWidgets('Journey 页面能加载并触发一次数据获取', (tester) async {
     final repo = StubMemoryRepository(
       result: MemoryFetchResult(
@@ -53,6 +126,28 @@ void main() {
               cluster: 'recovery',
               intensity: 0.6,
               signalLevel: 'weak_signal',
+              metadata: {'display_lane': 'monthly_path'},
+            ),
+            JourneyTraceModel(
+              id: 'weekly_widget',
+              sourceType: 'weekly_review',
+              title: 'Weekly behavior pattern must not enter monthly path',
+              summary: 'Weekly synthesis.',
+              localDate: '2026-07-05',
+              cluster: 'weekly',
+              intensity: 0.5,
+              signalLevel: 'repeated_pattern',
+            ),
+            JourneyTraceModel(
+              id: 'attempt_widget',
+              sourceType: 'micro_action_feedback',
+              title: 'Two-minute reset',
+              summary: 'Completed once.',
+              localDate: '2026-07-05',
+              cluster: 'experiment',
+              intensity: 0.5,
+              signalLevel: 'weak_signal',
+              metadata: {'display_lane': 'experiment_goal_track'},
             ),
             JourneyTraceModel(
               id: 'legacy_schedule_widget',
@@ -65,6 +160,49 @@ void main() {
               signalLevel: 'weak_signal',
             ),
           ],
+          periodFacts: const JourneyPeriodFactsModel(
+            periodStart: '2026-07-01',
+            periodEnd: '2026-07-31',
+            signalCount: 7,
+            activeDayCount: 3,
+            smallExperimentAttemptCount: 1,
+            goalFeedbackCount: 2,
+            energyStateCounts: {
+              'draining': 1,
+              'steady': 2,
+              'ease': 1,
+              'recovery': 2,
+              'boundary_buffer': 1,
+            },
+            days: [
+              JourneyDayFactModel(
+                localDate: '2026-07-05',
+                signalCount: 2,
+                smallExperimentAttemptCount: 1,
+                goalFeedbackCount: 1,
+              ),
+            ],
+            experimentTracks: [
+              JourneyExperimentTrackModel(
+                subjectId: 'small-1',
+                kind: 'small_experiment',
+                title: 'Two-minute reset',
+                attemptCount: 1,
+                roundReviewCount: 1,
+                latestResult: 'Felt easier to restart.',
+                latestLocalDate: '2026-07-05',
+              ),
+              JourneyExperimentTrackModel(
+                subjectId: 'goal-1',
+                kind: 'goal',
+                title: 'Protect evening recovery',
+                feedbackCount: 2,
+                weeklyReviewCount: 1,
+                latestResult: 'Recovery started earlier.',
+                latestLocalDate: '2026-07-05',
+              ),
+            ],
+          ),
           observations: const [
             JourneyObservationModel(
               id: 'obs_widget',
@@ -170,57 +308,84 @@ void main() {
     );
     final hero = find.byKey(const ValueKey('journey-hero-header'));
     expect(hero, findsOneWidget);
-    expect(tester.getSize(hero).height, lessThanOrEqualTo(170));
+    expect(tester.getSize(hero).height, lessThanOrEqualTo(192));
     final journeyTitle = tester.widget<Text>(find.text('Journey'));
     expect(journeyTitle.style?.fontSize, 36);
     expect(journeyTitle.style?.fontWeight, FontWeight.w700);
     expect(journeyTitle.style?.fontFamily, isNot('Georgia'));
     expect(find.byType(AuroraHeroTitle), findsOneWidget);
-    expect(find.byType(AuroraHeroEmblem), findsOneWidget);
-    for (var i = 0;
-        i < 3 && find.textContaining('Track overview').evaluate().isEmpty;
-        i++) {
-      await tester.drag(scrollView, const Offset(0, -100));
-      await tester.pumpAndSettle();
-    }
-    final sectionTitle =
-        tester.widget<Text>(find.textContaining('Track overview'));
-    expect(sectionTitle.style?.fontSize, 17);
+    expect(find.byType(AuroraJourneyHeroPattern), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('journey-hero-pattern')),
+      findsOneWidget,
+    );
+    expect(find.byType(AuroraHeroEmblem), findsNothing);
+    expect(find.byType(AuroraSignalHeroPattern), findsNothing);
+    expect(find.byType(AuroraReviewHeroPattern), findsNothing);
     expect(find.text('Journey'), findsOneWidget);
     expect(find.text('Open journal view'), findsNothing);
     expect(find.text('打开手帐视图'), findsNothing);
-    for (var i = 0;
-        i < 6 &&
-            find
-                .text('Meetings and recovery appeared together.')
-                .evaluate()
-                .isEmpty;
-        i++) {
-      await tester.drag(find.byType(Scrollable).first, const Offset(0, -260));
-      await tester.pumpAndSettle();
-    }
+
+    final journeyScrollable = find
+        .descendant(of: scrollView, matching: find.byType(Scrollable))
+        .first;
+
+    final monthlyPath = find.byKey(const ValueKey('journey-monthly-path'));
+    expect(monthlyPath, findsOneWidget);
     expect(
-        find.text('Meetings and recovery appeared together.'), findsOneWidget);
-    expect(find.text('Confirmed'), findsOneWidget);
-    expect(find.text('Generated'), findsOneWidget);
-    expect(find.text('Dismissed'), findsOneWidget);
+      find.descendant(of: monthlyPath, matching: find.text('Meeting recovery')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: monthlyPath,
+        matching:
+            find.text('Weekly behavior pattern must not enter monthly path'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: monthlyPath, matching: find.text('Two-minute reset')),
+      findsNothing,
+    );
     expect(
       find.text('Legacy schedule feedback must stay hidden'),
       findsNothing,
     );
     expect(repo.fetchCallCount, 1);
 
-    await tester.tap(find.text('Meetings and recovery appeared together.'));
-    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-monthly-facts')),
+      280,
+      scrollable: journeyScrollable,
+    );
+    expect(find.text('7'), findsWidgets);
+    expect(find.text('3'), findsWidgets);
+    expect(find.text('1'), findsWidgets);
+    expect(find.text('2'), findsWidgets);
 
-    expect(find.text('Observation'), findsWidgets);
-    expect(find.text('Signal'), findsWidgets);
-    expect(find.text('Weekly Reflection'), findsWidgets);
-    expect(find.text('Experiment Feedback'), findsWidgets);
-    expect(
-        find.text('Legacy schedule evidence must stay hidden'), findsNothing);
-    expect(find.text('Schedule Feedback'), findsNothing);
-    expect(repo.evidenceCallCount, 1);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-experiment-goal-trajectory')),
+      280,
+      scrollable: journeyScrollable,
+    );
+    expect(find.text('Two-minute reset'), findsOneWidget);
+    expect(find.text('1 real attempt'), findsOneWidget);
+    expect(find.textContaining('1 round review'), findsOneWidget);
+    expect(find.text('Protect evening recovery'), findsOneWidget);
+    expect(find.text('2 progress records'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-state-rhythm')),
+      280,
+      scrollable: journeyScrollable,
+    );
+    expect(find.text('Effortful 1'), findsOneWidget);
+    expect(find.text('Steady 2'), findsOneWidget);
+    expect(find.text('Room to spare 1'), findsOneWidget);
+    expect(find.text('Recovery 2'), findsOneWidget);
+    expect(find.text('Boundaries and space 1'), findsOneWidget);
+    expect(repo.evidenceCallCount, 0);
   });
 
   testWidgets('Journey 第一天 gate 会显示对应空态', (tester) async {
@@ -247,7 +412,7 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Your Life Journey is forming'), findsOneWidget);
+    expect(find.text('Monthly synthesis is still forming'), findsOneWidget);
     final scrollView = find.byKey(const ValueKey('journey-scroll-view'));
     expect(scrollView, findsOneWidget);
     final listView = tester.widget<ListView>(scrollView);
@@ -257,7 +422,7 @@ void main() {
     );
     expect(
       tester.getSize(find.byKey(const ValueKey('journey-hero-header'))).height,
-      lessThanOrEqualTo(170),
+      lessThanOrEqualTo(192),
     );
   });
 
@@ -268,12 +433,6 @@ void main() {
         summary: null,
         journeyReadiness: ReportReadiness(
           rule: ReportReadinessEvaluator.journeyRule,
-          signalCount: 2,
-          distinctDayCount: 1,
-          distinctWeekCount: 1,
-        ),
-        proReadiness: ReportReadiness(
-          rule: ReportReadinessEvaluator.journeyProRule,
           signalCount: 2,
           distinctDayCount: 1,
           distinctWeekCount: 1,
@@ -296,17 +455,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.byKey(const ValueKey('journey-report-readiness')),
+      find.byKey(const ValueKey('journey-report-threshold-notice')),
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('journey-pro-report-readiness')),
-      findsOneWidget,
-    );
-    expect(find.textContaining('2/7 signals'), findsOneWidget);
-    expect(find.textContaining('2/14 signals'), findsOneWidget);
-    expect(find.textContaining('7 eligible SignalCards'), findsOneWidget);
-    expect(find.text('View Pro L3 progress'), findsOneWidget);
+        find.textContaining('5 Signal(s) and 2 day(s) remain'), findsOneWidget);
+    expect(find.byKey(const ValueKey('journey-pro-entry')), findsOneWidget);
   });
 
   testWidgets('Journey 报告未达门槛也不隐藏免费事实视图', (tester) async {
@@ -331,17 +485,26 @@ void main() {
               cluster: 'life',
               intensity: 0.5,
               signalLevel: 'weak_signal',
+              metadata: {'display_lane': 'monthly_path'},
             ),
           ],
+          periodFacts: const JourneyPeriodFactsModel(
+            periodStart: '2026-07-01',
+            periodEnd: '2026-07-31',
+            signalCount: 1,
+            activeDayCount: 1,
+            energyStateCounts: {'steady': 1},
+            days: [
+              JourneyDayFactModel(
+                localDate: '2026-07-12',
+                signalCount: 1,
+                energyStateCounts: {'steady': 1},
+              ),
+            ],
+          ),
         ),
         journeyReadiness: const ReportReadiness(
           rule: ReportReadinessEvaluator.journeyRule,
-          signalCount: 1,
-          distinctDayCount: 1,
-          distinctWeekCount: 1,
-        ),
-        proReadiness: const ReportReadiness(
-          rule: ReportReadinessEvaluator.journeyProRule,
           signalCount: 1,
           distinctDayCount: 1,
           distinctWeekCount: 1,
@@ -363,15 +526,48 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Your Life Journey is forming'), findsOneWidget);
-    expect(find.text('Fragments kept this month'), findsOneWidget);
-    expect(find.text('A real timeline signal'), findsOneWidget);
-    expect(find.text('Monthly view'), findsOneWidget);
-    expect(find.text('Life state curve'), findsOneWidget);
+    expect(find.text('Monthly synthesis is still forming'), findsOneWidget);
+    final scrollView = find.byKey(const ValueKey('journey-scroll-view'));
+    final journeyScrollable = find
+        .descendant(of: scrollView, matching: find.byType(Scrollable))
+        .first;
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-monthly-path')),
+      220,
+      scrollable: journeyScrollable,
+    );
     expect(
-      find.byKey(const ValueKey('journey-report-readiness')),
+      find.descendant(
+        of: find.byKey(const ValueKey('journey-monthly-path')),
+        matching: find.text('A real timeline signal'),
+      ),
       findsOneWidget,
     );
+    expect(find.text('A real timeline signal'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-monthly-facts')),
+      220,
+      scrollable: journeyScrollable,
+    );
+    expect(find.text('Facts this month'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-state-rhythm')),
+      220,
+      scrollable: journeyScrollable,
+    );
+    expect(
+      find.byKey(const ValueKey('journey-state-rhythm')),
+      findsOneWidget,
+    );
+    expect(find.text('Steady 1'), findsOneWidget);
+    expect(find.text('Recovery 0'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('journey-report-threshold-notice')),
+      findsOneWidget,
+    );
+    expect(
+        find.byKey(const ValueKey('journey-themes-and-changes')), findsNothing);
+    expect(find.byKey(const ValueKey('journey-month-review')), findsNothing);
   });
 
   testWidgets('Journey 紧凑宽度沿用 Today 的 34 号主标题', (tester) async {
@@ -475,12 +671,6 @@ void main() {
           distinctDayCount: 14,
           distinctWeekCount: 3,
         ),
-        proReadiness: const ReportReadiness(
-          rule: ReportReadinessEvaluator.journeyProRule,
-          signalCount: 18,
-          distinctDayCount: 14,
-          distinctWeekCount: 3,
-        ),
       ),
     );
     final meVm = await buildMeViewModel();
@@ -503,8 +693,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('目前最清楚的是“工作”。'), findsWidgets);
-    expect(find.text('18 条信号'), findsOneWidget);
-    expect(find.textContaining('18 条 Sign'), findsNothing);
+    expect(find.textContaining('18 条有效信号'), findsOneWidget);
     expect(find.text('情绪'), findsWidgets);
     expect(find.text('日常摩擦'), findsOneWidget);
     expect(find.text('自我怀疑'), findsOneWidget);
@@ -540,7 +729,7 @@ void main() {
     );
     expect(
       tester.getSize(find.byKey(const ValueKey('journey-hero-header'))).height,
-      lessThanOrEqualTo(170),
+      lessThanOrEqualTo(192),
     );
   });
 }
@@ -555,7 +744,27 @@ class _ThrowingMemoryRepository extends StubMemoryRepository {
         );
 
   @override
-  Future<MemoryFetchResult> fetchMemorySummaryResult() async {
+  Future<MemoryFetchResult> fetchMemorySummaryResult({DateTime? month}) async {
     throw StateError('journey load failed');
+  }
+}
+
+class _MonthAwareMemoryRepository extends StubMemoryRepository {
+  final DateTime currentMonth;
+  final MemoryFetchResult currentResult;
+  final MemoryFetchResult previousResult;
+
+  _MonthAwareMemoryRepository({
+    required this.currentMonth,
+    required this.currentResult,
+    required this.previousResult,
+  }) : super(result: currentResult);
+
+  @override
+  Future<MemoryFetchResult> fetchMemorySummaryResult({DateTime? month}) async {
+    fetchCallCount += 1;
+    requestedMonths.add(month);
+    if (month != null && month.isBefore(currentMonth)) return previousResult;
+    return currentResult;
   }
 }

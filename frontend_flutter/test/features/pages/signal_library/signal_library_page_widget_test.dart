@@ -9,6 +9,7 @@ import 'package:ai_opportunity_radar/core/models/signal_library_models.dart';
 import 'package:ai_opportunity_radar/core/models/today_models.dart';
 import 'package:ai_opportunity_radar/features/pages/signal_library/signal_library_page.dart';
 import 'package:ai_opportunity_radar/features/pages/signal_library/signal_library_view_model.dart';
+import 'package:ai_opportunity_radar/shared/widgets/aurora_ui.dart';
 
 void main() {
   testWidgets('shows privacy-safe official abstract patterns', (tester) async {
@@ -16,6 +17,11 @@ void main() {
     await tester.pump();
 
     expect(find.text('Signal Library'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('signal-library-signal-pattern')),
+      findsOneWidget,
+    );
+    expect(find.byType(AuroraHeroEmblem), findsNothing);
     expect(find.text('Search a signal...'), findsOneWidget);
     expect(find.text('All'), findsOneWidget);
     expect(find.text('emotional stability'), findsOneWidget);
@@ -31,7 +37,8 @@ void main() {
     expect(find.textContaining('you are this kind of person'), findsNothing);
   });
 
-  testWidgets('accurate adds one SignalCard without opening a dialog',
+  testWidgets(
+      'accurate opens editable confirmation and only save creates SignalCard',
       (tester) async {
     final repository = _FakeSignalLibraryRepository();
     await tester.binding.setSurfaceSize(const Size(390, 844));
@@ -50,18 +57,43 @@ void main() {
     await tester.tap(accurate);
     await tester.pumpAndSettle();
 
+    expect(repository.responses, isEmpty);
+    expect(
+      find.byKey(
+        const ValueKey(
+          'library-pattern-over_scheduled_weeks-timeline-input',
+        ),
+      ),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byKey(
+        const ValueKey(
+          'library-pattern-over_scheduled_weeks-timeline-input',
+        ),
+      ),
+      'My week has too many fixed commitments and no buffer.',
+    );
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'library-pattern-over_scheduled_weeks-add-timeline',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
     expect(repository.responses, hasLength(1));
     expect(repository.responses.single['status'], 'accurate');
-    expect(repository.responses.single['userText'], isNull);
-    expect(repository.responses.single['addToTimeline'], isTrue);
     expect(
-      find.byKey(const ValueKey('library-signal-timeline-input')),
-      findsNothing,
+      repository.responses.single['userText'],
+      'My week has too many fixed commitments and no buffer.',
     );
+    expect(repository.responses.single['addToTimeline'], isTrue);
     expect(find.text('Added to your timeline.'), findsOneWidget);
   });
 
-  testWidgets('somewhat adds directly while inaccurate saves no response',
+  testWidgets('somewhat cancel and inaccurate are zero-write actions',
       (tester) async {
     final repository = _FakeSignalLibraryRepository();
     await tester.binding.setSurfaceSize(const Size(390, 844));
@@ -76,10 +108,29 @@ void main() {
     await tester.tap(partial);
     await tester.pumpAndSettle();
 
+    expect(repository.responses, isEmpty);
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'library-pattern-over_scheduled_weeks-dialog-cancel',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(repository.responses, isEmpty);
+
+    await tester.tap(partial);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'library-pattern-over_scheduled_weeks-add-timeline',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
     expect(repository.responses, hasLength(1));
     expect(repository.responses.single['status'], 'partial');
-    expect(repository.responses.single['addToTimeline'], isTrue);
-    expect(find.text('Added to your timeline.'), findsOneWidget);
 
     final inaccurate = find.byKey(
       const ValueKey('library-signal-inaccurate-over_scheduled_weeks'),
@@ -214,9 +265,6 @@ void main() {
     await tester.pumpWidget(_buildWidget(repository: repository));
     await tester.pump();
 
-    expect(find.textContaining('fixed commitments'), findsOneWidget);
-    expect(find.textContaining('rest starts feeling'), findsOneWidget);
-
     await tester.ensureVisible(
         find.byKey(const ValueKey('library-category-food_sleep')));
     await tester.tap(find.byKey(const ValueKey('library-category-food_sleep')));
@@ -273,6 +321,46 @@ void main() {
     expect(find.textContaining('relationship itself'), findsNothing);
     expect(find.textContaining('fixed commitments'), findsNothing);
   });
+
+  testWidgets('all nine category chips use the explicit card tag',
+      (tester) async {
+    final repository = _FakeSignalLibraryRepository(includeCategorySet: true);
+    await tester.binding.setSurfaceSize(const Size(2400, 1800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_buildWidget(repository: repository));
+    await tester.pump();
+
+    const expectedPatternByCategory = {
+      'emotional_stability': 'emotional-capacity',
+      'relationship_connection': 'unclear_expectation_relationship_friction',
+      'meaning_value': 'meaning-at-work',
+      'self_boundary': 'personal_time_boundary',
+      'growth_plan': 'over_scheduled_weeks',
+      'creative_expression': 'creative-input',
+      'food_sleep': 'recovery_debt',
+      'living_environment': 'living-clutter',
+      'interests_hobbies': 'hobby-vitality',
+    };
+
+    for (final entry in expectedPatternByCategory.entries) {
+      await tester.ensureVisible(
+        find.byKey(ValueKey('library-category-${entry.key}')),
+      );
+      await tester.tap(
+        find.byKey(ValueKey('library-category-${entry.key}')),
+      );
+      await tester.pump();
+
+      for (final candidate in expectedPatternByCategory.entries) {
+        expect(
+          find.byKey(ValueKey('library-pattern-${candidate.value}')),
+          candidate.key == entry.key ? findsOneWidget : findsNothing,
+          reason: '${entry.key} should only show ${entry.value}',
+        );
+      }
+    }
+  });
 }
 
 Widget _buildWidget(
@@ -316,10 +404,15 @@ class _FakeSignalLibraryRepository extends SignalLibraryRepository {
     requestedLanguages.add(language);
     if (includeCategorySet && language == 'en') {
       return [
+        _emotionalPattern,
         _pattern,
         _recoveryPattern,
         _relationshipPattern,
-        _boundaryPattern
+        _meaningPattern,
+        _boundaryPattern,
+        _creativePattern,
+        _livingPattern,
+        _interestPattern,
       ];
     }
     return [language == 'zh-Hans' ? _simplifiedChinesePattern : _pattern];
@@ -353,6 +446,7 @@ class _FakeSignalLibraryRepository extends SignalLibraryRepository {
 
 final _pattern = LibraryPatternModel(
   id: 'over_scheduled_weeks',
+  focusDomainId: 'growth_plan',
   title: 'Over-scheduled weeks',
   abstractPattern:
       'Some people encounter a similar structure when the week has many fixed commitments and very little space between them.',
@@ -367,6 +461,7 @@ final _pattern = LibraryPatternModel(
 
 final _simplifiedChinesePattern = LibraryPatternModel(
   id: 'over_scheduled_weeks_zh_hans',
+  focusDomainId: 'growth_plan',
   title: '安排过密的一周',
   abstractPattern: '有些时候，一周里固定安排很多，中间却几乎没有可以缓一缓的空隙。',
   commonScenes: const ['工作', '安排'],
@@ -380,6 +475,7 @@ final _simplifiedChinesePattern = LibraryPatternModel(
 
 final _recoveryPattern = LibraryPatternModel(
   id: 'recovery_debt',
+  focusDomainId: 'food_sleep',
   title: 'Recovery debt',
   abstractPattern:
       'Some people notice rest starts feeling like something to catch up on after several demanding days.',
@@ -394,6 +490,7 @@ final _recoveryPattern = LibraryPatternModel(
 
 final _relationshipPattern = LibraryPatternModel(
   id: 'unclear_expectation_relationship_friction',
+  focusDomainId: 'relationship_connection',
   title: 'Unclear expectations',
   abstractPattern:
       'Sometimes the tiring part is not the relationship itself, but the unclear expectation around it.',
@@ -408,6 +505,7 @@ final _relationshipPattern = LibraryPatternModel(
 
 final _boundaryPattern = LibraryPatternModel(
   id: 'personal_time_boundary',
+  focusDomainId: 'self_boundary',
   title: 'Personal time boundary',
   abstractPattern:
       'Some people notice personal time keeps disappearing when every open space gets filled by requests.',
@@ -415,6 +513,81 @@ final _boundaryPattern = LibraryPatternModel(
   commonFrictions: const ['boundary'],
   energyLoadHint: 'mixed',
   possiblePositiveSignal: 'one protected hour',
+  language: 'en',
+  createdAt: DateTime.utc(2026, 5, 29),
+  updatedAt: DateTime.utc(2026, 5, 29),
+);
+
+final _emotionalPattern = LibraryPatternModel(
+  id: 'emotional-capacity',
+  focusDomainId: 'emotional_stability',
+  title: 'Emotional capacity',
+  abstractPattern:
+      'Some people notice small changes feel harder when emotional capacity is low.',
+  commonScenes: const ['emotion'],
+  commonFrictions: const ['low capacity'],
+  energyLoadHint: 'high-drain',
+  possiblePositiveSignal: 'a steadier moment',
+  language: 'en',
+  createdAt: DateTime.utc(2026, 5, 29),
+  updatedAt: DateTime.utc(2026, 5, 29),
+);
+
+final _meaningPattern = LibraryPatternModel(
+  id: 'meaning-at-work',
+  focusDomainId: 'meaning_value',
+  title: 'Meaning in effort',
+  abstractPattern:
+      'Some people feel more motivated when their effort connects to something important.',
+  commonScenes: const ['meaning'],
+  commonFrictions: const ['unclear value'],
+  energyLoadHint: 'mixed',
+  possiblePositiveSignal: 'clear meaning',
+  language: 'en',
+  createdAt: DateTime.utc(2026, 5, 29),
+  updatedAt: DateTime.utc(2026, 5, 29),
+);
+
+final _creativePattern = LibraryPatternModel(
+  id: 'creative-input',
+  focusDomainId: 'creative_expression',
+  title: 'Input without expression',
+  abstractPattern:
+      'Some people lose touch with their own voice after taking in a lot without expressing anything.',
+  commonScenes: const ['creative expression'],
+  commonFrictions: const ['too much input'],
+  energyLoadHint: 'high-input',
+  possiblePositiveSignal: 'a small expression',
+  language: 'en',
+  createdAt: DateTime.utc(2026, 5, 29),
+  updatedAt: DateTime.utc(2026, 5, 29),
+);
+
+final _livingPattern = LibraryPatternModel(
+  id: 'living-clutter',
+  focusDomainId: 'living_environment',
+  title: 'Clutter and attention',
+  abstractPattern:
+      'Some people feel unfinished tasks remain open when their room is cluttered.',
+  commonScenes: const ['living environment'],
+  commonFrictions: const ['clutter'],
+  energyLoadHint: 'high-friction',
+  possiblePositiveSignal: 'a clear surface',
+  language: 'en',
+  createdAt: DateTime.utc(2026, 5, 29),
+  updatedAt: DateTime.utc(2026, 5, 29),
+);
+
+final _interestPattern = LibraryPatternModel(
+  id: 'hobby-vitality',
+  focusDomainId: 'interests_hobbies',
+  title: 'Vitality from interests',
+  abstractPattern:
+      'Some people feel more alive after making room for an interest or hobby.',
+  commonScenes: const ['interests'],
+  commonFrictions: const ['joy comes last'],
+  energyLoadHint: 'recovery',
+  possiblePositiveSignal: 'more vitality',
   language: 'en',
   createdAt: DateTime.utc(2026, 5, 29),
   updatedAt: DateTime.utc(2026, 5, 29),

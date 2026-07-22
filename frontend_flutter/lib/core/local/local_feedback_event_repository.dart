@@ -34,6 +34,27 @@ class LocalFeedbackEventRepository {
       whereArgs: [localUserId, startDate, endDate],
       orderBy: 'local_date ASC, created_at ASC',
     );
+    final microReviewRows = await db.query(
+      'micro_action_review_events',
+      where: '''
+        local_user_id = ?
+        AND local_date >= ?
+        AND local_date <= ?
+      ''',
+      whereArgs: [localUserId, startDate, endDate],
+      orderBy: 'local_date ASC, created_at ASC',
+    );
+    final outcomeReviewRows = await db.query(
+      'life_experiment_lifecycle_events',
+      where: '''
+        local_user_id = ?
+        AND event_type = ?
+        AND local_date >= ?
+        AND local_date <= ?
+      ''',
+      whereArgs: [localUserId, 'outcome_reviewed', startDate, endDate],
+      orderBy: 'local_date ASC, created_at ASC',
+    );
     final scheduleRows = await db.query(
       'schedule_signals',
       where: '''
@@ -83,6 +104,10 @@ class LocalFeedbackEventRepository {
             row.map((key, value) => MapEntry(key, value)),
           ),
         ),
+      for (final row in microReviewRows)
+        FeedbackEventModel.fromMicroActionRoundReviewRow(row),
+      for (final row in outcomeReviewRows)
+        FeedbackEventModel.fromLifeExperimentOutcomeReviewRow(row),
       for (final row in scheduleRows)
         FeedbackEventModel.fromScheduleFeedback(
           ScheduleSignalModel.fromDb(row),
@@ -120,7 +145,9 @@ class LocalFeedbackEventRepository {
     return events
         .where((event) =>
             event.sourceType == 'micro_action_feedback' ||
-            event.sourceType == 'life_experiment_feedback')
+            event.sourceType == 'life_experiment_feedback' ||
+            event.sourceType == 'micro_action_round_review' ||
+            event.sourceType == 'life_experiment_outcome_review')
         .toList(growable: false);
   }
 

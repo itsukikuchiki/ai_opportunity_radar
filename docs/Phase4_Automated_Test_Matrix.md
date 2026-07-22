@@ -4,13 +4,15 @@ Status: active guardrail
 Target: Signal Path 4.0.0+
 Purpose: prevent obvious UI, data-chain, and interaction regressions before TestFlight.
 
-Last reconciled: 2026-07-13 against the current `docs/active/` product design.
+Last reconciled: 2026-07-23 against the current `docs/active/` product design
+and the `4.0.0 (14)` pre-archive candidate.
 
-Reconciled local baseline on that date: Flutter `359 / 359` passed with
-`68.3%` full-suite line coverage (`77.5%` for `test/core`), backend
-`70 / 70` passed, Flutter analyzer clean, and every Flutter/backend test file
-assigned to a CI gate. Test counts and line coverage are audit evidence, not a
-substitute for the product-contract and platform boundaries below.
+Reconciled local baseline on that date: Flutter `595 / 595` passed, backend
+`104 passed / 2 PostgreSQL-only skipped`, Flutter analyzer clean, formatting
+dry-run passed, release UI guardrails `11 / 11` passed, and every
+Flutter/backend test file is assigned to a CI gate. Test counts are audit
+evidence, not a substitute for the product-contract and platform boundaries
+below.
 
 Status language in this document:
 
@@ -71,7 +73,7 @@ Failure conditions:
 | --- | --- | --- | --- |
 | 1. Record life signals | Explain text, voice, state, Signal Library reference, and AI judgement as entry sources | the first Flutter frame is the opening scene; enlarged Signal Path icon is used as background art; skip remains reachable. The native-to-Flutter no-white-transition claim remains physical-device QA. | Automated for Flutter layout; **Platform QA Pending** for native transition |
 | 2. Weekly + Life Experiment | Explain Weekly review and the separate Life Experiment area without inventing a one-card-only flow | Weekly and Life Experiment previews are both visible; icon background replaces the old decorative circle; copy matches the current page roles | Automated |
-| 3. Journey + Pro depth | Explain long-term Journey aggregation and paid deep reports | Journey and Pro preview is visible; free overview and paid depth are not conflated; icon background follows the same visual system | Automated for layout and implemented evidence surface; independent versioned 28-day interpretive generator remains Target / Pending |
+| 3. Journey + Pro depth | Explain long-term Journey aggregation and paid deep reports | Journey and Pro preview is visible; the Free selected-month fact layer and paid three-natural-month change layer are not conflated; icon background follows the same visual system | Automated for layout; historical-month loading and the three-month Pro projection require the Journey tests below |
 | 4. Focus domains | Select the life areas AI should prioritize | multi-select focus domains persist when Start is tapped, reappear in Me, and can be changed later; button copy is “Start”, not “Start setup” | Automated locally; remote multi-device focus sync is Target / Pending |
 
 ### Today
@@ -117,20 +119,19 @@ Energy Budget influence, and the Weekly-only candidate entry are
 
 | Section | Data source | Automated expectations |
 | --- | --- | --- |
-| Journey hero | focus domains + Journey snapshot | shows the long-term direction in the shared main-tab density; fallback does not claim certainty |
-| Track overview | visible Journey traces | record days, important moments, review notes, and related experiments are derived values rather than fixed demo numbers |
-| Observations | confirmed SignalCards + derived trace evidence | only user-visible evidence is shown; internal Observation/trace payloads do not become peer records |
-| Monthly fragments | Journey traces grouped by month | fragments remain readable on compact screens and preserve source dates |
-| Monthly calendar | dated Journey traces | date cells reflect real evidence and do not fabricate activity |
-| Life curve | monthly trace aggregation | curve points are backed by evidence and render without clipping |
-| Gentle review | SignalCards + LifeExperiment feedback + Journey snapshot | review treats skipped/not-helpful/adjusted as learning and never blocks Today/Weekly |
-| Pro deep report | versioned reflection result | free Journey remains useful; paid depth has an explicit entry and stable report boundary |
+| Selected-month hero and switcher | selected local natural month | previous/next available month changes the query window and visibly reloads the selected month; unavailable future months cannot be selected |
+| Monthly Signal path | eligible confirmed SignalCards in the selected month | displays only real dated Signal facts; Weekly behavior patterns and experiment round reviews never appear as path events |
+| Monthly facts and readiness | eligible confirmed SignalCards | real Signal count, record-day count, and domain distribution remain visible below `7 Signal / 3 local dates`; only the synthesized theme and monthly lookback stay hidden, with the exact remaining threshold shown |
+| Experiment and goal trajectory | experiment attempts/round reviews + goal daily/weekly/whole-round reviews | short experiments show real attempt counts and immediate feedback; goals show medium/long-term progress and typed review events; no fixed seven-day or fabricated completion curve |
+| State and rhythm | dated eligible SignalCards + five-class energy state + experiment feedback markers | chart plots actual daily Signal count, the real five-state classification, and actual experiment feedback markers; no synthetic life-state curve or unsupported interpolation |
+| Canonical diary drill-down | selected local date | Journey and Today both open the same diary route; the date query is applied and the diary reloads that date rather than today's data |
+| Pro three-month change | selected month plus two preceding local natural months | factual values for all three months remain visible; conservative change summary appears only when at least two months individually meet `7 Signal / 3 local dates`; no duplicated experiment/goal, analysis/data-range, source list, date drill-down, or AI-chat section |
 
-The overview sections, readiness states, free evidence layer, Pro gate,
-dedicated Journey Pro route, bounded evidence, factual comparison, and
-SignalCard follow-up are **Automated**. The independent versioned 28-day
-interpretive generator remains **Target / Pending** and is not represented as
-an existing report.
+Automated coverage must include arbitrary historical-month loading, readiness
+counting from eligible SignalCards only, all-history-through-period context,
+typed experiment/goal review projection, canonical diary date navigation, and
+the three-natural-month Pro contract. Feedback, summaries, and internal
+Observation may shape interpretation but must never increase the Signal count.
 
 ### Signal Library
 
@@ -228,6 +229,12 @@ Automation and simulator mocks do not close these items:
 - Real keyboard, Dynamic Island, bottom safe area, and physical-device screenshot evidence.
 
 These must remain `Platform QA: Open` until TestFlight or real-device evidence is collected.
+
+The `4.0.0 (14)` QA showcase fixture unlocks an in-memory Pro preview and seeds
+isolated local sample data for inspection. It deliberately does not write a
+StoreKit entitlement. A green showcase walkthrough therefore cannot close the
+purchase/restore items above; those require a normal TestFlight Sandbox path
+on a physical device.
 
 ## Exit Criteria
 

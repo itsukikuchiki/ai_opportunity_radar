@@ -14,6 +14,25 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
 
+  test('notification destination is consumed once without creating data',
+      () async {
+    var reads = 0;
+    final state = AppBootstrapState(
+      signalReminderTodayDestinationReader: () async {
+        reads += 1;
+        return true;
+      },
+    );
+
+    expect(state.signalReminderTodayPending, isFalse);
+    expect(await state.refreshSignalReminderTodayDestination(), isTrue);
+    expect(state.signalReminderTodayPending, isTrue);
+    expect(await state.refreshSignalReminderTodayDestination(), isTrue);
+    expect(reads, 1);
+
+    state.dispose();
+  });
+
   test('data deletion rebuilds dependencies with a new anonymous identity',
       () async {
     SharedPreferences.setMockInitialValues({

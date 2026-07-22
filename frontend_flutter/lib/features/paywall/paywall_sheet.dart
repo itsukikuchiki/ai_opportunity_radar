@@ -177,33 +177,33 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
               const SizedBox(height: 10),
             ],
             _BenefitRow(
-              icon: Icons.chat_bubble_outline,
+              icon: Icons.auto_graph_outlined,
               text: AppLocaleText.tr(
                 context,
-                en: 'Ask deeper follow-up questions across periods',
-                zhHans: '围绕跨周期模式进行更深入的追问',
-                zhHant: '圍繞跨週期模式進行更深入的追問',
-                ja: '期間をまたぐパターンについて、より深く問いかける',
+                en: 'See Signal, energy-state and life-area change across three natural months',
+                zhHans: '查看三个自然月的 Signal、能量状态和生活领域变化',
+                zhHant: '查看三個自然月的 Signal、能量狀態和生活領域變化',
+                ja: '3か月のSignal・エネルギー状態・生活領域の変化を見る',
               ),
             ),
             _BenefitRow(
               icon: Icons.auto_graph_outlined,
               text: AppLocaleText.tr(
                 context,
-                en: 'Open Weekly deep review and Journey L3 synthesis',
-                zhHans: '打开每周复盘的深度分析和旅程综合',
-                zhHant: '打開 Weekly 本週深讀和 Journey L3 綜合',
-                ja: 'Weekly 深掘りと Journey L3 統合を開く',
+                en: 'Use Weekly deep analysis as a reference for next week’s tries',
+                zhHans: '用每周复盘的深度分析，作为下周尝试生成时的参考',
+                zhHant: '用每週復盤的深度分析，作為下週嘗試生成時的參考',
+                ja: '毎週の深い分析を、来週の試みを考えるための参考にする',
               ),
             ),
             _BenefitRow(
               icon: Icons.menu_book_outlined,
               text: AppLocaleText.tr(
                 context,
-                en: 'Compare periods and get evidence-backed adjustment directions',
-                zhHans: '比较不同周期，获得有证据支持的调整方向',
-                zhHant: '比較不同週期，獲得有證據支持的調整方向',
-                ja: '期間を比較し、根拠に基づく調整方向を確認する',
+                en: 'Review conservative month-to-month change summaries',
+                zhHans: '回看保守、可核对的月度变化总结',
+                zhHant: '回看保守、可核對的月度變化總結',
+                ja: '控えめで確認可能な月ごとの変化を振り返る',
               ),
             ),
             const SizedBox(height: 18),
@@ -399,10 +399,10 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
   String _subtitle(BuildContext context, String source) {
     return AppLocaleText.tr(
       context,
-      en: '$source is part of the deeper Pro layer for longer reflection and follow-up.',
-      zhHans: '$source 属于 Pro 的深度层，用来做更长周期的回看和追问。',
-      zhHant: '$source 屬於 Pro 的深度層，用來做更長週期的回看和追問。',
-      ja: '$source は、より深い振り返りとフォローアップのための Pro 機能です。',
+      en: '$source is part of the Pro layer for longer-period reflection.',
+      zhHans: '$source 属于 Pro 的深度层，用来做更长周期的回看。',
+      zhHant: '$source 屬於 Pro 的深度層，用來做更長週期的回看。',
+      ja: '$source は、より長い期間を振り返るための Pro 機能です。',
     );
   }
 

@@ -108,6 +108,110 @@ void main() {
     expect(updatedPolicy.single['exclusion_reason'], 'inaccurate');
   });
 
+  test('Signal Card confirmation is one-way after the final choice', () async {
+    final signal = await repository.insertLocalDraftSignal(
+      content: '确认前的候选内容',
+      sourceType: 'ai_predicted',
+      language: 'zh-Hans',
+    );
+
+    await repository.updateSignalCardConfirmation(
+      signalCardId: signal.signalCardId!,
+      userConfirmation: 'accurate',
+      userCorrectionJson: const {'edited_text': '第一次确认的内容'},
+    );
+
+    await expectLater(
+      repository.updateSignalCardConfirmation(
+        signalCardId: signal.signalCardId!,
+        userConfirmation: 'supplemented',
+        userCorrectionJson: const {'edited_text': '试图再次修改'},
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'saved_signal_card_is_immutable',
+        ),
+      ),
+    );
+
+    final saved = (await repository.listSignalCards()).single;
+    expect(saved.userConfirmation, 'accurate');
+    expect(saved.userCorrectionJson['edited_text'], '第一次确认的内容');
+  });
+
+  test('replaying a stable Signal Card id never overwrites the saved fact',
+      () async {
+    final first = await repository.insertConfirmedSignalCard(
+      signalCardId: 'library_same_day_pattern',
+      content: '第一次确认的真实内容',
+      sourceType: 'library_saved',
+      userConfirmation: 'accurate',
+      rawPayloadJson: const {'version': 1},
+    );
+    final replay = await repository.insertConfirmedSignalCard(
+      signalCardId: 'library_same_day_pattern',
+      content: '第二次试图覆盖的内容',
+      sourceType: 'library_saved',
+      userConfirmation: 'partial',
+      rawPayloadJson: const {'version': 2},
+    );
+
+    expect(replay.content, first.content);
+    final saved = (await repository.listSignalCards()).single;
+    expect(saved.content, '第一次确认的真实内容');
+    expect(saved.userConfirmation, 'accurate');
+    expect(saved.rawPayloadJson['version'], 1);
+  });
+
+  test('remote refresh enriches a Signal Card without rewriting its fact',
+      () async {
+    await repository.upsertRemoteSignalCards([
+      RecentSignalModel(
+        id: 'raw-immutable',
+        signalCardId: 'sig-immutable',
+        content: '最初保存的内容',
+        sourceType: 'text',
+        localDate: '2026-07-16',
+        createdAt: DateTime.utc(2026, 7, 16, 8),
+        acknowledgement: '最初的回应',
+        userConfirmation: 'confirmed',
+        rawPayloadJson: const {'user_field': 'original'},
+      ),
+    ]);
+
+    await repository.upsertRemoteSignalCards([
+      RecentSignalModel(
+        id: 'raw-immutable',
+        signalCardId: 'sig-immutable',
+        content: '远端试图改写的内容',
+        sourceType: 'voice',
+        localDate: '2026-07-17',
+        createdAt: DateTime.utc(2026, 7, 17, 9),
+        acknowledgement: '允许更新的 AI 派生回应',
+        userConfirmation: 'unconfirmed',
+        rawPayloadJson: const {'user_field': 'changed'},
+      ),
+    ]);
+
+    final saved = (await repository.listSignalCards()).single;
+    expect(saved.content, '最初保存的内容');
+    expect(saved.sourceType, 'text');
+    expect(saved.localDate, '2026-07-16');
+    expect(saved.userConfirmation, 'confirmed');
+    expect(saved.rawPayloadJson['user_field'], 'original');
+    expect(saved.acknowledgement, '允许更新的 AI 派生回应');
+    final db = await localDatabase.database;
+    final policy = await db.query(
+      'signal_analysis_policy',
+      where: 'signal_id = ?',
+      whereArgs: ['sig-immutable'],
+      limit: 1,
+    );
+    expect(policy.single['confirmed_by_user'], 1);
+  });
+
   test('marking SignalCard inaccurate makes related trace links inactive',
       () async {
     final signal = await repository.insertLocalDraftSignal(
@@ -505,6 +609,66 @@ void main() {
     expect(candidate.single['dirty'], 1);
     expect(candidate.single['is_stale'], 1);
     expect(candidate.single['stale_reason'], 'signal_restored');
+  });
+
+  test('diary reads one date and keeps an unbounded lightweight date index',
+      () async {
+    await repository.upsertRemoteSignalCards([
+      RecentSignalModel(
+        id: 'diary-day-one',
+        signalCardId: 'diary-day-one',
+        content: '第一页的信号',
+        localDate: '2024-01-02',
+        createdAt: DateTime.utc(2024, 1, 2, 8),
+        userConfirmation: 'confirmed',
+      ),
+      RecentSignalModel(
+        id: 'diary-day-two',
+        signalCardId: 'diary-day-two',
+        content: '第二页的信号',
+        localDate: '2026-07-16',
+        createdAt: DateTime.utc(2026, 7, 16, 9),
+        userConfirmation: 'confirmed',
+      ),
+    ]);
+
+    final firstPage = await repository.listSignalCardsForDate('2024-01-02');
+    final contentDateKeys = await repository.listSignalCardDateKeys();
+
+    expect(firstPage.map((signal) => signal.content), ['第一页的信号']);
+    expect(contentDateKeys, containsAll(['2024-01-02', '2026-07-16']));
+  });
+
+  test('linked Signal lookup is exact and chunks beyond SQLite bind limits',
+      () async {
+    final signals = List.generate(
+      406,
+      (index) => RecentSignalModel(
+        id: 'linked-signal-$index',
+        signalCardId: 'linked-signal-$index',
+        content: 'linked evidence $index',
+        localDate: '2026-07-16',
+        createdAt: DateTime.utc(2026, 7, 16, 8).add(
+          Duration(minutes: index),
+        ),
+        userConfirmation: 'confirmed',
+      ),
+    );
+    await repository.upsertRemoteSignalCards(signals);
+
+    final loaded = await repository.listSignalCardsByIds(
+      List.generate(405, (index) => 'linked-signal-$index'),
+    );
+
+    expect(loaded, hasLength(405));
+    expect(
+      loaded.map((signal) => signal.signalCardId),
+      containsAll(['linked-signal-0', 'linked-signal-404']),
+    );
+    expect(
+      loaded.map((signal) => signal.signalCardId),
+      isNot(contains('linked-signal-405')),
+    );
   });
 
   test('local draft keeps stable client identity when remote card arrives',

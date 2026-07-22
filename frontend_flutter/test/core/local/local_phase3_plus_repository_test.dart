@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dart';
+import 'package:ai_opportunity_radar/core/models/experiment_evaluation_models.dart';
 import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 
 void main() {
@@ -138,5 +139,134 @@ void main() {
     expect(summary['observation_count'], 0);
     expect(summary['confirmed_observation_count'], 0);
     expect(summary['observation_ids'], isEmpty);
+  });
+
+  test('small-try effect and round reviews are structured and append-only',
+      () async {
+    final action = MicroActionModel(
+      id: 'micro-review-1',
+      judgementId: '',
+      title: '先留五分钟缓冲',
+      reason: '看看切换是否更轻',
+      status: 'active',
+      plannedDurationMinutes: 5,
+      localUserId: 'local',
+      adoptedAt: DateTime(2026, 7, 20, 9),
+      progressStartDate: '2026-07-20',
+    );
+    await repository.upsertMicroAction(action);
+    expect(
+      (await repository.getMicroActionById(action.id))?.plannedDurationMinutes,
+      5,
+    );
+    await expectLater(
+      repository.upsertMicroAction(
+        const MicroActionModel(
+          id: 'micro-too-long',
+          judgementId: '',
+          title: '太长的项目',
+          reason: '不应进入小实验数据层',
+          plannedDurationMinutes: 11,
+        ),
+      ),
+      throwsArgumentError,
+    );
+
+    final first = await repository.recordStructuredMicroActionFeedback(
+      microActionId: action.id,
+      localDate: '2026-07-20',
+      completionStatus: 'completed',
+      effect: SmallTryEffect.helpful,
+      difficulty: SmallTryDifficulty.easy,
+      durationMinutes: 5,
+      note: '切换顺了一点',
+      createdAt: DateTime(2026, 7, 20, 10),
+    );
+    expect(first.effect, SmallTryEffect.helpful);
+    expect(first.difficulty, SmallTryDifficulty.easy);
+    expect(first.durationMinutes, 5);
+    expect(first.userNote, '切换顺了一点');
+
+    expect(
+      () => repository.recordStructuredMicroActionFeedback(
+        microActionId: action.id,
+        localDate: '2026-07-20',
+        completionStatus: 'completed',
+      ),
+      throwsArgumentError,
+    );
+    await expectLater(
+      repository.recordStructuredMicroActionFeedback(
+        microActionId: action.id,
+        localDate: '2026-07-20',
+        completionStatus: 'completed',
+        effect: SmallTryEffect.helpful,
+        difficulty: SmallTryDifficulty.easy,
+        durationMinutes: 11,
+      ),
+      throwsArgumentError,
+    );
+
+    // Same-day facts are never rewritten. Every completed attempt contributes
+    // to the attempt snapshot; there is no daily collapse or seven-day cap.
+    await repository.recordStructuredMicroActionFeedback(
+      microActionId: action.id,
+      localDate: '2026-07-20',
+      completionStatus: 'not_completed',
+      createdAt: DateTime(2026, 7, 20, 11),
+    );
+    await repository.recordStructuredMicroActionFeedback(
+      microActionId: action.id,
+      localDate: '2026-07-21',
+      completionStatus: 'completed',
+      effect: SmallTryEffect.somewhatHelpful,
+      difficulty: SmallTryDifficulty.okay,
+      durationMinutes: 4,
+      createdAt: DateTime(2026, 7, 21, 10),
+    );
+
+    final review = await repository.recordMicroActionRoundReview(
+      microActionId: action.id,
+      result: SmallTryRoundResult.adjustAndRetry,
+      effort: EvaluationEffort.acceptable,
+      nextAdjustment: SmallTryNextAdjustment.makeLighter,
+      note: '下次缩短一点',
+      reviewedAt: DateTime(2026, 7, 21, 12),
+    );
+    expect(review, isNotNull);
+    expect(review!.completedAttemptsAtReview, 2);
+    expect(review.note, '下次缩短一点');
+
+    await repository.recordMicroActionRoundReview(
+      microActionId: action.id,
+      result: SmallTryRoundResult.worthKeeping,
+      effort: EvaluationEffort.easy,
+      nextAdjustment: SmallTryNextAdjustment.keep,
+      reviewedAt: DateTime(2026, 7, 22, 12),
+    );
+    final reviews = await repository.listMicroActionRoundReviews(
+      microActionId: action.id,
+    );
+    expect(reviews, hasLength(2));
+    expect(reviews.map((item) => item.result), [
+      SmallTryRoundResult.adjustAndRetry,
+      SmallTryRoundResult.worthKeeping,
+    ]);
+    expect(
+      (await repository.getMicroActionById(action.id))?.status,
+      'active',
+      reason: 'saving a round review must not complete the lifecycle',
+    );
+
+    final db = await localDatabase.database;
+    final feedbackRows = await db.query(
+      'micro_action_feedback',
+      where: 'micro_action_id = ?',
+      whereArgs: [action.id],
+      orderBy: 'created_at ASC',
+    );
+    expect(feedbackRows, hasLength(3));
+    expect(feedbackRows[1]['effect'], '');
+    expect(feedbackRows[1]['difficulty'], '');
   });
 }

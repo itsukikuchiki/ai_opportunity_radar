@@ -55,6 +55,8 @@ class FeedbackEventModel {
         'effect': feedback.effect,
         'difficulty': feedback.difficulty,
         'next_adjustment': feedback.nextAdjustment,
+        if (feedback.durationMinutes != null)
+          'duration_minutes': feedback.durationMinutes,
         if (feedback.userNote != null) 'user_note': feedback.userNote,
       },
       createdAt: feedback.createdAt,
@@ -93,6 +95,65 @@ class FeedbackEventModel {
         if (feedback.focusAreaId != null) 'focus_area_id': feedback.focusAreaId,
       },
       createdAt: feedback.createdAt,
+    );
+  }
+
+  factory FeedbackEventModel.fromMicroActionRoundReviewRow(
+    Map<String, Object?> row,
+  ) {
+    final localDate = row['local_date']?.toString() ?? '';
+    final sourceId = row['id']?.toString() ?? '';
+    return FeedbackEventModel(
+      id: 'micro_action_round_review:$sourceId',
+      sourceType: 'micro_action_round_review',
+      sourceId: sourceId,
+      subjectType: 'micro_action',
+      subjectId: row['micro_action_id']?.toString() ?? '',
+      localUserId: row['local_user_id']?.toString() ?? 'local',
+      localDate: localDate,
+      occurredAt:
+          _dateMetaFromRaw(row['reviewed_at']) ?? _dateFromKey(localDate),
+      status: row['result']?.toString() ?? '',
+      effect: row['result']?.toString(),
+      note: row['note']?.toString(),
+      metadata: {
+        'result': row['result'],
+        'effort': row['effort'],
+        'next_adjustment': row['next_adjustment'],
+        'completed_attempts_at_review': row['completed_attempts_at_review'] ??
+            row['completed_days_at_review'],
+      },
+      createdAt: _dateMetaFromRaw(row['created_at']),
+    );
+  }
+
+  factory FeedbackEventModel.fromLifeExperimentOutcomeReviewRow(
+    Map<String, Object?> row,
+  ) {
+    final localDate = row['local_date']?.toString() ?? '';
+    final sourceId = row['id']?.toString() ?? '';
+    final payload = _decodeJsonMap(row['payload_json']);
+    return FeedbackEventModel(
+      id: 'life_experiment_outcome_review:$sourceId',
+      sourceType: 'life_experiment_outcome_review',
+      sourceId: sourceId,
+      subjectType: 'life_experiment',
+      subjectId: row['experiment_id']?.toString() ?? '',
+      localUserId: row['local_user_id']?.toString() ?? 'local',
+      localDate: localDate,
+      occurredAt:
+          _dateMetaFromRaw(row['event_date']) ?? _dateFromKey(localDate),
+      status: 'outcome_reviewed',
+      effect: payload['outcome_result']?.toString(),
+      note: payload['review_note']?.toString(),
+      metadata: {
+        'outcome_result': payload['outcome_result'],
+        'review_type': row['review_type'] ?? payload['review_type'],
+        'burden': payload['burden'],
+        'completed_days_at_review': payload['completed_days_at_review'],
+        'minimum_observation_days': payload['minimum_observation_days'],
+      },
+      createdAt: _dateMetaFromRaw(row['created_at']),
     );
   }
 
@@ -270,6 +331,19 @@ class FeedbackEventModel {
       }
     }
     return const [];
+  }
+}
+
+Map<String, dynamic> _decodeJsonMap(Object? raw) {
+  if (raw is Map<String, dynamic>) return raw;
+  if (raw is! String || raw.trim().isEmpty) return const {};
+  try {
+    final decoded = jsonDecode(raw);
+    return decoded is Map
+        ? decoded.map((key, value) => MapEntry(key.toString(), value))
+        : const {};
+  } catch (_) {
+    return const {};
   }
 }
 

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/app_router.dart';
 import '../../../core/di/app_dependencies.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/local/external_energy_hint_store.dart';
 import '../../../core/models/advanced_energy_boundary_models.dart';
 import '../../../core/models/health_recovery_signal_models.dart';
+import '../../../core/navigation/app_back_navigation.dart';
 import '../../../core/platform/external_energy_platform_service.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 
@@ -179,7 +181,7 @@ class _AdvancedSignalSettingsPageState
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 36),
                 children: [
                   _GlassBackButton(
-                    onPressed: () => Navigator.of(context).maybePop(),
+                    onPressed: () => context.popOrGo(AppRoutes.me),
                   ),
                   const SizedBox(height: 14),
                   AuroraCard(

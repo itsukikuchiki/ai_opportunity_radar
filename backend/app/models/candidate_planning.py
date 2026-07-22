@@ -74,6 +74,10 @@ class MicroActionCandidate(Base):
             "rank BETWEEN 1 AND 3",
             name="ck_micro_action_candidates_rank",
         ),
+        CheckConstraint(
+            "decision_status IN ('undecided', 'considering', 'adopted')",
+            name="ck_micro_action_candidates_decision_status",
+        ),
         Index(
             "idx_micro_action_candidates_group",
             "candidate_group_id",
@@ -109,6 +113,12 @@ class MicroActionCandidate(Base):
         JsonType, default=list, nullable=False
     )
     status: Mapped[str] = mapped_column(String, default="generated", nullable=False)
+    decision_status: Mapped[str] = mapped_column(
+        String,
+        default="undecided",
+        server_default="undecided",
+        nullable=False,
+    )
     adopted_micro_action_id: Mapped[str | None] = mapped_column(String)
     source_hash: Mapped[str] = mapped_column(String, nullable=False)
     dirty: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

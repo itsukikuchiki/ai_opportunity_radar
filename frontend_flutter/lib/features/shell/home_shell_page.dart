@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 
 import '../../app/app_router.dart';
 import '../../core/i18n/app_locale_text.dart';
+import '../../core/notifications/schedule_notification_service.dart';
 import '../../core/state/app_data_refresh_coordinator.dart';
+import '../pages/today/today_view_model.dart';
 import '../../shared/widgets/aurora_ui.dart';
 
 class HomeShellPage extends StatefulWidget {
@@ -29,6 +31,9 @@ class _HomeShellPageState extends State<HomeShellPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_routeSignalReminderToTodayIfNeeded());
+    });
   }
 
   @override
@@ -36,10 +41,17 @@ class _HomeShellPageState extends State<HomeShellPage>
     super.didChangeDependencies();
     final location = GoRouterState.of(context).matchedLocation;
     if (_activeLocation == location) return;
-    final isFirstActivation = _activeLocation == null;
+    final previousLocation = _activeLocation;
+    final isFirstActivation = previousLocation == null;
     _activeLocation = location;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _activeLocation != location) return;
+      if (!isFirstActivation &&
+          location == AppRoutes.today &&
+          previousLocation != AppRoutes.today) {
+        Provider.of<TodayViewModel?>(context, listen: false)
+            ?.resetAiJudgementPageSession();
+      }
       // Long-lived ViewModels already perform their initial load. Every later
       // route activation refreshes once, while the coordinator coalesces a
       // simultaneous explicit return refresh or lifecycle refresh.
@@ -50,6 +62,7 @@ class _HomeShellPageState extends State<HomeShellPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
+    unawaited(_routeSignalReminderToTodayIfNeeded());
     _refreshActiveRoute(force: true);
   }
 
@@ -66,6 +79,13 @@ class _HomeShellPageState extends State<HomeShellPage>
         Provider.of<AppDataRefreshCoordinator?>(context, listen: false);
     if (coordinator == null) return;
     unawaited(coordinator.refreshRoute(location, force: force));
+  }
+
+  Future<void> _routeSignalReminderToTodayIfNeeded() async {
+    final openToday =
+        await ScheduleNotificationService().consumeTodayDestination();
+    if (!openToday || !mounted) return;
+    context.go(AppRoutes.today);
   }
 
   int _selectedIndex(BuildContext context) {
@@ -157,8 +177,8 @@ class _HomeShellPageState extends State<HomeShellPage>
                     context,
                     en: 'Weekly',
                     zhHans: '每周复盘',
-                    zhHant: '每週',
-                    ja: 'Weekly',
+                    zhHant: '每週復盤',
+                    ja: '週間レビュー',
                   ),
                   onTap: () => _onTap(context, 1),
                 ),
@@ -168,10 +188,10 @@ class _HomeShellPageState extends State<HomeShellPage>
                   selectedIcon: Icons.science_rounded,
                   label: AppLocaleText.tr(
                     context,
-                    en: 'Experiment',
+                    en: 'Life Experiment',
                     zhHans: '生活小实验',
-                    zhHant: '小實驗',
-                    ja: '実験',
+                    zhHant: '生活小實驗',
+                    ja: '生活実験',
                   ),
                   onTap: () => _onTap(context, 2),
                 ),

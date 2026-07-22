@@ -13,21 +13,30 @@ import '../../../core/models/phase3_plus_models.dart';
 import '../../../core/models/today_models.dart';
 import '../../../core/models/weekly_models.dart';
 import '../../../shared/widgets/aurora_ui.dart';
+import '../../../shared/widgets/experiment_feedback_sheets.dart';
 
-/// Compact Today projection of adopted MicroActions and LifeExperiments.
+/// Compact Today projection of the two Life Experiment tracks.
 ///
-/// The dedicated candidate hubs own selection and the complete list. Today
-/// shows at most three adopted objects per kind and their real 7-day progress.
+/// Existing MicroAction and LifeExperiment storage remains intact. In the
+/// user-facing model they are presented as "small experiments" and "goals". The
+/// The Life Experiment page owns the complete adopted list; the candidate hubs
+/// are only selection surfaces. Today shows at most three adopted objects per
+/// track. Small experiments show attempt count; goals show recent daily progress
+/// without implying that a long-running goal ends after seven days.
 class TodayAdoptedPlansSection extends StatefulWidget {
   final List<RecentSignalModel> signals;
   final MicroActionModel? compatibilityAction;
   final LifeExperimentModel? compatibilityExperiment;
   final bool isBusy;
-  final Future<void> Function(MicroActionModel action, String feedback)
-      onActionFeedback;
+  final Future<void> Function(
+    MicroActionModel action,
+    SmallTryAttemptFeedbackDraft feedback,
+  ) onActionFeedback;
+  final Future<void> Function(LifeExperimentModel experiment, String feedback)
+      onExperimentFeedback;
+  final VoidCallback onOpenAll;
   final VoidCallback onOpenActionHub;
   final VoidCallback onOpenExperimentHub;
-  final VoidCallback onOpenExperiment;
   final LocalCandidatePlanningRepository? repositoryOverride;
 
   const TodayAdoptedPlansSection({
@@ -37,9 +46,10 @@ class TodayAdoptedPlansSection extends StatefulWidget {
     required this.compatibilityExperiment,
     required this.isBusy,
     required this.onActionFeedback,
+    required this.onExperimentFeedback,
+    required this.onOpenAll,
     required this.onOpenActionHub,
     required this.onOpenExperimentHub,
-    required this.onOpenExperiment,
     this.repositoryOverride,
   });
 
@@ -193,75 +203,17 @@ class _TodayAdoptedPlansSectionState extends State<TodayAdoptedPlansSection> {
       hiddenExperimentCount:
           (_experiments.length - 3).clamp(0, _experiments.length),
       isBusy: widget.isBusy,
-      onOpenAll: _openAllAttempts,
-      onOpenExperiment: widget.onOpenExperiment,
+      onOpenAll: widget.onOpenAll,
+      onOpenActionCandidates: widget.onOpenActionHub,
+      onOpenGoalCandidates: widget.onOpenExperimentHub,
       onActionFeedback: (item, feedback) async {
         await widget.onActionFeedback(item.action, feedback);
         await _load();
       },
-    );
-  }
-
-  Future<void> _openAllAttempts() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      useRootNavigator: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      backgroundColor: const Color(0xFFFFFCFA),
-      builder: (sheetContext) => SafeArea(
-        key: const ValueKey('today-attempts-all-sheet'),
-        top: false,
-        minimum: const EdgeInsets.only(bottom: 12),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const AuroraSoftIconCircle(
-                  icon: Icons.spa_rounded,
-                  color: AuroraColors.mint,
-                ),
-                title: Text(
-                  AppLocaleText.tr(
-                    sheetContext,
-                    en: 'Today small actions',
-                    zhHans: '今日小行动',
-                    zhHant: '今日小行動',
-                    ja: '今日の小さな行動',
-                  ),
-                ),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  widget.onOpenActionHub();
-                },
-              ),
-              ListTile(
-                leading: const AuroraSoftIconCircle(
-                  icon: Icons.science_rounded,
-                  color: AuroraColors.blue,
-                ),
-                title: Text(
-                  AppLocaleText.tr(
-                    sheetContext,
-                    en: 'Active experiments',
-                    zhHans: '进行中的小实验',
-                    zhHant: '進行中的小實驗',
-                    ja: '進行中の小さな実験',
-                  ),
-                ),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  widget.onOpenExperimentHub();
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+      onExperimentFeedback: (item, feedback) async {
+        await widget.onExperimentFeedback(item.experiment, feedback);
+        await _load();
+      },
     );
   }
 
@@ -308,11 +260,16 @@ class _TodayPlanGroup extends StatelessWidget {
   final int hiddenExperimentCount;
   final bool isBusy;
   final VoidCallback onOpenAll;
-  final VoidCallback onOpenExperiment;
+  final VoidCallback onOpenActionCandidates;
+  final VoidCallback onOpenGoalCandidates;
   final Future<void> Function(
     AdoptedMicroActionProgress item,
-    String feedback,
+    SmallTryAttemptFeedbackDraft feedback,
   ) onActionFeedback;
+  final Future<void> Function(
+    AdoptedLifeExperimentProgress item,
+    String feedback,
+  ) onExperimentFeedback;
 
   const _TodayPlanGroup({
     super.key,
@@ -324,8 +281,10 @@ class _TodayPlanGroup extends StatelessWidget {
     required this.hiddenExperimentCount,
     required this.isBusy,
     required this.onOpenAll,
-    required this.onOpenExperiment,
+    required this.onOpenActionCandidates,
+    required this.onOpenGoalCandidates,
     required this.onActionFeedback,
+    required this.onExperimentFeedback,
   });
 
   @override
@@ -385,9 +344,15 @@ class _TodayPlanGroup extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _TodayAttemptTypeHeader(
+                _TodayAttemptTypeHeader(
                   icon: Icons.spa_rounded,
-                  label: '今日小行动',
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Small experiments',
+                    zhHans: '小实验',
+                    zhHant: '小實驗',
+                    ja: '小実験',
+                  ),
                   accent: AuroraColors.mint,
                 ),
                 const SizedBox(height: 8),
@@ -395,6 +360,7 @@ class _TodayPlanGroup extends StatelessWidget {
                   _TodayGateSummary(
                     gate: dailyGate,
                     kind: CandidateKind.microAction,
+                    onOpenCandidates: onOpenActionCandidates,
                   )
                 else
                   for (var index = 0; index < actionItems.length; index++) ...[
@@ -420,9 +386,15 @@ class _TodayPlanGroup extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _TodayAttemptTypeHeader(
+                _TodayAttemptTypeHeader(
                   icon: Icons.science_rounded,
-                  label: '本周小实验',
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Goals',
+                    zhHans: '目标',
+                    zhHant: '目標',
+                    ja: '目標',
+                  ),
                   accent: AuroraColors.blue,
                 ),
                 const SizedBox(height: 8),
@@ -430,6 +402,7 @@ class _TodayPlanGroup extends StatelessWidget {
                   _TodayGateSummary(
                     gate: weeklyGate,
                     kind: CandidateKind.lifeExperiment,
+                    onOpenCandidates: onOpenGoalCandidates,
                   )
                 else
                   for (var index = 0;
@@ -437,7 +410,11 @@ class _TodayPlanGroup extends StatelessWidget {
                       index++) ...[
                     _TodayExperimentProgressRow(
                       item: experimentItems[index],
-                      onTap: onOpenExperiment,
+                      isBusy: isBusy,
+                      onFeedback: (feedback) => onExperimentFeedback(
+                        experimentItems[index],
+                        feedback,
+                      ),
                     ),
                     if (index != experimentItems.length - 1)
                       const Divider(height: 22),
@@ -469,15 +446,19 @@ class _TodayAttemptTypeHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, size: 20, color: accent),
         const SizedBox(width: 8),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: AuroraColors.ink,
-                fontWeight: FontWeight.w800,
-              ),
+        Expanded(
+          child: Text(
+            label,
+            softWrap: true,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
         ),
       ],
     );
@@ -510,8 +491,13 @@ class _TodayHiddenAttemptCount extends StatelessWidget {
 class _TodayGateSummary extends StatelessWidget {
   final CandidateGateState gate;
   final CandidateKind kind;
+  final VoidCallback onOpenCandidates;
 
-  const _TodayGateSummary({required this.gate, required this.kind});
+  const _TodayGateSummary({
+    required this.gate,
+    required this.kind,
+    required this.onOpenCandidates,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -555,6 +541,38 @@ class _TodayGateSummary extends StatelessWidget {
                 height: 1.4,
               ),
         ),
+        if (gate.isOpen) ...[
+          const SizedBox(height: 6),
+          TextButton.icon(
+            key: ValueKey(
+              kind == CandidateKind.microAction
+                  ? 'today-open-small-try-candidates'
+                  : 'today-open-goal-candidates',
+            ),
+            style: TextButton.styleFrom(
+              minimumSize: const Size(44, 44),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+            ),
+            onPressed: onOpenCandidates,
+            icon: Icon(
+              kind == CandidateKind.microAction
+                  ? Icons.spa_rounded
+                  : Icons.science_rounded,
+              size: 18,
+            ),
+            label: Text(
+              AppLocaleText.tr(
+                context,
+                en: kind == CandidateKind.microAction
+                    ? 'Choose small experiments'
+                    : 'Choose goals',
+                zhHans: kind == CandidateKind.microAction ? '选择小实验' : '选择目标',
+                zhHant: kind == CandidateKind.microAction ? '選擇小實驗' : '選擇目標',
+                ja: kind == CandidateKind.microAction ? '小実験を選ぶ' : '目標を選ぶ',
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -563,7 +581,7 @@ class _TodayGateSummary extends StatelessWidget {
 class _TodayActionProgressRow extends StatelessWidget {
   final AdoptedMicroActionProgress item;
   final bool isBusy;
-  final ValueChanged<String> onFeedback;
+  final ValueChanged<SmallTryAttemptFeedbackDraft> onFeedback;
 
   const _TodayActionProgressRow({
     required this.item,
@@ -588,7 +606,13 @@ class _TodayActionProgressRow extends StatelessWidget {
               ),
             ),
             Text(
-              '${item.progress.completedDays}/7',
+              AppLocaleText.tr(
+                context,
+                en: '${item.progress.completedDays} attempts',
+                zhHans: '尝试 ${item.progress.completedDays} 次',
+                zhHant: '嘗試 ${item.progress.completedDays} 次',
+                ja: '${item.progress.completedDays} 回試した',
+              ),
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: AuroraColors.mint,
                     fontWeight: FontWeight.w900,
@@ -601,6 +625,112 @@ class _TodayActionProgressRow extends StatelessWidget {
           const _SourceChangedLabel(),
         ],
         const SizedBox(height: 8),
+        Text(
+          AppLocaleText.tr(
+            context,
+            en: 'A short action you can finish within 10 minutes.',
+            zhHans: '10 分钟以内即可完成的一次轻尝试。',
+            zhHant: '10 分鐘以內即可完成的一次輕嘗試。',
+            ja: '10分以内で終えられる軽い試みです。',
+          ),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AuroraColors.muted,
+                height: 1.35,
+              ),
+        ),
+        const SizedBox(height: 8),
+        _TodayFeedbackButton(
+          icon: Icons.add_task_rounded,
+          label: AppLocaleText.tr(
+            context,
+            en: 'Record an attempt',
+            zhHans: '登记一次',
+            zhHant: '登記一次',
+            ja: '1回記録',
+          ),
+          color: AuroraColors.mint,
+          onPressed: isBusy
+              ? null
+              : () async {
+                  final draft = await showSmallTryAttemptFeedbackSheet(
+                    context,
+                    title: item.action.title,
+                  );
+                  if (draft != null) onFeedback(draft);
+                },
+        ),
+      ],
+    );
+  }
+}
+
+class _TodayExperimentProgressRow extends StatelessWidget {
+  final AdoptedLifeExperimentProgress item;
+  final bool isBusy;
+  final ValueChanged<String> onFeedback;
+
+  const _TodayExperimentProgressRow({
+    required this.item,
+    required this.isBusy,
+    required this.onFeedback,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.experiment.title,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: AuroraColors.ink,
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                  ),
+                  Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: '${item.progress.completedDays} days completed',
+                      zhHans: '已完成 ${item.progress.completedDays} 天',
+                      zhHant: '已完成 ${item.progress.completedDays} 天',
+                      ja: '${item.progress.completedDays} 日完了',
+                    ),
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: AuroraColors.purple,
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                ],
+              ),
+              if (item.experiment.suggestedAction.trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  item.experiment.suggestedAction,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AuroraColors.muted,
+                        height: 1.35,
+                      ),
+                ),
+              ],
+              if (item.experiment.sourceChanged) ...[
+                const SizedBox(height: 5),
+                const _SourceChangedLabel(),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
         _CompactProgressCells(progress: item.progress),
         const SizedBox(height: 8),
         Wrap(
@@ -611,108 +741,29 @@ class _TodayActionProgressRow extends StatelessWidget {
               icon: Icons.check_rounded,
               label: AppLocaleText.tr(
                 context,
-                en: 'Happened',
-                zhHans: '发生了',
-                zhHant: '發生了',
-                ja: 'できた',
+                en: 'Completed',
+                zhHans: '已完成',
+                zhHant: '已完成',
+                ja: '完了',
               ),
               color: AuroraColors.mint,
-              onPressed: isBusy ? null : () => onFeedback('occurred'),
+              onPressed: isBusy ? null : () => onFeedback('completed'),
             ),
             _TodayFeedbackButton(
               icon: Icons.close_rounded,
               label: AppLocaleText.tr(
                 context,
-                en: 'Did not happen',
-                zhHans: '没发生',
-                zhHant: '沒發生',
-                ja: 'できなかった',
+                en: 'Not completed',
+                zhHans: '未完成',
+                zhHant: '未完成',
+                ja: '未完了',
               ),
               color: AuroraColors.orange,
-              onPressed: isBusy ? null : () => onFeedback('not_occurred'),
-            ),
-            _TodayFeedbackButton(
-              icon: Icons.remove_circle_outline_rounded,
-              label: AppLocaleText.tr(
-                context,
-                en: 'Not suitable',
-                zhHans: '今天不适合',
-                zhHant: '今天不適合',
-                ja: '今日は合わない',
-              ),
-              color: AuroraColors.muted,
-              onPressed: isBusy ? null : () => onFeedback('not_suitable_today'),
+              onPressed: isBusy ? null : () => onFeedback('not_completed'),
             ),
           ],
         ),
       ],
-    );
-  }
-}
-
-class _TodayExperimentProgressRow extends StatelessWidget {
-  final AdoptedLifeExperimentProgress item;
-  final VoidCallback onTap;
-
-  const _TodayExperimentProgressRow({
-    required this.item,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    item.experiment.title,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: AuroraColors.ink,
-                          fontWeight: FontWeight.w900,
-                        ),
-                  ),
-                ),
-                Text(
-                  '${item.progress.completedDays}/7',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: AuroraColors.purple,
-                        fontWeight: FontWeight.w900,
-                      ),
-                ),
-                const SizedBox(width: 4),
-                const Icon(Icons.chevron_right_rounded,
-                    color: AuroraColors.muted),
-              ],
-            ),
-            if (item.experiment.suggestedAction.trim().isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                item.experiment.suggestedAction,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AuroraColors.muted,
-                      height: 1.35,
-                    ),
-              ),
-            ],
-            if (item.experiment.sourceChanged) ...[
-              const SizedBox(height: 5),
-              const _SourceChangedLabel(),
-            ],
-            const SizedBox(height: 8),
-            _CompactProgressCells(progress: item.progress),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -795,7 +846,7 @@ class _SourceChangedLabel extends StatelessWidget {
             en: 'Source changed · adopted item is kept',
             zhHans: '来源已变化 · 已采纳内容继续保留',
             zhHant: '來源已變化 · 已採納內容繼續保留',
-            ja: '根拠が変更 · 採用済み内容は保持',
+            ja: 'Signal ソースが変更 · 採用済み内容は保持',
           ),
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: AuroraColors.orange,

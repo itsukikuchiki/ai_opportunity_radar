@@ -1,6 +1,6 @@
 # AI Orchestration
 
-Last updated: 2026-07-15
+Last updated: 2026-07-22
 
 This document is the active product contract for AI stages. SignalPath
 organizes AI by problem depth, not by model name. Model choice may change
@@ -28,30 +28,42 @@ Status vocabulary follows [App Design](app_design.md): **Implemented**,
 7. A Today acknowledgement or Pro light dialogue is L1 Attune. It is not an
    Observation, candidate, reflection, or report evidence. Pro access never
    upgrades a light conversation to L2/L3 by itself.
+8. A saved `SignalCard` and every saved progress/review/lifecycle event are
+   immutable facts. AI may attach or supersede versioned derived output, but it
+   never edits the canonical user fact. Only current-week/next-week planning
+   content may receive a prospective user-authored plan version; prior facts,
+   dates, and plan snapshots remain read-only.
 
 ## 2. Level Model
 
 | Level | Product role | Typical output | User control | Current status |
 | --- | --- | --- | --- | --- |
-| L1 Parse | Reduce capture and reading effort. | title, tags, emotion, short summary | Original input is already saved; user may edit or ignore enrichment. | **Implemented baseline** |
-| L1 Attune | Catch the user's immediate emotion and offer light feedback within one record. | 1-3 sentence acknowledgement, concrete reflection, at most one low-pressure question/invitation | User may ignore it; Pro may open a short session from one selected SignalCard. | **Implemented baseline**; provider-level regional crisis resources remain Target |
-| L2 Reason | Surface a possible pattern from eligible facts. | evidence-backed `Observation` / AI prediction | User rates accurate / somewhat / inaccurate. Accurate or somewhat opens a separate editable “add to timeline?” step; inaccurate creates no fact. | **Implemented infrastructure; boundary audit required** |
-| L2 Plan | Offer low-cost next steps after a period gate. | ranked MicroAction or Experiment candidates | User may edit and adopt zero, one, or several candidates. | **Implemented baseline**; device QA pending |
-| L3 Reflect / synthesize | Explain Weekly and Journey patterns at the depth allowed by the product surface. | versioned reflection, evidence, effective methods, adjustment direction | User reads, drills into evidence, and may act through separate candidate/adoption flows. | Standard Weekly, This Week Deep Read, Free Journey, and Journey Pro evidence surface **Implemented baseline**; independent 28-day Pro interpretation **Target** |
+| L1 Parse | Reduce capture and reading effort. | title, tags, emotion, short summary | Original input is already saved and immutable. The user may ignore derived enrichment; any enrichment refresh is separately versioned and never rewrites the fact payload. | **Implemented baseline** |
+| L1 Attune | Catch the user's immediate emotion within one record. | Timeline: one short acknowledgement with no advice/question. Pro chat: acknowledgement by default; one light response only after an explicit request for advice. | User may ignore it; Pro may open a short session from one selected SignalCard. | **Implemented baseline**; device QA pending |
+| L2 Reason | Surface a possible pattern from eligible facts. | evidence-backed `Observation` / AI prediction | User rates accurate / somewhat / inaccurate. Accurate or somewhat opens a separate editable “add to timeline?” step; inaccurate creates no fact and immediately replaces the proposal in-session. | **Implemented baseline**; device QA pending |
+| L2 Plan | Offer low-cost next steps after a period gate. | ranked MicroAction or Experiment candidates | User may edit proposals and adopt zero, one, or several. After adoption, only current-week/next-week planning content may be versioned prospectively; facts and historical plan versions remain read-only. | **Implemented baseline**; device QA pending |
+| L3 Reflect / synthesize | Explain Weekly and Journey patterns at the depth allowed by the product surface. | versioned reflection, internal trace links, effective methods, adjustment direction | User reads the reflection and may act only through separate candidate/adoption flows. | Standard Weekly, text-oriented Weekly Deep Analysis, Free Journey, and factual Journey Pro three-month change are **Implemented baseline**; structured Weekly Deep Analysis remains **Target** |
 
 ## 3. Save-First L1 Flow
 
 ```text
 capture draft
   -> explicit user save
-  -> create/update SignalCard
+  -> create one immutable SignalCard
   -> evaluate eligibility
   -> enqueue optional enrichment
-  -> persist title/tags/summary with version and trace metadata
+  -> persist versioned derived title/tags/summary and trace metadata without rewriting the fact
 ```
 
-Voice and state sheets may be skipped without a write. Failure, timeout, or
-cancellation of AI enrichment must not discard or block the user's saved text.
+For Today text, tapping the default field's check control with non-empty text
+is that explicit save; there is no second confirmation sheet. Empty text is
+zero-write. Voice, state, and time-use use their dedicated review sheets.
+
+Voice, state, and time-use sheets expose the same `Skip for now` zero-write
+action and the same `Save as today's signal` confirmation wording. Time-use
+still requires its structured fields; the shared wording does not flatten its
+payload. Failure, timeout, or cancellation of AI enrichment must not discard or
+block the user's saved text.
 
 ## 4. L1 Attune: Emotion Acknowledgement And Light Feedback
 
@@ -66,15 +78,22 @@ saved SignalCard
   -> Today timeline
 ```
 
-The response order is: acknowledge the immediate feeling, reflect the concrete
-event, then optionally offer one gentle invitation or one low-pressure
-question. It stays within the selected record and uses provisional language
-such as "it sounds like", "perhaps", and "if you want". Default length is 1-3
-short sentences and no more than one question.
+The ordinary timeline response is one short, natural acknowledgement that
+recognizes the immediate feeling or concretely reflects the event. It never
+offers advice, asks a question, or invites a next step. It stays within the
+selected record and uses provisional language rather than claiming to know the
+user. The immediate-harm safety branch below is an explicit exception to the
+one-sentence/no-question presentation rule.
 
 The snapshot is not a new SignalCard, Observation, threshold fact, candidate,
 or reflection evidence. If no saved snapshot exists, the reader shows neutral
 copy; it must not synthesize a pattern on demand from keywords.
+
+Older persisted acknowledgements are not rewritten. Read projections enforce
+the same L1 rule: advice, invitations, and questions are hidden and replaced by
+a neutral localized acknowledgement grounded only in that SignalCard.
+Today and the date-browsable Diary render this same stored/fallback L1 snapshot;
+changing the selected diary date never generates a new reply or SignalCard.
 
 ### Pro light dialogue
 
@@ -91,11 +110,16 @@ not read hidden L2 Observation fields or use cross-record history. Dialogue is
 not written to SignalCard, Observation, candidates, or ReflectionResult. A
 future save action must reopen the editable Add-to-timeline gate.
 
-Light feedback is not a MicroAction: it has no three-signal gate, adoption,
-candidate page, progress, Weekly projection, or formal-object wording. Suggested
-conversation actions are "say a little more", "help me put this into words",
-and "give me a little feedback", not "create an action" or "make an
-observation".
+Pro chat is a plain message stream plus composer, with no quick actions,
+automatic summary, or suggested prompts. It acknowledges/responds without
+proactively advising or asking a question. Only an explicit request such as
+"what should I do?" may receive one gentle, reversible, low-pressure response.
+This response is not a quick try or goal: it has no three-signal gate,
+adoption, progress, Weekly projection, or formal-object wording.
+
+When a turn contains both a causal question and an explicit request for what to
+do, the explicit advice request takes precedence; the response is still limited
+to one light, reversible option.
 
 ### Safety branch
 
@@ -114,9 +138,9 @@ not enter planning or synthesis.
 eligible SignalCards
   -> L2 reasoning
   -> Observation + evidence trace
-  -> show prediction under Quick Record
+  -> after a real Signal is saved, show prediction between Today inputs and timeline
   -> user chooses accurate / somewhat / inaccurate
-       inaccurate -> zero write and session-only dismissal
+       inaccurate -> zero write, session-only exclude, immediately show another
        accurate or somewhat
          -> editable confirmation sheet
          -> user chooses add to timeline or cancel
@@ -126,12 +150,28 @@ eligible SignalCards
 
 The rating and the timeline decision are separate UI steps. If the user does
 not add the proposal, neither step is persisted as feedback. Editing changes
-only the new `SignalCard` payload after confirmed insertion; it must not rewrite
-the source `Observation` or its evidence.
+only the proposal draft before insertion; it must not rewrite the source
+`Observation` or its evidence. After insertion, the new `SignalCard` is
+immutable and the confirmation editor cannot reopen as a record editor.
 
 Signal Library uses the same confirmation boundary. Library content is a
-`SignalCard` reference, not a Small Experiment, Small Action, or standalone
-Observation record.
+`SignalCard` reference, not a quick try, goal, or standalone Observation
+record. Accurate/Somewhat opens the same editable confirmation
+sheet as AI prediction, and only Save as today's signal creates a fact.
+
+An inaccurate AI prediction is excluded only in the current in-memory page
+session and immediately replaced by another eligible prediction. This creates
+no match-feedback event or account data. A page session allows at most three
+replacement operations; rejecting the third replacement ends replacement for
+that session and shows a neutral no-new-prediction state. The counter and
+exclusion set reset when the user leaves the page. If eligible predictions are
+exhausted sooner, the same neutral state appears. Library Inaccurate remains
+zero-write without replacement.
+
+The Today surface keeps this dependency order: compact state, Signal inputs,
+editable AI-prediction decision, confirmed-fact timeline, then the derived
+quick-try/goal feedback section at the bottom. A prediction never appears as a
+standalone input button.
 
 ## 6. L2 Candidate Planning
 
@@ -146,8 +186,8 @@ period:
 - candidates retain source period, evidence links, focus context, prompt/model
   version, and rank;
 - planning reads a bounded `EnergyBudgetSnapshot`: daily capacity plus weekly
-  constraints for MicroActions, and weekly budget plus effective feedback for
-  LifeExperiments;
+  constraints for quick tries (`MicroAction` storage), and weekly budget plus
+  effective feedback for goals (`LifeExperiment` storage);
 - energy adjusts content, duration, cadence, switching cost, buffer, difficulty,
   rank, and rationale; it never replaces the gate or hides otherwise eligible
   facts;
@@ -157,6 +197,20 @@ period:
 - user may adopt `0..n`; each adoption creates one formal object idempotently;
 - unadopted candidates may be superseded after source invalidation, while
   adopted objects keep historical provenance.
+
+AI planning never rewrites an adopted object's history. While a quick try or
+goal remains in the current-user-local-week or next-user-local-week planning
+window, the user may revise only its not-yet-occurred plan definition. That
+revision creates a prospective plan version and preserves the formal object,
+origin candidate, evidence, earlier versions, and all recorded progress. Past
+dates and completed periods accept neither AI nor user edits/backfills.
+
+Privacy/safety checks, eligibility decisions, internal Observations, Energy
+Budget snapshots, threshold evaluation, candidate generation/adoption state,
+source-change regeneration, AI reply snapshots, feedback/progress, and Diary
+read projections never create or increment a SignalCard merely by running.
+Only the user's explicit Save-as-today's-signal decision creates a countable
+fact.
 
 The shared grouped/ranked read model, daily MicroAction generation, dedicated
 selection pages, multi-adoption, and structured daily/weekly Energy input to
@@ -173,38 +227,99 @@ MicroActions, formal LifeExperiments, and their own feedback streams. It may use
 traceable Observations as derived context, never as extra facts. The next-week
 candidate hub is a separate output from the weekly reflection.
 
-The standard Weekly report and Pro “This Week Deep Read” are publishable only
-after 3 distinct eligible SignalCards exist in the current user-local
-Monday-Sunday week. Before that state, the UI shows readiness progress and no
-Weekly interpretation. The Pro surface is called “This Week Deep Read.”
+The standard Weekly report and Pro
+`Weekly Deep Analysis / 本周深度分析` are publishable only after 3 distinct
+eligible SignalCards exist in the current user-local Monday-Sunday week. Before
+that state, the UI shows readiness progress and no Weekly interpretation.
+
+The standard Weekly report answers what happened: Signal facts, one traceable
+repeated pattern, attempt results, and the sibling Weekly Energy State. Weekly
+Deep Analysis does not rewrite those layers in longer prose. It adds only:
+
+- a short headline naming one supported cross-layer relationship;
+- a relationship map linking Signal context, repeated pattern, energy state,
+  and attempt result through explicitly scoped co-occurrence links;
+- a seven-day aggregate overlay locating Signal density, qualitative energy
+  state, and whether feedback exists;
+- a qualitative support band and a three-part next-week validation direction;
+- source Signal IDs and a deterministic Analysis Scope statement.
+
+Weekly Energy State is a deterministic upstream projection, not a category the
+L3 model may invent or rename. Every eligible Signal arrives with exactly one
+stable state key: orange `draining / 偏耗力`, blue `steady / 平稳`, yellow
+`ease / 有余力`, green `recovery / 恢复`, or purple
+`boundary_buffer / 边界与余地`. `ease` means spare capacity already exists;
+`recovery` means a replenishing process or result. The projection first maps
+explicit `energy_level 0 / 1 / 2` to `draining / steady / ease`, then reads the
+legacy effect only when necessary (`restoring -> recovery`). If neither exists,
+traceable actual cues use the fixed stop-on-match order `boundary_buffer >
+recovery > draining > ease`; no match becomes `steady`. L3 may describe how
+these states co-occur with a pattern or attempt, but may not output an
+`unknown`, gray, sixth category, reassign a Signal, or turn a tie into a model
+opinion. Switching and deep focus remain overlapping descriptors rather than
+state categories.
+
+The target structured response uses `relationship_nodes`,
+`relationship_edges`, `daily_overlay`, `support_band`, `next_validation`,
+`source_signal_ids`, `behavior_illustration_key`, and `analysis_scope`. The
+current `summary / root_tension / hidden_pattern / next_focus / risk_note`
+response remains a compatibility baseline. It must not be presented as if the
+structured projection is already implemented.
+
+`root_tension` and `hidden_pattern` are not permission to infer personality,
+motivation, an inner cause, or a hidden self. A relationship node or line is
+published only when its own source Signal IDs and local-date/count scope are
+present. The line says `co-occurred / related`, never `caused`. Legacy
+`risk_note` is not headed `Use gently / 温和使用`; the target UI replaces it with
+deterministic `Analysis scope / 分析范围` based on actual Signal count, recorded
+days, source scope, and the non-causal limitation.
+
+AI does not emit topic shares, numeric model confidence, `3/4`, or generated
+mood/friction scores for this UI. Support is relationship-specific:
+`forming`, `repeated_this_week`, or `cross_week_supported`. Only the last state
+permits a long-term-impact statement. User-visible labels are qualitative and
+all source/support wording says `Signal / linked Signal / source Signal`; the
+word `evidence` remains internal to trace, audit, and eligibility contracts.
+
+The next-week direction is three compact outputs—`why_try`, `how_to_try`, and
+`what_to_watch`—not the user-visible English headings Strategy, Design, and
+Development. It proposes a validation direction only; candidate generation,
+editing, and adoption remain the separate L2 Plan flow.
+
+Illustration selection is a display projection, not generative free text. The
+active catalog distinguishes 24 behavior-pattern keys, 30 review-pattern keys,
+and 9 focus keys. AI returns one exact catalog key, never a path. The primary
+Weekly behavior key is selected by traceable pattern, distinct dates,
+supporting Signal count, then stable key order, and is reused by Weekly Deep
+Analysis for the same source hash. Review-pattern images stay with
+attempt-result/feedback meaning. Unknown keys resolve to the versioned neutral
+`pattern_forming` asset rather than a guessed behavior.
 
 ### Journey
 
-Free Journey always keeps the user's timeline, fragments, SignalCard local-date
-monthly grid, curve, and available evidence readable. The grid is an in-app
-aggregation and does not read the system Calendar. Its synthesized monthly
-report starts after the monthly evidence threshold. Journey Pro L3 is a separately discoverable,
-entitlement-gated **Implemented baseline** at `/memory/pro-l3` with:
+Free Journey always keeps the selected month's Signal-only path, factual grid,
+quick-experiment/goal trajectory and real state/rhythm projection readable.
+The grid is an in-app aggregation and does not read the system Calendar. Its
+synthesized monthly report starts after 7 distinct eligible SignalCards across
+3 local dates in that natural month.
 
-- exact `14/7/2` readiness;
-- verifiable 28-day statistics and two local-week fact comparison;
-- an existing Journey summary when available;
-- raw eligible SignalCard evidence;
-- follow-up opened from a real SignalCard ID;
-- insufficient-data, loading, offline, and error states.
+Journey report generation may read all policy-allowed app data from first use
+through the selected month's end: Signals, explicit status/energy projections,
+Weekly reflections, quick-experiment attempts and round reviews, goal daily
+facts and weekly/whole-round reviews, plan versions and internal Observations.
+Only eligible SignalCards in the output month increase readiness. Other data
+may add context but never satisfy a Signal threshold.
 
-The page does not run an independent versioned 28-day interpretive generator.
-If no existing Journey summary is cached, it shows statistics and source
-evidence only. A new traceable 28-day L3 `reflection_result` generator remains
-**Target** and must not be implied by factual comparison copy.
+Journey Pro at `/memory/pro-l3` is an entitlement-gated three-natural-month
+change report. It uses the selected month and its two preceding months, reusing
+the same monthly fact/readiness projection. It shows monthly Signal, recording
+day, domain and five-state energy distributions, then a short conservative
+latest-month change only when at least two of the three months individually
+meet `7/3`. It does not contain a duplicate quick-experiment/goal section,
+analysis/data-range scope, source-Signal list, date drilldown or AI dialogue.
 
-This Week Deep Read must not be presented as the Journey Pro report.
-
-Free Journey becomes publishable after 7 distinct eligible SignalCards across
-3 local dates in the current calendar month. Journey Pro L3 additionally needs
-14 distinct eligible SignalCards across 7 local dates and 2 Monday-Sunday week
-buckets in the latest 28 days. Feedback, Observations, candidates, and AI text
-may enrich an eligible run but never satisfy its SignalCard threshold.
+Weekly Deep Analysis remains the separate current-week cross-layer report
+gated by 3 Signals; Journey Pro uses only the natural-month projection above.
 
 ## 8. Orchestration Inputs
 
@@ -232,15 +347,14 @@ signals by default. The current local multi-select implementation is
 | --- | --- | --- |
 | L1 Parse enrichment | SignalCard enrichment fields / pipeline output | source SignalCard, prompt/model/schema version |
 | L1 Attune timeline reply | SignalCard `ai_reply` versioned snapshot | exactly one source SignalCard, safety/policy result, prompt/model/schema version |
-| Pro L1 Attune dialogue | session memory only; usage counters may store token/cost totals | selected SignalCard id and current-session context; no dialogue-to-evidence link |
+| Pro L1 Attune dialogue | session memory only; usage counters may store token/cost totals | current session context; this is not part of Journey Pro |
 | Daily reflection | `reflection_results` with daily snapshot source | bounded source period and trace links |
 | Observation / judgement | `observations` | evidence links to eligible SignalCards; no fact status |
 | MicroAction candidate | `candidate_groups` + `micro_action_candidates` | candidate group, rank, source period, trace links, energy snapshot/hash, version |
 | Experiment candidate | `candidate_groups` + `experiment_candidates` | candidate group/rank, source period, trace links, energy snapshot/hash, version |
 | Weekly reflection | `reflection_results` with `source_type = weekly_snapshot` | bounded week and cited evidence |
-| Journey reflection | `reflection_results` with `source_type = journey_snapshot` | bounded month/range and cited evidence |
-| Journey Pro evidence projection | no new AI storage; bounded `JourneyProReportModel` read | latest-28-day eligible SignalCards, readiness, local-week buckets, existing Journey summary |
-| Independent 28-day Pro interpretation | future versioned `reflection_results` output | **Target:** dedicated input hash, pipeline version, and evidence links |
+| Journey reflection | `reflection_results` with `source_type = journey_snapshot` | selected month facts plus history-through-period context hash and trace links |
+| Journey Pro three-month change | versioned `reflection_results` output plus three monthly fact projections | selected month and two prior natural months, per-month `7/3` readiness, full-history-through-period context, pipeline version and trace links |
 | Pipeline execution | `pipeline_runs` | purpose, input fingerprint, versions, timing, result/error |
 
 Adoption creates an `origin_candidate` link from the formal object; it does not
@@ -249,11 +363,13 @@ turn the candidate row itself into the formal object. See
 
 ## 10. Invalidations And Failure Behaviour
 
-- Deleting, excluding, or materially editing an upstream SignalCard marks
+- Deleting, excluding, or changing the eligibility/privacy state of an
+  upstream SignalCard marks
   dependent Observations/reflections stale and immediately transitions the
   affected unadopted candidate group through `stale -> regenerating`. The UI
-  announces the update, briefly debounces rapid edits, and replaces the group
-  in place when `ready` arrives.
+  announces the update, briefly debounces rapid state changes, and replaces the
+  group in place when `ready` arrives. Canonical SignalCard content is never an
+  editable invalidation source.
 - Falling below a three-signal gate hides/invalidates unadopted candidates.
   Adopted objects remain as user history with their source provenance.
 - A relevant explicit state, effective action/experiment feedback, or allowed
@@ -272,14 +388,20 @@ turn the candidate row itself into the formal object. See
 Implemented baseline includes save-first capture, eligibility services,
 Observations and trace links, bounded Weekly/Journey reflection storage, daily
 and weekly candidate groups, multi-adoption, immediate stale regeneration, and
-real per-object `X/7`, plus the Journey Pro L3 evidence/comparison route.
+real per-object progress, plus the legacy Journey Pro route shell that is being
+replaced by the three-month change surface.
 
-Today acknowledgement and Pro short dialogue now share the L1 Attune contract:
+Today acknowledgement and Pro short dialogue share the implemented L1 Attune
+boundary:
 the request is bounded to the selected SignalCard and current session, derived
 Observation/try-next inputs are excluded, and immediate-risk language switches
-to a safety response. Region-specific verified crisis resources remain Target.
+to a safety response. The stricter output policy—one no-advice/no-question
+timeline sentence, and a gentle Pro response only after an explicit advice
+request—is the implemented baseline and requires device regression before
+release.
+Region-specific verified crisis resources remain Target.
 
 Bounded daily/weekly Energy snapshots and their direct plural-planner inputs
 are implemented. Candidate/progress release acceptance remains subject to
-device QA. Ordered remote focus context and independent versioned 28-day Pro
-interpretation also remain **Target**.
+device QA. Ordered remote focus context and versioned Journey Pro three-month
+change synthesis also remain **Target**.

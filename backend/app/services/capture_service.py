@@ -6,6 +6,7 @@ from app.schemas.capture_schema import (
     CaptureSubmitResponseSchema,
     RecentSignalSchema,
 )
+from app.services.energy_state_service import classify_signal_energy_state
 from app.services.classification_service import ClassificationService
 from app.repositories.capture_repository import CaptureRepository
 from app.services.ai_orchestrator import AiOrchestrator
@@ -255,6 +256,18 @@ class CaptureService:
                 friction=card.friction,
                 positive_signal=card.positive_signal,
                 energy_load=card.energy_load,
+                energy_state=classify_signal_energy_state(
+                    source_type=card.source_type,
+                    raw_payload=card.raw_payload_json or {},
+                    energy_load=card.energy_load,
+                    friction=card.friction,
+                    positive_signal=card.positive_signal,
+                    linked_life_chain_stage=card.linked_life_chain_stage or {},
+                    content=card.raw_text or "",
+                ),
+                linked_life_chain_stage=self._life_chain_stages(
+                    card.linked_life_chain_stage
+                ),
                 user_confirmation=card.user_confirmation,
                 user_correction_json=card.user_correction_json or {},
                 included_in_summary=card.included_in_summary,
@@ -295,6 +308,19 @@ class CaptureService:
             if intensity >= 2:
                 return "medium"
         return "low"
+
+    def _life_chain_stages(self, raw) -> list[str]:
+        if isinstance(raw, dict):
+            raw = raw.get("stages", [])
+        if isinstance(raw, str):
+            raw = [raw]
+        if not isinstance(raw, (list, tuple, set)):
+            return []
+        return [
+            value
+            for item in raw
+            if (value := str(item or "").strip())
+        ]
 
     def _check_quota(
         self,

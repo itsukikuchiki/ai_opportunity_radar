@@ -3,13 +3,18 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/weekly_models.dart';
+import '../policies/planning_content_edit_policy.dart';
 import 'local_database.dart';
 import 'local_life_experiment_repository.dart';
 
 class LocalExperimentCandidateRepository {
   final LocalDatabase localDatabase;
+  final DateTime Function() nowLoader;
 
-  LocalExperimentCandidateRepository(this.localDatabase);
+  LocalExperimentCandidateRepository(
+    this.localDatabase, {
+    DateTime Function()? nowLoader,
+  }) : nowLoader = nowLoader ?? DateTime.now;
 
   Future<LifeExperimentModel?> getById(String candidateId) async {
     final db = await localDatabase.database;
@@ -54,6 +59,7 @@ class LocalExperimentCandidateRepository {
     required String suggestedAction,
     required List<String> linkedSignalCardIds,
     List<String> linkedObservationIds = const [],
+    int? plannedTotalDays,
   }) async {
     final db = await localDatabase.database;
     final existing = await db.query(
@@ -82,6 +88,9 @@ class LocalExperimentCandidateRepository {
       suggestedAction: suggestedAction,
       linkedSignalCardIds: linkedSignalCardIds,
       status: 'suggested',
+      plannedTotalDays: plannedTotalDays != null && plannedTotalDays > 0
+          ? plannedTotalDays
+          : null,
       createdAt: now,
       updatedAt: now,
     );
@@ -98,6 +107,8 @@ class LocalExperimentCandidateRepository {
         'metadata_json': jsonEncode({
           'presentation_status': 'suggested',
           'created_from': 'weekly_experiment_planning',
+          if (candidate.plannedTotalDays != null)
+            'planned_total_days': candidate.plannedTotalDays,
         }),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -111,10 +122,16 @@ class LocalExperimentCandidateRepository {
   }) async {
     final db = await localDatabase.database;
     final presentationStatus = status == 'generated' ? 'suggested' : status;
+    final normalizedStatus = status.trim().toLowerCase();
     await db.update(
       'experiment_candidates',
       {
         'status': status,
+        if (const {'saved', 'considering', 'observing', 'reviewing'}
+            .contains(normalizedStatus))
+          'decision_status': 'considering',
+        if (const {'adopted', 'planned', 'active'}.contains(normalizedStatus))
+          'decision_status': 'adopted',
         'metadata_json': jsonEncode({
           'presentation_status': presentationStatus,
           'created_from': 'weekly_experiment_planning',
@@ -131,6 +148,56 @@ class LocalExperimentCandidateRepository {
     );
   }
 
+  Future<LifeExperimentModel?> updateContent({
+    required String candidateId,
+    required String title,
+    required String hypothesis,
+    required String suggestedAction,
+  }) async {
+    final normalizedTitle = title.trim();
+    final normalizedAction = suggestedAction.trim();
+    if (normalizedTitle.isEmpty || normalizedAction.isEmpty) return null;
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'experiment_candidates',
+      where: 'id = ?',
+      whereArgs: [candidateId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    final status = (row['status'] as String? ?? '').toLowerCase();
+    final sourceStart = DateTime.tryParse(
+      (row['source_week_start'] as String?) ?? '',
+    );
+    final sourceEnd = DateTime.tryParse(
+      (row['source_week_end'] as String?) ?? '',
+    );
+    if (!const {'generated', 'edited'}.contains(status) ||
+        sourceStart == null ||
+        sourceEnd == null ||
+        !PlanningContentEditPolicy.canEditRange(
+          start: sourceStart.add(const Duration(days: 7)),
+          end: sourceEnd.add(const Duration(days: 7)),
+          now: nowLoader(),
+        )) {
+      return null;
+    }
+    final affected = await db.update(
+      'experiment_candidates',
+      {
+        'title': normalizedTitle,
+        'hypothesis': hypothesis.trim(),
+        'suggested_action': normalizedAction,
+        'status': 'edited',
+        'updated_at': nowLoader().toUtc().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [candidateId],
+    );
+    return affected == 0 ? null : getById(candidateId);
+  }
+
   Future<LifeExperimentModel?> adoptCandidate({
     required String candidateId,
     required LocalLifeExperimentRepository lifeExperimentRepository,
@@ -144,6 +211,10 @@ class LocalExperimentCandidateRepository {
     // into its actual active period.
     final activeWeekStart = _shiftDateKey(candidate.sourceWeekStart, 7);
     final activeWeekEnd = _shiftDateKey(candidate.sourceWeekEnd, 7);
+    final progressEndDate = _progressEndDate(
+      activeWeekStart,
+      candidate.plannedTotalDays,
+    );
     final adoptedAt = DateTime.now();
 
     final ensured = await lifeExperimentRepository.ensureSuggested(
@@ -166,7 +237,7 @@ class LocalExperimentCandidateRepository {
       originCandidateId: candidate.id,
       adoptedAt: adoptedAt,
       progressStartDate: activeWeekStart,
-      progressEndDate: activeWeekEnd,
+      progressEndDate: progressEndDate,
     );
     final experiment = ensured.status == 'saved'
         ? ensured
@@ -181,6 +252,7 @@ class LocalExperimentCandidateRepository {
       'experiment_candidates',
       {
         'status': 'adopted',
+        'decision_status': 'adopted',
         'adopted_experiment_id': experiment.id,
         'metadata_json': jsonEncode({
           'presentation_status': 'adopted',
@@ -235,6 +307,7 @@ class LocalExperimentCandidateRepository {
       linkedSignalCardIds: _decodeStringList(
         row['linked_signal_card_ids_json'],
       ),
+      plannedTotalDays: _positiveInt(metadata['planned_total_days']),
       status: status,
       createdAt: DateTime.tryParse((row['created_at'] as String?) ?? ''),
       updatedAt: DateTime.tryParse((row['updated_at'] as String?) ?? ''),
@@ -301,5 +374,17 @@ class LocalExperimentCandidateRepository {
     return '${shifted.year.toString().padLeft(4, '0')}-'
         '${shifted.month.toString().padLeft(2, '0')}-'
         '${shifted.day.toString().padLeft(2, '0')}';
+  }
+
+  String? _progressEndDate(String startDate, int? plannedTotalDays) {
+    if (plannedTotalDays == null || plannedTotalDays <= 0) return null;
+    final start = DateTime.tryParse(startDate);
+    if (start == null) return null;
+    return _shiftDateKey(startDate, plannedTotalDays - 1);
+  }
+
+  int? _positiveInt(Object? value) {
+    final parsed = value is int ? value : int.tryParse(value?.toString() ?? '');
+    return parsed != null && parsed > 0 ? parsed : null;
   }
 }

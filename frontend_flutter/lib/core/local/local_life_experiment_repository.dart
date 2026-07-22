@@ -4,15 +4,31 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/weekly_models.dart';
+import '../models/experiment_evaluation_models.dart';
+import '../policies/planning_content_edit_policy.dart';
 import 'local_cache_invalidation_repository.dart';
 import 'local_database.dart';
+import 'local_plan_content_version_repository.dart';
 import 'local_trace_link_repository.dart';
+
+class _PlanProjectionMissing implements Exception {
+  const _PlanProjectionMissing();
+}
 
 class LocalLifeExperimentRepository {
   final LocalDatabase localDatabase;
+  final DateTime Function() nowLoader;
+  late final LocalPlanContentVersionRepository planContentVersionRepository;
   final Uuid _uuid = const Uuid();
 
-  LocalLifeExperimentRepository(this.localDatabase);
+  LocalLifeExperimentRepository(
+    this.localDatabase, {
+    DateTime Function()? nowLoader,
+    LocalPlanContentVersionRepository? planContentVersionRepository,
+  }) : nowLoader = nowLoader ?? DateTime.now {
+    this.planContentVersionRepository = planContentVersionRepository ??
+        LocalPlanContentVersionRepository(localDatabase);
+  }
 
   /// Storage helpers used by the candidate planner so creating several formal
   /// experiments and binding all selected candidates can share one SQLite
@@ -24,6 +40,7 @@ class LocalLifeExperimentRepository {
   LifeExperimentModel fromStorageRow(Map<String, Object?> row) => _mapRow(row);
 
   Future<void> ensureAdoptionArtifacts(LifeExperimentModel experiment) async {
+    await _ensureInitialContentVersion(experiment);
     final db = await localDatabase.database;
     final existingCreatedEvent = await db.query(
       'life_experiment_lifecycle_events',
@@ -46,7 +63,10 @@ class LocalLifeExperimentRepository {
     await refreshRollup(experiment.id);
   }
 
-  Future<LifeExperimentModel?> getById(String experimentId) async {
+  Future<LifeExperimentModel?> getById(
+    String experimentId, {
+    String? selectedLocalDate,
+  }) async {
     final db = await localDatabase.database;
     final rows = await db.query(
       'life_experiments',
@@ -55,7 +75,9 @@ class LocalLifeExperimentRepository {
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    return _mapRow(rows.first);
+    return selectedLocalDate == null
+        ? _mapRow(rows.first)
+        : _mapRowForDate(rows.first, selectedLocalDate);
   }
 
   Future<LifeExperimentModel?> getByOriginCandidateId(
@@ -77,6 +99,7 @@ class LocalLifeExperimentRepository {
   Future<LifeExperimentModel?> getByWeekStart({
     required String localUserId,
     required String weekStart,
+    String? selectedLocalDate,
   }) async {
     final db = await localDatabase.database;
     final rows = await db.query(
@@ -87,7 +110,9 @@ class LocalLifeExperimentRepository {
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    return _mapRow(rows.first);
+    return selectedLocalDate == null
+        ? _mapRow(rows.first)
+        : _mapRowForDate(rows.first, selectedLocalDate);
   }
 
   Future<LifeExperimentModel> ensureSuggested({
@@ -107,6 +132,7 @@ class LocalLifeExperimentRepository {
     String? plannedFrequency,
     int? plannedDurationMinutes,
     int? plannedTotalDays,
+    int minimumObservationDays = 3,
     String? originCandidateId,
     DateTime? adoptedAt,
     String? progressStartDate,
@@ -121,7 +147,7 @@ class LocalLifeExperimentRepository {
     if (existing != null) return existing;
 
     final db = await localDatabase.database;
-    final now = DateTime.now().toUtc();
+    final now = nowLoader().toUtc();
     final id = 'exp_${_uuid.v4().replaceAll('-', '').substring(0, 12)}';
     final experiment = LifeExperimentModel(
       id: id,
@@ -142,6 +168,9 @@ class LocalLifeExperimentRepository {
       plannedFrequency: plannedFrequency,
       plannedDurationMinutes: plannedDurationMinutes,
       plannedTotalDays: plannedTotalDays,
+      minimumObservationDays: _normalizeMinimumObservationDays(
+        minimumObservationDays,
+      ),
       originCandidateId: originCandidateId,
       adoptedAt: adoptedAt,
       progressStartDate: progressStartDate,
@@ -155,6 +184,9 @@ class LocalLifeExperimentRepository {
       _toRow(experiment),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    if (_hasAdoptionEvidence(experiment)) {
+      await _ensureInitialContentVersion(experiment);
+    }
     await _recordLifecycleEvent(
       experiment: experiment,
       eventType: 'created',
@@ -193,10 +225,39 @@ class LocalLifeExperimentRepository {
     String? plannedFrequency,
     int? plannedDurationMinutes,
     int? plannedTotalDays,
+    int? minimumObservationDays,
   }) async {
     final db = await localDatabase.database;
     final before = await getById(experimentId);
-    final now = DateTime.now().toUtc();
+    if (before == null) return null;
+    final changesPlanningContent = title != null ||
+        hypothesis != null ||
+        suggestedAction != null ||
+        focusAreaId != null ||
+        patternId != null ||
+        feedbackPatternId != null ||
+        iconAssetId != null ||
+        plannedFrequency != null ||
+        plannedDurationMinutes != null ||
+        plannedTotalDays != null;
+    // The minimum observation threshold is future planning content too. It
+    // can change only while the same plan content is still editable.
+    final changesObservationThreshold = minimumObservationDays != null;
+    final changesAnyPlanningContent =
+        changesPlanningContent || changesObservationThreshold;
+    if (changesAnyPlanningContent &&
+        !PlanningContentEditPolicy.canEditLifeExperiment(
+          before,
+          now: nowLoader(),
+        )) {
+      return null;
+    }
+    String? effectiveDate;
+    if (changesAnyPlanningContent) {
+      effectiveDate = await _lifeExperimentEditEffectiveDate(before);
+      if (effectiveDate == null) return null;
+    }
+    final now = nowLoader().toUtc();
     final updates = <String, Object?>{
       'updated_at': now.toIso8601String(),
     };
@@ -220,39 +281,100 @@ class LocalLifeExperimentRepository {
     if (plannedTotalDays != null) {
       updates['planned_total_days'] = plannedTotalDays;
     }
-
-    await db.update(
-      'life_experiments',
-      updates,
-      where: 'id = ?',
-      whereArgs: [experimentId],
-    );
-    final updated = await getById(experimentId);
-    if (updated != null) {
-      final eventType = status != null && status != before?.status
-          ? 'status_changed'
-          : 'details_updated';
-      await _recordLifecycleEvent(
-        experiment: updated,
-        eventType: eventType,
-        statusFrom: before?.status,
-        statusTo: updated.status,
-        payload: {
-          if (title != null) 'title_changed': true,
-          if (hypothesis != null) 'hypothesis_changed': true,
-          if (suggestedAction != null) 'suggested_action_changed': true,
-          if (feedbackText != null) 'feedback_text': feedbackText,
-        },
-      );
-      await _writeExperimentTraceLinks(updated);
-      await refreshRollup(updated.id);
-      await LocalCacheInvalidationRepository(localDatabase)
-          .markExperimentChanged(
-        weekStart: updated.sourceWeekStart,
-        eventDate: now,
-        reason: eventType,
-      );
+    if (minimumObservationDays != null) {
+      updates['minimum_observation_days'] =
+          _normalizeMinimumObservationDays(minimumObservationDays);
     }
+
+    late final LifeExperimentModel updated;
+    try {
+      updated = await db.transaction((txn) async {
+        if (changesAnyPlanningContent) {
+          await planContentVersionRepository.ensureInitialWithExecutor(
+            txn,
+            localUserId: before.localUserId,
+            objectKind: PlanContentObjectKind.goal,
+            objectId: before.id,
+            effectiveFromLocalDate: _lifeExperimentStartDate(before),
+            content: _lifeExperimentContent(before),
+            createdAt: before.createdAt,
+          );
+          await planContentVersionRepository.appendWithExecutor(
+            txn,
+            localUserId: before.localUserId,
+            objectKind: PlanContentObjectKind.goal,
+            objectId: before.id,
+            effectiveFromLocalDate: effectiveDate!,
+            content: _lifeExperimentContent(
+              before,
+              title: title,
+              hypothesis: hypothesis,
+              suggestedAction: suggestedAction,
+              focusAreaId: focusAreaId,
+              patternId: patternId,
+              feedbackPatternId: feedbackPatternId,
+              iconAssetId: iconAssetId,
+              plannedFrequency: plannedFrequency,
+              plannedDurationMinutes: plannedDurationMinutes,
+              plannedTotalDays: plannedTotalDays,
+              minimumObservationDays: minimumObservationDays,
+            ),
+            createdAt: now,
+          );
+        }
+        final affected = await txn.update(
+          'life_experiments',
+          updates,
+          where: 'id = ?',
+          whereArgs: [experimentId],
+        );
+        if (affected == 0) throw const _PlanProjectionMissing();
+        final updatedRows = await txn.query(
+          'life_experiments',
+          where: 'id = ?',
+          whereArgs: [experimentId],
+          limit: 1,
+        );
+        if (updatedRows.isEmpty) throw const _PlanProjectionMissing();
+        final projected = _mapRow(updatedRows.first);
+        if (!changesAnyPlanningContent && _hasAdoptionEvidence(projected)) {
+          await planContentVersionRepository.ensureInitialWithExecutor(
+            txn,
+            localUserId: projected.localUserId,
+            objectKind: PlanContentObjectKind.goal,
+            objectId: projected.id,
+            effectiveFromLocalDate: _lifeExperimentStartDate(projected),
+            content: _lifeExperimentContent(projected),
+            createdAt: projected.createdAt,
+          );
+        }
+        return projected;
+      });
+    } on _PlanProjectionMissing {
+      return null;
+    }
+    final eventType = status != null && status != before.status
+        ? 'status_changed'
+        : 'details_updated';
+    await _recordLifecycleEvent(
+      experiment: updated,
+      eventType: eventType,
+      statusFrom: before.status,
+      statusTo: updated.status,
+      payload: {
+        if (title != null) 'title_changed': true,
+        if (hypothesis != null) 'hypothesis_changed': true,
+        if (suggestedAction != null) 'suggested_action_changed': true,
+        if (feedbackText != null) 'feedback_text': feedbackText,
+      },
+    );
+    await _writeExperimentTraceLinks(updated);
+    await refreshRollup(updated.id);
+    await LocalCacheInvalidationRepository(localDatabase).markExperimentChanged(
+      weekStart: updated.sourceWeekStart,
+      eventDate: now,
+      reason: eventType,
+    );
     return updated;
   }
 
@@ -261,7 +383,9 @@ class LocalLifeExperimentRepository {
     if (experiment == null) return;
 
     final db = await localDatabase.database;
-    final feedbacks = await listFeedbacks(experimentId: experimentId);
+    // Deletion must clean traces for invalidated feedback too. User-facing
+    // reads and rollups use [listFeedbacks], which intentionally hides them.
+    final feedbacks = await _listAllFeedbacks(experimentId: experimentId);
     final eventDate =
         DateTime.tryParse(experiment.sourceWeekStart) ?? DateTime.now();
     final traceRepository = LocalTraceLinkRepository(localDatabase);
@@ -296,6 +420,15 @@ class LocalLifeExperimentRepository {
         whereArgs: [experimentId],
       );
       await txn.delete(
+        'plan_content_versions',
+        where: 'local_user_id = ? AND object_kind = ? AND object_id = ?',
+        whereArgs: [
+          experiment.localUserId,
+          PlanContentObjectKind.goal.storageValue,
+          experimentId,
+        ],
+      );
+      await txn.delete(
         'life_experiment_rollups',
         where: 'experiment_id = ?',
         whereArgs: [experimentId],
@@ -309,45 +442,7 @@ class LocalLifeExperimentRepository {
   }
 
   Future<void> deleteFeedback(String feedbackId) async {
-    final db = await localDatabase.database;
-    final rows = await db.query(
-      'life_experiment_feedback',
-      where: 'id = ?',
-      whereArgs: [feedbackId],
-      limit: 1,
-    );
-    if (rows.isEmpty) return;
-
-    final row = rows.first;
-    final experimentId = (row['experiment_id'] as String?) ?? '';
-    final experiment = await getById(experimentId);
-    if (experiment == null) return;
-
-    final feedbackDate = DateTime.tryParse(
-          (row['feedback_date'] as String?) ??
-              (row['local_date'] as String?) ??
-              '',
-        ) ??
-        DateTime.now();
-    await LocalTraceLinkRepository(localDatabase).markInactiveForSource(
-      sourceType: 'life_experiment_feedback',
-      sourceId: feedbackId,
-    );
-    await db.delete(
-      'life_experiment_feedback',
-      where: 'id = ?',
-      whereArgs: [feedbackId],
-    );
-    await refreshRollup(experimentId);
-    await _markRollupStale(
-      experimentId: experimentId,
-      reason: 'life_experiment_feedback_deleted',
-    );
-    await LocalCacheInvalidationRepository(localDatabase).markExperimentChanged(
-      weekStart: experiment.sourceWeekStart,
-      eventDate: feedbackDate,
-      reason: 'life_experiment_feedback_deleted',
-    );
+    throw UnsupportedError('life_experiment_feedback_is_append_only');
   }
 
   Future<LifeExperimentFeedbackModel?> updateFeedback({
@@ -358,83 +453,7 @@ class LocalLifeExperimentRepository {
     int? durationMinutes,
     List<String>? conditionTags,
   }) async {
-    final db = await localDatabase.database;
-    final rows = await db.query(
-      'life_experiment_feedback',
-      where: 'id = ?',
-      whereArgs: [feedbackId],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-
-    final current = _mapFeedbackRow(rows.first);
-    final experiment = await getById(current.experimentId);
-    if (experiment == null) return null;
-
-    final now = DateTime.now().toUtc().toIso8601String();
-    final updates = <String, Object?>{
-      'updated_at': now,
-      if (completionStatus != null) ...{
-        'completion_status': completionStatus,
-        'happened': completionStatus,
-      },
-      if (helpfulnessScore != null) ...{
-        'helpfulness_score': helpfulnessScore,
-        'effect': helpfulnessScore.toString(),
-      },
-      if (feedbackText != null) ...{
-        'feedback_text': feedbackText,
-        'comment': feedbackText,
-      },
-      if (durationMinutes != null) ...{
-        'duration_minutes': durationMinutes,
-        'actual_duration_minutes': durationMinutes,
-      },
-      if (conditionTags != null)
-        'condition_tags_json': jsonEncode(conditionTags),
-    };
-    await db.update(
-      'life_experiment_feedback',
-      updates,
-      where: 'id = ?',
-      whereArgs: [feedbackId],
-    );
-
-    final updatedRows = await db.query(
-      'life_experiment_feedback',
-      where: 'id = ?',
-      whereArgs: [feedbackId],
-      limit: 1,
-    );
-    final updated = _mapFeedbackRow(updatedRows.first);
-    await _recordLifecycleEvent(
-      experiment: experiment,
-      eventType: 'feedback_updated',
-      statusFrom: experiment.status,
-      statusTo: experiment.status,
-      sourceType: 'life_experiment_feedback',
-      sourceId: feedbackId,
-      eventDate: updated.feedbackDate,
-      payload: {
-        'completion_status': updated.completionStatus,
-        if (updated.helpfulnessScore != null)
-          'helpfulness_score': updated.helpfulnessScore,
-        if (updated.feedbackText != null) 'feedback_text': updated.feedbackText,
-        if (updated.durationMinutes != null)
-          'duration_minutes': updated.durationMinutes,
-      },
-    );
-    await refreshRollup(experiment.id);
-    await _markRollupStale(
-      experimentId: experiment.id,
-      reason: 'life_experiment_feedback_changed',
-    );
-    await LocalCacheInvalidationRepository(localDatabase).markExperimentChanged(
-      weekStart: experiment.sourceWeekStart,
-      eventDate: updated.feedbackDate,
-      reason: 'life_experiment_feedback_changed',
-    );
-    return updated;
+    throw UnsupportedError('life_experiment_feedback_is_append_only');
   }
 
   Future<LifeExperimentModel?> getPreviousForWeek({
@@ -456,6 +475,7 @@ class LocalLifeExperimentRepository {
   Future<List<LifeExperimentModel>> listRecent({
     required String localUserId,
     int limit = 100,
+    int offset = 0,
   }) async {
     final db = await localDatabase.database;
     final rows = await db.query(
@@ -464,6 +484,47 @@ class LocalLifeExperimentRepository {
       whereArgs: [localUserId],
       orderBy: 'source_week_start DESC, updated_at DESC',
       limit: limit,
+      offset: offset,
+    );
+    return rows.map(_mapRow).toList();
+  }
+
+  /// Paged all-time archive of adopted goals.
+  ///
+  /// Current rows carry explicit adoption evidence. The status branch keeps
+  /// legacy accepted/saved goals visible after migrating older databases.
+  /// Suggested/generated rows never enter the archive.
+  Future<List<LifeExperimentModel>> listAdoptedGoals({
+    required String localUserId,
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'life_experiments',
+      where: '''
+        local_user_id = ?
+        AND TRIM(title) != ''
+        AND TRIM(status) != ''
+        AND LOWER(status) NOT LIKE '%suggest%'
+        AND LOWER(status) NOT LIKE '%candidate%'
+        AND LOWER(status) NOT LIKE '%generated%'
+        AND LOWER(status) NOT LIKE '%gated%'
+        AND LOWER(status) NOT LIKE '%dismiss%'
+        AND (
+          adopted_at IS NOT NULL
+          OR (origin_candidate_id IS NOT NULL AND TRIM(origin_candidate_id) != '')
+          OR LOWER(status) IN (
+            'accepted', 'saved', 'active', 'adjusted', 'done', 'completed',
+            'paused', 'stopped', 'archived', 'effective', 'not_effective'
+          )
+        )
+      ''',
+      whereArgs: [localUserId],
+      orderBy:
+          'source_week_start DESC, COALESCE(adopted_at, updated_at, created_at) DESC',
+      limit: limit,
+      offset: offset,
     );
     return rows.map(_mapRow).toList();
   }
@@ -486,7 +547,11 @@ class LocalLifeExperimentRepository {
       orderBy: 'source_week_start DESC, updated_at DESC',
       limit: limit,
     );
-    return rows.map(_mapRow).toList();
+    final result = <LifeExperimentModel>[];
+    for (final row in rows) {
+      result.add(await _mapRowForDate(row, endDate));
+    }
+    return result;
   }
 
   Future<LifeExperimentModel?> getSavedForToday({
@@ -500,15 +565,19 @@ class LocalLifeExperimentRepository {
       where: '''
         local_user_id = ?
         AND status IN (?, ?)
-        AND source_week_start <= ?
-        AND source_week_end >= ?
+        AND COALESCE(progress_start_date, source_week_start) <= ?
+        AND (
+          progress_end_date IS NULL
+          OR TRIM(progress_end_date) = ''
+          OR progress_end_date >= ?
+        )
       ''',
       whereArgs: [localUserId, 'saved', 'active', todayKey, todayKey],
       orderBy: 'updated_at DESC',
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    return _mapRow(rows.first);
+    return _mapRowForDate(rows.first, todayKey);
   }
 
   Future<LifeExperimentModel> reuseForNextWeek({
@@ -520,17 +589,28 @@ class LocalLifeExperimentRepository {
     String? plannedFrequency,
     int? plannedDurationMinutes,
     int? plannedTotalDays,
+    int? minimumObservationDays,
   }) async {
-    final start = _startOfWeek((fromDate ?? DateTime.now()).add(
+    final start = _startOfWeek((fromDate ?? nowLoader()).add(
       const Duration(days: 7),
     ));
-    final end = start.add(const Duration(days: 6));
-    final now = DateTime.now().toUtc();
-    final clone = LifeExperimentModel(
+    final displayWeekEnd = start.add(const Duration(days: 6));
+    final resolvedPlannedTotalDays =
+        plannedTotalDays ?? experiment.plannedTotalDays;
+    final normalizedPlannedTotalDays =
+        resolvedPlannedTotalDays != null && resolvedPlannedTotalDays > 0
+            ? resolvedPlannedTotalDays
+            : null;
+    final progressEnd = normalizedPlannedTotalDays == null
+        ? null
+        : start.add(Duration(days: normalizedPlannedTotalDays - 1));
+    final now = nowLoader().toUtc();
+    final db = await localDatabase.database;
+    final proposed = LifeExperimentModel(
       id: 'exp_${_uuid.v4().replaceAll('-', '').substring(0, 12)}',
       localUserId: experiment.localUserId,
       sourceWeekStart: _dateKey(start),
-      sourceWeekEnd: _dateKey(end),
+      sourceWeekEnd: _dateKey(displayWeekEnd),
       parentExperimentId: experiment.id,
       title: title ?? experiment.title,
       hypothesis: hypothesis ?? experiment.hypothesis,
@@ -545,17 +625,48 @@ class LocalLifeExperimentRepository {
       plannedFrequency: plannedFrequency ?? experiment.plannedFrequency,
       plannedDurationMinutes:
           plannedDurationMinutes ?? experiment.plannedDurationMinutes,
-      plannedTotalDays: plannedTotalDays ?? experiment.plannedTotalDays,
+      plannedTotalDays: normalizedPlannedTotalDays,
+      minimumObservationDays: minimumObservationDays == null
+          ? experiment.minimumObservationDays
+          : _normalizeMinimumObservationDays(minimumObservationDays),
+      adoptedAt: now,
+      progressStartDate: _dateKey(start),
+      progressEndDate: progressEnd == null ? null : _dateKey(progressEnd),
       createdAt: now,
       updatedAt: now,
     );
-
-    final db = await localDatabase.database;
-    await db.insert(
-      'life_experiments',
-      _toRow(clone),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    final persisted = await db.transaction<(LifeExperimentModel, bool)>(
+      (txn) async {
+        final existingRows = await txn.query(
+          'life_experiments',
+          where: '''
+            local_user_id = ?
+            AND parent_experiment_id = ?
+            AND source_week_start = ?
+          ''',
+          whereArgs: [
+            experiment.localUserId,
+            experiment.id,
+            _dateKey(start),
+          ],
+          orderBy: 'updated_at DESC',
+          limit: 1,
+        );
+        if (existingRows.isNotEmpty) {
+          return (_mapRow(existingRows.first), false);
+        }
+        await txn.insert(
+          'life_experiments',
+          _toRow(proposed),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        return (proposed, true);
+      },
     );
+    final clone = persisted.$1;
+    if (!persisted.$2) return clone;
+
+    await _ensureInitialContentVersion(clone);
     await _recordLifecycleEvent(
       experiment: clone,
       eventType: 'continued_next_week',
@@ -575,6 +686,11 @@ class LocalLifeExperimentRepository {
     await _writeExperimentTraceLinks(experiment);
     await refreshRollup(clone.id);
     await refreshRollup(experiment.id);
+    await LocalCacheInvalidationRepository(localDatabase).markExperimentChanged(
+      weekStart: clone.sourceWeekStart,
+      eventDate: start,
+      reason: 'life_experiment_continued_next_week',
+    );
     return clone;
   }
 
@@ -582,9 +698,9 @@ class LocalLifeExperimentRepository {
     required LifeExperimentModel experiment,
     DateTime? fromDate,
   }) async {
-    final start = _startOfWeek(fromDate ?? DateTime.now());
+    final start = _startOfWeek(fromDate ?? nowLoader());
     final end = start.add(const Duration(days: 6));
-    final now = DateTime.now().toUtc();
+    final now = nowLoader().toUtc();
     final clone = LifeExperimentModel(
       id: 'exp_${_uuid.v4().replaceAll('-', '').substring(0, 12)}',
       localUserId: experiment.localUserId,
@@ -604,6 +720,7 @@ class LocalLifeExperimentRepository {
       plannedFrequency: experiment.plannedFrequency,
       plannedDurationMinutes: experiment.plannedDurationMinutes,
       plannedTotalDays: experiment.plannedTotalDays,
+      minimumObservationDays: experiment.minimumObservationDays,
       createdAt: now,
       updatedAt: now,
     );
@@ -614,6 +731,7 @@ class LocalLifeExperimentRepository {
       _toRow(clone),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    await _ensureInitialContentVersion(clone);
     await _recordLifecycleEvent(
       experiment: clone,
       eventType: 'appended_to_current_week',
@@ -649,6 +767,7 @@ class LocalLifeExperimentRepository {
     String? patternId,
     String? feedbackPatternId,
     String? focusAreaId,
+    bool enforceProgressWindow = false,
   }) async {
     final experiment = await getById(experimentId);
     if (experiment == null) return null;
@@ -656,6 +775,10 @@ class LocalLifeExperimentRepository {
     final db = await localDatabase.database;
     final now = DateTime.now().toUtc();
     final date = feedbackDate ?? DateTime.now();
+    if (enforceProgressWindow &&
+        !_canRecordFeedbackOn(experiment: experiment, date: date)) {
+      return null;
+    }
     final feedback = LifeExperimentFeedbackModel(
       id: 'exp_fb_${_uuid.v4().replaceAll('-', '').substring(0, 12)}',
       experimentId: experimentId,
@@ -680,7 +803,7 @@ class LocalLifeExperimentRepository {
     await db.insert(
       'life_experiment_feedback',
       _feedbackToRow(feedback),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ConflictAlgorithm.abort,
     );
 
     final status = experiment.status.toLowerCase();
@@ -728,6 +851,277 @@ class LocalLifeExperimentRepository {
     return feedback;
   }
 
+  /// Appends a period-level goal outcome. This is deliberately separate from
+  /// daily completion feedback: completing days is an observation count, not
+  /// proof that the goal helped.
+  Future<LifeExperimentOutcomeReviewModel?> recordOutcomeReview({
+    required String experimentId,
+    required String outcomeResult,
+    required String burden,
+    String reviewType = GoalReviewType.wholeRound,
+    bool userConfirmedRoundEnd = false,
+    String? reviewNote,
+    DateTime? reviewedAt,
+  }) async {
+    if (!GoalOutcomeResult.values.contains(outcomeResult)) {
+      throw ArgumentError.value(
+        outcomeResult,
+        'outcomeResult',
+        'unsupported_goal_outcome',
+      );
+    }
+    if (!EvaluationEffort.values.contains(burden)) {
+      throw ArgumentError.value(
+        burden,
+        'burden',
+        'unsupported_goal_burden',
+      );
+    }
+    if (!GoalReviewType.values.contains(reviewType)) {
+      throw ArgumentError.value(
+        reviewType,
+        'reviewType',
+        'unsupported_goal_review_type',
+      );
+    }
+    final experiment = await getById(experimentId);
+    if (experiment == null) return null;
+    final date = reviewedAt ?? nowLoader();
+    final feedbacks = await listFeedbacks(experimentId: experimentId);
+    final effective = _latestFeedbackPerLocalDate(feedbacks);
+    final completedDays = effective
+        .where((feedback) => _isCompletedStatus(feedback.completionStatus))
+        .length;
+    final minimumDays = experiment.minimumObservationDays;
+    final metMinimumObservationDays = completedDays >= minimumDays;
+    final reachedExplicitPeriodEnd =
+        _hasReachedExplicitProgressEnd(experiment, date);
+    final terminalLifecycle = _isTerminalExperimentStatus(experiment.status);
+    if (reviewType == GoalReviewType.wholeRound) {
+      final mayEndRound = metMinimumObservationDays ||
+          reachedExplicitPeriodEnd ||
+          terminalLifecycle ||
+          userConfirmedRoundEnd;
+      if (!mayEndRound) {
+        throw StateError(
+          'goal_whole_round_review_requires_minimum_or_round_end:'
+          '$completedDays/$minimumDays',
+        );
+      }
+      // Reaching the period boundary (or explicitly ending early) makes a
+      // whole-round review writable, but it does not manufacture enough
+      // observations for a directional outcome.
+      if (!metMinimumObservationDays &&
+          outcomeResult != GoalOutcomeResult.unclear) {
+        throw StateError(
+          'goal_whole_round_review_below_minimum_requires_unclear:'
+          '$completedDays/$minimumDays',
+        );
+      }
+    }
+    if (reviewType == GoalReviewType.weekly) {
+      final weekStart = _startOfWeek(date);
+      final weekEnd = weekStart.add(const Duration(days: 6));
+      final hasWeeklyFeedback = feedbacks.any((feedback) {
+        final day = DateTime.tryParse(feedback.localDate);
+        if (day == null) return false;
+        final local = DateTime(day.year, day.month, day.day);
+        return !local.isBefore(weekStart) && !local.isAfter(weekEnd);
+      });
+      if (!hasWeeklyFeedback) {
+        throw StateError('goal_weekly_review_requires_feedback_in_week');
+      }
+      if (!metMinimumObservationDays &&
+          outcomeResult != GoalOutcomeResult.unclear) {
+        throw StateError(
+          'goal_weekly_review_below_minimum_requires_unclear:'
+          '$completedDays/$minimumDays',
+        );
+      }
+    }
+    final createdAt = nowLoader().toUtc();
+    final eventId = await _recordLifecycleEvent(
+      experiment: experiment,
+      eventType: 'outcome_reviewed',
+      statusFrom: experiment.status,
+      statusTo: experiment.status,
+      eventDate: date,
+      payload: {
+        'outcome_result': outcomeResult,
+        'review_type': reviewType,
+        'burden': burden,
+        if (reviewNote != null && reviewNote.trim().isNotEmpty)
+          'review_note': reviewNote.trim(),
+        'completed_days_at_review': completedDays,
+        'minimum_observation_days': minimumDays,
+        'minimum_observation_days_met': metMinimumObservationDays,
+        if (reviewType == GoalReviewType.wholeRound)
+          'round_end_context': {
+            'explicit_period_end_reached': reachedExplicitPeriodEnd,
+            'terminal_lifecycle': terminalLifecycle,
+            'user_confirmed_round_end': userConfirmedRoundEnd,
+          },
+      },
+      createdAt: createdAt,
+    );
+    await refreshRollup(experimentId);
+    await LocalCacheInvalidationRepository(localDatabase).markExperimentChanged(
+      weekStart: experiment.sourceWeekStart,
+      eventDate: date,
+      reason: 'life_experiment_outcome_reviewed',
+    );
+    return LifeExperimentOutcomeReviewModel(
+      id: eventId,
+      experimentId: experimentId,
+      localUserId: experiment.localUserId,
+      reviewedAt: date,
+      localDate: _dateKey(date),
+      outcomeResult: outcomeResult,
+      reviewType: reviewType,
+      burden: burden,
+      reviewNote:
+          reviewNote?.trim().isEmpty == true ? null : reviewNote?.trim(),
+      completedDaysAtReview: completedDays,
+      minimumObservationDays: minimumDays,
+      createdAt: createdAt,
+    );
+  }
+
+  Future<List<LifeExperimentOutcomeReviewModel>> listOutcomeReviews({
+    required String experimentId,
+    String? reviewType,
+  }) async {
+    if (reviewType != null && !GoalReviewType.values.contains(reviewType)) {
+      throw ArgumentError.value(
+        reviewType,
+        'reviewType',
+        'unsupported_goal_review_type',
+      );
+    }
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'life_experiment_lifecycle_events',
+      where: reviewType == null
+          ? 'experiment_id = ? AND event_type = ?'
+          : 'experiment_id = ? AND event_type = ? AND review_type = ?',
+      whereArgs: [
+        experimentId,
+        'outcome_reviewed',
+        if (reviewType != null) reviewType,
+      ],
+      orderBy: 'event_date ASC, created_at ASC, id ASC',
+    );
+    return rows.map((row) {
+      final payload = _decodeMap(row['payload_json']);
+      return LifeExperimentOutcomeReviewModel.fromLifecycleRow(
+        row.map((key, value) => MapEntry(key, value)),
+        payload,
+      );
+    }).toList(growable: false);
+  }
+
+  Future<LifeExperimentOutcomeReviewModel?> recordWeeklyReview({
+    required String experimentId,
+    required String outcomeResult,
+    required String burden,
+    String? reviewNote,
+    DateTime? reviewedAt,
+  }) {
+    return recordOutcomeReview(
+      experimentId: experimentId,
+      outcomeResult: outcomeResult,
+      burden: burden,
+      reviewType: GoalReviewType.weekly,
+      reviewNote: reviewNote,
+      reviewedAt: reviewedAt,
+    );
+  }
+
+  Future<LifeExperimentOutcomeReviewModel?> recordWholeRoundReview({
+    required String experimentId,
+    required String outcomeResult,
+    required String burden,
+    bool userConfirmedRoundEnd = false,
+    String? reviewNote,
+    DateTime? reviewedAt,
+  }) {
+    return recordOutcomeReview(
+      experimentId: experimentId,
+      outcomeResult: outcomeResult,
+      burden: burden,
+      reviewType: GoalReviewType.wholeRound,
+      userConfirmedRoundEnd: userConfirmedRoundEnd,
+      reviewNote: reviewNote,
+      reviewedAt: reviewedAt,
+    );
+  }
+
+  bool _hasReachedExplicitProgressEnd(
+    LifeExperimentModel experiment,
+    DateTime reviewedAt,
+  ) {
+    final end = DateTime.tryParse(experiment.progressEndDate?.trim() ?? '');
+    if (end == null) return false;
+    final localReview = DateTime(
+      reviewedAt.year,
+      reviewedAt.month,
+      reviewedAt.day,
+    );
+    final localEnd = DateTime(end.year, end.month, end.day);
+    return !localReview.isBefore(localEnd);
+  }
+
+  bool _isTerminalExperimentStatus(String status) {
+    final lifecycle = status.trim().toLowerCase();
+    return lifecycle.contains('stop') ||
+        lifecycle.contains('archive') ||
+        lifecycle.contains('complete') ||
+        lifecycle.contains('done') ||
+        lifecycle.contains('finish') ||
+        lifecycle.contains('dismiss') ||
+        lifecycle == 'effective' ||
+        lifecycle == 'not_effective';
+  }
+
+  bool _canRecordFeedbackOn({
+    required LifeExperimentModel experiment,
+    required DateTime date,
+  }) {
+    final lifecycle = experiment.status.trim().toLowerCase();
+    if (lifecycle.contains('pause') ||
+        lifecycle.contains('stop') ||
+        lifecycle.contains('skip') ||
+        lifecycle.contains('archive') ||
+        lifecycle.contains('complete') ||
+        lifecycle.contains('done') ||
+        lifecycle.contains('finish') ||
+        lifecycle.contains('dismiss')) {
+      return false;
+    }
+
+    final start = DateTime.tryParse(
+          experiment.progressStartDate ?? experiment.sourceWeekStart,
+        ) ??
+        experiment.adoptedAt ??
+        experiment.createdAt;
+    if (start == null) return false;
+    final configuredEnd = DateTime.tryParse(
+      experiment.progressEndDate?.trim() ?? '',
+    );
+    final localDate = DateTime(date.year, date.month, date.day);
+    final localStart = DateTime(start.year, start.month, start.day);
+    if (localDate.isBefore(localStart)) return false;
+    // sourceWeekEnd only identifies the Signal source period. A goal with no
+    // explicit progressEndDate remains open while its lifecycle is writable.
+    if (configuredEnd == null) return true;
+    final localEnd = DateTime(
+      configuredEnd.year,
+      configuredEnd.month,
+      configuredEnd.day,
+    );
+    return !localDate.isAfter(localEnd);
+  }
+
   Future<List<Map<String, dynamic>>> listRollups({
     required String localUserId,
     int limit = 100,
@@ -757,6 +1151,35 @@ class LocalLifeExperimentRepository {
       limit: limit,
     );
     return rows.map((row) => row.map((k, v) => MapEntry(k, v))).toList();
+  }
+
+  /// Reads rollups only for goals already loaded by the archive pager.
+  Future<List<Map<String, dynamic>>> listRollupsForExperiments({
+    required Iterable<String> experimentIds,
+  }) async {
+    final ids = experimentIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (ids.isEmpty) return const [];
+
+    final db = await localDatabase.database;
+    final result = <Map<String, dynamic>>[];
+    for (var start = 0; start < ids.length; start += 400) {
+      final end = start + 400 < ids.length ? start + 400 : ids.length;
+      final chunk = ids.sublist(start, end);
+      final placeholders = List.filled(chunk.length, '?').join(', ');
+      final rows = await db.query(
+        'life_experiment_rollups',
+        where: 'experiment_id IN ($placeholders)',
+        whereArgs: chunk,
+      );
+      result.addAll(
+        rows.map((row) => row.map((key, value) => MapEntry(key, value))),
+      );
+    }
+    return result;
   }
 
   Future<List<Map<String, dynamic>>> listRollupsForPeriod({
@@ -815,14 +1238,27 @@ class LocalLifeExperimentRepository {
     if (ids.isEmpty) return const [];
 
     final db = await localDatabase.database;
-    final placeholders = List.filled(ids.length, '?').join(', ');
-    final rows = await db.query(
-      'life_experiment_lifecycle_events',
-      where: 'experiment_id IN ($placeholders)',
-      whereArgs: ids,
-      orderBy: 'event_date ASC, created_at ASC',
-    );
-    return rows.map((row) => row.map((k, v) => MapEntry(k, v))).toList();
+    final result = <Map<String, dynamic>>[];
+    for (var start = 0; start < ids.length; start += 400) {
+      final end = start + 400 < ids.length ? start + 400 : ids.length;
+      final chunk = ids.sublist(start, end);
+      final placeholders = List.filled(chunk.length, '?').join(', ');
+      final rows = await db.query(
+        'life_experiment_lifecycle_events',
+        where: 'experiment_id IN ($placeholders)',
+        whereArgs: chunk,
+        orderBy: 'event_date ASC, created_at ASC',
+      );
+      result.addAll(
+        rows.map((row) => row.map((k, v) => MapEntry(k, v))),
+      );
+    }
+    result.sort((a, b) {
+      final aDate = '${a['event_date'] ?? ''}|${a['created_at'] ?? ''}';
+      final bDate = '${b['event_date'] ?? ''}|${b['created_at'] ?? ''}';
+      return aDate.compareTo(bDate);
+    });
+    return result;
   }
 
   Future<void> refreshRollup(String experimentId) async {
@@ -831,6 +1267,7 @@ class LocalLifeExperimentRepository {
 
     final db = await localDatabase.database;
     final feedbacks = await listFeedbacks(experimentId: experimentId);
+    final effectiveFeedbacks = _latestFeedbackPerLocalDate(feedbacks);
     final rootId = await _rootExperimentId(experiment);
     final lineage = await _lineageFor(experiment);
     final familyRows = await db.query(
@@ -848,22 +1285,22 @@ class LocalLifeExperimentRepository {
           .map((row) => (row['source_week_start'] as String?) ?? '')
           .where((value) => value.isNotEmpty),
     }.length;
-    final helpfulCount = feedbacks
+    final helpfulCount = effectiveFeedbacks
         .where((feedback) =>
             _isHelpfulStatus(feedback.completionStatus) ||
             (feedback.helpfulnessScore ?? 0) >= 4)
         .length;
-    final notHelpfulCount = feedbacks
+    final notHelpfulCount = effectiveFeedbacks
         .where((feedback) => _isNotHelpfulStatus(feedback.completionStatus))
         .length;
-    final adjustedCount = feedbacks
+    final adjustedCount = effectiveFeedbacks
         .where((feedback) =>
             feedback.completionStatus.toLowerCase().contains('adjust'))
         .length;
-    final triedCount = feedbacks
+    final triedCount = effectiveFeedbacks
         .where((feedback) => !_isSkippedStatus(feedback.completionStatus))
         .length;
-    final skippedCount = feedbacks
+    final skippedCount = effectiveFeedbacks
         .where((feedback) => _isSkippedStatus(feedback.completionStatus))
         .length;
     final lastFeedbackAt = feedbacks.isEmpty
@@ -930,6 +1367,22 @@ class LocalLifeExperimentRepository {
     final db = await localDatabase.database;
     final rows = await db.query(
       'life_experiment_feedback',
+      where: '''
+        experiment_id = ?
+        AND COALESCE(is_valid, 1) = 1
+      ''',
+      whereArgs: [experimentId],
+      orderBy: 'feedback_date ASC, created_at ASC',
+    );
+    return rows.map(_mapFeedbackRow).toList();
+  }
+
+  Future<List<LifeExperimentFeedbackModel>> _listAllFeedbacks({
+    required String experimentId,
+  }) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'life_experiment_feedback',
       where: 'experiment_id = ?',
       whereArgs: [experimentId],
       orderBy: 'feedback_date ASC, created_at ASC',
@@ -948,14 +1401,30 @@ class LocalLifeExperimentRepository {
     if (ids.isEmpty) return const [];
 
     final db = await localDatabase.database;
-    final placeholders = List.filled(ids.length, '?').join(', ');
-    final rows = await db.query(
-      'life_experiment_feedback',
-      where: 'experiment_id IN ($placeholders)',
-      whereArgs: ids,
-      orderBy: 'feedback_date ASC, created_at ASC',
-    );
-    return rows.map(_mapFeedbackRow).toList();
+    final result = <LifeExperimentFeedbackModel>[];
+    for (var start = 0; start < ids.length; start += 400) {
+      final end = start + 400 < ids.length ? start + 400 : ids.length;
+      final chunk = ids.sublist(start, end);
+      final placeholders = List.filled(chunk.length, '?').join(', ');
+      final rows = await db.query(
+        'life_experiment_feedback',
+        where: '''
+          experiment_id IN ($placeholders)
+          AND COALESCE(is_valid, 1) = 1
+        ''',
+        whereArgs: chunk,
+        orderBy: 'feedback_date ASC, created_at ASC',
+      );
+      result.addAll(rows.map(_mapFeedbackRow));
+    }
+    result.sort((a, b) {
+      final dateComparison = a.feedbackDate.compareTo(b.feedbackDate);
+      if (dateComparison != 0) return dateComparison;
+      final aCreated = a.createdAt ?? a.feedbackDate;
+      final bCreated = b.createdAt ?? b.feedbackDate;
+      return aCreated.compareTo(bCreated);
+    });
+    return result;
   }
 
   Future<void> linkSignalCards({
@@ -978,24 +1447,6 @@ class LocalLifeExperimentRepository {
       },
       where: 'id IN ($placeholders) OR signal_card_id IN ($placeholders)',
       whereArgs: [...ids, ...ids],
-    );
-  }
-
-  Future<void> _markRollupStale({
-    required String experimentId,
-    required String reason,
-  }) async {
-    final db = await localDatabase.database;
-    await db.update(
-      'life_experiment_rollups',
-      {
-        'dirty': 1,
-        'is_stale': 1,
-        'stale_reason': reason,
-        'invalidated_at': DateTime.now().toUtc().toIso8601String(),
-      },
-      where: 'experiment_id = ?',
-      whereArgs: [experimentId],
     );
   }
 
@@ -1072,7 +1523,7 @@ class LocalLifeExperimentRepository {
     );
   }
 
-  Future<void> _recordLifecycleEvent({
+  Future<String> _recordLifecycleEvent({
     required LifeExperimentModel experiment,
     required String eventType,
     String? statusFrom,
@@ -1081,6 +1532,7 @@ class LocalLifeExperimentRepository {
     String? sourceId,
     DateTime? eventDate,
     Map<String, dynamic> payload = const {},
+    DateTime? createdAt,
   }) async {
     final db = await localDatabase.database;
     final date = eventDate ?? DateTime.now();
@@ -1093,6 +1545,8 @@ class LocalLifeExperimentRepository {
         'experiment_id': experiment.id,
         'local_user_id': experiment.localUserId,
         'event_type': eventType,
+        'review_type':
+            eventType == 'outcome_reviewed' ? payload['review_type'] : null,
         'event_date': date.toUtc().toIso8601String(),
         'local_date': _dateKey(date),
         'source_type': sourceType,
@@ -1100,10 +1554,11 @@ class LocalLifeExperimentRepository {
         'status_from': statusFrom,
         'status_to': statusTo,
         'payload_json': jsonEncode(payload),
-        'created_at': DateTime.now().toUtc().toIso8601String(),
+        'created_at': (createdAt ?? DateTime.now()).toUtc().toIso8601String(),
       },
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ConflictAlgorithm.abort,
     );
+    return eventId;
   }
 
   Future<String> _rootExperimentId(LifeExperimentModel experiment) async {
@@ -1161,12 +1616,78 @@ class LocalLifeExperimentRepository {
   }
 
   bool _isSkippedStatus(String status) {
-    final value = status.toLowerCase();
+    final value = status.trim().toLowerCase();
     return value.contains('skip') ||
         value == 'no' ||
+        value == 'not_completed' ||
+        value == 'not_done' ||
+        value == 'not_happened' ||
+        value == 'not_occurred' ||
         value == 'not_tried' ||
+        value == 'not_today' ||
         value == 'not_suitable_today' ||
-        value == 'not suitable today';
+        value == 'not suitable today' ||
+        value == 'false' ||
+        value == 'missed';
+  }
+
+  bool _isCompletedStatus(String status) {
+    final value = status.trim().toLowerCase();
+    return const {
+      'done',
+      'completed',
+      'occurred',
+      'happened',
+      'true',
+      'yes',
+      '1',
+    }.contains(value);
+  }
+
+  List<LifeExperimentFeedbackModel> _latestFeedbackPerLocalDate(
+    List<LifeExperimentFeedbackModel> feedbacks,
+  ) {
+    final latest = <String, LifeExperimentFeedbackModel>{};
+    for (final feedback in feedbacks) {
+      final current = latest[feedback.localDate];
+      if (current == null || _isLaterFeedback(feedback, current)) {
+        latest[feedback.localDate] = feedback;
+      }
+    }
+    return latest.values.toList(growable: false);
+  }
+
+  int _normalizeMinimumObservationDays(int value) =>
+      value.clamp(1, 36500).toInt();
+
+  Map<String, dynamic> _decodeMap(Object? raw) {
+    if (raw is Map) {
+      return raw.map((key, value) => MapEntry('$key', value));
+    }
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          return decoded.map((key, value) => MapEntry('$key', value));
+        }
+      } catch (_) {
+        return const {};
+      }
+    }
+    return const {};
+  }
+
+  bool _isLaterFeedback(
+    LifeExperimentFeedbackModel candidate,
+    LifeExperimentFeedbackModel current,
+  ) {
+    final candidateTime =
+        candidate.updatedAt ?? candidate.createdAt ?? candidate.feedbackDate;
+    final currentTime =
+        current.updatedAt ?? current.createdAt ?? current.feedbackDate;
+    final comparison = candidateTime.compareTo(currentTime);
+    if (comparison != 0) return comparison > 0;
+    return candidate.id.compareTo(current.id) > 0;
   }
 
   LifeExperimentModel _mapRow(Map<String, Object?> row) {
@@ -1191,6 +1712,9 @@ class LocalLifeExperimentRepository {
       plannedFrequency: row['planned_frequency'] as String?,
       plannedDurationMinutes: _toInt(row['planned_duration_minutes']),
       plannedTotalDays: _toInt(row['planned_total_days']),
+      minimumObservationDays: _normalizeMinimumObservationDays(
+        _toInt(row['minimum_observation_days']) ?? 3,
+      ),
       originCandidateId: row['origin_candidate_id'] as String?,
       adoptedAt: DateTime.tryParse((row['adopted_at'] as String?) ?? ''),
       progressStartDate: row['progress_start_date'] as String?,
@@ -1224,6 +1748,7 @@ class LocalLifeExperimentRepository {
       'planned_frequency': experiment.plannedFrequency,
       'planned_duration_minutes': experiment.plannedDurationMinutes,
       'planned_total_days': experiment.plannedTotalDays,
+      'minimum_observation_days': experiment.minimumObservationDays,
       'origin_candidate_id': experiment.originCandidateId,
       'adopted_at': experiment.adoptedAt?.toUtc().toIso8601String(),
       'progress_start_date': experiment.progressStartDate,
@@ -1235,6 +1760,140 @@ class LocalLifeExperimentRepository {
       'updated_at': experiment.updatedAt?.toUtc().toIso8601String() ??
           DateTime.now().toUtc().toIso8601String(),
     };
+  }
+
+  Future<LifeExperimentModel> _mapRowForDate(
+    Map<String, Object?> row,
+    String selectedLocalDate,
+  ) async {
+    final current = _mapRow(row);
+    final content = await planContentVersionRepository.resolveContent(
+      localUserId: current.localUserId,
+      objectKind: PlanContentObjectKind.goal,
+      objectId: current.id,
+      selectedLocalDate: selectedLocalDate,
+    );
+    if (content == null) return current;
+    return _mapRow(<String, Object?>{
+      ...row,
+      ...content,
+    });
+  }
+
+  Future<void> _ensureInitialContentVersion(
+    LifeExperimentModel experiment,
+  ) async {
+    await planContentVersionRepository.ensureInitial(
+      localUserId: experiment.localUserId,
+      objectKind: PlanContentObjectKind.goal,
+      objectId: experiment.id,
+      effectiveFromLocalDate: _lifeExperimentStartDate(experiment),
+      content: _lifeExperimentContent(experiment),
+      createdAt: experiment.createdAt,
+    );
+  }
+
+  Future<String?> _lifeExperimentEditEffectiveDate(
+    LifeExperimentModel experiment,
+  ) async {
+    final now = nowLoader().toLocal();
+    final today = DateTime(now.year, now.month, now.day);
+    final start = DateTime.tryParse(_lifeExperimentStartDate(experiment));
+    final end = DateTime.tryParse(experiment.progressEndDate?.trim() ?? '');
+    if (start == null || (end != null && end.isBefore(start))) return null;
+    final localStart = DateTime(start.year, start.month, start.day);
+    final localEnd =
+        end == null ? null : DateTime(end.year, end.month, end.day);
+    if (localEnd?.isBefore(today) ?? false) return null;
+
+    final nextWeekStart = _startOfWeek(today).add(const Duration(days: 7));
+    final nextWeekEnd = nextWeekStart.add(const Duration(days: 6));
+    if (localStart.isAfter(nextWeekEnd)) return null;
+
+    late DateTime effective;
+    if (!localStart.isBefore(nextWeekStart)) {
+      effective = localStart;
+    } else {
+      final db = await localDatabase.database;
+      final feedback = await db.query(
+        'life_experiment_feedback',
+        columns: const ['id'],
+        where: '''
+          experiment_id = ? AND local_date = ?
+          AND COALESCE(is_valid, 1) = 1
+        ''',
+        whereArgs: [experiment.id, _dateKey(today)],
+        limit: 1,
+      );
+      effective = feedback.isNotEmpty
+          ? today.add(const Duration(days: 1))
+          : (localStart.isAfter(today) ? localStart : today);
+    }
+    if (localEnd != null && effective.isAfter(localEnd)) return null;
+    return _dateKey(effective);
+  }
+
+  String _lifeExperimentStartDate(LifeExperimentModel experiment) {
+    final progressStart = experiment.progressStartDate?.trim() ?? '';
+    if (DateTime.tryParse(progressStart) != null) return progressStart;
+    final sourceStart = experiment.sourceWeekStart.trim();
+    if (DateTime.tryParse(sourceStart) != null) return sourceStart;
+    final fallback = experiment.adoptedAt?.toLocal() ??
+        experiment.createdAt?.toLocal() ??
+        nowLoader().toLocal();
+    return _dateKey(fallback);
+  }
+
+  Map<String, dynamic> _lifeExperimentContent(
+    LifeExperimentModel experiment, {
+    String? title,
+    String? hypothesis,
+    String? suggestedAction,
+    String? focusAreaId,
+    String? patternId,
+    String? feedbackPatternId,
+    String? iconAssetId,
+    String? plannedFrequency,
+    int? plannedDurationMinutes,
+    int? plannedTotalDays,
+    int? minimumObservationDays,
+  }) {
+    return {
+      'title': title ?? experiment.title,
+      'hypothesis': hypothesis ?? experiment.hypothesis,
+      'suggested_action': suggestedAction ?? experiment.suggestedAction,
+      'focus_area_id': focusAreaId ?? experiment.focusAreaId,
+      'pattern_id': patternId ?? experiment.patternId,
+      'feedback_pattern_id': feedbackPatternId ?? experiment.feedbackPatternId,
+      'icon_asset_id': iconAssetId ?? experiment.iconAssetId,
+      'planned_frequency': plannedFrequency ?? experiment.plannedFrequency,
+      'planned_duration_minutes':
+          plannedDurationMinutes ?? experiment.plannedDurationMinutes,
+      'planned_total_days': plannedTotalDays ?? experiment.plannedTotalDays,
+      'minimum_observation_days': _normalizeMinimumObservationDays(
+        minimumObservationDays ?? experiment.minimumObservationDays,
+      ),
+    };
+  }
+
+  bool _hasAdoptionEvidence(LifeExperimentModel experiment) {
+    if (experiment.adoptedAt != null ||
+        (experiment.originCandidateId?.trim().isNotEmpty ?? false)) {
+      return true;
+    }
+    return const {
+      'accepted',
+      'saved',
+      'active',
+      'adjusted',
+      'done',
+      'completed',
+      'paused',
+      'stopped',
+      'archived',
+      'effective',
+      'not_effective',
+    }.contains(experiment.status.trim().toLowerCase());
   }
 
   LifeExperimentFeedbackModel _mapFeedbackRow(Map<String, Object?> row) {

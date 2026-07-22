@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../preferences/focus_domains.dart';
 import 'app_locale_text.dart';
 
 /// Presentation-only localization for Energy Budget taxonomy values.
@@ -15,6 +16,9 @@ class EnergyBudgetText {
     final trimmed = copy.trim();
     if (trimmed.isEmpty) return copy;
 
+    final exactFocusDomain = FocusDomains.optionFor(trimmed.toLowerCase());
+    if (exactFocusDomain != null) return exactFocusDomain.label(context);
+
     final exact = _labels[trimmed.toLowerCase()];
     if (exact != null) return _resolve(context, exact);
 
@@ -24,6 +28,15 @@ class EnergyBudgetText {
       for (final quotes in _quotePairs) {
         result = result.replaceAll(
           '${quotes.$1}${entry.key}${quotes.$2}',
+          '${quotes.$1}$localized${quotes.$2}',
+        );
+      }
+    }
+    for (final option in FocusDomains.options) {
+      final localized = option.label(context);
+      for (final quotes in _quotePairs) {
+        result = result.replaceAll(
+          '${quotes.$1}${option.id}${quotes.$2}',
           '${quotes.$1}$localized${quotes.$2}',
         );
       }

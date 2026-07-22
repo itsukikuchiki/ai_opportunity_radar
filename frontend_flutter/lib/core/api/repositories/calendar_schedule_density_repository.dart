@@ -36,7 +36,7 @@ class CalendarScheduleDensityRepository {
       canShowEventLevelBusyEvidence: false,
       canOutputTimeSlotEvidence: false,
       fallbackMessage:
-          'Calendar hints are only gentle context. SignalCard remains the main evidence.',
+          'Calendar hints are only gentle context. Your Signal Cards stay at the center.',
       abstractHints: hints,
     );
   }
@@ -174,7 +174,7 @@ class CalendarScheduleDensityRepository {
       canShowEventLevelBusyEvidence: false,
       canOutputTimeSlotEvidence: false,
       fallbackMessage:
-          'Calendar access is optional. Energy Budget can keep using your internal SignalCard observations.',
+          'Calendar access is optional. Energy Budget can keep using your internal Signal Card observations.',
       abstractHints: const {},
     );
   }

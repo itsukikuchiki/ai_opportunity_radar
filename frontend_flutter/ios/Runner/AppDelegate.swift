@@ -14,6 +14,7 @@ import UserNotifications
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    UNUserNotificationCenter.current().delegate = self
     if let controller = window?.rootViewController as? FlutterViewController {
       controller.view.backgroundColor = UIColor(
         red: 1,
@@ -28,9 +29,23 @@ import UserNotifications
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    LocalNotificationBridge.captureDestination(from: response)
+    super.userNotificationCenter(
+      center,
+      didReceive: response,
+      withCompletionHandler: completionHandler
+    )
+  }
 }
 
 private final class LocalNotificationBridge {
+  private static let pendingDestinationKey = "signalpath.pending_signal_reminder_destination"
   static func register(with messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(
       name: "signalpath/local_notifications",
@@ -38,6 +53,12 @@ private final class LocalNotificationBridge {
     )
     channel.setMethodCallHandler { call, result in
       switch call.method {
+      case "consumeSignalReminderDestination":
+        let destination = UserDefaults.standard.string(forKey: pendingDestinationKey)
+        UserDefaults.standard.removeObject(forKey: pendingDestinationKey)
+        result(destination)
+      case "requestSignalReminderAuthorization":
+        requestSignalReminderAuthorization(result: result)
       case "scheduleReminder":
         guard let args = call.arguments as? [String: Any],
               let id = args["id"] as? String,
@@ -47,7 +68,15 @@ private final class LocalNotificationBridge {
           result(FlutterError(code: "bad_args", message: "Missing reminder fields.", details: nil))
           return
         }
-        scheduleReminder(id: id, title: title, body: body, scheduledAt: scheduledAt, result: result)
+        let destination = args["destination"] as? String
+        scheduleReminder(
+          id: id,
+          title: title,
+          body: body,
+          scheduledAt: scheduledAt,
+          destination: destination,
+          result: result
+        )
       case "cancelReminder":
         guard let args = call.arguments as? [String: Any],
               let id = args["id"] as? String else {
@@ -69,6 +98,17 @@ private final class LocalNotificationBridge {
             result(nil)
           }
         }
+      case "cancelAllSignalReminders":
+        let center = UNUserNotificationCenter.current()
+        center.getPendingNotificationRequests { requests in
+          let identifiers = requests
+            .map(\.identifier)
+            .filter { $0.hasPrefix("signalpath.signal.") }
+          center.removePendingNotificationRequests(withIdentifiers: identifiers)
+          DispatchQueue.main.async {
+            result(nil)
+          }
+        }
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -80,6 +120,7 @@ private final class LocalNotificationBridge {
     title: String,
     body: String,
     scheduledAt: String,
+    destination: String?,
     result: @escaping FlutterResult
   ) {
     guard let fireDate = ISO8601DateFormatter().date(from: scheduledAt) else {
@@ -88,14 +129,8 @@ private final class LocalNotificationBridge {
     }
 
     let center = UNUserNotificationCenter.current()
-    center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-      if let error = error {
-        DispatchQueue.main.async {
-          result(FlutterError(code: "permission_failed", message: error.localizedDescription, details: nil))
-        }
-        return
-      }
-      guard granted else {
+    center.getNotificationSettings { settings in
+      guard isAuthorized(settings.authorizationStatus) else {
         DispatchQueue.main.async {
           result(FlutterError(code: "permission_denied", message: "Notification permission was denied.", details: nil))
         }
@@ -106,6 +141,9 @@ private final class LocalNotificationBridge {
       content.title = title
       content.body = body
       content.sound = .default
+      // A reminder can only route the user to Today. It carries no Signal,
+      // AI output, or private source content and cannot create a capture.
+      content.userInfo = ["signalpath_destination": destination ?? "today"]
 
       let triggerDate = Calendar.current.dateComponents(
         [.year, .month, .day, .hour, .minute],
@@ -130,7 +168,54 @@ private final class LocalNotificationBridge {
     }
   }
 
+  private static func requestSignalReminderAuthorization(result: @escaping FlutterResult) {
+    let center = UNUserNotificationCenter.current()
+    center.getNotificationSettings { settings in
+      if isAuthorized(settings.authorizationStatus) {
+        DispatchQueue.main.async { result(true) }
+        return
+      }
+      guard settings.authorizationStatus == .notDetermined else {
+        DispatchQueue.main.async { result(false) }
+        return
+      }
+      center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+        DispatchQueue.main.async {
+          if let error = error {
+            result(FlutterError(code: "permission_failed", message: error.localizedDescription, details: nil))
+          } else {
+            result(granted)
+          }
+        }
+      }
+    }
+  }
+
+  private static func isAuthorized(_ status: UNAuthorizationStatus) -> Bool {
+    switch status {
+    case .authorized, .provisional, .ephemeral:
+      return true
+    default:
+      return false
+    }
+  }
+
+  static func captureDestination(from response: UNNotificationResponse) {
+    guard let destination = response.notification.request.content.userInfo[
+      "signalpath_destination"
+    ] as? String,
+      destination == "today" else {
+      return
+    }
+    // Persist the route because notification responses can arrive before Dart
+    // finishes wiring its MethodChannel during a cold launch.
+    UserDefaults.standard.set(destination, forKey: pendingDestinationKey)
+  }
+
   private static func notificationIdentifier(_ id: String) -> String {
+    if id.hasPrefix("signal-reminder.") {
+      return "signalpath.signal.\(id)"
+    }
     return "signalpath.schedule.\(id)"
   }
 }

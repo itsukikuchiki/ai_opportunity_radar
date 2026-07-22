@@ -8,13 +8,17 @@ import '../../local/local_feedback_event_repository.dart';
 import '../../local/local_life_experiment_repository.dart';
 import '../../local/local_pipeline_run_repository.dart';
 import '../../local/local_phase3_plus_repository.dart';
+import '../../local/local_reflection_result_repository.dart';
 import '../../local/local_weekly_snapshot_repository.dart';
+import '../../models/experiment_evaluation_models.dart';
 import '../../models/feedback_event_models.dart';
+import '../../models/phase3_plus_models.dart';
 import '../../models/today_models.dart';
 import '../../models/weekly_models.dart';
 import '../../preferences/focus_domains.dart';
 import '../../readiness/report_readiness.dart';
 import 'ai_repository.dart';
+import 'energy_budget_repository.dart';
 
 typedef WeeklyFocusAreaLoader = Future<String?> Function();
 typedef InstallationDateLoader = Future<DateTime> Function();
@@ -65,22 +69,27 @@ class WeeklyRepository {
       final readiness = ReportReadiness.empty(
         ReportReadinessEvaluator.weeklyRule,
       );
-      return WeeklyInsightModel(
-        weekStart: _dateKey(range.start),
-        weekEnd: _dateKey(range.end),
-        status: 'first_day_gate',
-        keyInsight: null,
-        patterns: const [],
-        frictions: const [],
-        bestAction: null,
-        opportunitySnapshot: {
-          '_report_readiness': readiness.toMap(),
-        },
-        feedbackSubmitted: false,
-        chartData: _buildChartDataForEmptyRange(
-          start: range.start,
-          end: range.end,
+      return _withWeeklyReviewProjections(
+        WeeklyInsightModel(
+          weekStart: _dateKey(range.start),
+          weekEnd: _dateKey(range.end),
+          status: 'first_day_gate',
+          keyInsight: null,
+          patterns: const [],
+          frictions: const [],
+          bestAction: null,
+          opportunitySnapshot: {
+            '_report_readiness': readiness.toMap(),
+          },
+          feedbackSubmitted: false,
+          chartData: _buildChartDataForEmptyRange(
+            start: range.start,
+            end: range.end,
+          ),
         ),
+        range: range,
+        currentSignals: const [],
+        feedbackEvents: const [],
       );
     }
 
@@ -95,23 +104,35 @@ class WeeklyRepository {
     );
 
     if (!readiness.isReady) {
-      return WeeklyInsightModel(
-        weekStart: _dateKey(range.start),
-        weekEnd: _dateKey(range.end),
-        status: 'insufficient_data',
-        keyInsight: null,
-        patterns: const [],
-        frictions: const [],
-        bestAction: null,
-        opportunitySnapshot: {
-          '_weekly_inclusion': inclusionSummary,
-          '_report_readiness': readiness.toMap(),
-        },
-        feedbackSubmitted: false,
-        chartData: _buildChartDataForEmptyRange(
-          start: range.start,
-          end: range.end,
+      final feedbackEvents = await LocalFeedbackEventRepository(
+        localWeeklySnapshotRepository.localDatabase,
+      ).listActiveBetween(
+        localUserId: localUserId,
+        startDate: _dateKey(range.start),
+        endDate: _dateKey(range.end),
+      );
+      return _withWeeklyReviewProjections(
+        WeeklyInsightModel(
+          weekStart: _dateKey(range.start),
+          weekEnd: _dateKey(range.end),
+          status: 'insufficient_data',
+          keyInsight: null,
+          patterns: const [],
+          frictions: const [],
+          bestAction: null,
+          opportunitySnapshot: {
+            '_weekly_inclusion': inclusionSummary,
+            '_report_readiness': readiness.toMap(),
+          },
+          feedbackSubmitted: false,
+          chartData: _buildChartDataForEmptyRange(
+            start: range.start,
+            end: range.end,
+          ),
         ),
+        range: range,
+        currentSignals: weekSignals,
+        feedbackEvents: feedbackEvents,
       );
     }
 
@@ -162,7 +183,12 @@ class WeeklyRepository {
         hydrated,
         weekSignals: weekSignals,
       );
-      return hydrated;
+      return _withWeeklyReviewProjections(
+        hydrated,
+        range: range,
+        currentSignals: weekSignals,
+        feedbackEvents: feedbackEvents,
+      );
     }
 
     final focusArea = await _readFocusArea();
@@ -225,7 +251,12 @@ class WeeklyRepository {
       sourceHash: sourceHash,
     );
 
-    return generated;
+    return _withWeeklyReviewProjections(
+      generated,
+      range: range,
+      currentSignals: weekSignals,
+      feedbackEvents: feedbackEvents,
+    );
   }
 
   List<Map<String, dynamic>> _feedbackEventEntries(
@@ -300,6 +331,9 @@ class WeeklyRepository {
       },
       feedbackSubmitted: weekly.feedbackSubmitted,
       chartData: weekly.chartData,
+      previousWeekSummary: weekly.previousWeekSummary,
+      behaviorPatterns: weekly.behaviorPatterns,
+      energyProjection: weekly.energyProjection,
     );
   }
 
@@ -339,10 +373,40 @@ class WeeklyRepository {
   Future<WeeklyReflectModel> fetchWeeklyReflect() async {
     final weekly = await fetchCurrentWeekly();
     final focusArea = await _readFocusArea();
-    return aiRepository.generateWeeklyReflect(
+    final reflect = await aiRepository.generateWeeklyReflect(
       weekly: weekly,
       focusArea: focusArea,
     );
+    // A standard Weekly snapshot is not a deep analysis. Persist only this
+    // explicit L3 result so future planning can opt in to it without treating
+    // a free/standard weekly summary as Pro context.
+    await LocalReflectionResultRepository(
+      localWeeklySnapshotRepository.localDatabase,
+    ).saveCurrent(
+      sourceType: 'weekly_snapshot',
+      sourceId: weekly.weekStart,
+      reflectionType: 'weekly_deep_analysis',
+      aiLevel: 'L3',
+      sourceHash: await localWeeklySnapshotRepository.getSourceHash(
+        weekly.weekStart,
+      ),
+      content: {
+        'summary': reflect.summary,
+        'root_tension': reflect.rootTension,
+        'hidden_pattern': reflect.hiddenPattern,
+        'next_focus': reflect.nextFocus,
+        'risk_note': reflect.riskNote,
+        'pattern_label': reflect.patternLabel,
+        'friction_label': reflect.frictionLabel,
+        'impact_label': reflect.impactLabel,
+        'relationship_summary': reflect.relationshipSummary,
+        'timing_summary': reflect.timingSummary,
+        'next_question': reflect.nextQuestion,
+        'source_signal_card_ids': reflect.sourceSignalCardIds,
+        'scope_note': reflect.scopeNote,
+      },
+    );
+    return reflect;
   }
 
   Future<LifeExperimentModel?> fetchWeeklyExperimentCandidate({
@@ -445,12 +509,104 @@ class WeeklyRepository {
       experimentId: resolvedExperimentId,
       completionStatus: status,
       feedbackText: feedbackText,
+      feedbackDate: nowLoader(),
+      enforceProgressWindow: true,
     );
-    if (feedback != null) cloudBackupSyncService?.markDataChanged();
+    if (feedback == null) return null;
+    cloudBackupSyncService?.markDataChanged();
     return localLifeExperimentRepository?.updateDetails(
       experimentId: resolvedExperimentId,
       feedbackText: feedbackText,
     );
+  }
+
+  Future<MicroActionModel?> submitMicroActionFeedback({
+    required String microActionId,
+    required String status,
+    String? effect,
+    String? difficulty,
+    String? userNote,
+  }) async {
+    final repo = localPhase3PlusRepository;
+    if (repo == null) return null;
+
+    final action = await repo.getMicroActionById(microActionId);
+    if (action == null) return null;
+
+    final now = nowLoader();
+    if (!_canRecordMicroActionFeedbackOn(action: action, date: now)) {
+      return null;
+    }
+
+    final canonicalStatus = switch (status.trim().toLowerCase()) {
+      'completed' || 'done' || 'occurred' || 'happened' => 'completed',
+      'not_completed' ||
+      'not_done' ||
+      'not_occurred' ||
+      'not_happened' =>
+        'not_completed',
+      _ => throw ArgumentError.value(status, 'status', 'unsupported_feedback'),
+    };
+
+    final isCompleted = canonicalStatus == 'completed';
+    final normalizedEffect = isCompleted ? effect : null;
+    final normalizedDifficulty = isCompleted ? difficulty : null;
+    await repo.recordStructuredMicroActionFeedback(
+      microActionId: action.id,
+      localDate: _dateKey(now),
+      completionStatus: canonicalStatus,
+      effect: normalizedEffect,
+      difficulty: normalizedDifficulty,
+      note: userNote,
+      nextAdjustment: normalizedDifficulty == SmallTryDifficulty.difficult
+          ? SmallTryNextAdjustment.makeLighter
+          : SmallTryNextAdjustment.keep,
+      createdAt: now,
+    );
+    await repo.updateMicroActionStatus(
+      id: action.id,
+      status: action.status,
+      feedbackStatus: canonicalStatus,
+    );
+    cloudBackupSyncService?.markDataChanged();
+    return repo.getMicroActionById(action.id);
+  }
+
+  bool _canRecordMicroActionFeedbackOn({
+    required MicroActionModel action,
+    required DateTime date,
+  }) {
+    final lifecycle = action.status.trim().toLowerCase();
+    if (lifecycle.contains('pause') ||
+        lifecycle.contains('stop') ||
+        lifecycle.contains('skip') ||
+        lifecycle.contains('archive') ||
+        lifecycle.contains('complete') ||
+        lifecycle.contains('done') ||
+        lifecycle.contains('finish') ||
+        lifecycle.contains('dismiss')) {
+      return false;
+    }
+
+    final start = DateTime.tryParse(
+          action.progressStartDate ?? action.plannedDate ?? '',
+        ) ??
+        action.adoptedAt ??
+        action.createdAt;
+    if (start == null) return false;
+    final configuredEnd = DateTime.tryParse(action.progressEndDate ?? '');
+    final localDate = DateTime(date.year, date.month, date.day);
+    final localStart = DateTime(start.year, start.month, start.day);
+    if (localDate.isBefore(localStart)) return false;
+    // Missing progress_end_date means an open-ended adopted small try, not an
+    // implicit seven-day window. Lifecycle state remains the primary gate.
+    if (configuredEnd == null) return true;
+    final localEnd = DateTime(
+      configuredEnd.year,
+      configuredEnd.month,
+      configuredEnd.day,
+    );
+    return !localDate.isAfter(localEnd);
   }
 
   Future<LifeExperimentModel?> updateLifeExperimentDetails({
@@ -459,12 +615,17 @@ class WeeklyRepository {
     required String hypothesis,
     required String suggestedAction,
   }) async {
-    final adopted = experimentId.startsWith('cand_')
-        ? await saveLifeExperiment(experimentId)
-        : null;
-    final resolvedExperimentId = adopted?.id ?? experimentId;
+    if (experimentId.startsWith('cand_')) {
+      // Editing a current/next-week candidate must not implicitly adopt it.
+      return _experimentCandidateRepository.updateContent(
+        candidateId: experimentId,
+        title: title,
+        hypothesis: hypothesis,
+        suggestedAction: suggestedAction,
+      );
+    }
     final experiment = await localLifeExperimentRepository?.updateDetails(
-      experimentId: resolvedExperimentId,
+      experimentId: experimentId,
       title: title,
       hypothesis: hypothesis,
       suggestedAction: suggestedAction,
@@ -556,6 +717,9 @@ class WeeklyRepository {
       },
       feedbackSubmitted: weekly.feedbackSubmitted,
       chartData: weekly.chartData,
+      previousWeekSummary: weekly.previousWeekSummary,
+      behaviorPatterns: weekly.behaviorPatterns,
+      energyProjection: weekly.energyProjection,
     );
   }
 
@@ -577,7 +741,484 @@ class WeeklyRepository {
       },
       feedbackSubmitted: weekly.feedbackSubmitted,
       chartData: weekly.chartData,
+      previousWeekSummary: weekly.previousWeekSummary,
+      behaviorPatterns: weekly.behaviorPatterns,
+      energyProjection: weekly.energyProjection,
     );
+  }
+
+  /// Adds the fact-backed Weekly projections which are intentionally not part
+  /// of the generated prose snapshot. This keeps "上周回看" tied to the real
+  /// preceding Monday--Sunday range, and keeps deep-analysis inputs read-only.
+  Future<WeeklyInsightModel> _withWeeklyReviewProjections(
+    WeeklyInsightModel weekly, {
+    required _WeekRange range,
+    required List<RecentSignalModel> currentSignals,
+    required List<FeedbackEventModel> feedbackEvents,
+  }) async {
+    final previousSummary = await _buildPreviousWeekSummary(range);
+    return WeeklyInsightModel(
+      weekStart: weekly.weekStart,
+      weekEnd: weekly.weekEnd,
+      status: weekly.status,
+      keyInsight: weekly.keyInsight,
+      patterns: weekly.patterns,
+      frictions: weekly.frictions,
+      bestAction: weekly.bestAction,
+      opportunitySnapshot: weekly.opportunitySnapshot,
+      feedbackSubmitted: weekly.feedbackSubmitted,
+      chartData: weekly.chartData,
+      previousWeekSummary: previousSummary,
+      behaviorPatterns: _buildBehaviorPatterns(currentSignals),
+      energyProjection: _buildEnergyProjection(
+        range: range,
+        signals: currentSignals,
+        feedbackEvents: feedbackEvents,
+      ),
+    );
+  }
+
+  Future<PreviousWeekSummaryModel> _buildPreviousWeekSummary(
+    _WeekRange currentRange,
+  ) async {
+    final start = currentRange.start.subtract(const Duration(days: 7));
+    final end = currentRange.end.subtract(const Duration(days: 7));
+    final rawSignals = await localCaptureRepository.listSignalCardsBetween(
+      startDate: _dateKey(start),
+      endDate: _dateKey(end),
+    );
+    final signals = _weeklyEligibleSignals(rawSignals);
+    final readiness = const ReportReadinessEvaluator().evaluate(
+      signals,
+      ReportReadinessEvaluator.weeklyRule,
+    );
+    final stats = _buildWeeklyStats(signals);
+    final sourceIds = signals
+        .map((signal) => signal.signalCardId ?? signal.id ?? '')
+        .where((id) => id.trim().isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    final sourceHash = localWeeklySnapshotRepository.buildSourceHash(
+      entries: stats.entries,
+      dayCounts: stats.dayCounts,
+      topTokens: stats.topTokens,
+    );
+    final recordedDays = stats.dayCounts.length;
+    final factualSummary = signals.isEmpty
+        ? '上周还没有可回看的 Signal。'
+        : '上周记录了 ${signals.length} 条 Signal，分布在 $recordedDays 天。';
+    final watchpoint = readiness.isReady
+        ? '本周可留意：${_previousWeekWatchpoint(signals, stats)}'
+        : '本周可留意：记录还少，先继续观察。';
+    return PreviousWeekSummaryModel(
+      weekStart: _dateKey(start),
+      weekEnd: _dateKey(end),
+      readiness: readiness,
+      signalCount: signals.length,
+      recordedDayCount: recordedDays,
+      factualSummary: factualSummary,
+      thisWeekWatchpoint: watchpoint,
+      sourceSignalCardIds: sourceIds,
+      sourceHash: sourceHash,
+    );
+  }
+
+  String _previousWeekWatchpoint(
+    List<RecentSignalModel> signals,
+    _WeeklyStats stats,
+  ) {
+    final sceneCounts = <String, int>{};
+    final frictionCounts = <String, int>{};
+    for (final signal in signals) {
+      final scene = _meaningfulSignalLabel(signal.scene);
+      final friction = _meaningfulSignalLabel(signal.friction);
+      if (scene != null) sceneCounts[scene] = (sceneCounts[scene] ?? 0) + 1;
+      if (friction != null) {
+        frictionCounts[friction] = (frictionCounts[friction] ?? 0) + 1;
+      }
+    }
+    String? mostCommon(Map<String, int> values) {
+      if (values.isEmpty) return null;
+      final entries = values.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      return entries.first.key;
+    }
+
+    final scene = mostCommon(sceneCounts);
+    final friction = mostCommon(frictionCounts);
+    if (scene != null && friction != null) {
+      return '“$scene”时的“$friction”是否再次出现。';
+    }
+    if (scene != null) {
+      return '“$scene”这个场景是否再次出现。';
+    }
+    if (friction != null) {
+      return '“$friction”是否再次出现。';
+    }
+    if (stats.topTokens.isNotEmpty) {
+      return '“${stats.topTokens.first}”相关情况是否再次出现。';
+    }
+    return '哪些时刻让你感觉更费力或更轻松。';
+  }
+
+  List<WeeklyBehaviorPatternModel> _buildBehaviorPatterns(
+    List<RecentSignalModel> signals,
+  ) {
+    final buckets = <String, _PatternBucket>{};
+    for (final signal in signals) {
+      final scene = _meaningfulSignalLabel(signal.scene);
+      final friction = _meaningfulSignalLabel(signal.friction);
+
+      if (scene != null && friction != null) {
+        _addPatternSignal(
+          buckets,
+          key: 'pair:$scene|$friction',
+          label: '“$scene”的记录中，多次同时出现“$friction”',
+          kind: 'context_response',
+          signal: signal,
+        );
+      }
+      if (scene != null) {
+        _addPatternSignal(
+          buckets,
+          key: 'scene:$scene',
+          label: '“$scene”是本周反复出现的场景',
+          kind: 'context',
+          signal: signal,
+        );
+      }
+      if (friction != null) {
+        _addPatternSignal(
+          buckets,
+          key: 'friction:$friction',
+          label: '“$friction”是本周反复出现的反应',
+          kind: 'response',
+          signal: signal,
+        );
+      }
+    }
+    _addContextDifferencePatterns(signals, buckets);
+    _addRepeatedSequencePatterns(signals, buckets);
+    _addTradeoffPatterns(signals, buckets);
+
+    final candidates = buckets.entries.where((entry) {
+      // A pattern must be supported by multiple actual Signals. A single
+      // observation remains in the timeline, rather than becoming a label.
+      return entry.value.signalIds.length >= 2 && entry.value.dates.length >= 2;
+    }).toList()
+      ..sort((a, b) {
+        final priority = _behaviorPatternPriority(a.value.kind)
+            .compareTo(_behaviorPatternPriority(b.value.kind));
+        if (priority != 0) return priority;
+        final support =
+            b.value.signalIds.length.compareTo(a.value.signalIds.length);
+        if (support != 0) return support;
+        return b.value.dates.length.compareTo(a.value.dates.length);
+      });
+    final selected = <WeeklyBehaviorPatternModel>[];
+    final usedSignalSets = <Set<String>>[];
+    for (final entry in candidates) {
+      if (selected.length >= 3) break;
+      final ids = entry.value.signalIds.toList()..sort();
+      final duplicate = usedSignalSets.any((used) =>
+          ids.toSet().difference(used).isEmpty ||
+          used.difference(ids.toSet()).isEmpty);
+      if (duplicate) continue;
+      final dates = entry.value.dates.toList()..sort();
+      final count = ids.length;
+      selected.add(WeeklyBehaviorPatternModel(
+        id: _stableWeeklyId('${entry.key}:${ids.join(',')}'),
+        label: entry.value.label,
+        summary: '来自 $count 条 Signal，出现在 ${dates.join('、')}。',
+        kind: entry.value.kind,
+        sourceSignalCardIds: ids,
+        supportDates: dates,
+        illustrationHint: _deriveWeeklyIllustrationHint(entry.value.label),
+      ));
+      usedSignalSets.add(ids.toSet());
+    }
+    return selected;
+  }
+
+  /// A context difference means the same explicitly recorded reaction was
+  /// present in different named scenes on different dates. It describes a
+  /// spread of facts only; it does not claim that either scene caused it.
+  void _addContextDifferencePatterns(
+    List<RecentSignalModel> signals,
+    Map<String, _PatternBucket> buckets,
+  ) {
+    final byReaction = <String, List<RecentSignalModel>>{};
+    final labels = <String, String>{};
+    for (final signal in signals) {
+      final scene = _meaningfulSignalLabel(signal.scene);
+      final reaction = _reactionMarker(signal);
+      if (scene == null || reaction == null) continue;
+      (byReaction[reaction.key] ??= []).add(signal);
+      labels[reaction.key] = reaction.label;
+    }
+    for (final entry in byReaction.entries) {
+      final distinctScenes = entry.value
+          .map((signal) => _meaningfulSignalLabel(signal.scene))
+          .whereType<String>()
+          .toSet();
+      final dates = entry.value
+          .map((signal) => signal.localDateKey())
+          .where((date) => date.isNotEmpty)
+          .toSet();
+      if (distinctScenes.length < 2 || dates.length < 2) continue;
+      for (final signal in entry.value) {
+        _addPatternSignal(
+          buckets,
+          key: 'context_difference:${entry.key}',
+          label: '“${labels[entry.key]}”出现在不同场景的记录中',
+          kind: 'context_difference',
+          signal: signal,
+        );
+      }
+    }
+  }
+
+  /// Uses only strict timestamps within a local date. The same ordered pair
+  /// must be recorded on at least two dates before it can be shown.
+  void _addRepeatedSequencePatterns(
+    List<RecentSignalModel> signals,
+    Map<String, _PatternBucket> buckets,
+  ) {
+    final byDate = <String, List<RecentSignalModel>>{};
+    for (final signal in signals) {
+      final date = signal.localDateKey();
+      if (date.isEmpty || signal.createdAt == null) continue;
+      (byDate[date] ??= []).add(signal);
+    }
+
+    for (final daySignals in byDate.values) {
+      final ordered = [...daySignals]
+        ..sort((a, b) => a.createdAt!.compareTo(b.createdAt!));
+      for (var index = 0; index + 1 < ordered.length; index += 1) {
+        final first = ordered[index];
+        final second = ordered[index + 1];
+        if (!first.createdAt!.isBefore(second.createdAt!)) continue;
+        final firstLabel = _sequenceMarker(first);
+        final secondLabel = _sequenceMarker(second);
+        if (firstLabel == null ||
+            secondLabel == null ||
+            firstLabel == secondLabel) {
+          continue;
+        }
+        final key = 'sequence:$firstLabel>$secondLabel';
+        final label = '记录中“$firstLabel”后出现“$secondLabel”的顺序跨日期重复出现';
+        _addPatternSignal(
+          buckets,
+          key: key,
+          label: label,
+          kind: 'sequence',
+          signal: first,
+        );
+        _addPatternSignal(
+          buckets,
+          key: key,
+          label: label,
+          kind: 'sequence',
+          signal: second,
+        );
+      }
+    }
+  }
+
+  /// A tradeoff is shown only when the same named scene has both an explicit
+  /// draining record and an ease/recovery record on different dates.
+  void _addTradeoffPatterns(
+    List<RecentSignalModel> signals,
+    Map<String, _PatternBucket> buckets,
+  ) {
+    final byScene = <String, List<RecentSignalModel>>{};
+    for (final signal in signals) {
+      final scene = _meaningfulSignalLabel(signal.scene);
+      if (scene != null) (byScene[scene] ??= []).add(signal);
+    }
+    for (final entry in byScene.entries) {
+      final draining = entry.value
+          .where((signal) =>
+              _energyClassifier.classifySignal(signal).storageValue ==
+              'draining')
+          .toList(growable: false);
+      final easeOrRecovery = entry.value.where((signal) {
+        final state = _energyClassifier.classifySignal(signal).storageValue;
+        return state == 'ease' || state == 'recovery';
+      }).toList(growable: false);
+      final hasCrossDateSupport = draining.any((drainingSignal) {
+        final drainingDate = drainingSignal.localDateKey();
+        return drainingDate.isNotEmpty &&
+            easeOrRecovery.any(
+              (positiveSignal) =>
+                  positiveSignal.localDateKey().isNotEmpty &&
+                  positiveSignal.localDateKey() != drainingDate,
+            );
+      });
+      if (!hasCrossDateSupport) continue;
+
+      final key = 'tradeoff:${entry.key}';
+      final label = '“${entry.key}”在不同日期既有偏耗力，也有有余力或恢复的记录';
+      for (final signal in [...draining, ...easeOrRecovery]) {
+        _addPatternSignal(
+          buckets,
+          key: key,
+          label: label,
+          kind: 'tradeoff',
+          signal: signal,
+        );
+      }
+    }
+  }
+
+  void _addPatternSignal(
+    Map<String, _PatternBucket> buckets, {
+    required String key,
+    required String label,
+    required String kind,
+    required RecentSignalModel signal,
+  }) {
+    final bucket = buckets.putIfAbsent(
+      key,
+      () => _PatternBucket(label: label, kind: kind),
+    );
+    final id = (signal.signalCardId ?? signal.id ?? '').trim();
+    final date = signal.localDateKey();
+    if (id.isNotEmpty) bucket.signalIds.add(id);
+    if (date.isNotEmpty) bucket.dates.add(date);
+  }
+
+  ({String key, String label})? _reactionMarker(RecentSignalModel signal) {
+    final friction = _meaningfulSignalLabel(signal.friction);
+    if (friction != null) return (key: 'friction:$friction', label: friction);
+    final emotion = _meaningfulSignalLabel(signal.emotion);
+    if (emotion != null) return (key: 'emotion:$emotion', label: emotion);
+    return null;
+  }
+
+  String? _sequenceMarker(RecentSignalModel signal) {
+    final scene = _meaningfulSignalLabel(signal.scene);
+    final reaction = _reactionMarker(signal)?.label;
+    if (scene != null && reaction != null) return '$scene／$reaction';
+    return reaction ?? scene;
+  }
+
+  int _behaviorPatternPriority(String kind) => switch (kind) {
+        'tradeoff' => 0,
+        'context_difference' => 1,
+        'sequence' => 2,
+        'context_response' => 3,
+        'response' => 4,
+        'context' => 5,
+        _ => 6,
+      };
+
+  WeeklyEnergyProjectionModel _buildEnergyProjection({
+    required _WeekRange range,
+    required List<RecentSignalModel> signals,
+    required List<FeedbackEventModel> feedbackEvents,
+  }) {
+    const states = [
+      'draining',
+      'steady',
+      'ease',
+      'recovery',
+      'boundary_buffer'
+    ];
+    final byDate = <String, List<RecentSignalModel>>{};
+    for (final signal in signals) {
+      final date = signal.localDateKey();
+      if (date.isNotEmpty) (byDate[date] ??= []).add(signal);
+    }
+    final feedbackByDate = <String, int>{};
+    for (final feedback in feedbackEvents) {
+      feedbackByDate[feedback.localDate] =
+          (feedbackByDate[feedback.localDate] ?? 0) + 1;
+    }
+    final totals = {for (final state in states) state: 0};
+    final days = <WeeklyEnergyDayModel>[];
+    for (var offset = 0; offset < 7; offset++) {
+      final date = range.start.add(Duration(days: offset));
+      final key = _dateKey(date);
+      final counts = {for (final state in states) state: 0};
+      for (final signal in byDate[key] ?? const <RecentSignalModel>[]) {
+        final state = _energyClassifier.classifySignal(signal).storageValue;
+        counts[state] = (counts[state] ?? 0) + 1;
+        totals[state] = (totals[state] ?? 0) + 1;
+      }
+      final signalCount = byDate[key]?.length ?? 0;
+      // Empty dates are chart placeholders, not an inferred draining state.
+      // Only classify a dominant state when the date has actual Signal input.
+      final dominant = signalCount == 0
+          ? 'steady'
+          : states.reduce((best, candidate) =>
+              (counts[candidate] ?? 0) > (counts[best] ?? 0)
+                  ? candidate
+                  : best);
+      days.add(WeeklyEnergyDayModel(
+        date: key,
+        signalCount: signalCount,
+        feedbackCount: feedbackByDate[key] ?? 0,
+        stateCounts: counts,
+        dominantState: dominant,
+      ));
+    }
+    final draining = totals['draining'] ?? 0;
+    final recovery = totals['recovery'] ?? 0;
+    final ease = totals['ease'] ?? 0;
+    final helpfulFeedbacks = feedbackEvents
+        .where((event) =>
+            _isHelpfulFeedbackText(event.status) ||
+            _isHelpfulFeedbackText(event.effect))
+        .length;
+    final recommendation = draining > recovery + ease
+        ? 'reduce_load'
+        : recovery + ease >= draining + 2 && helpfulFeedbacks > 0
+            ? 'cautiously_increase'
+            : 'maintain_load';
+    final rationale = switch (recommendation) {
+      'reduce_load' => '本周偏耗力的 Signal 较多，下周候选会优先排低负荷内容。',
+      'cautiously_increase' => '本周轻松或恢复的 Signal 与正向反馈较多，下周可以小幅增加尝试。',
+      _ => '本周五类状态较为接近，下周先维持当前负荷。',
+    };
+    return WeeklyEnergyProjectionModel(
+      days: days,
+      totals: totals,
+      recommendation: recommendation,
+      rationale: rationale,
+    );
+  }
+
+  late final EnergyBudgetRepository _energyClassifier = EnergyBudgetRepository(
+    localCaptureRepository: localCaptureRepository,
+    localLifeExperimentRepository: localLifeExperimentRepository,
+    localUserId: localUserId,
+    eligibilityService: eligibilityService,
+    nowLoader: nowLoader,
+  );
+
+  String? _meaningfulSignalLabel(String? raw) {
+    final value = raw?.trim();
+    if (value == null || value.isEmpty) return null;
+    const placeholders = {
+      'unknown',
+      'other',
+      'none',
+      '未分类',
+      '不确定',
+      'unknown_scene'
+    };
+    return placeholders.contains(value.toLowerCase()) ? null : value;
+  }
+
+  String _stableWeeklyId(String input) {
+    var hash = 2166136261;
+    for (final code in input.codeUnits) {
+      hash ^= code;
+      hash = (hash * 16777619) & 0x7fffffff;
+    }
+    return 'weekly_pattern_${hash.toRadixString(16)}';
   }
 
   Map<String, int> _buildInclusionSummary({
@@ -960,7 +1601,7 @@ class WeeklyRepository {
           'illustration_hint': frictionHint,
         },
       ],
-      bestAction: '下周只试一个小实验：同类情况出现时，用一句话补记它发生在什么场景。',
+      bestAction: '下周先试一个生活小实验目标：同类情况出现时，用一句话补记它发生在什么场景。',
       opportunitySnapshot: _withWeeklyMetadata(
         const {
           'name': '把重复信号固定下来',
@@ -1171,7 +1812,7 @@ class WeeklyRepository {
       return '金钱或现实压力牵动安全感';
     }
     if (_containsAny(text, const ['身体', '累'])) return '身体信号先出现，才意识到累';
-    if (_containsAny(text, const ['有效', '稳定'])) return '小行动有效，节奏开始稳定';
+    if (_containsAny(text, const ['有效', '稳定'])) return '小实验有效，节奏开始稳定';
     if (_containsAny(text, const ['兴趣', '爱好'])) return '兴趣活动带来恢复感';
     return fallback;
   }
@@ -1184,7 +1825,7 @@ class WeeklyRepository {
   String _softExperimentText(String? input) {
     final trimmed = input?.trim();
     if (trimmed == null || trimmed.isEmpty) {
-      return '下周可以试试一个很小的实验：同类场景出现时，只补一句它发生在哪里。';
+      return '下周可以先试一个生活小实验目标：同类场景出现时，只补一句它发生在哪里。';
     }
 
     return trimmed
@@ -1288,4 +1929,16 @@ class _ChartAccumulator {
   double moodScore = 0;
   double frictionScore = 0;
   bool hasPositiveSignal = false;
+}
+
+class _PatternBucket {
+  final String label;
+  final String kind;
+  final Set<String> signalIds = <String>{};
+  final Set<String> dates = <String>{};
+
+  _PatternBucket({
+    required this.label,
+    required this.kind,
+  });
 }

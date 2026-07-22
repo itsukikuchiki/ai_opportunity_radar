@@ -38,7 +38,7 @@ void main() {
     expect(padding, const EdgeInsets.fromLTRB(18, 14, 18, 96));
     expect(
       tester.getSize(find.byKey(const ValueKey('me-hero-header'))).height,
-      lessThanOrEqualTo(170),
+      lessThanOrEqualTo(196),
     );
     expect(
       tester
@@ -59,12 +59,8 @@ void main() {
       tester.getSize(find.byKey(const ValueKey('me-profile-avatar'))),
       const Size(68, 68),
     );
-    expect(
-      tester
-          .getSize(find.byKey(const ValueKey('me-life-direction-card')))
-          .height,
-      closeTo(158, 1),
-    );
+    expect(find.byKey(const ValueKey('me-profile-summary')), findsOneWidget);
+    expect(find.byKey(const ValueKey('me-life-direction-card')), findsNothing);
   });
 
   testWidgets('Me 紧凑屏幕和放大文字不溢出', (tester) async {
@@ -92,6 +88,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Me main content follows the approved control-center order',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 1800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final meVm = await buildMeViewModel();
+
+    await tester.pumpWidget(
+      buildTestApp(
+        child: const MePage(),
+        providers: [
+          ChangeNotifierProvider<MeViewModel>.value(value: meVm),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final orderedKeys = <ValueKey<String>>[
+      const ValueKey('me-profile-summary'),
+      const ValueKey('me-focus-domains-card'),
+      const ValueKey('me-pro-usage-card'),
+      const ValueKey('me-reminders-data-card'),
+      const ValueKey('me-data-privacy-card'),
+      const ValueKey('me-help-about-card'),
+    ];
+    final tops = [
+      for (final key in orderedKeys) tester.getTopLeft(find.byKey(key)).dy,
+    ];
+    expect(tops, orderedEquals(tops.toList()..sort()));
+  });
+
   testWidgets('Me page renders redesigned Chinese profile sections',
       (tester) async {
     final meVm = await buildMeViewModel();
@@ -112,14 +138,14 @@ void main() {
 
     expect(find.text('你好'), findsOneWidget);
     expect(find.text('我的'), findsOneWidget);
-    expect(find.text('我的人生方向'), findsOneWidget);
-    expect(find.text('还没有设置人生方向。'), findsOneWidget);
+    expect(find.text('准备好时，再写下你想靠近的生活。'), findsOneWidget);
+    expect(find.text('保存在本机'), findsOneWidget);
     expect(find.text('我的关注重点'), findsOneWidget);
     expect(
       find.textContaining('不会隐藏其他记录'),
       findsOneWidget,
     );
-    expect(find.textContaining('仅保存在本机'), findsOneWidget);
+    expect(find.textContaining('未登录账户时仅保存在本机'), findsOneWidget);
     expect(find.text('情绪安定'), findsOneWidget);
 
     await tester.scrollUntilVisible(
@@ -129,25 +155,36 @@ void main() {
     );
     expect(find.text('升级到 Pro'), findsOneWidget);
 
+    expect(find.byKey(const ValueKey('me-pro-usage-card')), findsOneWidget);
+    expect(find.text('管理订阅'), findsOneWidget);
+
     await tester.scrollUntilVisible(
-      find.text('复盘与 AI'),
+      find.text('提醒与辅助数据'),
       260,
       scrollable: find.byType(Scrollable),
     );
-    expect(find.text('结构化自我复盘'), findsOneWidget);
-    expect(find.text('AI 回应风格'), findsOneWidget);
-    expect(find.textContaining('温和 ·'), findsOneWidget);
+    expect(find.text('Signal 记录提醒'), findsOneWidget);
+    expect(find.text('高级信号'), findsOneWidget);
 
     await tester.scrollUntilVisible(
       find.text('数据与隐私'),
       260,
       scrollable: find.byType(Scrollable),
     );
-    expect(find.text('高级信号'), findsOneWidget);
     expect(find.text('隐私与安全'), findsOneWidget);
-    expect(find.text('帮助与支持'), findsOneWidget);
     expect(find.text('清除本机数据'), findsOneWidget);
     expect(find.textContaining('如何处理你的数据'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('帮助与关于'),
+      260,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(find.text('帮助与支持'), findsOneWidget);
+    expect(find.text('使用条款'), findsOneWidget);
+
+    expect(find.text('结构化自我复盘'), findsNothing);
+    expect(find.text('AI 回应风格'), findsNothing);
 
     expect(find.text('本月使用'), findsNothing);
     expect(find.text('使用记录'), findsNothing);
@@ -163,7 +200,7 @@ void main() {
     expect(find.text('用户指南'), findsNothing);
   });
 
-  testWidgets('Me reflects the actual saved AI response style', (tester) async {
+  testWidgets('Me does not expose saved AI response style', (tester) async {
     final meVm = await buildMeViewModel(responseStyle: 'direct');
 
     await tester.pumpWidget(
@@ -180,12 +217,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
-      find.text('AI 回应风格'),
-      260,
-      scrollable: find.byType(Scrollable),
+    await tester.drag(
+      find.byKey(const ValueKey('me-scroll-view')),
+      const Offset(0, -1200),
     );
-    expect(find.text('直接 · 更短，更直接'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('AI 回应风格'), findsNothing);
+    expect(find.text('直接 · 更短，更直接'), findsNothing);
   });
 
   testWidgets('Me renders real quota values instead of placeholder usage',

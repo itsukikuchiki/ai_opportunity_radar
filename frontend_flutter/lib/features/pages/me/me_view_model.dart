@@ -8,6 +8,7 @@ import '../../../core/api/repositories/cloud_backup_repository.dart';
 import '../../../core/backup/backup_bundle_repository.dart';
 import '../../../core/backup/cloud_backup_sync_service.dart';
 import '../../../core/local/local_database.dart';
+import '../../../core/notifications/signal_reminder_repository.dart';
 import '../../../core/preferences/focus_domains.dart';
 import '../../../core/state/app_data_refresh_coordinator.dart';
 import '../../onboarding/onboarding_view_model.dart';
@@ -318,9 +319,13 @@ class MeViewModel extends ChangeNotifier {
       }
 
       final oldPhotoPath = profilePhotoPath;
+      final signalReminderRepository = SignalReminderRepository(
+        preferences: prefs,
+      );
       await BackupBundleRepository(
         localDatabase: database,
         preferences: prefs,
+        signalReminderRepository: signalReminderRepository,
       ).deleteAllLocalData();
       if (oldPhotoPath != null && oldPhotoPath.trim().isNotEmpty) {
         final file = File(oldPhotoPath);

@@ -13,6 +13,7 @@ import '../features/onboarding/onboarding_page.dart';
 import '../features/onboarding/onboarding_view_model.dart';
 import '../features/pages/me/me_view_model.dart';
 import '../features/pages/memory/memory_view_model.dart';
+import '../features/pages/memory/journey_pro_view_model.dart';
 import '../features/pages/self_review/self_review_view_model.dart';
 import '../features/pages/signal_library/signal_library_view_model.dart';
 import '../features/pages/today/today_view_model.dart';
@@ -40,6 +41,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
   TodayViewModel? _todayViewModel;
   WeeklyViewModel? _weeklyViewModel;
   MemoryViewModel? _memoryViewModel;
+  JourneyProViewModel? _journeyProViewModel;
   SelfReviewViewModel? _selfReviewViewModel;
   SignalLibraryViewModel? _signalLibraryViewModel;
   MeViewModel? _meViewModel;
@@ -90,6 +92,9 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
       dependencies.memoryRepository,
       analyticsRepository: dependencies.analyticsRepository,
     );
+    _journeyProViewModel = JourneyProViewModel(
+      dependencies.journeyProRepository,
+    );
     _selfReviewViewModel =
         SelfReviewViewModel(dependencies.selfReviewRepository);
     _signalLibraryViewModel = SignalLibraryViewModel(
@@ -130,6 +135,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
     _todayViewModel?.dispose();
     _weeklyViewModel?.dispose();
     _memoryViewModel?.dispose();
+    _journeyProViewModel?.dispose();
     _selfReviewViewModel?.dispose();
     _signalLibraryViewModel?.dispose();
     _meViewModel?.dispose();
@@ -143,6 +149,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
     _todayViewModel = null;
     _weeklyViewModel = null;
     _memoryViewModel = null;
+    _journeyProViewModel = null;
     _selfReviewViewModel = null;
     _signalLibraryViewModel = null;
     _meViewModel = null;
@@ -205,6 +212,8 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
                 value: _weeklyViewModel!),
             ChangeNotifierProvider<MemoryViewModel>.value(
                 value: _memoryViewModel!),
+            ChangeNotifierProvider<JourneyProViewModel>.value(
+                value: _journeyProViewModel!),
             ChangeNotifierProvider<SelfReviewViewModel>.value(
                 value: _selfReviewViewModel!),
             ChangeNotifierProvider<SignalLibraryViewModel>.value(

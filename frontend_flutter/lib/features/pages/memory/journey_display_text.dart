@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../../../core/i18n/app_locale_text.dart';
+import '../../../core/preferences/focus_domains.dart';
 
 /// Localizes analysis tokens only at presentation time.
 ///
@@ -25,8 +26,82 @@ String localizeJourneyDisplayText(BuildContext context, String text) {
   return output;
 }
 
+/// Keeps stored MicroAction completion tokens stable while presenting the
+/// completion result in the current app language.
+String localizeJourneyEvidenceText(
+  BuildContext context, {
+  required String sourceType,
+  required String text,
+}) {
+  var output = localizeJourneyDisplayText(context, text);
+  if (sourceType.trim().toLowerCase() != 'micro_action_feedback') {
+    return output;
+  }
+
+  final notCompleted = AppLocaleText.tr(
+    context,
+    en: 'Not completed',
+    zhHans: '未完成',
+    zhHant: '未完成',
+    ja: '未完了',
+  );
+  final completed = AppLocaleText.tr(
+    context,
+    en: 'Completed',
+    zhHans: '已完成',
+    zhHant: '已完成',
+    ja: '完了',
+  );
+  for (final token in const [
+    'not_suitable_today',
+    'not_completed',
+    'not_occurred',
+    'not_happened',
+    'not_done',
+    'skipped',
+    'no',
+  ]) {
+    output = output.replaceAll(
+      RegExp('\\b${RegExp.escape(token)}\\b', caseSensitive: false),
+      notCompleted,
+    );
+  }
+  for (final token in const [
+    'completed',
+    'occurred',
+    'happened',
+    'done',
+    'yes',
+  ]) {
+    output = output.replaceAll(
+      RegExp('\\b${RegExp.escape(token)}\\b', caseSensitive: false),
+      completed,
+    );
+  }
+  return output;
+}
+
 String localizeJourneyCategoryLabel(BuildContext context, String value) {
   final normalized = value.trim().toLowerCase();
+  if (const {
+    'micro action feedback',
+    'micro-action feedback',
+    'microaction feedback',
+    'small action feedback',
+  }.contains(normalized)) {
+    return _smallTryFeedbackLabel(context);
+  }
+  if (const {
+    'experiment feedback',
+    'life experiment feedback',
+  }.contains(normalized)) {
+    return _goalFeedbackLabel(context);
+  }
+  if (normalized == 'life experiment') {
+    return _goalLabel(context);
+  }
+  final focusDomain = FocusDomains.optionFor(normalized);
+  if (focusDomain != null) return focusDomain.label(context);
   if (_journeyCategoryTokens.contains(normalized)) {
     return _categoryLabel(context, normalized);
   }
@@ -88,22 +163,11 @@ String journeySourceTypeLabel(BuildContext context, String sourceType) {
         ja: '手動の振り返り',
       );
     case 'micro_action_feedback':
-      return AppLocaleText.tr(
-        context,
-        en: 'Small action feedback',
-        zhHans: '小行动反馈',
-        zhHant: '小行動回饋',
-        ja: '小さな行動の反応',
-      );
+      return _smallTryFeedbackLabel(context);
     case 'life_experiment':
+      return _goalLabel(context);
     case 'life_experiment_feedback':
-      return AppLocaleText.tr(
-        context,
-        en: 'Life Experiment feedback',
-        zhHans: '生活小实验反馈',
-        zhHant: '生活小實驗回饋',
-        ja: '生活実験の反応',
-      );
+      return _goalFeedbackLabel(context);
     case 'weekly_review':
       return AppLocaleText.tr(
         context,
@@ -120,6 +184,30 @@ String journeySourceTypeLabel(BuildContext context, String sourceType) {
   }
 }
 
+String _smallTryFeedbackLabel(BuildContext context) => AppLocaleText.tr(
+      context,
+      en: 'Life Experiment · Small experiment feedback',
+      zhHans: '生活小实验 · 小实验反馈',
+      zhHant: '生活小實驗 · 小實驗回饋',
+      ja: '生活実験 · 小実験の反応',
+    );
+
+String _goalLabel(BuildContext context) => AppLocaleText.tr(
+      context,
+      en: 'Life Experiment · Goal',
+      zhHans: '生活小实验 · 目标',
+      zhHant: '生活小實驗 · 目標',
+      ja: '生活実験 · 目標',
+    );
+
+String _goalFeedbackLabel(BuildContext context) => AppLocaleText.tr(
+      context,
+      en: 'Life Experiment · Goal feedback',
+      zhHans: '生活小实验 · 目标反馈',
+      zhHant: '生活小實驗 · 目標回饋',
+      ja: '生活実験 · 目標の反応',
+    );
+
 const _journeyCategoryTokens = <String>{
   'planning',
   'work',
@@ -128,6 +216,14 @@ const _journeyCategoryTokens = <String>{
   'boundary',
   'emotional',
   'emotional_stability',
+  'relationship_connection',
+  'meaning_value',
+  'self_boundary',
+  'growth_plan',
+  'creative_expression',
+  'food_sleep',
+  'living_environment',
+  'interests_hobbies',
   'home',
   'sleep',
   'commute',
@@ -150,6 +246,8 @@ const _journeyCategoryTokens = <String>{
 };
 
 String _categoryLabel(BuildContext context, String value) {
+  final focusDomain = FocusDomains.optionFor(value);
+  if (focusDomain != null) return focusDomain.label(context);
   switch (value) {
     case 'planning':
       return AppLocaleText.tr(

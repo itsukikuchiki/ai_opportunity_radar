@@ -70,6 +70,10 @@ class WeeklyInsightItem(BaseModel):
     name: str
     summary: str
     illustration_hint: Optional[str] = None
+    trigger: Optional[str] = None
+    reaction: Optional[str] = None
+    short_result: Optional[str] = None
+    long_impact: Optional[str] = None
 
 
 class OpportunitySnapshotSchema(BaseModel):
@@ -168,6 +172,7 @@ class LightDialogRequest(BaseModel):
     capture_try_next: Optional[str] = None
     history: list[LightDialogTurnSchema] = Field(default_factory=list)
     user_message: str
+    language: Optional[str] = None
     focus_area: Optional[str] = None
     response_style: Optional[ResponseStyleLiteral] = None
 
@@ -186,6 +191,12 @@ class DeepWeeklyRequest(BaseModel):
     best_action: Optional[str] = None
     chart_data: list[dict[str, Any]] = Field(default_factory=list)
     focus_area: Optional[str] = None
+    attempt_count: int = 0
+    recorded_attempt_day_count: int = 0
+    completed_attempt_day_count: int = 0
+    signal_attempt_overlap_day_count: int = 0
+    dominant_feedback_pattern: Optional[str] = None
+    source_signal_card_ids: list[str] = Field(default_factory=list)
 
 
 class DeepWeeklyResponse(BaseModel):
@@ -195,3 +206,12 @@ class DeepWeeklyResponse(BaseModel):
     next_focus: str
     risk_note: str
     key_nodes: list[str] = Field(default_factory=list)
+    pattern_label: str = ""
+    friction_label: str = ""
+    impact_label: str = ""
+    relationship_summary: str = ""
+    timing_summary: str = ""
+    next_question: str = ""
+    illustration_hint: Optional[str] = None
+    source_signal_card_ids: list[str] = Field(default_factory=list)
+    scope_note: str = ""

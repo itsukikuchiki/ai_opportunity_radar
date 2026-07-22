@@ -180,6 +180,7 @@ def test_upgrade_head_from_0005_creates_candidate_planning_schema(
             "rank",
             "linked_signal_card_ids",
             "adopted_micro_action_id",
+            "decision_status",
             "source_hash",
             "is_stale",
         }.issubset(_column_names(connection, "micro_action_candidates"))
@@ -190,6 +191,7 @@ def test_upgrade_head_from_0005_creates_candidate_planning_schema(
             "invalidated_at",
             "candidate_group_id",
             "candidate_rank",
+            "decision_status",
             "source_hash",
         }.issubset(_column_names(connection, "experiment_candidates"))
 
@@ -237,12 +239,12 @@ def test_upgrade_head_from_0005_creates_candidate_planning_schema(
         if with_experiment_candidates:
             preserved = connection.execute(
                 """
-                SELECT title, candidate_rank, dirty, is_stale
+                SELECT title, candidate_rank, dirty, is_stale, decision_status
                 FROM experiment_candidates
                 WHERE id = 'existing-candidate'
                 """
             ).fetchone()
-            assert preserved == ("Preserve me", 1, 0, 0)
+            assert preserved == ("Preserve me", 1, 0, 0, "undecided")
 
         connection.execute(
             """
@@ -279,6 +281,205 @@ def test_upgrade_head_from_0005_creates_candidate_planning_schema(
                   'micro-rank-4', 'group-1', 'migration-user', '2026-07-13', 4,
                   'must fail', 'stable-source'
                 )
+                """
+            )
+        connection.rollback()
+
+
+def test_0008_candidate_decision_status_backfill_and_constraints(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "candidate-decision-status.db"
+    assert_alembic_succeeded(
+        run_alembic(
+            database_path,
+            "upgrade",
+            "0008_postgres_canonical",
+        )
+    )
+
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "INSERT INTO users(id) VALUES (?)",
+            ("decision-migration-user",),
+        )
+        connection.execute(
+            """
+            INSERT INTO candidate_groups (
+              id, user_id, candidate_kind, period_start, period_end, source_hash
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "decision-group",
+                "decision-migration-user",
+                "micro_action",
+                "2026-07-17",
+                "2026-07-17",
+                "decision-source",
+            ),
+        )
+        connection.executemany(
+            """
+            INSERT INTO micro_action_candidates (
+              id, candidate_group_id, user_id, local_date, rank, title,
+              status, adopted_micro_action_id, source_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "micro-adopted-id",
+                    "decision-group",
+                    "decision-migration-user",
+                    "2026-07-17",
+                    1,
+                    "Adopted id wins",
+                    "saved",
+                    "adopted-micro-action",
+                    "decision-source",
+                ),
+                (
+                    "micro-adopted-status",
+                    "decision-group",
+                    "decision-migration-user",
+                    "2026-07-17",
+                    2,
+                    "Legacy active",
+                    "active",
+                    None,
+                    "decision-source",
+                ),
+                (
+                    "micro-considering",
+                    "decision-group",
+                    "decision-migration-user",
+                    "2026-07-17",
+                    3,
+                    "Legacy reviewing",
+                    " REVIEWING ",
+                    None,
+                    "decision-source",
+                ),
+                (
+                    "micro-undecided",
+                    "decision-group",
+                    "decision-migration-user",
+                    "2026-07-17",
+                    1,
+                    "Generated",
+                    "generated",
+                    "",
+                    "decision-source",
+                ),
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO experiment_candidates (
+              id, user_id, source_type, source_id, source_week_start,
+              source_week_end, title, hypothesis, suggested_action, status,
+              adopted_experiment_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "experiment-adopted-id",
+                    "decision-migration-user",
+                    "weekly_reflection",
+                    "week-adopted-id",
+                    "2026-07-13",
+                    "2026-07-19",
+                    "Adopted id wins",
+                    "Test adoption precedence",
+                    "Keep it",
+                    "observing",
+                    "adopted-experiment",
+                ),
+                (
+                    "experiment-adopted-status",
+                    "decision-migration-user",
+                    "weekly_reflection",
+                    "week-planned",
+                    "2026-07-13",
+                    "2026-07-19",
+                    "Legacy planned",
+                    "Test planned backfill",
+                    "Keep it",
+                    "planned",
+                    None,
+                ),
+                (
+                    "experiment-considering",
+                    "decision-migration-user",
+                    "weekly_reflection",
+                    "week-saved",
+                    "2026-07-13",
+                    "2026-07-19",
+                    "Legacy saved",
+                    "Test saved backfill",
+                    "Keep it",
+                    "saved",
+                    None,
+                ),
+                (
+                    "experiment-undecided",
+                    "decision-migration-user",
+                    "weekly_reflection",
+                    "week-generated",
+                    "2026-07-13",
+                    "2026-07-19",
+                    "Generated",
+                    "Test undecided fallback",
+                    "Keep it",
+                    "generated",
+                    "  ",
+                ),
+            ],
+        )
+        connection.commit()
+
+    assert_alembic_succeeded(_upgrade_head(database_path))
+
+    with sqlite3.connect(database_path) as connection:
+        micro_statuses = dict(
+            connection.execute(
+                "SELECT id, decision_status FROM micro_action_candidates"
+            ).fetchall()
+        )
+        assert micro_statuses == {
+            "micro-adopted-id": "adopted",
+            "micro-adopted-status": "adopted",
+            "micro-considering": "considering",
+            "micro-undecided": "undecided",
+        }
+
+        experiment_statuses = dict(
+            connection.execute(
+                "SELECT id, decision_status FROM experiment_candidates"
+            ).fetchall()
+        )
+        assert experiment_statuses == {
+            "experiment-adopted-id": "adopted",
+            "experiment-adopted-status": "adopted",
+            "experiment-considering": "considering",
+            "experiment-undecided": "undecided",
+        }
+
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                UPDATE micro_action_candidates
+                SET decision_status = 'rejected'
+                WHERE id = 'micro-undecided'
+                """
+            )
+        connection.rollback()
+
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                UPDATE experiment_candidates
+                SET decision_status = 'rejected'
+                WHERE id = 'experiment-undecided'
                 """
             )
         connection.rollback()

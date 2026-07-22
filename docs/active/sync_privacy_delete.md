@@ -17,6 +17,9 @@ Last updated: 2026-07-12
 | Unadopted candidates | Invalidate immediately when sources change; show an inline updating state and regenerate after a short debounce. |
 | Adopted history | Do not silently delete an adopted action/experiment when source evidence changes; mark provenance changed. |
 | Focus preferences | Multi-value focus is local canonical today; remote array persistence is Target and must not fall back to a different visible selection silently. |
+| Me control plane | Profile/focus edits are local-first; avatar, Health hints and reminder rules stay on-device. StoreKit owns purchase entitlement and the server owns usage. None of these writes creates a SignalCard. |
+| Subscription boundary | Clearing local data or deleting a SignalPath account does not cancel an App Store subscription; subscription management remains an explicit Apple action. |
+| Health boundary | Clearing a stored abstract Health hint is different from revoking Health permission in iOS Settings. Calendar remains future-only and has no current user entry. |
 
 AI/Library `Not accurate` and `Do not add` decisions are zero-write actions.
 They create neither a SignalCard nor a private match-feedback record.

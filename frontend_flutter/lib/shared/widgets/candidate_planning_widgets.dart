@@ -446,9 +446,9 @@ class _CandidateOptionCardState extends State<CandidateOptionCard> {
                     label: AppLocaleText.tr(
                       context,
                       en: '${widget.evidenceCount} signal sources',
-                      zhHans: '${widget.evidenceCount} 条信号依据',
-                      zhHant: '${widget.evidenceCount} 條信號依據',
-                      ja: '${widget.evidenceCount} 件の根拠',
+                      zhHans: '${widget.evidenceCount} 条 Signal 来源',
+                      zhHant: '${widget.evidenceCount} 條 Signal 來源',
+                      ja: '${widget.evidenceCount} 件の Signal ソース',
                     ),
                     color: AuroraColors.blue,
                   ),
@@ -460,7 +460,7 @@ class _CandidateOptionCardState extends State<CandidateOptionCard> {
                         en: 'Source changed',
                         zhHans: '来源已变化',
                         zhHant: '來源已變化',
-                        ja: '根拠が変更',
+                        ja: 'Signal ソースが変更',
                       ),
                       color: AuroraColors.orange,
                     ),
@@ -619,10 +619,10 @@ class _CandidateOptionCardState extends State<CandidateOptionCard> {
         ),
       EnergyCapacityBand.unknown => AppLocaleText.tr(
           context,
-          en: 'Energy fit: evidence is limited, so this stays very light and reversible.',
-          zhHans: '能量适配：当前证据有限，因此保持很轻、可逆、没有完成压力。',
-          zhHant: '能量適配：目前證據有限，因此保持很輕、可逆、沒有完成壓力。',
-          ja: 'エネルギー調整：手がかりが少ないため、軽く戻せる案にしています。',
+          en: 'Energy fit: Signals are limited, so this stays very light and reversible.',
+          zhHans: '能量适配：当前 Signal 有限，因此保持很轻、可逆、没有完成压力。',
+          zhHant: '能量適配：目前 Signal 有限，因此保持很輕、可逆、沒有完成壓力。',
+          ja: 'エネルギー調整：Signal がまだ少ないため、軽く戻せる案にしています。',
         ),
     };
   }

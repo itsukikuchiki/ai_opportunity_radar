@@ -57,7 +57,7 @@ void main() {
 
     expect(repo.signals.any((s) => s.content.contains('正常联网新增')), isTrue);
     expect(find.text('今天过得怎么样？'), findsOneWidget);
-    expect(find.text('今日小行动'), findsOneWidget);
+    expect(find.text('小实验'), findsOneWidget);
   });
 
   testWidgets('V3B evidence 02: backend unreachable local draft',
@@ -146,7 +146,7 @@ void main() {
     );
   });
 
-  testWidgets('AI prediction inaccurate dismisses without creating a signal',
+  testWidgets('AI prediction inaccurate rotates without creating a signal',
       (tester) async {
     final repo = MutableTodayRepository(
       signals: [
@@ -158,6 +158,7 @@ void main() {
       ],
     );
     await repo.createAiJudgementForToday();
+    final originalText = repo.aiJudgement!.predictedSignalText;
 
     await _pumpEvidencePage(tester, repo);
 
@@ -170,9 +171,10 @@ void main() {
     expect(repo.aiJudgement?.includedInWeekly, isFalse);
     expect(repo.aiJudgement?.includedInJourney, isFalse);
     expect(repo.signals.any((s) => s.sourceType == 'ai_predicted'), isFalse);
+    expect(repo.aiJudgement?.predictedSignalText, isNot(originalText));
     expect(
       find.byKey(const ValueKey('ai-prediction-inaccurate')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(find.textContaining('will not be used'), findsNothing);
   });
@@ -611,6 +613,7 @@ class MutableTodayRepository extends StubTodayRepository {
   @override
   Future<AiJudgementModel?> createAiJudgementForToday({
     AppLanguage language = AppLanguage.english,
+    int variationIndex = 0,
   }) async {
     if (signals.isEmpty) return null;
     final judgement = AiJudgementModel(
@@ -621,10 +624,14 @@ class MutableTodayRepository extends StubTodayRepository {
           .whereType<String>()
           .toList(),
       localDate: _todayKey(),
-      judgementText: _judgementText(language),
+      judgementText: variationIndex == 0
+          ? _judgementText(language)
+          : 'Alternate prediction $variationIndex',
       evidenceText: _judgementEvidence(language),
       predictionKind: 'inferred_signal',
-      predictedSignalText: _judgementText(language),
+      predictedSignalText: variationIndex == 0
+          ? _judgementText(language)
+          : 'Alternate prediction $variationIndex',
       suggestedPattern: _judgementPattern(language),
       suggestedLifeChainStage: 'recovery',
       status: aiJudgement?.status ?? 'pending',
@@ -642,6 +649,7 @@ class MutableTodayRepository extends StubTodayRepository {
     required String judgementId,
     required String status,
     String? userAdjustmentText,
+    AiJudgementModel? displayedJudgement,
     bool addToTimeline = true,
     AppLanguage language = AppLanguage.english,
   }) async {
@@ -744,6 +752,8 @@ class MutableTodayRepository extends StubTodayRepository {
   Future<Map<String, dynamic>> submitMicroActionFeedback({
     required String microActionId,
     required String feedback,
+    String? effect,
+    String? difficulty,
     String? userNote,
   }) async {
     microActionFeedbacks.add(
@@ -751,17 +761,21 @@ class MutableTodayRepository extends StubTodayRepository {
         id: 'maf_${microActionFeedbacks.length + 1}',
         microActionId: microActionId,
         localDate: _todayKey(),
-        happened: const {'happened', 'occurred'}.contains(feedback)
-            ? 'yes'
-            : const {'not_happened', 'not_occurred'}.contains(feedback)
-                ? 'no'
+        happened: const {'completed', 'done', 'happened', 'occurred'}
+                .contains(feedback)
+            ? 'completed'
+            : const {
+                'not_completed',
+                'not_done',
+                'not_happened',
+                'not_occurred',
+              }.contains(feedback)
+                ? 'not_completed'
                 : feedback == 'not_suitable_today'
                     ? 'not_suitable_today'
                     : 'unknown',
-        effect: feedback == 'helpful' ? 'helpful' : 'unclear',
-        difficulty: const {'too_hard', 'not_suitable_today'}.contains(feedback)
-            ? feedback
-            : 'okay',
+        effect: effect ?? '',
+        difficulty: difficulty ?? '',
         userNote: userNote,
       ),
     );

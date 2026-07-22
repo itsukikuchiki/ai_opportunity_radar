@@ -9,8 +9,7 @@ import '../../local/local_pipeline_run_repository.dart';
 import '../../local/local_phase3_plus_repository.dart';
 import '../../local/local_trace_link_repository.dart';
 import '../../local/local_weekly_snapshot_repository.dart';
-import '../../models/phase3_plus_models.dart';
-import '../../models/journey_pro_models.dart';
+import '../../models/feedback_event_models.dart';
 import '../../models/memory_models.dart';
 import '../../models/today_models.dart';
 import '../../models/weekly_models.dart';
@@ -26,13 +25,11 @@ class MemoryFetchResult {
   final MemorySummaryModel? summary;
   final bool isFirstDayGate;
   final ReportReadiness? journeyReadiness;
-  final ReportReadiness? proReadiness;
 
   const MemoryFetchResult({
     required this.summary,
     required this.isFirstDayGate,
     this.journeyReadiness,
-    this.proReadiness,
   });
 }
 
@@ -66,10 +63,16 @@ class MemoryRepository {
   }) : eligibilityService =
             eligibilityService ?? const SignalEligibilityService();
 
-  Future<MemoryFetchResult> fetchMemorySummaryResult() async {
+  Future<MemoryFetchResult> fetchMemorySummaryResult({DateTime? month}) async {
     final installationDate = await _readOrCreateInstallationDate();
     final today = _dateOnly(DateTime.now());
-    final isFirstDay = _sameDay(installationDate, today);
+    final requestedMonth = _dateOnly(month ?? today);
+    final selectedMonth = DateTime(requestedMonth.year, requestedMonth.month);
+    final currentMonth = DateTime(today.year, today.month);
+    final effectiveMonth =
+        selectedMonth.isAfter(currentMonth) ? currentMonth : selectedMonth;
+    final isCurrentMonth = effectiveMonth == currentMonth;
+    final isFirstDay = isCurrentMonth && _sameDay(installationDate, today);
 
     final aggregation = await LocalJourneyAggregationRepository(
       localCaptureRepository: localCaptureRepository,
@@ -77,8 +80,9 @@ class MemoryRepository {
       localPhase3PlusRepository: localPhase3PlusRepository,
       localWeeklySnapshotRepository: localWeeklySnapshotRepository,
       eligibilityService: eligibilityService,
-    ).fetchCurrentMonth(
+    ).fetchMonth(
       localUserId: localUserId,
+      selectedMonth: effectiveMonth,
       today: today,
       installationDate: installationDate,
     );
@@ -87,30 +91,28 @@ class MemoryRepository {
       aggregation.signals,
       journeyReadinessRule,
     );
-    final proReadiness = await _fetchJourneyProReadiness(
-      today: today,
-      installationDate: installationDate,
-      evaluator: readinessEvaluator,
-    );
-
     if (!aggregation.hasMaterial) {
       return MemoryFetchResult(
         summary: null,
         isFirstDayGate: isFirstDay,
         journeyReadiness: journeyReadiness,
-        proReadiness: proReadiness,
       );
     }
 
     final stats = _buildJourneyStats(
       aggregation.signals,
       experimentHistory: aggregation.experimentHistory,
-      experimentRollups: aggregation.experimentRollups,
-      microActionFeedbacks: aggregation.microActionFeedbacks,
-      experimentFeedbacks: aggregation.experimentFeedbacks,
-      weeklyReviews: aggregation.weeklyReviews,
+      feedbackEvents: aggregation.feedbackEvents,
+      subjectTitles: aggregation.subjectTitles,
+      sourceSignals: aggregation.sourceSignals,
+      sourceExperimentHistory: aggregation.sourceExperimentHistory,
+      sourceExperimentRollups: aggregation.sourceExperimentRollups,
+      sourcePlanContentVersions: aggregation.sourcePlanContentVersions,
+      sourceFeedbackEvents: aggregation.sourceFeedbackEvents,
+      sourceWeeklyReviews: aggregation.sourceWeeklyReviews,
+      sourceSubjectTitles: aggregation.sourceSubjectTitles,
       monthStart: aggregation.periodStart,
-      today: today,
+      periodEnd: aggregation.periodEnd,
     );
 
     // Sparse Journey data remains available as a factual free projection, but
@@ -131,16 +133,15 @@ class MemoryRepository {
         summary: factualSummary,
         isFirstDayGate: false,
         journeyReadiness: journeyReadiness,
-        proReadiness: proReadiness,
       );
     }
 
     final observations = await _loadJourneyObservations(
-      startDate: _dateKey(aggregation.periodStart),
-      endDate: _dateKey(today),
+      startDate: _dateKey(installationDate),
+      endDate: aggregation.endDate,
     );
     final journeyStats = stats.copyWith(observations: observations);
-    final snapshotDate = _dateKey(today);
+    final snapshotDate = aggregation.endDate;
     final sourceHash = localJourneySnapshotRepository.buildSourceHash(
       entries: journeyStats.entries,
       topTokens: journeyStats.topTokens,
@@ -159,10 +160,10 @@ class MemoryRepository {
       return MemoryFetchResult(
         summary: await _attachMonthlyReview(
           cached.copyWith(observations: observations),
+          includeCurrentMonthly: isCurrentMonth,
         ),
         isFirstDayGate: false,
         journeyReadiness: journeyReadiness,
-        proReadiness: proReadiness,
       );
     }
 
@@ -200,131 +201,13 @@ class MemoryRepository {
     );
 
     return MemoryFetchResult(
-      summary: await _attachMonthlyReview(generated),
+      summary: await _attachMonthlyReview(
+        generated,
+        includeCurrentMonthly: isCurrentMonth,
+      ),
       isFirstDayGate: false,
       journeyReadiness: journeyReadiness,
-      proReadiness: proReadiness,
     );
-  }
-
-  Future<ReportReadiness> _fetchJourneyProReadiness({
-    required DateTime today,
-    required DateTime installationDate,
-    required ReportReadinessEvaluator evaluator,
-  }) async {
-    return (await _buildJourneyProReport(
-      today: today,
-      installationDate: installationDate,
-      evaluator: evaluator,
-    ))
-        .readiness;
-  }
-
-  /// Returns the evidence-backed projection used by the standalone Pro page.
-  ///
-  /// The window is the latest 28 user-local dates, inclusive of today. Week
-  /// comparisons always use local Monday-Sunday buckets. No AI generation is
-  /// performed here, so an under-threshold visit can only expose progress and
-  /// can never create or cache a report.
-  Future<JourneyProReportModel> fetchJourneyProReport() async {
-    return _buildJourneyProReport(
-      today: _dateOnly(DateTime.now()),
-      installationDate: await _readOrCreateInstallationDate(),
-      evaluator: const ReportReadinessEvaluator(),
-    );
-  }
-
-  Future<JourneyProReportModel> _buildJourneyProReport({
-    required DateTime today,
-    required DateTime installationDate,
-    required ReportReadinessEvaluator evaluator,
-  }) async {
-    final rollingStart = today.subtract(
-      Duration(days: ReportReadinessEvaluator.journeyProRule.windowDays - 1),
-    );
-    final start = installationDate.isAfter(rollingStart)
-        ? installationDate
-        : rollingStart;
-    final rawSignals = await localCaptureRepository.listSignalCardsBetween(
-      startDate: _dateKey(start),
-      endDate: _dateKey(today),
-    );
-    final eligibleSignals = eligibilityService.filter(
-      rawSignals,
-      SignalEligibilityStage.journey,
-    );
-    final readiness = evaluator.evaluate(
-      eligibleSignals,
-      ReportReadinessEvaluator.journeyProRule,
-    );
-
-    final currentMonday = today.subtract(
-      Duration(days: today.weekday - DateTime.monday),
-    );
-    final previousMonday = currentMonday.subtract(const Duration(days: 7));
-    final currentWeek = _journeyProWeekStats(
-      eligibleSignals,
-      weekStart: currentMonday,
-    );
-    final previousWeek = _journeyProWeekStats(
-      eligibleSignals,
-      weekStart: previousMonday,
-    );
-
-    final evidence = <JourneyProEvidenceModel>[];
-    final seenIds = <String>{};
-    for (final signal in eligibleSignals.reversed) {
-      final id = _signalIdentity(signal);
-      final content = signal.content.trim();
-      final localDate = signal.localDateKey();
-      if (id.isEmpty || content.isEmpty || !seenIds.add(id)) continue;
-      evidence.add(
-        JourneyProEvidenceModel(
-          signalId: id,
-          content: content,
-          localDate: localDate,
-          sourceType: signal.sourceType,
-        ),
-      );
-      if (evidence.length == 8) break;
-    }
-
-    return JourneyProReportModel(
-      readiness: readiness,
-      periodStart: _dateKey(rollingStart),
-      periodEnd: _dateKey(today),
-      currentWeek: currentWeek,
-      previousWeek: previousWeek,
-      evidence: evidence,
-    );
-  }
-
-  JourneyProWeekStats _journeyProWeekStats(
-    Iterable<RecentSignalModel> signals, {
-    required DateTime weekStart,
-  }) {
-    final weekEnd = weekStart.add(const Duration(days: 6));
-    final signalIds = <String>{};
-    final activeDays = <String>{};
-    for (final signal in signals) {
-      final day = DateTime.tryParse(signal.localDateKey())?.toLocal();
-      final id = _signalIdentity(signal);
-      if (day == null || id.isEmpty) continue;
-      final date = DateTime(day.year, day.month, day.day);
-      if (date.isBefore(weekStart) || date.isAfter(weekEnd)) continue;
-      if (signalIds.add(id)) activeDays.add(_dateKey(date));
-    }
-    return JourneyProWeekStats(
-      weekStart: _dateKey(weekStart),
-      weekEnd: _dateKey(weekEnd),
-      signalCount: signalIds.length,
-      activeDayCount: activeDays.length,
-    );
-  }
-
-  String _signalIdentity(RecentSignalModel signal) {
-    final signalCardId = signal.signalCardId?.trim() ?? '';
-    return signalCardId.isNotEmpty ? signalCardId : signal.id?.trim() ?? '';
   }
 
   Future<void> _recordPipelineFailure({
@@ -351,10 +234,11 @@ class MemoryRepository {
   }
 
   Future<MemorySummaryModel> _attachMonthlyReview(
-    MemorySummaryModel summary,
-  ) async {
+    MemorySummaryModel summary, {
+    bool includeCurrentMonthly = true,
+  }) async {
     final repository = monthlyRepository;
-    if (repository == null) return summary;
+    if (repository == null || !includeCurrentMonthly) return summary;
     try {
       final monthly = await repository.fetchCurrentMonthly();
       return summary.copyWith(monthlyReview: monthly);
@@ -363,8 +247,8 @@ class MemoryRepository {
     }
   }
 
-  Future<MemorySummaryModel?> fetchMemorySummary() async {
-    final result = await fetchMemorySummaryResult();
+  Future<MemorySummaryModel?> fetchMemorySummary({DateTime? month}) async {
+    final result = await fetchMemorySummaryResult(month: month);
     return result.summary;
   }
 
@@ -554,7 +438,7 @@ class MemoryRepository {
     final sourceType = (row['source_type'] as String?)?.trim();
     final title = targetType == 'manual_reflection'
         ? 'Manual Reflection'
-        : (scene?.isNotEmpty == true ? scene! : 'SignalCard');
+        : (scene?.isNotEmpty == true ? scene! : 'Signal Card');
     return JourneyEvidenceItemModel(
       sourceType: targetType,
       sourceId: targetId,
@@ -768,50 +652,39 @@ class MemoryRepository {
   _JourneyStats _buildJourneyStats(
     List<RecentSignalModel> signals, {
     required List<LifeExperimentModel> experimentHistory,
-    required List<Map<String, dynamic>> experimentRollups,
-    required List<MicroActionFeedbackModel> microActionFeedbacks,
-    required List<LifeExperimentFeedbackModel> experimentFeedbacks,
-    required List<WeeklyInsightModel> weeklyReviews,
+    required List<FeedbackEventModel> feedbackEvents,
+    required Map<String, String> subjectTitles,
+    required List<RecentSignalModel> sourceSignals,
+    required List<LifeExperimentModel> sourceExperimentHistory,
+    required List<Map<String, dynamic>> sourceExperimentRollups,
+    required List<Map<String, dynamic>> sourcePlanContentVersions,
+    required List<FeedbackEventModel> sourceFeedbackEvents,
+    required List<WeeklyInsightModel> sourceWeeklyReviews,
+    required Map<String, String> sourceSubjectTitles,
     required DateTime monthStart,
-    required DateTime today,
+    required DateTime periodEnd,
   }) {
+    final signalEntries = <Map<String, dynamic>>[];
     final entries = <Map<String, dynamic>>[];
     final tokenCounts = <String, int>{};
-    final dayKeys = <String>{};
+    final sourceDayKeys = <String>{};
+    final selectedDayKeys = <String>{};
     final sceneCounts = <String, int>{};
     final frictionCounts = <String, int>{};
     final energyLoadCounts = <String, int>{};
     final positiveSignalCounts = <String, int>{};
+    final energyStateCounts = _emptyEnergyStateCounts();
+    final dayFacts = <String, _JourneyDayAccumulator>{};
 
-    for (final signal in signals) {
+    // Interpretive generation uses every privacy-eligible fact from first use
+    // through the selected month end. It must never include a later fact.
+    for (final signal in sourceSignals) {
       final dayKey = signal.localDateKey();
       if (dayKey.isEmpty) continue;
-      final createdAt = signal.createdAt?.toLocal();
-      dayKeys.add(dayKey);
-
-      entries.add({
-        'id': signal.id,
-        'signal_card_id': signal.signalCardId,
-        'source_type': signal.sourceType,
-        'content': _analysisContent(signal),
-        'created_at': createdAt?.toUtc().toIso8601String(),
-        'local_date': dayKey,
-        'timezone': signal.timezone,
-        'acknowledgement': signal.acknowledgement,
-        'observation': signal.observation,
-        'try_next': signal.tryNext,
-        'emotion': signal.emotion,
-        'intensity': signal.intensity,
-        'scene': signal.scene,
-        'friction': signal.friction,
-        'energy_load': signal.energyLoad,
-        'positive_signal': signal.positiveSignal,
-        'scene_tags': signal.sceneTags,
-        'intent_tags': signal.intentTags,
-        'user_confirmation': signal.userConfirmation,
-        'is_legacy': signal.isLegacy,
-        'journey_confidence': _journeyEvidenceLevel(signal),
-      });
+      sourceDayKeys.add(dayKey);
+      final entry = _signalAnalysisEntry(signal);
+      signalEntries.add(entry);
+      entries.add(entry);
 
       for (final token in _tokenize(_analysisContent(signal))) {
         tokenCounts[token] = (tokenCounts[token] ?? 0) + 1;
@@ -828,21 +701,173 @@ class MemoryRepository {
       _countIfPresent(positiveSignalCounts, signal.positiveSignal);
     }
 
+    // The free trajectory and the 7 Signal / 3 day readiness gate stay
+    // strictly bounded to the selected local calendar month.
+    for (final signal in signals) {
+      final dayKey = signal.localDateKey();
+      if (dayKey.isEmpty) continue;
+      selectedDayKeys.add(dayKey);
+      final energyState = _journeyEnergyState(signal);
+      energyStateCounts[energyState] =
+          (energyStateCounts[energyState] ?? 0) + 1;
+      final daily = dayFacts.putIfAbsent(
+        dayKey,
+        () => _JourneyDayAccumulator(dayKey),
+      );
+      daily.signalCount += 1;
+      daily.energyStateCounts[energyState] =
+          (daily.energyStateCounts[energyState] ?? 0) + 1;
+    }
+
+    final sourceEffectiveGoalEventIds =
+        _effectiveGoalDailyEventIds(sourceFeedbackEvents);
+    for (final event in sourceFeedbackEvents) {
+      entries.add(
+        _feedbackEventAnalysisEntry(
+          event,
+          isEffective: sourceEffectiveGoalEventIds.contains(event.id),
+          subjectTitle: sourceSubjectTitles[event.subjectId],
+        ),
+      );
+      for (final token in _tokenize(_eventSummary(event))) {
+        tokenCounts[token] = (tokenCounts[token] ?? 0) + 1;
+      }
+    }
+
+    final effectiveGoalEventIds = _effectiveGoalDailyEventIds(feedbackEvents);
+    final trackAccumulators = <String, _JourneyTrackAccumulator>{};
+    for (final experiment in experimentHistory.where(_isAdoptedGoal)) {
+      final key = 'life_experiment:${experiment.id}';
+      final track = trackAccumulators.putIfAbsent(
+        key,
+        () => _JourneyTrackAccumulator(
+          subjectId: experiment.id,
+          kind: 'goal',
+          title: experiment.title,
+        ),
+      );
+      track.latestResult = experiment.status;
+      track.latestLocalDate =
+          experiment.progressStartDate ?? experiment.sourceWeekStart;
+    }
+    for (final event in feedbackEvents) {
+      final key = '${event.subjectType}:${event.subjectId}';
+      final isQuick = event.subjectType == 'micro_action';
+      final isGoal =
+          event.subjectType == 'life_experiment' || event.subjectType == 'goal';
+      if (isQuick) {
+        final track = trackAccumulators.putIfAbsent(
+          key,
+          () => _JourneyTrackAccumulator(
+            subjectId: event.subjectId,
+            kind: 'small_experiment',
+            title: subjectTitles[event.subjectId] ?? '小实验',
+          ),
+        );
+        if (event.sourceType == 'micro_action_feedback') {
+          track.feedbackCount += 1;
+          if (_isCompletedSmallExperiment(event.status)) {
+            // Every completed row is one real attempt. Multiple attempts on
+            // the same local day intentionally remain distinct.
+            track.attemptCount += 1;
+            final daily = dayFacts.putIfAbsent(
+              event.localDate,
+              () => _JourneyDayAccumulator(event.localDate),
+            );
+            daily.smallExperimentAttemptCount += 1;
+          }
+        } else if (event.sourceType == 'micro_action_round_review') {
+          track.roundReviewCount += 1;
+        }
+        track.observe(event);
+      } else if (isGoal) {
+        final track = trackAccumulators.putIfAbsent(
+          key,
+          () => _JourneyTrackAccumulator(
+            subjectId: event.subjectId,
+            kind: 'goal',
+            title: subjectTitles[event.subjectId] ?? '目标',
+          ),
+        );
+        if (_isGoalDailyEvent(event)) {
+          if (effectiveGoalEventIds.contains(event.id)) {
+            track.feedbackCount += 1;
+            final daily = dayFacts.putIfAbsent(
+              event.localDate,
+              () => _JourneyDayAccumulator(event.localDate),
+            );
+            daily.goalFeedbackCount += 1;
+          }
+        } else if (event.sourceType == 'life_experiment_outcome_review') {
+          final reviewType = event.metadata['review_type']?.toString();
+          if (reviewType == 'weekly') {
+            track.weeklyReviewCount += 1;
+          } else if (reviewType == 'whole_round') {
+            track.wholeRoundReviewCount += 1;
+          }
+        }
+        track.observe(event);
+      }
+    }
+
+    // Finalized Weekly snapshots and adopted goal definitions are valid
+    // report sources, but they do not become eligible Signal Cards and are
+    // not placed on the free monthly path as standalone milestones.
+    for (final weekly in sourceWeeklyReviews) {
+      entries.add({
+        'id': 'weekly_${weekly.weekStart}',
+        'source_type': 'weekly_review',
+        'content': weekly.keyInsight ?? weekly.bestAction ?? '',
+        'local_date': weekly.weekEnd,
+        'week_start': weekly.weekStart,
+        'week_end': weekly.weekEnd,
+      });
+    }
+    for (final experiment in sourceExperimentHistory) {
+      entries.add({
+        'id': experiment.id,
+        'source_type': 'life_experiment',
+        'content': [experiment.title, experiment.hypothesis]
+            .where((value) => value.trim().isNotEmpty)
+            .join(' · '),
+        'local_date':
+            experiment.progressStartDate ?? experiment.sourceWeekStart,
+      });
+    }
+    final boundedRollups = sourceExperimentRollups
+        .map(
+          (rollup) => _boundedExperimentRollupEntry(
+            rollup,
+            sourceFeedbackEvents,
+          ),
+        )
+        .toList(growable: false);
+    entries.addAll(boundedRollups);
+    for (final version in sourcePlanContentVersions) {
+      entries.add({
+        'id': version['id'],
+        'source_type': 'plan_content_version',
+        'object_kind': version['object_kind'],
+        'object_id': version['object_id'],
+        'version_no': version['version_no'],
+        'local_date': version['effective_from_local_date'],
+        'content': version['content_json'],
+      });
+    }
+
     final traceModels = _buildJourneyTraces(
       signals: signals,
-      microActionFeedbacks: microActionFeedbacks,
-      experimentHistory: experimentHistory,
-      experimentRollups: experimentRollups,
-      experimentFeedbacks: experimentFeedbacks,
-      weeklyReviews: weeklyReviews,
+      feedbackEvents: feedbackEvents,
+      subjectTitles: subjectTitles,
+      effectiveGoalEventIds: effectiveGoalEventIds,
       monthStart: monthStart,
-      today: today,
+      periodEnd: periodEnd,
     );
 
     final sortedTokens = tokenCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
-    final sortedDayKeys = dayKeys.toList()..sort();
+    final sortedDayKeys = sourceDayKeys.toList()..sort();
     final first =
         sortedDayKeys.isEmpty ? null : DateTime.tryParse(sortedDayKeys.first);
     final last =
@@ -858,16 +883,71 @@ class MemoryRepository {
       topEnergyLoads: _topKeys(energyLoadCounts),
       topPositiveSignals: _topKeys(positiveSignalCounts),
       totalDays: totalDays,
-      activeDays: dayKeys.length,
-      entryCount: entries.length,
-      experimentHistory: experimentHistory,
+      activeDays: sourceDayKeys.length,
+      entryCount: signalEntries.length,
+      signalEntries: signalEntries,
+      experimentHistory: sourceExperimentHistory,
       experimentEntries: [
-        ...experimentHistory.map(_experimentHashEntry),
-        ...experimentRollups.map(_experimentRollupHashEntry),
+        ...sourceExperimentHistory.map(_experimentHashEntry),
+        ...boundedRollups,
+        ...sourcePlanContentVersions.map((version) => {
+              'id': version['id'],
+              'source_type': 'plan_content_version',
+              'object_kind': version['object_kind'],
+              'object_id': version['object_id'],
+              'version_no': version['version_no'],
+              'effective_from_local_date': version['effective_from_local_date'],
+              'content_json': version['content_json'],
+            }),
+        ...sourceFeedbackEvents.map((event) => event.toJson()),
+        ...sourceWeeklyReviews.map((weekly) => {
+              'id': 'weekly_${weekly.weekStart}',
+              'source_type': 'weekly_review',
+              'week_start': weekly.weekStart,
+              'week_end': weekly.weekEnd,
+              'key_insight': weekly.keyInsight,
+              'best_action': weekly.bestAction,
+            }),
       ],
       journeyTraces: traceModels,
       traceEntries: traceModels.map((e) => e.toJson()).toList(),
-      monthKey: '${today.year}-${today.month.toString().padLeft(2, '0')}',
+      periodFacts: JourneyPeriodFactsModel(
+        periodStart: _dateKey(monthStart),
+        periodEnd: _dateKey(periodEnd),
+        signalCount: signals.length,
+        activeDayCount: selectedDayKeys.length,
+        smallExperimentAttemptCount: trackAccumulators.values.fold(
+          0,
+          (sum, track) => sum + track.attemptCount,
+        ),
+        smallExperimentRoundReviewCount: trackAccumulators.values.fold(
+          0,
+          (sum, track) => sum + track.roundReviewCount,
+        ),
+        goalFeedbackCount: dayFacts.values.fold(
+          0,
+          (sum, day) => sum + day.goalFeedbackCount,
+        ),
+        goalWeeklyReviewCount: trackAccumulators.values.fold(
+          0,
+          (sum, track) => sum + track.weeklyReviewCount,
+        ),
+        goalWholeRoundReviewCount: trackAccumulators.values.fold(
+          0,
+          (sum, track) => sum + track.wholeRoundReviewCount,
+        ),
+        energyStateCounts: energyStateCounts,
+        days: (dayFacts.values.toList()
+              ..sort((a, b) => a.localDate.compareTo(b.localDate)))
+            .map((day) => day.toModel())
+            .toList(growable: false),
+        experimentTracks: (trackAccumulators.values.toList()
+              ..sort((a, b) => b.latestLocalDate.compareTo(a.latestLocalDate)))
+            .map((track) => track.toModel())
+            .toList(growable: false),
+      ),
+      monthKey:
+          '${periodEnd.year}-${periodEnd.month.toString().padLeft(2, '0')}',
     );
   }
 
@@ -885,6 +965,35 @@ class MemoryRepository {
         .join(' ');
   }
 
+  Map<String, dynamic> _signalAnalysisEntry(RecentSignalModel signal) {
+    final dayKey = signal.localDateKey();
+    final createdAt = signal.createdAt?.toLocal();
+    return <String, dynamic>{
+      'id': signal.id,
+      'signal_card_id': signal.signalCardId,
+      'source_type': signal.sourceType,
+      'content': _analysisContent(signal),
+      'created_at': createdAt?.toUtc().toIso8601String(),
+      'local_date': dayKey,
+      'timezone': signal.timezone,
+      'acknowledgement': signal.acknowledgement,
+      'observation': signal.observation,
+      'try_next': signal.tryNext,
+      'emotion': signal.emotion,
+      'intensity': signal.intensity,
+      'scene': signal.scene,
+      'friction': signal.friction,
+      'energy_load': signal.energyLoad,
+      'energy_state': _journeyEnergyState(signal),
+      'positive_signal': signal.positiveSignal,
+      'scene_tags': signal.sceneTags,
+      'intent_tags': signal.intentTags,
+      'user_confirmation': signal.userConfirmation,
+      'is_legacy': signal.isLegacy,
+      'journey_confidence': _journeyEvidenceLevel(signal),
+    };
+  }
+
   String _journeyEvidenceLevel(RecentSignalModel signal) {
     if (signal.isLegacy) return 'legacy_context';
     if (signal.isLibrarySaved) return 'library_saved_confirmed';
@@ -895,50 +1004,248 @@ class MemoryRepository {
   Map<String, dynamic> _experimentHashEntry(LifeExperimentModel experiment) {
     return {
       'id': experiment.id,
-      'status': experiment.status,
-      'feedback_text': experiment.feedbackText ?? '',
-      'updated_at': experiment.updatedAt?.toUtc().toIso8601String() ?? '',
+      'source_type': 'life_experiment_definition',
+      'title': experiment.title,
+      'hypothesis': experiment.hypothesis,
+      'suggested_action': experiment.suggestedAction,
+      'source_week_start': experiment.sourceWeekStart,
+      'source_week_end': experiment.sourceWeekEnd,
+      'planned_frequency': experiment.plannedFrequency,
+      'planned_duration_minutes': experiment.plannedDurationMinutes,
+      'planned_total_days': experiment.plannedTotalDays,
+      'minimum_observation_days': experiment.minimumObservationDays,
     };
   }
 
-  Map<String, dynamic> _experimentRollupHashEntry(
+  /// Legacy rollups remain source-compatible, but their persisted counters
+  /// may already include feedback after a historical selected month. Rebuild
+  /// dynamic counts from the bounded event stream and keep only stable rollup
+  /// identity fields so a past report cannot see future feedback.
+  Map<String, dynamic> _boundedExperimentRollupEntry(
     Map<String, dynamic> rollup,
+    Iterable<FeedbackEventModel> boundedEvents,
   ) {
-    return {
-      'id': rollup['experiment_id'],
+    final experimentId = rollup['experiment_id']?.toString() ?? '';
+    final events = boundedEvents
+        .where((event) => event.subjectId == experimentId)
+        .toList(growable: false);
+    final dailyFeedbacks = events.where(_isGoalDailyEvent).toList();
+    final effectiveDailyIds = _effectiveGoalDailyEventIds(dailyFeedbacks);
+    final reviews = events
+        .where(
+          (event) => event.sourceType == 'life_experiment_outcome_review',
+        )
+        .toList(growable: false);
+    return <String, dynamic>{
+      'id': experimentId,
       'source_type': 'life_experiment_rollup',
       'root_experiment_id': rollup['root_experiment_id'],
-      'status': rollup['current_status'],
-      'total_feedback_count': rollup['total_feedback_count'],
-      'tried_count': rollup['tried_count'],
-      'helpful_count': rollup['helpful_count'],
-      'not_helpful_count': rollup['not_helpful_count'],
-      'adjusted_count': rollup['adjusted_count'],
-      'active_week_count': rollup['active_week_count'],
-      'last_feedback_at': rollup['last_feedback_at'],
-      'last_event_at': rollup['last_event_at'],
-      'updated_at': rollup['updated_at'],
+      'parent_experiment_id': rollup['parent_experiment_id'],
+      'source_week_start': rollup['source_week_start'],
+      'source_week_end': rollup['source_week_end'],
+      'feedback_day_count': effectiveDailyIds.length,
+      'weekly_review_count': reviews
+          .where((event) => event.metadata['review_type'] == 'weekly')
+          .length,
+      'whole_round_review_count': reviews
+          .where((event) => event.metadata['review_type'] == 'whole_round')
+          .length,
+      'last_source_local_date': events.isEmpty
+          ? null
+          : (events.map((event) => event.localDate).toList()..sort()).last,
     };
+  }
+
+  Map<String, int> _emptyEnergyStateCounts() => {
+        'draining': 0,
+        'steady': 0,
+        'ease': 0,
+        'recovery': 0,
+        'boundary_buffer': 0,
+      };
+
+  /// Uses the canonical structured state when present and deterministic
+  /// fallbacks from real Signal fields otherwise. It never invents a numeric
+  /// curve and never emits an unknown bucket.
+  String _journeyEnergyState(RecentSignalModel signal) {
+    final serverState = signal.energyState?.trim().toLowerCase();
+    if (const {
+      'draining',
+      'steady',
+      'ease',
+      'recovery',
+      'boundary_buffer',
+    }.contains(serverState)) {
+      return serverState!;
+    }
+    final payload = signal.rawPayloadJson;
+    final explicitState =
+        payload['energy_state']?.toString().trim().toLowerCase();
+    if (const {
+      'draining',
+      'steady',
+      'ease',
+      'recovery',
+      'boundary_buffer',
+    }.contains(explicitState)) {
+      return explicitState!;
+    }
+    final level = int.tryParse('${payload['energy_level'] ?? ''}');
+    if (level == 0) return 'draining';
+    if (level == 1) return 'steady';
+    if (level == 2) return 'ease';
+    final effect =
+        payload['energy_effect']?.toString().trim().toLowerCase() ?? '';
+    if (const {'restoring', 'recovery'}.contains(effect)) return 'recovery';
+    if (const {'ease', 'resourced'}.contains(effect)) return 'ease';
+    if (effect == 'draining') return 'draining';
+
+    final load = signal.energyLoad?.trim().toLowerCase() ?? '';
+    final friction = signal.friction?.trim().toLowerCase() ?? '';
+    if (load.contains('boundary') ||
+        load.contains('buffer') ||
+        friction.contains('boundary') ||
+        friction.contains('overcommit') ||
+        friction.contains('capacity_limit')) {
+      return 'boundary_buffer';
+    }
+    if (load.contains('recover') ||
+        load.contains('restor') ||
+        signal.linkedLifeChainStages.contains('recovery')) {
+      return 'recovery';
+    }
+    if (load.contains('drain') || load.contains('exhaust')) return 'draining';
+    if (load.contains('ease') ||
+        load.contains('easy') ||
+        load.contains('light') ||
+        load.contains('resourced') ||
+        (signal.positiveSignal?.trim().isNotEmpty ?? false)) {
+      return 'ease';
+    }
+    return 'steady';
+  }
+
+  Map<String, dynamic> _feedbackEventAnalysisEntry(
+    FeedbackEventModel event, {
+    required bool isEffective,
+    String? subjectTitle,
+  }) {
+    return {
+      'id': event.id,
+      'event_id': event.id,
+      'source_id': event.sourceId,
+      'source_type': event.sourceType,
+      'subject_type': event.subjectType,
+      'subject_id': event.subjectId,
+      if (subjectTitle?.trim().isNotEmpty == true)
+        'subject_title': subjectTitle!.trim(),
+      'content': _eventSummary(event),
+      'local_date': event.localDate,
+      'occurred_at': event.occurredAt?.toUtc().toIso8601String(),
+      'created_at': event.createdAt?.toUtc().toIso8601String(),
+      'status': event.status,
+      'effect': event.effect,
+      'is_effective': isEffective,
+      'metadata': event.metadata,
+    };
+  }
+
+  String _eventSummary(FeedbackEventModel event) {
+    return [
+      event.status,
+      event.effect,
+      event.note,
+      event.metadata['next_adjustment'],
+      event.metadata['burden'],
+    ]
+        .whereType<Object>()
+        .map((value) => value.toString().trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .join(' · ');
+  }
+
+  String _feedbackEventTitle(FeedbackEventModel event) {
+    return switch (event.sourceType) {
+      'micro_action_feedback' => '小实验尝试',
+      'micro_action_round_review' => '小实验整轮总结',
+      'life_experiment_feedback' || 'goal_feedback' => '目标进展',
+      'life_experiment_outcome_review' =>
+        event.metadata['review_type'] == 'weekly' ? '目标周次总结' : '目标整轮总结',
+      'schedule_feedback' => event.metadata['title']?.toString() ?? '时间安排',
+      _ => event.subjectType,
+    };
+  }
+
+  bool _isGoalDailyEvent(FeedbackEventModel event) {
+    return event.sourceType == 'life_experiment_feedback' ||
+        event.sourceType == 'goal_feedback';
+  }
+
+  bool _isAdoptedGoal(LifeExperimentModel experiment) {
+    if (experiment.adoptedAt != null) return true;
+    return const {
+      'saved',
+      'active',
+      'done',
+      'completed',
+      'adjusted',
+      'paused',
+      'stopped',
+    }.contains(experiment.status.trim().toLowerCase());
+  }
+
+  bool _isCompletedSmallExperiment(String status) {
+    return const {
+      'completed',
+      'done',
+      'occurred',
+      'happened',
+      'true',
+      'yes',
+      '1',
+    }.contains(status.trim().toLowerCase());
+  }
+
+  Set<String> _effectiveGoalDailyEventIds(
+    Iterable<FeedbackEventModel> events,
+  ) {
+    final latest = <String, FeedbackEventModel>{};
+    for (final event in events.where(_isGoalDailyEvent)) {
+      final key = '${event.subjectType}:${event.subjectId}:${event.localDate}';
+      final current = latest[key];
+      if (current == null || _compareFeedbackEvents(current, event) <= 0) {
+        latest[key] = event;
+      }
+    }
+    return latest.values.map((event) => event.id).toSet();
+  }
+
+  int _compareFeedbackEvents(
+    FeedbackEventModel left,
+    FeedbackEventModel right,
+  ) {
+    final leftTime = left.createdAt ?? left.occurredAt ?? DateTime(0);
+    final rightTime = right.createdAt ?? right.occurredAt ?? DateTime(0);
+    final timeCompare = leftTime.compareTo(rightTime);
+    return timeCompare != 0 ? timeCompare : left.id.compareTo(right.id);
   }
 
   List<JourneyTraceModel> _buildJourneyTraces({
     required List<RecentSignalModel> signals,
-    required List<MicroActionFeedbackModel> microActionFeedbacks,
-    required List<LifeExperimentModel> experimentHistory,
-    required List<Map<String, dynamic>> experimentRollups,
-    required List<LifeExperimentFeedbackModel> experimentFeedbacks,
-    required List<WeeklyInsightModel> weeklyReviews,
+    required List<FeedbackEventModel> feedbackEvents,
+    required Map<String, String> subjectTitles,
+    required Set<String> effectiveGoalEventIds,
     required DateTime monthStart,
-    required DateTime today,
+    required DateTime periodEnd,
   }) {
-    final monthEnd = DateTime(today.year, today.month, today.day);
     final traces = <JourneyTraceModel>[];
 
     bool inMonth(String dateKey) {
       final parsed = DateTime.tryParse(dateKey);
       if (parsed == null) return false;
       final day = DateTime(parsed.year, parsed.month, parsed.day);
-      return !day.isBefore(monthStart) && !day.isAfter(monthEnd);
+      return !day.isBefore(monthStart) && !day.isAfter(periodEnd);
     }
 
     for (final signal in signals) {
@@ -961,100 +1268,69 @@ class MemoryRepository {
         signalLevel: _journeyEvidenceLevel(signal) == 'standard'
             ? 'repeated_pattern'
             : 'weak_signal',
+        metadata: {
+          'display_lane': 'monthly_path',
+          'energy_state': _journeyEnergyState(signal),
+          'signal_card_id': signal.signalCardId ?? signal.id,
+        },
       ));
     }
 
-    for (final feedback in microActionFeedbacks) {
-      if (!inMonth(feedback.localDate)) continue;
+    for (final event in feedbackEvents) {
+      if (!inMonth(event.localDate)) continue;
+      final isGoalDaily = _isGoalDailyEvent(event);
+      final isEffective = effectiveGoalEventIds.contains(event.id);
+      final isRoundReview = event.sourceType == 'micro_action_round_review';
+      final isOutcomeReview =
+          event.sourceType == 'life_experiment_outcome_review';
+      final kind = event.subjectType == 'micro_action'
+          ? 'small_experiment'
+          : event.subjectType == 'life_experiment' ||
+                  event.subjectType == 'goal'
+              ? 'goal'
+              : event.subjectType;
       traces.add(JourneyTraceModel(
-        id: feedback.id,
-        sourceType: 'micro_action_feedback',
-        title: 'Micro action feedback',
-        summary: [
-          feedback.happened,
-          feedback.effect,
-          feedback.userNote,
-        ].whereType<String>().where((e) => e.trim().isNotEmpty).join(' · '),
-        localDate: feedback.localDate,
-        cluster: _traceCluster(feedback.effect),
-        intensity: _feedbackIntensity(feedback.effect, feedback.difficulty),
-        signalLevel: _isHelpfulText(feedback.effect)
-            ? 'repeated_pattern'
-            : 'weak_signal',
-      ));
-    }
-
-    final experimentsById = {for (final e in experimentHistory) e.id: e};
-    for (final feedback in experimentFeedbacks) {
-      if (!inMonth(feedback.localDate)) continue;
-      final experiment = experimentsById[feedback.experimentId];
-      traces.add(JourneyTraceModel(
-        id: feedback.id,
-        sourceType: 'life_experiment_feedback',
-        title: experiment?.title ?? 'Life experiment feedback',
-        summary: feedback.feedbackText ?? feedback.completionStatus,
-        localDate: feedback.localDate,
-        cluster: _traceCluster(feedback.completionStatus),
+        // Keep the source type in the identity so append-only rows from
+        // different event tables can never collapse when their raw ids match.
+        id: event.id,
+        sourceType: event.sourceType,
+        title: subjectTitles[event.subjectId] ?? _feedbackEventTitle(event),
+        summary: _eventSummary(event),
+        localDate: event.localDate,
+        cluster: kind == 'small_experiment' || kind == 'goal'
+            ? 'experiment'
+            : _traceCluster(event.effect ?? event.status),
         intensity: _feedbackIntensity(
-          feedback.completionStatus,
-          feedback.feedbackText,
+          event.effect ?? event.status,
+          event.note,
         ),
-        signalLevel: _isHelpfulText(feedback.completionStatus) ||
-                _isHelpfulText(feedback.feedbackText)
+        signalLevel: _isHelpfulText(event.effect) || _isHelpfulText(event.note)
             ? 'repeated_pattern'
             : 'weak_signal',
+        metadata: {
+          'display_lane': kind == 'small_experiment' || kind == 'goal'
+              ? 'experiment_goal_track'
+              : 'source_only',
+          'event_id': event.id,
+          'source_id': event.sourceId,
+          'subject_type': event.subjectType,
+          'subject_id': event.subjectId,
+          'kind': kind,
+          if (isGoalDaily) 'is_effective': isEffective,
+          if (isRoundReview) 'review_type': 'whole_round',
+          if (isOutcomeReview)
+            'review_type': event.metadata['review_type'] ?? 'whole_round',
+          ...event.metadata,
+        },
       ));
     }
 
-    for (final rollup in experimentRollups) {
-      final eventDate = (rollup['last_feedback_at'] as String?) ??
-          (rollup['last_event_at'] as String?) ??
-          (rollup['source_week_end'] as String?) ??
-          '';
-      final parsed = DateTime.tryParse(eventDate);
-      final dayKey = parsed == null ? eventDate : _dateKey(parsed);
-      if (dayKey.isEmpty || !inMonth(dayKey)) continue;
-      final title = (rollup['title'] as String?) ?? 'Life experiment';
-      final status = (rollup['current_status'] as String?) ?? '';
-      final triedCount = (rollup['tried_count'] as num?)?.toInt() ?? 0;
-      final helpfulCount = (rollup['helpful_count'] as num?)?.toInt() ?? 0;
-      final activeWeekCount =
-          (rollup['active_week_count'] as num?)?.toInt() ?? 1;
-      traces.add(JourneyTraceModel(
-        id: 'life_experiment_rollup_${rollup['experiment_id']}',
-        sourceType: 'life_experiment_rollup',
-        title: title,
-        summary:
-            'Status: ${_experimentStatusText(status)} · tried $triedCount time(s) · helpful $helpfulCount time(s) · active across $activeWeekCount week(s).',
-        localDate: dayKey,
-        cluster: 'experiment',
-        intensity: helpfulCount > 0 ? 0.78 : 0.58,
-        signalLevel: helpfulCount > 0 ? 'repeated_pattern' : 'weak_signal',
-      ));
-    }
-
-    for (final weekly in weeklyReviews) {
-      var dayKey =
-          weekly.weekEnd.isNotEmpty ? weekly.weekEnd : weekly.weekStart;
-      final weeklyDate = DateTime.tryParse(dayKey);
-      if (weeklyDate != null && weeklyDate.isAfter(monthEnd)) {
-        dayKey = _dateKey(monthEnd);
-      }
-      if (!inMonth(dayKey)) continue;
-      traces.add(JourneyTraceModel(
-        id: 'weekly_${weekly.weekStart}',
-        sourceType: 'weekly_review',
-        title: 'Weekly Review',
-        summary: weekly.keyInsight ?? weekly.bestAction ?? 'Weekly review',
-        localDate: dayKey,
-        cluster: 'weekly',
-        intensity: 0.72,
-        signalLevel: 'repeated_pattern',
-      ));
-    }
-
-    traces.sort((a, b) => a.localDate.compareTo(b.localDate));
-    return traces.take(80).toList(growable: false);
+    traces.sort((a, b) {
+      final dateCompare = a.localDate.compareTo(b.localDate);
+      if (dateCompare != 0) return dateCompare;
+      return a.id.compareTo(b.id);
+    });
+    return traces.take(240).toList(growable: false);
   }
 
   MemorySummaryModel _attachJourneyData(
@@ -1077,6 +1353,7 @@ class MemoryRepository {
         traces: stats.journeyTraces,
         themes: themes,
       ),
+      periodFacts: stats.periodFacts,
     );
   }
 
@@ -1107,7 +1384,7 @@ class MemoryRepository {
     final scene = signal.scene?.trim();
     if (scene != null && scene.isNotEmpty) return scene;
     if (signal.sceneTags.isNotEmpty) return signal.sceneTags.first;
-    return 'SignalCard';
+    return 'Signal Card';
   }
 
   String _traceCluster(String? value) {
@@ -1165,7 +1442,7 @@ class MemoryRepository {
   }
 
   Future<void> _markJourneyInclusion(_JourneyStats stats) async {
-    final ids = stats.entries
+    final ids = stats.signalEntries
         .map((entry) =>
             (entry['signal_card_id'] as String?) ?? (entry['id'] as String?))
         .whereType<String>();
@@ -1576,6 +1853,7 @@ class MemoryRepository {
 
 class _JourneyStats {
   final List<Map<String, dynamic>> entries;
+  final List<Map<String, dynamic>> signalEntries;
   final List<String> topTokens;
   final List<String> topScenes;
   final List<String> topFrictions;
@@ -1591,9 +1869,11 @@ class _JourneyStats {
   final List<JourneyObservationModel> observations;
   final List<Map<String, dynamic>> observationEntries;
   final String monthKey;
+  final JourneyPeriodFactsModel periodFacts;
 
   _JourneyStats({
     required this.entries,
+    required this.signalEntries,
     required this.topTokens,
     required this.topScenes,
     required this.topFrictions,
@@ -1609,14 +1889,28 @@ class _JourneyStats {
     this.observations = const [],
     this.observationEntries = const [],
     required this.monthKey,
+    required this.periodFacts,
   });
 
   _JourneyStats copyWith({
     List<JourneyObservationModel>? observations,
   }) {
     final nextObservations = observations ?? this.observations;
+    final nextObservationEntries = nextObservations.map((observation) {
+      return <String, dynamic>{
+        'id': observation.id,
+        'source_type': 'observation',
+        'content': observation.text,
+        'status': observation.status,
+        'local_date': observation.localDate,
+      };
+    }).toList(growable: false);
     return _JourneyStats(
-      entries: entries,
+      entries: [
+        ...entries.where((entry) => entry['source_type'] != 'observation'),
+        ...nextObservationEntries,
+      ],
+      signalEntries: signalEntries,
       topTokens: topTokens,
       topScenes: topScenes,
       topFrictions: topFrictions,
@@ -1630,15 +1924,82 @@ class _JourneyStats {
       journeyTraces: journeyTraces,
       traceEntries: traceEntries,
       observations: nextObservations,
-      observationEntries: nextObservations.map((observation) {
-        return {
-          'id': observation.id,
-          'status': observation.status,
-          'text': observation.text,
-          'local_date': observation.localDate,
-        };
-      }).toList(growable: false),
+      observationEntries: nextObservationEntries,
       monthKey: monthKey,
+      periodFacts: periodFacts,
     );
   }
+}
+
+class _JourneyDayAccumulator {
+  final String localDate;
+  int signalCount = 0;
+  final Map<String, int> energyStateCounts = {
+    'draining': 0,
+    'steady': 0,
+    'ease': 0,
+    'recovery': 0,
+    'boundary_buffer': 0,
+  };
+  int smallExperimentAttemptCount = 0;
+  int goalFeedbackCount = 0;
+
+  _JourneyDayAccumulator(this.localDate);
+
+  JourneyDayFactModel toModel() => JourneyDayFactModel(
+        localDate: localDate,
+        signalCount: signalCount,
+        energyStateCounts: Map.unmodifiable(energyStateCounts),
+        smallExperimentAttemptCount: smallExperimentAttemptCount,
+        goalFeedbackCount: goalFeedbackCount,
+      );
+}
+
+class _JourneyTrackAccumulator {
+  final String subjectId;
+  final String kind;
+  final String title;
+  int attemptCount = 0;
+  int feedbackCount = 0;
+  int roundReviewCount = 0;
+  int weeklyReviewCount = 0;
+  int wholeRoundReviewCount = 0;
+  String latestResult = '';
+  String latestLocalDate = '';
+  DateTime? _latestTimestamp;
+  String _latestIdentity = '';
+
+  _JourneyTrackAccumulator({
+    required this.subjectId,
+    required this.kind,
+    required this.title,
+  });
+
+  void observe(FeedbackEventModel event) {
+    final timestamp = event.createdAt ?? event.occurredAt ?? DateTime(0);
+    if (_latestTimestamp == null ||
+        timestamp.isAfter(_latestTimestamp!) ||
+        (timestamp == _latestTimestamp &&
+            event.id.compareTo(_latestIdentity) > 0)) {
+      _latestTimestamp = timestamp;
+      _latestIdentity = event.id;
+      latestResult = event.effect?.trim().isNotEmpty == true
+          ? event.effect!.trim()
+          : event.status;
+      latestLocalDate = event.localDate;
+    }
+  }
+
+  JourneyExperimentTrackModel toModel() => JourneyExperimentTrackModel(
+        subjectId: subjectId,
+        kind: kind,
+        title: title,
+        attemptCount: attemptCount,
+        feedbackCount: feedbackCount,
+        roundReviewCount: roundReviewCount,
+        weeklyReviewCount: weeklyReviewCount,
+        wholeRoundReviewCount: wholeRoundReviewCount,
+        latestResult: latestResult,
+        latestLocalDate: latestLocalDate,
+      );
 }

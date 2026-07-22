@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import '../../../core/api/repositories/analytics_repository.dart';
 import '../../../core/api/repositories/memory_repository.dart';
 import '../../../core/models/memory_models.dart';
-import '../../../core/models/journey_pro_models.dart';
 import '../../../core/readiness/report_readiness.dart';
 import '../../../shared/states/load_state.dart';
 
@@ -21,18 +20,30 @@ class MemoryViewModel extends ChangeNotifier {
   ReportReadiness journeyReadiness = ReportReadiness.empty(
     ReportReadinessEvaluator.journeyRule,
   );
-  ReportReadiness proReadiness = ReportReadiness.empty(
-    ReportReadinessEvaluator.journeyProRule,
-  );
-  JourneyProReportModel? proReport;
-  LoadState proReportLoadState = LoadState.initial;
-  String? proReportErrorMessage;
+  late DateTime selectedMonth;
 
   MemoryViewModel(
     this.repository, {
     this.analyticsRepository,
   }) {
+    final now = DateTime.now();
+    selectedMonth = DateTime(now.year, now.month);
     load();
+  }
+
+  bool get canSelectNextMonth {
+    final now = DateTime.now();
+    final currentMonth = DateTime(now.year, now.month);
+    return selectedMonth.isBefore(currentMonth);
+  }
+
+  Future<void> selectMonth(DateTime month) async {
+    final normalized = DateTime(month.year, month.month);
+    final now = DateTime.now();
+    final currentMonth = DateTime(now.year, now.month);
+    if (normalized.isAfter(currentMonth) || normalized == selectedMonth) return;
+    selectedMonth = normalized;
+    await load();
   }
 
   bool get hasSummary => summary != null && summary!.hasAnySignals;
@@ -49,12 +60,12 @@ class MemoryViewModel extends ChangeNotifier {
     showFirstDayGate = false;
     journeyReadiness =
         ReportReadiness.empty(ReportReadinessEvaluator.journeyRule);
-    proReadiness =
-        ReportReadiness.empty(ReportReadinessEvaluator.journeyProRule);
     notifyListeners();
 
     try {
-      final result = await repository.fetchMemorySummaryResult();
+      final result = await repository.fetchMemorySummaryResult(
+        month: selectedMonth,
+      );
       summary = result.summary;
       showFirstDayGate = result.isFirstDayGate;
       journeyReadiness = result.journeyReadiness ??
@@ -66,8 +77,6 @@ class MemoryViewModel extends ChangeNotifier {
                   distinctWeekCount: 1,
                 )
               : ReportReadiness.empty(ReportReadinessEvaluator.journeyRule));
-      proReadiness = result.proReadiness ??
-          ReportReadiness.empty(ReportReadinessEvaluator.journeyProRule);
       await analyticsRepository?.track(
         'journey_open',
         properties: {
@@ -101,23 +110,6 @@ class MemoryViewModel extends ChangeNotifier {
   }
 
   Future<void> retry() => load();
-
-  Future<void> loadProReport() async {
-    proReportLoadState = LoadState.loading;
-    proReportErrorMessage = null;
-    notifyListeners();
-    try {
-      final report = await repository.fetchJourneyProReport();
-      proReport = report;
-      proReadiness = report.readiness;
-      proReportLoadState = report.isReady ? LoadState.ready : LoadState.empty;
-    } catch (error) {
-      proReport = null;
-      proReportErrorMessage = error.toString();
-      proReportLoadState = LoadState.error;
-    }
-    notifyListeners();
-  }
 
   Future<List<JourneyEvidenceItemModel>> loadEvidence({
     JourneyTraceModel? trace,

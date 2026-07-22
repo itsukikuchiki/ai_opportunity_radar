@@ -118,63 +118,6 @@ void main() {
       expect(result.journeyReadiness!.signalCount, 7);
       expect(result.journeyReadiness!.distinctDayCount, 3);
       expect(result.journeyReadiness!.isReady, isTrue);
-      expect(result.proReadiness!.isReady, isFalse);
-
-      await harness.close();
-    });
-
-    test('4d) Journey Pro 需近 28 天 14 条信号、7 个日期和 2 个自然周', () async {
-      final harness = await _createHarness(
-        dbPath: dbPath,
-        aiRepository: FakeJourneyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 28)),
-      );
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final currentMonday = today.subtract(
-        Duration(days: today.weekday - DateTime.monday),
-      );
-      final previousSunday = currentMonday.subtract(const Duration(days: 1));
-      final dates = <DateTime>[
-        today,
-        for (var offset = 0; offset < 6; offset += 1)
-          previousSunday.subtract(Duration(days: offset)),
-      ];
-      for (var dayIndex = 0; dayIndex < dates.length; dayIndex += 1) {
-        for (var itemIndex = 0; itemIndex < 2; itemIndex += 1) {
-          await harness.seedSignalCard(
-            id: 'pro_ready_${dayIndex}_$itemIndex',
-            content: 'Pro 门槛信号 $dayIndex-$itemIndex',
-            createdAt: dates[dayIndex].add(Duration(hours: itemIndex + 8)),
-            localDate: _dateKey(dates[dayIndex]),
-            userConfirmation: 'accurate',
-          );
-        }
-      }
-
-      final result = await harness.repository.fetchMemorySummaryResult();
-
-      expect(result.proReadiness, isNotNull);
-      expect(result.proReadiness!.signalCount, 14);
-      expect(result.proReadiness!.distinctDayCount, 7);
-      expect(result.proReadiness!.distinctWeekCount, 2);
-      expect(result.proReadiness!.isReady, isTrue);
-
-      final proReport = await harness.repository.fetchJourneyProReport();
-      expect(proReport.isReady, isTrue);
-      expect(proReport.readiness.signalCount, 14);
-      expect(proReport.currentWeek.signalCount, 2);
-      expect(proReport.currentWeek.activeDayCount, 1);
-      expect(proReport.previousWeek.signalCount, 12);
-      expect(proReport.previousWeek.activeDayCount, 6);
-      expect(proReport.evidence, hasLength(8));
-      expect(
-        proReport.evidence.every(
-          (item) => item.signalId.startsWith('pro_ready_'),
-        ),
-        isTrue,
-      );
-
       await harness.close();
     });
 
@@ -510,7 +453,7 @@ void main() {
     });
 
     test(
-        '8c-2) Journey trace only uses Signal, MicroAction and LifeExperiment core inputs',
+        '8c-2) Journey uses all app facts but keeps Weekly out of the monthly path',
         () async {
       final now = DateTime.now();
       final todayKey = _dateKey(now);
@@ -596,24 +539,20 @@ void main() {
           .toSet();
 
       expect(sourceTypes, contains('signal_card'));
-      expect(sourceTypes, contains('weekly_review'));
-      expect(sourceTypes, contains('life_experiment_rollup'));
       expect(sourceTypes, contains('micro_action_feedback'));
       expect(sourceTypes, contains('life_experiment_feedback'));
-      expect(sourceTypes, isNot(contains('schedule_feedback')));
-      expect(sourceTypes, isNot(contains('goal_feedback')));
+      expect(sourceTypes, contains('schedule_feedback'));
+      expect(sourceTypes, contains('goal_feedback'));
+      expect(sourceTypes, isNot(contains('weekly_review')));
+      expect(sourceTypes, isNot(contains('life_experiment_rollup')));
       expect(
         result.summary!.journeyTraces
-            .firstWhere((trace) => trace.sourceType == 'weekly_review')
-            .summary,
-        contains('恢复需求'),
+            .firstWhere((trace) => trace.sourceType == 'goal_feedback')
+            .metadata['is_effective'],
+        true,
       );
-      expect(
-        result.summary!.journeyTraces
-            .firstWhere((trace) => trace.sourceType == 'life_experiment_rollup')
-            .summary,
-        contains('helpful 1'),
-      );
+      expect(result.summary!.periodFacts!.smallExperimentAttemptCount, 1);
+      expect(result.summary!.periodFacts!.goalFeedbackCount, 2);
 
       await harness.close();
     });
@@ -1105,6 +1044,322 @@ void main() {
 
       await harness.close();
     });
+
+    test('14) 历史月份重新取数，综合只累计到所选月末且门槛只看月内 Signal', () async {
+      final now = DateTime.now();
+      final currentMonth = DateTime(now.year, now.month);
+      final selectedMonth = DateTime(now.year, now.month - 1);
+      final olderMonth = DateTime(now.year, now.month - 2);
+      final olderDate = DateTime(olderMonth.year, olderMonth.month, 10, 9);
+      final selectedDate =
+          DateTime(selectedMonth.year, selectedMonth.month, 12, 10);
+      final laterDate = DateTime(currentMonth.year, currentMonth.month, 2, 11);
+      final recordingAi = RecordingJourneyAiRepository();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: recordingAi,
+        installationDate: olderDate.subtract(const Duration(days: 2)),
+      );
+
+      await harness.seedSignalCard(
+        id: 'history_older_signal',
+        content: '更早月份的真实 Signal',
+        createdAt: olderDate,
+        userConfirmation: 'accurate',
+      );
+      await harness.seedSignalCard(
+        id: 'history_selected_signal',
+        content: '所选月份的真实 Signal',
+        createdAt: selectedDate,
+        userConfirmation: 'accurate',
+      );
+      await harness.seedSignalCard(
+        id: 'history_later_signal',
+        content: '所选月份之后的 Signal',
+        createdAt: laterDate,
+        userConfirmation: 'accurate',
+      );
+      await harness.seedObservation(
+        id: 'history_older_observation',
+        text: '所选月末之前的内部 Observation',
+        sourceDate: olderDate,
+      );
+      await harness.seedObservation(
+        id: 'history_later_observation',
+        text: '所选月末之后的内部 Observation',
+        sourceDate: laterDate,
+      );
+
+      final selected = await harness.repository.fetchMemorySummaryResult(
+        month: selectedMonth,
+      );
+
+      expect(selected.journeyReadiness!.signalCount, 1);
+      expect(selected.journeyReadiness!.distinctDayCount, 1);
+      expect(selected.summary!.periodFacts!.signalCount, 1);
+      expect(
+        selected.summary!.journeyTraces.map((trace) => trace.id),
+        contains('history_selected_signal'),
+      );
+      expect(
+        selected.summary!.journeyTraces.map((trace) => trace.id),
+        isNot(contains('history_older_signal')),
+      );
+      expect(
+        selected.summary!.journeyTraces.map((trace) => trace.id),
+        isNot(contains('history_later_signal')),
+      );
+      final selectedSourceIds = recordingAi.lastEntries
+          .map((entry) => entry['signal_card_id'] ?? entry['id'])
+          .toSet();
+      expect(
+        selectedSourceIds,
+        containsAll({'history_older_signal', 'history_selected_signal'}),
+      );
+      expect(selectedSourceIds, isNot(contains('history_later_signal')));
+      expect(selectedSourceIds, contains('history_older_observation'));
+      expect(selectedSourceIds, isNot(contains('history_later_observation')));
+
+      final older = await harness.repository.fetchMemorySummaryResult(
+        month: olderMonth,
+      );
+      expect(older.summary!.periodFacts!.signalCount, 1);
+      expect(
+        older.summary!.journeyTraces.map((trace) => trace.id),
+        contains('history_older_signal'),
+      );
+      expect(
+        older.summary!.journeyTraces.map((trace) => trace.id),
+        isNot(contains('history_selected_signal')),
+      );
+
+      await harness.close();
+    });
+
+    test('15) 月轨迹保留真实小实验次数、目标有效日与两类总结', () async {
+      final now = DateTime.now();
+      final localDay = DateTime(now.year, now.month, now.day, 9);
+      final dayKey = _dateKey(localDay);
+      final recordingAi = RecordingJourneyAiRepository();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: recordingAi,
+        installationDate: localDay.subtract(const Duration(days: 1)),
+      );
+      const energyStates = [
+        'draining',
+        'steady',
+        'ease',
+        'recovery',
+        'boundary_buffer',
+      ];
+      for (var index = 0; index < energyStates.length; index += 1) {
+        await harness.seedSignalCard(
+          id: 'energy_state_$index',
+          content: '真实能量状态 ${energyStates[index]}',
+          createdAt: localDay.add(Duration(minutes: index)),
+          userConfirmation: 'accurate',
+          rawPayloadJson: {'energy_state': energyStates[index]},
+        );
+      }
+
+      await harness.seedMicroAction(
+        id: 'quick_track',
+        title: '两分钟离屏恢复',
+        localDate: dayKey,
+      );
+      await harness.seedMicroActionFeedback(
+        microActionId: 'quick_track',
+        localDate: dayKey,
+        completionStatus: 'completed',
+        createdAt: localDay.add(const Duration(hours: 1)),
+      );
+      await harness.seedMicroActionFeedback(
+        microActionId: 'quick_track',
+        localDate: dayKey,
+        completionStatus: 'completed',
+        createdAt: localDay.add(const Duration(hours: 2)),
+      );
+      await harness.seedMicroActionFeedback(
+        microActionId: 'quick_track',
+        localDate: dayKey,
+        completionStatus: 'not_completed',
+        createdAt: localDay.add(const Duration(hours: 3)),
+      );
+      await harness.seedMicroActionRoundReview(
+        microActionId: 'quick_track',
+        reviewedAt: localDay.add(const Duration(hours: 4)),
+      );
+
+      await harness.seedExperiment(
+        id: 'goal_track',
+        status: 'active',
+        title: '逐步稳定晚间恢复',
+        sourceWeekStart: dayKey,
+        sourceWeekEnd: dayKey,
+      );
+      await harness.seedExperimentFeedback(
+        id: 'goal_feedback_early',
+        experimentId: 'goal_track',
+        feedbackText: '先记录的反馈',
+        localDate: dayKey,
+        createdAt: localDay.add(const Duration(hours: 5)),
+      );
+      await harness.seedExperimentFeedback(
+        id: 'goal_feedback_latest',
+        experimentId: 'goal_track',
+        feedbackText: '当天最后一条有效反馈',
+        localDate: dayKey,
+        createdAt: localDay.add(const Duration(hours: 6)),
+      );
+      await harness.seedGoalOutcomeReview(
+        id: 'goal_weekly_review',
+        experimentId: 'goal_track',
+        localDate: dayKey,
+        reviewType: 'weekly',
+        createdAt: localDay.add(const Duration(hours: 7)),
+      );
+      await harness.seedGoalOutcomeReview(
+        id: 'goal_whole_review',
+        experimentId: 'goal_track',
+        localDate: dayKey,
+        reviewType: 'whole_round',
+        createdAt: localDay.add(const Duration(hours: 8)),
+      );
+      await harness.seedLegacyExperimentRollup(
+        experimentId: 'goal_track',
+        sourceWeekStart: dayKey,
+        sourceWeekEnd: dayKey,
+      );
+
+      final result = await harness.repository.fetchMemorySummaryResult();
+      final facts = result.summary!.periodFacts!;
+
+      expect(facts.signalCount, 5);
+      expect(facts.energyStateCounts.values, everyElement(1));
+      expect(facts.smallExperimentAttemptCount, 2);
+      expect(facts.smallExperimentRoundReviewCount, 1);
+      expect(facts.goalFeedbackCount, 1);
+      expect(facts.goalWeeklyReviewCount, 1);
+      expect(facts.goalWholeRoundReviewCount, 1);
+      expect(facts.days.single.smallExperimentAttemptCount, 2);
+      expect(facts.days.single.goalFeedbackCount, 1);
+
+      final quickTrack = facts.experimentTracks.singleWhere(
+        (track) => track.subjectId == 'quick_track',
+      );
+      expect(quickTrack.kind, 'small_experiment');
+      expect(quickTrack.attemptCount, 2);
+      expect(quickTrack.feedbackCount, 3);
+      expect(quickTrack.roundReviewCount, 1);
+      final goalTrack = facts.experimentTracks.singleWhere(
+        (track) => track.subjectId == 'goal_track',
+      );
+      expect(goalTrack.kind, 'goal');
+      expect(goalTrack.feedbackCount, 1);
+      expect(goalTrack.weeklyReviewCount, 1);
+      expect(goalTrack.wholeRoundReviewCount, 1);
+
+      final goalFeedbackTraces = result.summary!.journeyTraces
+          .where((trace) => trace.sourceType == 'life_experiment_feedback')
+          .toList();
+      expect(goalFeedbackTraces, hasLength(2));
+      expect(
+        goalFeedbackTraces.map((trace) => trace.id),
+        containsAll({
+          'life_experiment_feedback:goal_feedback_early',
+          'life_experiment_feedback:goal_feedback_latest',
+        }),
+      );
+      expect(
+        goalFeedbackTraces
+            .where((trace) => trace.metadata['is_effective'] == true),
+        hasLength(1),
+      );
+      expect(
+        recordingAi.lastEntries.map((entry) => entry['source_type']),
+        containsAll({
+          'micro_action_round_review',
+          'life_experiment_outcome_review',
+          'life_experiment_rollup',
+        }),
+      );
+      final boundedLegacyRollup = recordingAi.lastEntries.singleWhere(
+        (entry) => entry['source_type'] == 'life_experiment_rollup',
+      );
+      expect(boundedLegacyRollup['feedback_day_count'], 1);
+      expect(boundedLegacyRollup, isNot(contains('total_feedback_count')));
+
+      await harness.close();
+    });
+
+    test('16) 历史总结追加后会使该月之后的 Journey 缓存自然失效', () async {
+      final now = DateTime.now();
+      final selectedMonth = DateTime(now.year, now.month - 1);
+      final historyMonth = DateTime(now.year, now.month - 2);
+      final selectedDate =
+          DateTime(selectedMonth.year, selectedMonth.month, 12, 10);
+      final historyDate =
+          DateTime(historyMonth.year, historyMonth.month, 20, 9);
+      final countingAi = CountingJourneyAiRepository();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: countingAi,
+        installationDate: historyDate.subtract(const Duration(days: 1)),
+      );
+      await harness.seedSignalCard(
+        id: 'cache_selected_signal',
+        content: '后续月份的合格 Signal',
+        createdAt: selectedDate,
+        userConfirmation: 'accurate',
+      );
+      await harness.seedMicroAction(
+        id: 'cache_history_quick',
+        title: '历史小实验',
+        localDate: _dateKey(historyDate),
+      );
+
+      await harness.repository.fetchMemorySummaryResult(month: selectedMonth);
+      await harness.repository.fetchMemorySummaryResult(month: selectedMonth);
+      expect(countingAi.callCount, 1);
+      final snapshotDate = _dateKey(
+        DateTime(selectedMonth.year, selectedMonth.month + 1, 0),
+      );
+      final beforeHash =
+          (await harness.journeySnapshot(snapshotDate))!['source_hash'];
+
+      await harness.seedMicroActionRoundReview(
+        microActionId: 'cache_history_quick',
+        reviewedAt: historyDate,
+      );
+      await harness.repository.fetchMemorySummaryResult(month: selectedMonth);
+
+      expect(countingAi.callCount, 2);
+      final afterHash =
+          (await harness.journeySnapshot(snapshotDate))!['source_hash'];
+      expect(afterHash, isNot(beforeHash));
+
+      await harness.seedObservation(
+        id: 'cache_history_observation',
+        text: '历史内部 Observation 也只参与综合来源',
+        sourceDate: historyDate,
+      );
+      final afterObservation = await harness.repository
+          .fetchMemorySummaryResult(month: selectedMonth);
+      expect(countingAi.callCount, 3);
+      final observationHash =
+          (await harness.journeySnapshot(snapshotDate))!['source_hash'];
+      expect(observationHash, isNot(afterHash));
+      expect(afterObservation.journeyReadiness!.signalCount, 1);
+      expect(afterObservation.summary!.periodFacts!.signalCount, 1);
+      expect(
+        afterObservation.summary!.journeyTraces
+            .where((trace) => trace.sourceType == 'observation'),
+        isEmpty,
+      );
+
+      await harness.close();
+    });
   });
 }
 
@@ -1236,9 +1491,11 @@ class _Harness {
     required String id,
     required String text,
     String status = 'generated',
+    DateTime? sourceDate,
   }) async {
     final db = await localDatabase.database;
-    final now = DateTime.now().toUtc().toIso8601String();
+    final date = sourceDate ?? DateTime.now();
+    final now = date.toUtc().toIso8601String();
     await db.insert(
       'observations',
       {
@@ -1248,8 +1505,8 @@ class _Harness {
         'observation_type': 'hypothesis',
         'confidence': 'medium',
         'status': status,
-        'source_period_start': _dateKey(DateTime.now()),
-        'source_period_end': _dateKey(DateTime.now()),
+        'source_period_start': _dateKey(date),
+        'source_period_end': _dateKey(date),
         'created_by': 'l2_reason',
         'evidence_text': text,
         'created_at': now,
@@ -1262,14 +1519,16 @@ class _Harness {
     required String id,
     required String feedbackText,
     required String localDate,
+    String experimentId = 'exp_evidence',
+    DateTime? createdAt,
   }) async {
     final db = await localDatabase.database;
-    final now = DateTime.now().toUtc().toIso8601String();
+    final now = (createdAt ?? DateTime.now()).toUtc().toIso8601String();
     await db.insert(
       'life_experiment_feedback',
       {
         'id': id,
-        'experiment_id': 'exp_evidence',
+        'experiment_id': experimentId,
         'local_user_id': 'test-user',
         'feedback_date': localDate,
         'local_date': localDate,
@@ -1278,6 +1537,127 @@ class _Harness {
         'feedback_text': feedbackText,
         'created_at': now,
         'updated_at': now,
+      },
+    );
+  }
+
+  Future<void> seedMicroAction({
+    required String id,
+    required String title,
+    required String localDate,
+  }) async {
+    final date = DateTime.tryParse(localDate) ?? DateTime.now();
+    await phase3PlusRepository.upsertMicroAction(
+      MicroActionModel(
+        id: id,
+        judgementId: 'judgement_$id',
+        title: title,
+        reason: 'Journey test source',
+        plannedDurationMinutes: 5,
+        plannedDate: localDate,
+        status: 'active',
+        localUserId: 'test-user',
+        adoptedAt: date,
+        progressStartDate: localDate,
+        createdAt: date,
+        updatedAt: date,
+      ),
+    );
+  }
+
+  Future<void> seedMicroActionFeedback({
+    required String microActionId,
+    required String localDate,
+    required String completionStatus,
+    required DateTime createdAt,
+  }) async {
+    await phase3PlusRepository.recordStructuredMicroActionFeedback(
+      microActionId: microActionId,
+      localDate: localDate,
+      completionStatus: completionStatus,
+      effect: completionStatus == 'completed' ? 'helpful' : null,
+      difficulty: completionStatus == 'completed' ? 'easy' : null,
+      durationMinutes: completionStatus == 'completed' ? 3 : null,
+      createdAt: createdAt,
+    );
+  }
+
+  Future<void> seedMicroActionRoundReview({
+    required String microActionId,
+    required DateTime reviewedAt,
+  }) async {
+    await phase3PlusRepository.recordMicroActionRoundReview(
+      microActionId: microActionId,
+      result: 'worth_keeping',
+      effort: 'easy',
+      nextAdjustment: 'keep',
+      note: '真实尝试后的整轮总结',
+      reviewedAt: reviewedAt,
+    );
+  }
+
+  Future<void> seedGoalOutcomeReview({
+    required String id,
+    required String experimentId,
+    required String localDate,
+    required String reviewType,
+    required DateTime createdAt,
+  }) async {
+    final db = await localDatabase.database;
+    await db.insert(
+      'life_experiment_lifecycle_events',
+      {
+        'id': id,
+        'experiment_id': experimentId,
+        'local_user_id': 'test-user',
+        'event_type': 'outcome_reviewed',
+        'review_type': reviewType,
+        'event_date': createdAt.toUtc().toIso8601String(),
+        'local_date': localDate,
+        'status_from': 'active',
+        'status_to': 'active',
+        'payload_json': jsonEncode({
+          'outcome_result': 'somewhat_improved',
+          'review_type': reviewType,
+          'burden': 'acceptable',
+          'review_note': '$reviewType 的真实总结',
+        }),
+        'created_at': createdAt.toUtc().toIso8601String(),
+      },
+    );
+  }
+
+  Future<void> seedLegacyExperimentRollup({
+    required String experimentId,
+    required String sourceWeekStart,
+    required String sourceWeekEnd,
+  }) async {
+    final db = await localDatabase.database;
+    await db.insert(
+      'life_experiment_rollups',
+      {
+        'experiment_id': experimentId,
+        'local_user_id': 'test-user',
+        'root_experiment_id': experimentId,
+        'source_week_start': sourceWeekStart,
+        'source_week_end': sourceWeekEnd,
+        'current_status': 'active',
+        'title': '旧版目标汇总',
+        'hypothesis': '旧版兼容数据仍可参与来源哈希',
+        'suggested_action': '继续观察',
+        // Persisted legacy counters may include later facts. Journey must
+        // ignore these and rebuild bounded counts from typed events.
+        'total_feedback_count': 99,
+        'tried_count': 99,
+        'helpful_count': 99,
+        'not_helpful_count': 0,
+        'adjusted_count': 0,
+        'skipped_count': 0,
+        'active_week_count': 9,
+        'lineage_json': '[]',
+        'dirty': 0,
+        'is_stale': 0,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
       },
     );
   }

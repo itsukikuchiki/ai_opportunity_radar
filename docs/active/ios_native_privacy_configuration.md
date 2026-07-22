@@ -1,6 +1,6 @@
 # iOS Native Schemes And Privacy Configuration
 
-Last updated: 2026-07-14
+Last updated: 2026-07-22
 
 Status: **current native configuration contract for device QA and release**.
 
@@ -31,14 +31,13 @@ Rules:
 The local product descriptions use the final Pro range:
 
 - This Week Deep Read;
-- Journey L3 evidence and period comparison;
-- follow-up grounded in a selected real SignalCard;
+- Journey three-month change analysis;
 - structured self-review;
 - L1 Attune short dialogue and expanded AI quota.
 
 They must not advertise response-style switching, ownership of the user's Free
-facts, Calendar access, raw Health access, or the future independent 28-day
-interpretive generator as a shipped entitlement.
+facts, Calendar access, raw Health access, or removed Journey
+source/follow-up features as a shipped entitlement.
 
 ## 2. Permission Localization
 

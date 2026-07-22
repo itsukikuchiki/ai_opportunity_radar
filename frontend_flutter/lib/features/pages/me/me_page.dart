@@ -21,11 +21,14 @@ import 'me_view_model.dart';
 class MePage extends StatelessWidget {
   const MePage({super.key});
 
-  static final Uri _privacyPolicyUri = Uri.parse(
-    'https://itsukikuchiki.github.io/signalpath-support/',
-  );
   static final Uri _supportUri = Uri.parse(
     'https://itsukikuchiki.github.io/signalpath-support/',
+  );
+  static final Uri _termsOfUseUri = Uri.parse(
+    'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/',
+  );
+  static final Uri _subscriptionManagementUri = Uri.parse(
+    'https://apps.apple.com/account/subscriptions',
   );
 
   @override
@@ -44,7 +47,11 @@ class MePage extends StatelessWidget {
                 key: const ValueKey('me-scroll-view'),
                 padding: AuroraMainPageSpec.scrollPadding(context),
                 children: [
-                  _MeHeroHeader(vm: vm),
+                  _MeHeroHeader(
+                    vm: vm,
+                    onEdit:
+                        vm.saving ? null : () => _showProfileSheet(context, vm),
+                  ),
                   const SizedBox(height: AuroraMainPageSpec.heroGap),
                   if (vm.loading)
                     const Padding(
@@ -52,13 +59,6 @@ class MePage extends StatelessWidget {
                       child: Center(child: CircularProgressIndicator()),
                     )
                   else ...[
-                    _LifeDirectionCard(
-                      vm: vm,
-                      onEdit: vm.saving
-                          ? null
-                          : () => _showProfileSheet(context, vm),
-                    ),
-                    const SizedBox(height: AuroraMainPageSpec.sectionGap),
                     _FocusDomainsCard(
                       selectedIds: vm.selectedFocusDomainIds,
                       onTap: vm.saving
@@ -67,56 +67,31 @@ class MePage extends StatelessWidget {
                     ),
                     const SizedBox(height: AuroraMainPageSpec.sectionGap),
                   ],
-                  _PremiumStatusCard(purchase: purchase, vm: vm),
-                  if (vm.usageLoading ||
-                      vm.usageLoadFailed ||
-                      !vm.usageMatchesLocalEntitlement(
-                        purchase?.isPremium ?? false,
-                      )) ...[
-                    const SizedBox(height: AuroraMainPageSpec.sectionGap),
-                    _UsageSyncCard(
-                      vm: vm,
-                      localPremium: purchase?.isPremium ?? false,
-                    ),
-                  ] else if (vm.usageQuotas.isNotEmpty) ...[
-                    const SizedBox(height: AuroraMainPageSpec.sectionGap),
-                    _MonthlyUsageCard(
-                      quotas: vm.usageQuotas.values.toList(growable: false),
-                    ),
-                  ],
+                  _ProUsageCard(
+                    purchase: purchase,
+                    vm: vm,
+                    onManageSubscription: () =>
+                        _openSubscriptionManagement(context),
+                  ),
                   const SizedBox(height: AuroraMainPageSpec.sectionGap),
-                  _MePreferenceSection(
-                    selectedResponseStyle: vm.selectedResponseStyle,
-                    onOpenSelfReview: () => context.push(AppRoutes.selfReview),
-                    onOpenResponseStyle: vm.saving
-                        ? null
-                        : () {
-                            if (purchase?.isPremium ?? false) {
-                              _showResponseStyleSheet(context, vm);
-                            } else {
-                              showPremiumPaywall(
-                                context,
-                                source: AppLocaleText.tr(
-                                  context,
-                                  en: 'AI response style',
-                                  zhHans: 'AI 回应风格',
-                                  zhHant: 'AI 回應風格',
-                                  ja: 'AI の返答スタイル',
-                                ),
-                              );
-                            }
-                          },
+                  _MeSignalsSection(
+                    onOpenReminders: () =>
+                        context.push(AppRoutes.signalReminders),
+                    onOpenAdvancedSignals: () =>
+                        context.push(AppRoutes.advancedSignals),
                   ),
                   const SizedBox(height: AuroraMainPageSpec.sectionGap),
                   _MeDataSection(
-                    onOpenAdvancedSignals: () =>
-                        context.push(AppRoutes.advancedSignals),
-                    onOpenPrivacy: () => _openPrivacyPolicy(context),
-                    onOpenSupport: () => _openSupport(context),
+                    onOpenPrivacy: () => context.push(AppRoutes.dataPrivacy),
                     onDeleteData: vm.deletingData
                         ? null
                         : () => _confirmDeleteData(context, vm),
                     hasCloudAccount: vm.hasCloudAccount,
+                  ),
+                  const SizedBox(height: AuroraMainPageSpec.sectionGap),
+                  _MeHelpSection(
+                    onOpenSupport: () => _openSupport(context),
+                    onOpenTerms: () => _openTermsOfUse(context),
                   ),
                   if (kDebugMode) ...[
                     const SizedBox(height: AuroraMainPageSpec.sectionGap),
@@ -218,69 +193,6 @@ class MePage extends StatelessWidget {
     );
   }
 
-  Future<void> _showResponseStyleSheet(
-      BuildContext context, MeViewModel vm) async {
-    final selected = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (_) =>
-          _ResponseStylePickerSheet(currentValue: vm.selectedResponseStyle),
-    );
-
-    if (selected == null || selected == vm.selectedResponseStyle) return;
-
-    final success = await vm.updateResponseStyle(selected);
-    if (!context.mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          success
-              ? AppLocaleText.tr(
-                  context,
-                  en: 'AI response style updated.',
-                  zhHans: 'AI 回应风格已更新。',
-                  zhHant: 'AI 回應風格已更新。',
-                  ja: 'AI の返答スタイルを更新しました。',
-                )
-              : AppLocaleText.tr(
-                  context,
-                  en: 'Failed to update AI response style.',
-                  zhHans: '更新 AI 回应风格失败。',
-                  zhHant: '更新 AI 回應風格失敗。',
-                  ja: 'AI の返答スタイル更新に失敗しました。',
-                ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openPrivacyPolicy(BuildContext context) async {
-    try {
-      final opened = await launchUrl(
-        _privacyPolicyUri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (opened || !context.mounted) return;
-    } catch (_) {
-      if (!context.mounted) return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          AppLocaleText.tr(
-            context,
-            en: 'Could not open the privacy page.',
-            zhHans: '暂时无法打开隐私页面。',
-            zhHant: '暫時無法打開隱私頁面。',
-            ja: 'プライバシーページを開けませんでした。',
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<void> _openSupport(BuildContext context) async {
     try {
       final opened = await launchUrl(
@@ -300,6 +212,56 @@ class MePage extends StatelessWidget {
             zhHans: '暂时无法打开支持页面。',
             zhHant: '暫時無法打開支援頁面。',
             ja: 'サポートページを開けませんでした。',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openTermsOfUse(BuildContext context) async {
+    try {
+      final opened = await launchUrl(
+        _termsOfUseUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (opened || !context.mounted) return;
+    } catch (_) {
+      if (!context.mounted) return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocaleText.tr(
+            context,
+            en: 'Could not open the terms right now.',
+            zhHans: '暂时无法打开使用条款。',
+            zhHant: '暫時無法打開使用條款。',
+            ja: '利用規約を開けませんでした。',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSubscriptionManagement(BuildContext context) async {
+    try {
+      final opened = await launchUrl(
+        _subscriptionManagementUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (opened || !context.mounted) return;
+    } catch (_) {
+      if (!context.mounted) return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocaleText.tr(
+            context,
+            en: 'Could not open subscription management.',
+            zhHans: '暂时无法打开订阅管理。',
+            zhHant: '暫時無法打開訂閱管理。',
+            ja: 'サブスクリプション管理を開けませんでした。',
           ),
         ),
       ),
@@ -397,8 +359,9 @@ class MePage extends StatelessWidget {
 
 class _MeHeroHeader extends StatelessWidget {
   final MeViewModel vm;
+  final VoidCallback? onEdit;
 
-  const _MeHeroHeader({required this.vm});
+  const _MeHeroHeader({required this.vm, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -407,7 +370,7 @@ class _MeHeroHeader extends StatelessWidget {
       constraints: BoxConstraints(
         maxHeight: MediaQuery.textScalerOf(context).scale(14) > 20
             ? double.infinity
-            : 170,
+            : 196,
       ),
       child: Stack(
         clipBehavior: Clip.none,
@@ -462,8 +425,8 @@ class _MeHeroHeader extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Padding(
-                padding: const EdgeInsets.only(right: 54),
-                child: _MeProfileIntro(vm: vm),
+                padding: const EdgeInsets.only(right: 30),
+                child: _MeProfileIntro(vm: vm, onEdit: onEdit),
               ),
             ],
           ),
@@ -475,13 +438,16 @@ class _MeHeroHeader extends StatelessWidget {
 
 class _MeProfileIntro extends StatelessWidget {
   final MeViewModel vm;
+  final VoidCallback? onEdit;
 
-  const _MeProfileIntro({required this.vm});
+  const _MeProfileIntro({required this.vm, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
     final photoPath = vm.profilePhotoPath;
     return Row(
+      key: const ValueKey('me-profile-summary'),
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         InkWell(
           customBorder: const CircleBorder(),
@@ -589,7 +555,77 @@ class _MeProfileIntro extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 9,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.72),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: AuroraColors.purple.withValues(alpha: 0.14),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      vm.hasCloudAccount
+                          ? Icons.cloud_done_outlined
+                          : Icons.phone_iphone_rounded,
+                      size: 13,
+                      color: const Color(0xFF6E7FA9),
+                    ),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        vm.hasCloudAccount
+                            ? AppLocaleText.tr(
+                                context,
+                                en: 'Account connected',
+                                zhHans: '账户已连接',
+                                zhHant: '帳戶已連接',
+                                ja: 'アカウント接続済み',
+                              )
+                            : AppLocaleText.tr(
+                                context,
+                                en: 'Saved on this device',
+                                zhHans: '保存在本机',
+                                zhHant: '儲存在此裝置',
+                                ja: 'この端末に保存',
+                              ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  color: const Color(0xFF6E7FA9),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
+          ),
+        ),
+        IconButton(
+          key: const ValueKey('me-profile-edit-button'),
+          tooltip: AppLocaleText.tr(
+            context,
+            en: 'Edit profile',
+            zhHans: '编辑个人资料',
+            zhHant: '編輯個人資料',
+            ja: 'プロフィールを編集',
+          ),
+          onPressed: onEdit,
+          icon: const Icon(Icons.edit_rounded, size: 19),
+          color: AuroraColors.purple,
+          style: IconButton.styleFrom(
+            backgroundColor: Colors.white.withValues(alpha: 0.74),
+            minimumSize: const Size(44, 44),
           ),
         ),
       ],
@@ -660,192 +696,6 @@ class _MeProfileIntro extends StatelessWidget {
   }
 }
 
-class _LifeDirectionCard extends StatelessWidget {
-  final MeViewModel vm;
-  final VoidCallback? onEdit;
-
-  const _LifeDirectionCard({required this.vm, required this.onEdit});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: const ValueKey('me-life-direction-card'),
-      constraints: const BoxConstraints(minHeight: 158),
-      decoration: _meCardDecoration(),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Align(
-              alignment: Alignment.bottomRight,
-              child: Opacity(
-                opacity: 0.82,
-                child: Image.asset(
-                  'assets/me/me-direction-landscape.png',
-                  width: 190,
-                  height: 96,
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ),
-          ),
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  colors: [
-                    Colors.white.withValues(alpha: 0.98),
-                    Colors.white.withValues(alpha: 0.84),
-                    Colors.white.withValues(alpha: 0.24),
-                  ],
-                  stops: const [0, 0.58, 1],
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        AppLocaleText.tr(
-                          context,
-                          en: 'My life direction',
-                          zhHans: '我的人生方向',
-                          zhHant: '我的人生方向',
-                          ja: '私の人生の方向',
-                        ),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: const Color(0xFF071D5E),
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.82),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: AuroraColors.purple.withValues(alpha: 0.18),
-                        ),
-                      ),
-                      child: Text(
-                        vm.lifeDirection == null
-                            ? AppLocaleText.tr(
-                                context,
-                                en: 'Not set',
-                                zhHans: '未设置',
-                                zhHant: '未設定',
-                                ja: '未設定',
-                              )
-                            : AppLocaleText.tr(
-                                context,
-                                en: 'Active',
-                                zhHans: '进行中',
-                                zhHant: '進行中',
-                                ja: '進行中',
-                              ),
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              color: AuroraColors.purple,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  vm.lifeDirection ??
-                      AppLocaleText.tr(
-                        context,
-                        en: 'No life direction has been set yet.',
-                        zhHans: '还没有设置人生方向。',
-                        zhHant: '還沒有設定人生方向。',
-                        ja: '人生の方向はまだ設定されていません。',
-                      ),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: const Color(0xFF071D5E),
-                        fontSize: AuroraMainPageSpec.bodySize,
-                        height: 1.35,
-                        fontWeight: FontWeight.w700,
-                      ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Icon(
-                      vm.lifeDirectionCreatedAt == null
-                          ? Icons.edit_outlined
-                          : Icons.calendar_month_outlined,
-                      color: const Color(0xFF7F8CB7),
-                      size: 17,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        vm.lifeDirectionCreatedAt == null
-                            ? AppLocaleText.tr(
-                                context,
-                                en: 'Tap to add your own words',
-                                zhHans: '用自己的话写下来',
-                                zhHant: '用自己的話寫下來',
-                                ja: '自分の言葉で追加',
-                              )
-                            : MaterialLocalizations.of(context).formatFullDate(
-                                vm.lifeDirectionCreatedAt!.toLocal(),
-                              ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: const Color(0xFF7F8CB7),
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: AppLocaleText.tr(
-                        context,
-                        en: 'Edit',
-                        zhHans: '编辑',
-                        zhHant: '編輯',
-                        ja: '編集',
-                      ),
-                      onPressed: onEdit,
-                      icon: const Icon(Icons.edit_rounded, size: 19),
-                      color: AuroraColors.purple,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 32,
-                        height: 32,
-                      ),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _FocusDomainsCard extends StatelessWidget {
   final List<String> selectedIds;
   final VoidCallback? onTap;
@@ -862,6 +712,7 @@ class _FocusDomainsCard extends StatelessWidget {
     final hiddenCount = normalized.length - visibleIds.length;
 
     return Container(
+      key: const ValueKey('me-focus-domains-card'),
       decoration: _meCardDecoration(),
       padding: AuroraMainPageSpec.comfortableCardPadding,
       child: Column(
@@ -1063,16 +914,12 @@ class _FocusDomainMoreChip extends StatelessWidget {
 }
 
 class _MeDataSection extends StatelessWidget {
-  final VoidCallback onOpenAdvancedSignals;
   final VoidCallback onOpenPrivacy;
-  final VoidCallback onOpenSupport;
   final VoidCallback? onDeleteData;
   final bool hasCloudAccount;
 
   const _MeDataSection({
-    required this.onOpenAdvancedSignals,
     required this.onOpenPrivacy,
-    required this.onOpenSupport,
     required this.onDeleteData,
     required this.hasCloudAccount,
   });
@@ -1080,6 +927,7 @@ class _MeDataSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _MeListCard(
+      cardKey: const ValueKey('me-data-privacy-card'),
       title: AppLocaleText.tr(
         context,
         en: 'Data and privacy',
@@ -1087,26 +935,22 @@ class _MeDataSection extends StatelessWidget {
         zhHant: '資料與隱私',
         ja: 'データとプライバシー',
       ),
+      subtitle: hasCloudAccount
+          ? AppLocaleText.tr(
+              context,
+              en: 'Your account and this device have separate data controls.',
+              zhHans: '账户数据与本机数据分别管理。',
+              zhHant: '帳戶資料與此裝置資料分開管理。',
+              ja: 'アカウントと端末のデータは別々に管理されます。',
+            )
+          : AppLocaleText.tr(
+              context,
+              en: 'Your content and preferences are currently device-first.',
+              zhHans: '目前内容与偏好以本机保存为主。',
+              zhHant: '目前內容與偏好以此裝置儲存為主。',
+              ja: '現在、内容と設定はこの端末を優先して保存されます。',
+            ),
       rows: [
-        _MeListRowData(
-          icon: Icons.monitor_heart_outlined,
-          iconColor: const Color(0xFF59BFA5),
-          title: AppLocaleText.tr(
-            context,
-            en: 'Advanced signals',
-            zhHans: '高级信号',
-            zhHant: '進階信號',
-            ja: '高度なシグナル',
-          ),
-          subtitle: AppLocaleText.tr(
-            context,
-            en: 'Manage abstract energy and recovery hints',
-            zhHans: '管理能量与恢复的抽象提示',
-            zhHant: '管理能量與恢復的抽象提示',
-            ja: 'エネルギーと回復の抽象ヒントを管理',
-          ),
-          onTap: onOpenAdvancedSignals,
-        ),
         _MeListRowData(
           icon: Icons.privacy_tip_outlined,
           iconColor: AuroraColors.purple,
@@ -1125,25 +969,6 @@ class _MeDataSection extends StatelessWidget {
             ja: 'Signal Path のデータ取り扱いを確認',
           ),
           onTap: onOpenPrivacy,
-        ),
-        _MeListRowData(
-          icon: Icons.support_agent_rounded,
-          iconColor: const Color(0xFF5E8DF5),
-          title: AppLocaleText.tr(
-            context,
-            en: 'Help and support',
-            zhHans: '帮助与支持',
-            zhHant: '幫助與支援',
-            ja: 'ヘルプとサポート',
-          ),
-          subtitle: AppLocaleText.tr(
-            context,
-            en: 'Restore-purchase help and contact information',
-            zhHans: '恢复购买帮助与联系方式',
-            zhHant: '恢復購買協助與聯絡方式',
-            ja: '購入復元のヘルプと連絡先',
-          ),
-          onTap: onOpenSupport,
         ),
         _MeListRowData(
           icon: Icons.delete_forever_outlined,
@@ -1177,89 +1002,132 @@ class _MeDataSection extends StatelessWidget {
   }
 }
 
-class _MePreferenceSection extends StatelessWidget {
-  final String? selectedResponseStyle;
-  final VoidCallback onOpenSelfReview;
-  final VoidCallback? onOpenResponseStyle;
+class _MeSignalsSection extends StatelessWidget {
+  final VoidCallback onOpenReminders;
+  final VoidCallback onOpenAdvancedSignals;
 
-  const _MePreferenceSection({
-    required this.selectedResponseStyle,
-    required this.onOpenSelfReview,
-    required this.onOpenResponseStyle,
+  const _MeSignalsSection({
+    required this.onOpenReminders,
+    required this.onOpenAdvancedSignals,
   });
 
   @override
   Widget build(BuildContext context) {
     return _MeListCard(
+      cardKey: const ValueKey('me-reminders-data-card'),
       title: AppLocaleText.tr(
         context,
-        en: 'Reflection and AI',
-        zhHans: '复盘与 AI',
-        zhHant: '復盤與 AI',
-        ja: '振り返りと AI',
+        en: 'Reminders and supporting data',
+        zhHans: '提醒与辅助数据',
+        zhHant: '提醒與輔助資料',
+        ja: 'リマインダーと補助データ',
       ),
       rows: [
         _MeListRowData(
-          icon: Icons.auto_stories_outlined,
+          icon: Icons.notifications_active_outlined,
           iconColor: const Color(0xFF5E8DF5),
           title: AppLocaleText.tr(
             context,
-            en: 'Structured self-review',
-            zhHans: '结构化自我复盘',
-            zhHant: '結構化自我復盤',
-            ja: '構造化セルフレビュー',
+            en: 'Signal reminders',
+            zhHans: 'Signal 记录提醒',
+            zhHant: 'Signal 記錄提醒',
+            ja: 'Signal 記録リマインダー',
           ),
           subtitle: AppLocaleText.tr(
             context,
-            en: 'Turn signals into an evidence-based reflection',
-            zhHans: '把信号整理成有证据的回看',
-            zhHant: '把信號整理成有證據的回看',
-            ja: 'シグナルを根拠のある振り返りに整理',
+            en: 'Manage reminder suggestions you have accepted',
+            zhHans: '管理你已经采纳的记录提醒',
+            zhHant: '管理你已經採納的記錄提醒',
+            ja: '承認した記録リマインダーを管理',
           ),
-          onTap: onOpenSelfReview,
+          onTap: onOpenReminders,
         ),
         _MeListRowData(
-          icon: Icons.auto_awesome_rounded,
-          iconColor: AuroraColors.purple,
+          icon: Icons.monitor_heart_outlined,
+          iconColor: const Color(0xFF59BFA5),
           title: AppLocaleText.tr(
             context,
-            en: 'AI response style',
-            zhHans: 'AI 回应风格',
-            zhHant: 'AI 回應風格',
-            ja: 'AI の返答スタイル',
+            en: 'Advanced signals',
+            zhHans: '高级信号',
+            zhHant: '進階信號',
+            ja: '高度なシグナル',
           ),
-          subtitle: _responseStyleLabel(context, selectedResponseStyle),
-          onTap: onOpenResponseStyle,
+          subtitle: AppLocaleText.tr(
+            context,
+            en: 'Manage abstract energy and recovery hints',
+            zhHans: '管理能量与恢复的抽象提示',
+            zhHant: '管理能量與恢復的抽象提示',
+            ja: 'エネルギーと回復の抽象ヒントを管理',
+          ),
+          onTap: onOpenAdvancedSignals,
         ),
       ],
     );
   }
 }
 
-String _responseStyleLabel(BuildContext context, String? value) {
-  return switch (value) {
-    'clear' => AppLocaleText.tr(
+class _MeHelpSection extends StatelessWidget {
+  final VoidCallback onOpenSupport;
+  final VoidCallback onOpenTerms;
+
+  const _MeHelpSection({
+    required this.onOpenSupport,
+    required this.onOpenTerms,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _MeListCard(
+      cardKey: const ValueKey('me-help-about-card'),
+      title: AppLocaleText.tr(
         context,
-        en: 'Clear · structured and to the point',
-        zhHans: '清晰 · 更有结构，更快到重点',
-        zhHant: '清晰 · 更有結構，更快到重點',
-        ja: 'クリア · 整理されていて要点が早い',
+        en: 'Help and about',
+        zhHans: '帮助与关于',
+        zhHant: '幫助與關於',
+        ja: 'ヘルプとこのアプリについて',
       ),
-    'direct' => AppLocaleText.tr(
-        context,
-        en: 'Direct · shorter and sharper',
-        zhHans: '直接 · 更短，更直接',
-        zhHant: '直接 · 更短，更直接',
-        ja: '率直 · 短く率直',
-      ),
-    _ => AppLocaleText.tr(
-        context,
-        en: 'Gentle · softer and companion-like',
-        zhHans: '温和 · 更柔和、更像陪伴',
-        zhHant: '溫和 · 更柔和、更像陪伴',
-        ja: 'やわらかめ · やさしく寄り添う',
-      ),
-  };
+      rows: [
+        _MeListRowData(
+          icon: Icons.support_agent_rounded,
+          iconColor: const Color(0xFF5E8DF5),
+          title: AppLocaleText.tr(
+            context,
+            en: 'Help and support',
+            zhHans: '帮助与支持',
+            zhHant: '幫助與支援',
+            ja: 'ヘルプとサポート',
+          ),
+          subtitle: AppLocaleText.tr(
+            context,
+            en: 'Purchase help, troubleshooting and contact information',
+            zhHans: '购买帮助、问题排查与联系方式',
+            zhHant: '購買協助、問題排查與聯絡方式',
+            ja: '購入、トラブル対応、連絡先',
+          ),
+          onTap: onOpenSupport,
+        ),
+        _MeListRowData(
+          icon: Icons.description_outlined,
+          iconColor: const Color(0xFF8A76E8),
+          title: AppLocaleText.tr(
+            context,
+            en: 'Terms of use',
+            zhHans: '使用条款',
+            zhHant: '使用條款',
+            ja: '利用規約',
+          ),
+          subtitle: AppLocaleText.tr(
+            context,
+            en: 'Review the standard Apple terms',
+            zhHans: '查看 Apple 标准使用条款',
+            zhHant: '查看 Apple 標準使用條款',
+            ja: 'Apple 標準利用規約を確認',
+          ),
+          onTap: onOpenTerms,
+        ),
+      ],
+    );
+  }
 }
 
 class _MeDebugSection extends StatelessWidget {
@@ -1283,17 +1151,22 @@ class _MeDebugSection extends StatelessWidget {
 }
 
 class _MeListCard extends StatelessWidget {
+  final Key? cardKey;
   final String title;
+  final String? subtitle;
   final List<_MeListRowData> rows;
 
   const _MeListCard({
+    this.cardKey,
     required this.title,
+    this.subtitle,
     required this.rows,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      key: cardKey,
       decoration: _meCardDecoration(),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
@@ -1308,6 +1181,18 @@ class _MeListCard extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
             ),
+            if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                subtitle!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF7F8CB7),
+                      fontSize: AuroraMainPageSpec.supportingSize,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+              ),
+            ],
             const SizedBox(height: 4),
             for (var index = 0; index < rows.length; index++) ...[
               _MeListRow(data: rows[index]),
@@ -1398,13 +1283,15 @@ class _MeListRow extends StatelessWidget {
   }
 }
 
-class _PremiumStatusCard extends StatelessWidget {
+class _ProUsageCard extends StatelessWidget {
   final PurchaseController? purchase;
   final MeViewModel vm;
+  final VoidCallback onManageSubscription;
 
-  const _PremiumStatusCard({
+  const _ProUsageCard({
     required this.purchase,
     required this.vm,
+    required this.onManageSubscription,
   });
 
   @override
@@ -1413,12 +1300,19 @@ class _PremiumStatusCard extends StatelessWidget {
     final loading = purchase?.loading ?? false;
     final verificationPending =
         purchase?.entitlementReconciliationPending ?? false;
-    final reflectQuota = vm.usageQuotas['l3_reflect_weekly'];
+    final usageNeedsAttention = vm.usageLoading ||
+        vm.usageLoadFailed ||
+        !vm.usageMatchesLocalEntitlement(isPremium);
+    final visibleQuotas = vm.usageQuotas.values
+        .where((quota) => quota.featureKey.trim().isNotEmpty)
+        .take(4)
+        .toList(growable: false);
 
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: () => showPremiumPaywall(context, source: 'Pro'),
       child: Container(
+        key: const ValueKey('me-pro-usage-card'),
         decoration: _meCardDecoration(accent: const Color(0xFF9B78F8)),
         padding: AuroraMainPageSpec.comfortableCardPadding,
         child: Column(
@@ -1490,10 +1384,10 @@ class _PremiumStatusCard extends StatelessWidget {
                                       )
                                 : AppLocaleText.tr(
                                     context,
-                                    en: 'Unlock deeper weekly, journey and self-review insights',
-                                    zhHans: '解锁每周、旅程与自我复盘的深度洞察',
-                                    zhHant: '解鎖每週、旅程與自我復盤的深度洞察',
-                                    ja: '週・旅程・セルフレビューの深い洞察を解放',
+                                    en: 'Unlock deeper weekly and journey analysis',
+                                    zhHans: '解锁每周复盘与旅程的深度分析',
+                                    zhHant: '解鎖每週復盤與旅程的深度分析',
+                                    ja: '毎週復盤と旅程の深度分析を利用',
                                   ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -1536,8 +1430,40 @@ class _PremiumStatusCard extends StatelessWidget {
                 ],
               ],
             ),
-            if (!loading && !isPremium && reflectQuota != null)
-              _ReflectQuotaSummary(quota: reflectQuota),
+            if (usageNeedsAttention || visibleQuotas.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Divider(
+                height: 1,
+                color: const Color(0xFFE2E5F3).withValues(alpha: 0.72),
+              ),
+              const SizedBox(height: 12),
+              if (usageNeedsAttention)
+                _UsageSyncInline(vm: vm, localPremium: isPremium)
+              else
+                _MonthlyUsageInline(quotas: visibleQuotas),
+            ],
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                key: const ValueKey('me-manage-subscription-button'),
+                onPressed: onManageSubscription,
+                icon: const Icon(Icons.open_in_new_rounded, size: 17),
+                label: Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Manage subscription',
+                    zhHans: '管理订阅',
+                    zhHant: '管理訂閱',
+                    ja: 'サブスクリプションを管理',
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: AuroraColors.purple,
+                  minimumSize: const Size(44, 44),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1545,167 +1471,102 @@ class _PremiumStatusCard extends StatelessWidget {
   }
 }
 
-class _ReflectQuotaSummary extends StatelessWidget {
-  final UsageQuotaViewData quota;
-
-  const _ReflectQuotaSummary({required this.quota});
-
-  @override
-  Widget build(BuildContext context) {
-    final limit = quota.limit;
-    final progress = limit == null || limit <= 0
-        ? null
-        : (quota.used / limit).clamp(0.0, 1.0);
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        children: [
-          if (progress != null) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                minHeight: 8,
-                value: progress,
-                backgroundColor: Colors.white.withValues(alpha: 0.68),
-                valueColor: const AlwaysStoppedAnimation(AuroraColors.purple),
-              ),
-            ),
-            const SizedBox(height: 7),
-          ],
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'L3 Reflect quota',
-                    zhHans: '深度分析额度',
-                    zhHant: 'L3 深度反思額度',
-                    ja: 'L3 Reflect 枠',
-                  ),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF7F8CB7),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-              Text(
-                quota.displayValue,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: AuroraColors.purple,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _UsageSyncCard extends StatelessWidget {
+class _UsageSyncInline extends StatelessWidget {
   final MeViewModel vm;
   final bool localPremium;
 
-  const _UsageSyncCard({required this.vm, required this.localPremium});
+  const _UsageSyncInline({required this.vm, required this.localPremium});
 
   @override
   Widget build(BuildContext context) {
     final mismatch = !vm.usageMatchesLocalEntitlement(localPremium);
-    return Container(
+    return Row(
       key: const ValueKey('me-usage-sync-state'),
-      decoration: _meCardDecoration(accent: const Color(0xFF76A9F8)),
-      padding: AuroraMainPageSpec.comfortableCardPadding,
-      child: Row(
-        children: [
-          if (vm.usageLoading)
-            const SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(strokeWidth: 2.4),
-            )
-          else
-            const _MeRoundedIcon(
-              icon: Icons.sync_rounded,
-              color: Color(0xFF5E8DF5),
-            ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  vm.usageLoading
-                      ? AppLocaleText.tr(
-                          context,
-                          en: 'Checking usage',
-                          zhHans: '正在核对用量',
-                          zhHant: '正在核對用量',
-                          ja: '利用状況を確認中',
-                        )
-                      : mismatch
-                          ? AppLocaleText.tr(
-                              context,
-                              en: 'Pro access is unlocked; usage is reconciling',
-                              zhHans: 'Pro 已解锁，用量正在对账',
-                              zhHant: 'Pro 已解鎖，用量正在對帳',
-                              ja: 'Pro は解除済み、利用状況を照合中',
-                            )
-                          : AppLocaleText.tr(
-                              context,
-                              en: 'Usage is temporarily unavailable',
-                              zhHans: '用量暂时无法更新',
-                              zhHant: '用量暫時無法更新',
-                              ja: '利用状況を一時的に更新できません',
-                            ),
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: const Color(0xFF071D5E),
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Last known values are kept; no zero value is inferred from a network error.',
-                    zhHans: '会保留上次已知值，不会把网络错误误显示为 0。',
-                    zhHant: '會保留上次已知值，不會把網路錯誤誤顯示為 0。',
-                    ja: '前回の値を保持し、通信エラーを 0 として表示しません。',
-                  ),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF7F8CB7),
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-              ],
-            ),
+      children: [
+        if (vm.usageLoading)
+          const SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 2.4),
+          )
+        else
+          const _MeRoundedIcon(
+            icon: Icons.sync_rounded,
+            color: Color(0xFF5E8DF5),
           ),
-          if (!vm.usageLoading)
-            IconButton(
-              tooltip: AppLocaleText.tr(
-                context,
-                en: 'Retry',
-                zhHans: '重试',
-                zhHant: '重試',
-                ja: '再試行',
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                vm.usageLoading
+                    ? AppLocaleText.tr(
+                        context,
+                        en: 'Checking usage',
+                        zhHans: '正在核对用量',
+                        zhHant: '正在核對用量',
+                        ja: '利用状況を確認中',
+                      )
+                    : mismatch
+                        ? AppLocaleText.tr(
+                            context,
+                            en: 'Pro access is unlocked; usage is reconciling',
+                            zhHans: 'Pro 已解锁，用量正在对账',
+                            zhHant: 'Pro 已解鎖，用量正在對帳',
+                            ja: 'Pro は解除済み、利用状況を照合中',
+                          )
+                        : AppLocaleText.tr(
+                            context,
+                            en: 'Usage is temporarily unavailable',
+                            zhHans: '用量暂时无法更新',
+                            zhHant: '用量暫時無法更新',
+                            ja: '利用状況を一時的に更新できません',
+                          ),
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: const Color(0xFF071D5E),
+                      fontWeight: FontWeight.w700,
+                    ),
               ),
-              onPressed: vm.reloadUsage,
-              icon: const Icon(Icons.refresh_rounded),
-              color: AuroraColors.purple,
+              const SizedBox(height: 3),
+              Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'Last known values are kept; no zero value is inferred from a network error.',
+                  zhHans: '会保留上次已知值，不会把网络错误误显示为 0。',
+                  zhHant: '會保留上次已知值，不會把網路錯誤誤顯示為 0。',
+                  ja: '前回の値を保持し、通信エラーを 0 として表示しません。',
+                ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF7F8CB7),
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        if (!vm.usageLoading)
+          IconButton(
+            tooltip: AppLocaleText.tr(
+              context,
+              en: 'Retry',
+              zhHans: '重试',
+              zhHant: '重試',
+              ja: '再試行',
             ),
-        ],
-      ),
+            onPressed: vm.reloadUsage,
+            icon: const Icon(Icons.refresh_rounded),
+            color: AuroraColors.purple,
+          ),
+      ],
     );
   }
 }
 
-class _MonthlyUsageCard extends StatelessWidget {
+class _MonthlyUsageInline extends StatelessWidget {
   final List<UsageQuotaViewData> quotas;
 
-  const _MonthlyUsageCard({required this.quotas});
+  const _MonthlyUsageInline({required this.quotas});
 
   @override
   Widget build(BuildContext context) {
@@ -1715,37 +1576,33 @@ class _MonthlyUsageCard extends StatelessWidget {
         .toList(growable: false);
     if (visibleQuotas.isEmpty) return const SizedBox.shrink();
 
-    return Container(
-      decoration: _meCardDecoration(),
-      padding: AuroraMainPageSpec.comfortableCardPadding,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'This month',
-              zhHans: '本月使用',
-              zhHant: '本月使用',
-              ja: '今月の利用',
-            ),
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: const Color(0xFF071D5E),
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          AppLocaleText.tr(
+            context,
+            en: 'This month',
+            zhHans: '本月使用',
+            zhHant: '本月使用',
+            ja: '今月の利用',
           ),
-          const SizedBox(height: 10),
-          for (var index = 0; index < visibleQuotas.length; index++) ...[
-            _MonthlyUsageRow(quota: visibleQuotas[index]),
-            if (index < visibleQuotas.length - 1)
-              Divider(
-                height: 18,
-                color: const Color(0xFFE2E5F3).withValues(alpha: 0.72),
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: const Color(0xFF071D5E),
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
               ),
-          ],
+        ),
+        const SizedBox(height: 10),
+        for (var index = 0; index < visibleQuotas.length; index++) ...[
+          _MonthlyUsageRow(quota: visibleQuotas[index]),
+          if (index < visibleQuotas.length - 1)
+            Divider(
+              height: 18,
+              color: const Color(0xFFE2E5F3).withValues(alpha: 0.72),
+            ),
         ],
-      ),
+      ],
     );
   }
 }
@@ -1828,18 +1685,25 @@ String _usageFeatureLabel(BuildContext context, String featureKey) {
         zhHant: '判斷 AI',
         ja: '判断 AI',
       ),
+    'l3_reflect' => AppLocaleText.tr(
+        context,
+        en: 'Deep analysis',
+        zhHans: '深度分析',
+        zhHant: '深度分析',
+        ja: '深度分析',
+      ),
     'l3_reflect_weekly' => AppLocaleText.tr(
         context,
         en: 'Weekly Reflect',
         zhHans: '每周复盘深度分析',
-        zhHant: 'Weekly 深度反思',
+        zhHant: '每週復盤深度分析',
         ja: 'Weekly Reflect',
       ),
     'l3_reflect_journey' => AppLocaleText.tr(
         context,
         en: 'Journey Reflect',
         zhHans: '旅程深度分析',
-        zhHant: 'Journey 深度反思',
+        zhHant: '旅程深度分析',
         ja: 'Journey Reflect',
       ),
     _ => featureKey.replaceAll('_', ' '),
@@ -2302,83 +2166,6 @@ class _FocusAreaSettingsPage extends StatelessWidget {
       ),
     );
   }
-}
-
-class _ResponseStylePickerSheet extends StatelessWidget {
-  final String? currentValue;
-
-  const _ResponseStylePickerSheet({
-    required this.currentValue,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final options = <_ResponseStyleOption>[
-      _ResponseStyleOption(
-        value: 'gentle',
-        title: AppLocaleText.tr(context,
-            en: 'Gentle', zhHans: '温和', zhHant: '溫和', ja: 'やわらかめ'),
-        subtitle: AppLocaleText.tr(context,
-            en: 'Softer and more companion-like',
-            zhHans: '更柔和、更像陪伴',
-            zhHant: '更柔和、更像陪伴',
-            ja: 'やわらかく寄り添う感じ'),
-      ),
-      _ResponseStyleOption(
-        value: 'clear',
-        title: AppLocaleText.tr(context,
-            en: 'Clear', zhHans: '清晰', zhHant: '清晰', ja: 'クリア'),
-        subtitle: AppLocaleText.tr(context,
-            en: 'More structured and to the point',
-            zhHans: '更有结构，更快到重点',
-            zhHant: '更有結構，更快到重點',
-            ja: '整理されていて要点が早い'),
-      ),
-      _ResponseStyleOption(
-        value: 'direct',
-        title: AppLocaleText.tr(context,
-            en: 'Direct', zhHans: '直接', zhHant: '直接', ja: '率直'),
-        subtitle: AppLocaleText.tr(context,
-            en: 'Shorter and sharper',
-            zhHans: '更短，更直接',
-            zhHant: '更短，更直接',
-            ja: '短く率直'),
-      ),
-    ];
-
-    return SafeArea(
-      child: ListView.separated(
-        shrinkWrap: true,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-        itemBuilder: (context, index) {
-          final option = options[index];
-          final selected = option.value == currentValue;
-          return ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            title: Text(option.title),
-            subtitle: Text(option.subtitle),
-            trailing: selected ? const Icon(Icons.check_circle) : null,
-            onTap: () => Navigator.of(context).pop(option.value),
-          );
-        },
-        separatorBuilder: (_, __) => const Divider(height: 1),
-        itemCount: options.length,
-      ),
-    );
-  }
-}
-
-class _ResponseStyleOption {
-  final String value;
-  final String title;
-  final String subtitle;
-
-  const _ResponseStyleOption({
-    required this.value,
-    required this.title,
-    required this.subtitle,
-  });
 }
 
 String _meErrorLabel(BuildContext context, String? code) {

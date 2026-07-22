@@ -8,8 +8,9 @@ import '../core/models/candidate_models.dart';
 import '../features/pages/candidates/candidate_hub_page.dart';
 import '../features/pages/me/me_page.dart';
 import '../features/pages/me/advanced_signal_settings_page.dart';
+import '../features/pages/me/data_privacy_page.dart';
+import '../features/pages/me/signal_reminder_settings_page.dart';
 import '../features/pages/experiment/experiment_page.dart';
-import '../features/pages/memory/journal_page.dart';
 import '../features/pages/memory/journey_pro_page.dart';
 import '../features/pages/memory/memory_page.dart';
 import '../features/pages/self_review/self_review_page.dart';
@@ -34,6 +35,8 @@ class AppRoutes {
   static const me = '/me';
   static const selfReview = '/self-review';
   static const advancedSignals = '/me/advanced-signals';
+  static const dataPrivacy = '/me/data-privacy';
+  static const signalReminders = '/me/signal-reminders';
   static const signalLibrary = '/signal-library';
   static const todayDiary = '/today/diary';
   static const todayDialog = '/today/dialog';
@@ -48,6 +51,7 @@ class AppRoutes {
 GoRouter createAppRouter(AppBootstrapState bootstrap) {
   const qaInitialRoute = String.fromEnvironment('SIGNALPATH_INITIAL_ROUTE');
   final qaResolvedInitialRoute = resolvedInitialRoute(qaInitialRoute);
+  var consumedSignalReminderTodayRedirect = false;
   final initialLocation = bootstrap.onboardingCompleted
       ? qaResolvedInitialRoute
       : AppRoutes.onboarding;
@@ -117,6 +121,7 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
         path: '${AppRoutes.todayDialog}/:captureId',
         builder: (_, state) => PremiumGatePage(
           source: '今天记录',
+          fallbackRoute: AppRoutes.today,
           child: TodayDialogPage(
             captureId: state.pathParameters['captureId']!,
           ),
@@ -126,6 +131,7 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
         path: AppRoutes.weeklyReflect,
         builder: (_, __) => const PremiumGatePage(
           source: '每周复盘深度分析',
+          fallbackRoute: AppRoutes.weekly,
           child: WeeklyReflectPage(),
         ),
       ),
@@ -135,31 +141,46 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       ),
       GoRoute(
         path: AppRoutes.journal,
-        builder: (_, __) => const JournalPage(),
+        redirect: (_, state) {
+          final date = state.uri.queryParameters['date'];
+          return canonicalDiaryLocation(date: date);
+        },
       ),
       GoRoute(
         path: AppRoutes.journeyFragments,
-        builder: (_, state) => JourneyFragmentsPage(
-          monthKey: state.uri.queryParameters['month'],
+        redirect: (_, state) => canonicalDiaryLocationForMonth(
+          month: state.uri.queryParameters['month'],
         ),
       ),
       GoRoute(
         path: AppRoutes.journeyPro,
-        builder: (_, __) => const PremiumGatePage(
-          source: '旅程 Pro 深度分析',
-          child: JourneyProPage(),
+        builder: (_, state) => PremiumGatePage(
+          source: '旅程 Pro 三个月变化',
+          fallbackRoute: AppRoutes.memory,
+          child: JourneyProPage(
+            initialMonthKey: state.uri.queryParameters['month'],
+          ),
         ),
       ),
       GoRoute(
         path: AppRoutes.selfReview,
         builder: (_, __) => const PremiumGatePage(
           source: 'Structured self-review',
+          fallbackRoute: AppRoutes.me,
           child: SelfReviewPage(),
         ),
       ),
       GoRoute(
         path: AppRoutes.advancedSignals,
         builder: (_, __) => const AdvancedSignalSettingsPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.dataPrivacy,
+        builder: (_, __) => const DataPrivacyPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.signalReminders,
+        builder: (_, __) => const SignalReminderSettingsPage(),
       ),
       GoRoute(
         path: AppRoutes.debugTrace,
@@ -179,6 +200,17 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
 
       if (completed && goingToOnboarding) {
         return hasQaInitialRoute ? qaResolvedInitialRoute : AppRoutes.today;
+      }
+
+      // A notification tap is a one-shot routing instruction only. It opens
+      // Today, never writes a Signal, and must win over a remembered tab.
+      if (completed &&
+          bootstrap.signalReminderTodayPending &&
+          !consumedSignalReminderTodayRedirect) {
+        consumedSignalReminderTodayRedirect = true;
+        if (state.matchedLocation != AppRoutes.today) {
+          return AppRoutes.today;
+        }
       }
 
       if (completed &&
@@ -220,10 +252,30 @@ String resolvedInitialRoute(String route) {
     case AppRoutes.todayActionCandidates:
     case AppRoutes.weeklyExperimentCandidates:
     case AppRoutes.journeyPro:
+    case AppRoutes.dataPrivacy:
+    case AppRoutes.signalReminders:
       return route;
     case AppRoutes.deepWeekly:
       return AppRoutes.weeklyReflect;
     default:
       return AppRoutes.today;
   }
+}
+
+String canonicalDiaryLocation({String? date}) {
+  final normalized = date?.trim();
+  if (normalized == null || normalized.isEmpty) return AppRoutes.todayDiary;
+  return Uri(
+    path: AppRoutes.todayDiary,
+    queryParameters: {'date': normalized},
+  ).toString();
+}
+
+String canonicalDiaryLocationForMonth({String? month}) {
+  final normalized = month?.trim();
+  if (normalized == null ||
+      !RegExp(r'^\d{4}-(0[1-9]|1[0-2])$').hasMatch(normalized)) {
+    return canonicalDiaryLocation();
+  }
+  return canonicalDiaryLocation(date: '$normalized-01');
 }

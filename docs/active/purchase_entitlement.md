@@ -1,6 +1,6 @@
 # Pro Purchase And Entitlement
 
-Last updated: 2026-07-14
+Last updated: 2026-07-22
 
 Status: **final target contract; manual restore and silent current-entitlement refresh baselines implemented; native transaction lifecycle/server modernization Target; Restore Purchase Platform QA open**.
 
@@ -8,19 +8,24 @@ Purchase and entitlement form an independent control plane. They may control Pro
 
 ## 1. Product Boundary
 
-Free users retain direct recording, the SignalCard timeline, editable AI/Library timeline decisions, adopted action/experiment feedback, and the Free Weekly/Journey fact layer. Pro may unlock This Week Deep Read, Journey L3 evidence and period comparison, follow-up grounded in a selected real SignalCard, structured self-review, L1 Attune short dialogue, and expanded AI quota.
+Free users retain direct recording, the immutable SignalCard timeline,
+pre-save editable AI/Library confirmation decisions, adopted quick-try/goal
+feedback under Life Experiment, and the Free Weekly/Journey fact layer. Pro may
+unlock This Week Deep Read, Journey three-month change analysis, structured
+self-review, L1 Attune short dialogue, and expanded AI quota. Pro never unlocks editing of a
+saved fact or historical progress record.
 
 That is the final current Pro product range. Pro does not sell access to the
 user's own SignalCards, the Free Weekly/Journey fact layer, raw Health data,
 Calendar data, or a response-style switch. The local StoreKit product copy must
-use this same boundary and must not advertise the future independent 28-day
-interpretive generator as already available.
+use this same boundary and must not advertise source-Signal follow-up or any
+removed Journey feature.
 
 Entitlement and report readiness are separate:
 
 - Weekly and This Week Deep Read: 3 eligible current-week SignalCards.
 - Free Journey monthly synthesis: 7 eligible SignalCards across 3 local dates.
-- Journey Pro L3: 14 eligible SignalCards across 7 local dates and 2 local Monday-Sunday weeks in the latest 28 local dates.
+- Journey Pro three-month change: the selected natural month and two preceding months are visible as facts; cross-month interpretation starts when at least two months individually meet the Free Journey `7 eligible SignalCards / 3 local dates` threshold.
 
 A subscription never lowers an evidence threshold.
 

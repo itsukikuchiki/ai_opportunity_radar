@@ -1,10 +1,8 @@
 import 'dart:io';
 
 import 'package:ai_opportunity_radar/core/di/app_dependencies.dart';
-import 'package:ai_opportunity_radar/core/eligibility/signal_eligibility_service.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/qa/qa_showcase_seeder.dart';
-import 'package:ai_opportunity_radar/core/readiness/report_readiness.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -115,20 +113,20 @@ void main() {
       2,
     );
 
-    final signals =
-        await dependencies.localCaptureRepository.listSignalCardsBetween(
-      startDate: '2026-06-18',
-      endDate: '2026-07-15',
+    final proReport =
+        await dependencies.journeyProRepository.fetchThreeMonthChange(
+      selectedMonthKey: '2026-07',
     );
-    final eligible = const SignalEligibilityService().filter(
-      signals,
-      SignalEligibilityStage.journey,
+    expect(
+      proReport.months.map((month) => month.monthKey),
+      ['2026-05', '2026-06', '2026-07'],
     );
-    final readiness = const ReportReadinessEvaluator().evaluate(
-      eligible,
-      ReportReadinessEvaluator.journeyProRule,
-    );
-    expect(readiness.isReady, isTrue);
+    expect(proReport.totalSignalCount, greaterThanOrEqualTo(18));
+    final periodEnd = DateTime.parse(proReport.periodEnd);
+    expect(periodEnd.year, 2026);
+    expect(periodEnd.month, DateTime.july);
+    expect(periodEnd.day, inInclusiveRange(15, 31));
+    expect(proReport.sourceHash, isNotEmpty);
     expect(prefs.getBool('onboarding_completed'), isTrue);
     expect(prefs.getString('local_app_started_date'), isNotNull);
     expect(prefs.getBool('premium_entitlement_active'), isNull);

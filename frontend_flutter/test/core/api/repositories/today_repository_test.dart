@@ -8,12 +8,14 @@ import 'package:ai_opportunity_radar/core/api/api_client.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/ai_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/today_repository.dart';
 import 'package:ai_opportunity_radar/core/i18n/app_locale_text.dart';
+import 'package:ai_opportunity_radar/core/local/local_candidate_planning_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_daily_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_experiment_candidate_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dart';
+import 'package:ai_opportunity_radar/core/models/experiment_evaluation_models.dart';
 import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 import 'package:ai_opportunity_radar/core/models/today_models.dart';
 
@@ -163,23 +165,25 @@ void main() {
       await harness.close();
     });
 
-    test('6) 本地 time_use 直接保存为结构化 SignalCard', () async {
+    test('6) 本地 time_use v2 保存统一关注领域与可选精力', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeAiRepository(),
       );
 
       await harness.repository.submitCapture(
-        content: '09:00–10:30 · 工作 · 团队会议',
+        content: '09:00–10:30 · 自我边界 · 团队会议',
         sourceType: 'time_use',
         rawPayloadJson: const {
           'timeline_type': 'time_use',
+          'schema_version': 2,
           'title': '团队会议',
-          'category': 'work',
+          'record_status': 'completed',
+          'focus_domain_id': 'self_boundary',
           'start_at': '2026-07-15T09:00:00+09:00',
           'end_at': '2026-07-15T10:30:00+09:00',
           'duration_minutes': 90,
-          'energy_effect': 'draining',
+          'energy_level': 0,
         },
       );
 
@@ -188,10 +192,80 @@ void main() {
       final signal = signals.single;
       expect(signal.sourceType, 'time_use');
       expect(signal.isLegacy, isFalse);
-      expect(signal.rawPayloadJson['category'], 'work');
+      expect(signal.rawPayloadJson['focus_domain_id'], 'self_boundary');
+      expect(signal.rawPayloadJson['category'], 'self_boundary');
       expect(signal.rawPayloadJson['duration_minutes'], 90);
-      expect(signal.scene, 'work');
-      expect(signal.energyLoad, 'draining');
+      expect(signal.rawPayloadJson['energy_level'], 0);
+      expect(signal.rawPayloadJson, isNot(contains('energy_effect')));
+      expect(signal.scene, 'self_boundary');
+      expect(signal.energyLoad, isNull);
+
+      await harness.close();
+    });
+
+    test('7) planned time_use 省略精力，unknown 不落库', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+      );
+
+      await harness.repository.submitCapture(
+        content: '13:00–14:00 · 成长计划 · 阅读',
+        sourceType: 'time_use',
+        rawPayloadJson: const {
+          'timeline_type': 'time_use',
+          'schema_version': 2,
+          'title': '阅读',
+          'record_status': 'planned',
+          'category': 'growth_plan',
+          'start_at': '2026-07-15T13:00:00+09:00',
+          'end_at': '2026-07-15T14:00:00+09:00',
+          'duration_minutes': 60,
+          'energy_level': 2,
+          'energy_effect': 'unknown',
+        },
+      );
+
+      final signal = (await harness.localCaptureRepository.listSignalCards(
+        limit: 10,
+      ))
+          .single;
+      expect(signal.rawPayloadJson['focus_domain_id'], 'growth_plan');
+      expect(signal.rawPayloadJson['category'], 'growth_plan');
+      expect(signal.rawPayloadJson, isNot(contains('energy_level')));
+      expect(signal.rawPayloadJson, isNot(contains('energy_effect')));
+      expect(signal.energyLoad, isNull);
+
+      await harness.close();
+    });
+
+    test('8) time_use v1 的明确 energy_effect 保持兼容', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+      );
+
+      await harness.repository.submitCapture(
+        content: '散步后缓过来一些',
+        sourceType: 'time_use',
+        rawPayloadJson: const {
+          'timeline_type': 'time_use',
+          'schema_version': 1,
+          'title': '散步',
+          'record_status': 'completed',
+          'category': 'recovery',
+          'energy_effect': 'restoring',
+        },
+      );
+
+      final signal = (await harness.localCaptureRepository.listSignalCards(
+        limit: 10,
+      ))
+          .single;
+      expect(signal.rawPayloadJson['category'], 'recovery');
+      expect(signal.rawPayloadJson, isNot(contains('focus_domain_id')));
+      expect(signal.rawPayloadJson['energy_effect'], 'restoring');
+      expect(signal.energyLoad, 'restoring');
 
       await harness.close();
     });
@@ -661,6 +735,15 @@ void main() {
 
       final stateBeforeDismiss = await persistedState();
 
+      final alternate = await harness.repository.createAiJudgementForToday(
+        language: AppLanguage.simplifiedChinese,
+        variationIndex: 1,
+      );
+      expect(alternate, isNotNull);
+      expect(
+          alternate!.predictedSignalText, isNot(judgement.predictedSignalText));
+      expect(await persistedState(), stateBeforeDismiss);
+
       await harness.repository.respondToAiJudgement(
         judgementId: judgement.id,
         status: 'partial',
@@ -770,6 +853,56 @@ void main() {
       await harness.close();
     });
 
+    test('session replacement saves the exact AI prediction the user saw',
+        () async {
+      final today = _testDateKey(DateTime.now());
+      final api = FakeSignalCardApiClient(
+        recentSignals: [
+          {
+            'id': 'raw-replacement-prediction',
+            'signal_card_id': 'sig-replacement-prediction',
+            'source_type': 'text',
+            'content': '今天来回切换了好几次任务。',
+            'created_at': DateTime.now().toUtc().toIso8601String(),
+            'local_date': today,
+            'user_confirmation': 'unconfirmed',
+          },
+        ],
+      );
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+        apiClient: api,
+      );
+
+      final original = (await harness.repository.fetchToday())['aiJudgement']
+          as AiJudgementModel;
+      final replacement = await harness.repository.createAiJudgementForToday(
+        language: AppLanguage.simplifiedChinese,
+        variationIndex: 1,
+      );
+      expect(replacement, isNotNull);
+      expect(replacement!.predictedSignalText,
+          isNot(original.predictedSignalText));
+
+      await harness.repository.respondToAiJudgement(
+        judgementId: replacement.id,
+        status: 'accurate',
+        displayedJudgement: replacement,
+        addToTimeline: true,
+        language: AppLanguage.simplifiedChinese,
+      );
+
+      final signals = await harness.localCaptureRepository.listSignalCards();
+      final saved =
+          signals.singleWhere((signal) => signal.sourceType == 'ai_predicted');
+      expect(saved.content, replacement.predictedSignalText);
+      expect(saved.sceneTags, contains(replacement.suggestedPattern));
+      expect(saved.sceneTags, isNot(contains(original.suggestedPattern)));
+
+      await harness.close();
+    });
+
     test('pending 预判随来源刷新，不加入时间线时不冻结或写反馈', () async {
       final today = _testDateKey(DateTime.now());
       final api = FakeSignalCardApiClient(
@@ -806,7 +939,7 @@ void main() {
       });
       final refreshed = (await harness.repository.fetchToday())['aiJudgement']
           as AiJudgementModel;
-      expect(refreshed.id, first.id);
+      expect(refreshed.id, isNot(first.id));
       expect(refreshed.sourceSignalCardIds.toSet(),
           {'sig-refresh-1', 'sig-refresh-2'});
 
@@ -836,7 +969,82 @@ void main() {
         where: 'local_date = ?',
         whereArgs: [today],
       );
-      expect(judgements, hasLength(1));
+      expect(judgements, hasLength(3));
+      expect(
+        judgements.map((row) => row['status']).toSet(),
+        {'pending'},
+      );
+      final signals = await harness.localCaptureRepository.listSignalCards();
+      expect(
+        signals.where((signal) => signal.sourceType == 'ai_predicted'),
+        isEmpty,
+      );
+
+      await harness.close();
+    });
+
+    test('each newly sourced confirmed AI prediction keeps its own SignalCard',
+        () async {
+      final today = _testDateKey(DateTime.now());
+      final api = FakeSignalCardApiClient(
+        recentSignals: [
+          {
+            'id': 'raw-versioned-1',
+            'signal_card_id': 'sig-versioned-1',
+            'source_type': 'text',
+            'content': '上午连续切换任务。',
+            'created_at': DateTime.now().toUtc().toIso8601String(),
+            'local_date': today,
+            'user_confirmation': 'unconfirmed',
+          },
+        ],
+      );
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+        apiClient: api,
+      );
+
+      final first = (await harness.repository.fetchToday())['aiJudgement']
+          as AiJudgementModel;
+      await harness.repository.respondToAiJudgement(
+        judgementId: first.id,
+        status: 'accurate',
+        displayedJudgement: first,
+        addToTimeline: true,
+      );
+
+      api.recentSignals.insert(0, {
+        'id': 'raw-versioned-2',
+        'signal_card_id': 'sig-versioned-2',
+        'source_type': 'text',
+        'content': '下午又多了一次临时切换。',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+        'local_date': today,
+        'user_confirmation': 'unconfirmed',
+      });
+      final second = (await harness.repository.fetchToday())['aiJudgement']
+          as AiJudgementModel;
+      expect(second.id, isNot(first.id));
+      await harness.repository.respondToAiJudgement(
+        judgementId: second.id,
+        status: 'accurate',
+        displayedJudgement: second,
+        addToTimeline: true,
+      );
+
+      final signals = await harness.localCaptureRepository.listSignalCards();
+      final predictions = signals
+          .where((signal) => signal.sourceType == 'ai_predicted')
+          .toList();
+      expect(predictions, hasLength(2));
+      expect(
+        predictions.map((signal) => signal.signalCardId).toSet(),
+        {
+          'ai_prediction_${first.id}',
+          'ai_prediction_${second.id}',
+        },
+      );
 
       await harness.close();
     });
@@ -877,21 +1085,248 @@ void main() {
         'AI 主动预判的信号需要用户确认',
       ]);
 
-      await harness.repository.confirmSignalCard(
-        signalCardId: 'sig-predicted',
-        userConfirmation: 'supplemented',
-        userCorrectionJson: const {
-          'supplement_text': '这确实像我今天早上的会议切换。',
-        },
+      await expectLater(
+        harness.repository.confirmSignalCard(
+          signalCardId: 'sig-predicted',
+          userConfirmation: 'supplemented',
+          userCorrectionJson: const {
+            'supplement_text': '这确实像我今天早上的会议切换。',
+          },
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            'saved_signal_card_is_immutable',
+          ),
+        ),
       );
-      api.recentSignals.first['user_confirmation'] = 'supplemented';
-      api.recentSignals.first['user_correction_json'] = {
-        'supplement_text': '这确实像我今天早上的会议切换。',
-      };
       await harness.repository.fetchToday();
       expect(ai.lastSummaryEntries.map((e) => e.content), [
         'AI 主动预判的信号需要用户确认',
       ]);
+
+      await harness.close();
+    });
+
+    test(
+        'small-action completion writes canonical values and reads legacy aliases',
+        () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeAiRepository(),
+      );
+      final now = DateTime.now();
+      final todayKey = _testDateKey(now);
+      final cases = <({
+        String input,
+        String expected,
+        String expectedStatus,
+      })>[
+        (
+          input: 'completed',
+          expected: 'completed',
+          expectedStatus: 'active',
+        ),
+        (
+          input: 'not_completed',
+          expected: 'not_completed',
+          expectedStatus: 'active',
+        ),
+        (
+          input: 'occurred',
+          expected: 'completed',
+          expectedStatus: 'active',
+        ),
+        (
+          input: 'not_occurred',
+          expected: 'not_completed',
+          expectedStatus: 'active',
+        ),
+      ];
+
+      for (var index = 0; index < cases.length; index++) {
+        final item = cases[index];
+        final actionId = 'completion-action-$index';
+        await harness.localPhase3PlusRepository.upsertMicroAction(
+          MicroActionModel(
+            id: actionId,
+            judgementId: '',
+            title: '任务切换前留两分钟缓冲',
+            reason: '记录完成情况。',
+            status: 'active',
+            adoptedAt: now,
+            progressStartDate: todayKey,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+
+        await harness.repository.submitMicroActionFeedback(
+          microActionId: actionId,
+          feedback: item.input,
+          effect: item.expected == 'completed' ? SmallTryEffect.helpful : null,
+          difficulty:
+              item.expected == 'completed' ? SmallTryDifficulty.easy : null,
+        );
+
+        final action = await harness.localPhase3PlusRepository
+            .getMicroActionById(actionId);
+        expect(action?.feedbackStatus, item.expected);
+        expect(action?.status, item.expectedStatus);
+      }
+
+      final feedbacks = await harness.localPhase3PlusRepository
+          .listMicroActionFeedbacksBetween(
+        startDate: todayKey,
+        endDate: todayKey,
+      );
+      final storedByAction = {
+        for (final item in feedbacks) item.microActionId: item.happened,
+      };
+      expect(storedByAction, {
+        'completion-action-0': 'completed',
+        'completion-action-1': 'not_completed',
+        'completion-action-2': 'completed',
+        'completion-action-3': 'not_completed',
+      });
+
+      const openEndedActionId = 'open-ended-action';
+      final openEndedStart = now.subtract(const Duration(days: 30));
+      await harness.localPhase3PlusRepository.upsertMicroAction(
+        MicroActionModel(
+          id: openEndedActionId,
+          judgementId: '',
+          title: '持续中的小尝试',
+          reason: '没有明确结束日时仍可继续登记。',
+          status: 'active',
+          adoptedAt: openEndedStart,
+          progressStartDate: _testDateKey(openEndedStart),
+          createdAt: openEndedStart,
+          updatedAt: openEndedStart,
+        ),
+      );
+      await harness.repository.submitMicroActionFeedback(
+        microActionId: openEndedActionId,
+        feedback: 'completed',
+        effect: SmallTryEffect.helpful,
+        difficulty: SmallTryDifficulty.easy,
+      );
+      final openEnded = await harness.localPhase3PlusRepository
+          .getMicroActionById(openEndedActionId);
+      expect(openEnded?.feedbackStatus, 'completed');
+
+      const outsideWindowActionId = 'outside-window-action';
+      await harness.localPhase3PlusRepository.upsertMicroAction(
+        MicroActionModel(
+          id: outsideWindowActionId,
+          judgementId: '',
+          title: '已经结束的七日小尝试',
+          reason: '窗口外不能继续写入看不见的进度。',
+          status: 'active',
+          adoptedAt: DateTime(2020, 1, 1),
+          progressStartDate: '2020-01-01',
+          progressEndDate: '2020-01-07',
+          createdAt: DateTime(2020, 1, 1),
+          updatedAt: DateTime(2020, 1, 1),
+        ),
+      );
+      await harness.repository.submitMicroActionFeedback(
+        microActionId: outsideWindowActionId,
+        feedback: 'completed',
+        effect: SmallTryEffect.helpful,
+        difficulty: SmallTryDifficulty.easy,
+      );
+      final outsideWindow = await harness.localPhase3PlusRepository
+          .getMicroActionById(outsideWindowActionId);
+      expect(outsideWindow?.status, 'active');
+      expect(outsideWindow?.feedbackStatus, 'none');
+      final afterOutsideWindow = await harness.localPhase3PlusRepository
+          .listMicroActionFeedbacksBetween(
+        startDate: '2020-01-01',
+        endDate: '2020-01-07',
+      );
+      expect(
+        afterOutsideWindow.where(
+          (item) => item.microActionId == outsideWindowActionId,
+        ),
+        isEmpty,
+      );
+
+      const appendOnlyActionId = 'same-day-append-only-action';
+      await harness.localPhase3PlusRepository.upsertMicroAction(
+        MicroActionModel(
+          id: appendOnlyActionId,
+          judgementId: '',
+          title: '午后留一分钟离开屏幕',
+          reason: '验证每次真实尝试都会保留，且不会结束小实验对象。',
+          status: 'active',
+          adoptedAt: now,
+          progressStartDate: todayKey,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await harness.repository.submitMicroActionFeedback(
+        microActionId: appendOnlyActionId,
+        feedback: 'completed',
+        effect: SmallTryEffect.helpful,
+        difficulty: SmallTryDifficulty.easy,
+      );
+      await harness.repository.submitMicroActionFeedback(
+        microActionId: appendOnlyActionId,
+        feedback: 'not_completed',
+      );
+
+      final actionWithTwoAttempts = await harness.localPhase3PlusRepository
+          .getMicroActionById(appendOnlyActionId);
+      expect(actionWithTwoAttempts?.status, 'active');
+      expect(actionWithTwoAttempts?.feedbackStatus, 'not_completed');
+
+      // Restored backup rows may still carry the pre-canonical aliases. They
+      // remain immutable facts and must project to the same attempt states.
+      await harness.localPhase3PlusRepository.insertMicroActionFeedback(
+        MicroActionFeedbackModel(
+          id: 'legacy-completed-attempt',
+          microActionId: appendOnlyActionId,
+          localDate: todayKey,
+          happened: 'occurred',
+          createdAt: now.add(const Duration(minutes: 1)),
+        ),
+      );
+      await harness.localPhase3PlusRepository.insertMicroActionFeedback(
+        MicroActionFeedbackModel(
+          id: 'legacy-not-completed-attempt',
+          microActionId: appendOnlyActionId,
+          localDate: todayKey,
+          happened: 'not_occurred',
+          createdAt: now.add(const Duration(minutes: 2)),
+        ),
+      );
+
+      final planningRepository = LocalCandidatePlanningRepository(
+        localDatabase: harness.localDatabase,
+        localCaptureRepository: harness.localCaptureRepository,
+        localLifeExperimentRepository:
+            LocalLifeExperimentRepository(harness.localDatabase),
+        localUserId: 'local',
+        focusDomainIdsLoader: () async => const [],
+        externalEnergySummaryLoader: () async => null,
+      );
+      final progress = await planningRepository.microActionProgress(
+        appendOnlyActionId,
+      );
+      expect(progress.completedAttempts, 2);
+      expect(progress.cells, hasLength(4));
+      expect(
+        progress.cells.map((attempt) => attempt.localDate).toSet(),
+        {todayKey},
+      );
+      expect(
+        progress.cells.map((attempt) => attempt.state.name),
+        ['completed', 'notCompleted', 'completed', 'notCompleted'],
+      );
+      await planningRepository.dispose();
 
       await harness.close();
     });

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/self_review_models.dart';
+import '../../../core/navigation/app_back_navigation.dart';
 import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/states/load_state.dart';
 import '../../../shared/widgets/aurora_ui.dart';
@@ -28,10 +28,10 @@ class SelfReviewPage extends StatelessWidget {
     );
     final heroSubtitle = AppLocaleText.tr(
       context,
-      en: 'A slower pass based on recent signals.',
-      zhHans: '基于最近 7 天的信号，做一次证据驱动的自我回顾。',
-      zhHant: '基於最近 7 天的信號，做一次證據驅動的自我回顧。',
-      ja: '最近 7 日のシグナルから、証拠に沿って見直します。',
+      en: 'A slower pass based on recent Signals.',
+      zhHans: '基于最近 7 天的 Signal，做一次结构化自我回顾。',
+      zhHant: '基於最近 7 天的 Signal，做一次結構化自我回顧。',
+      ja: '最近 7 日の Signal から、ゆっくり見直します。',
     );
 
     return Scaffold(
@@ -50,13 +50,7 @@ class SelfReviewPage extends StatelessWidget {
                       icon: Icons.arrow_back_rounded,
                       tooltip:
                           MaterialLocalizations.of(context).backButtonTooltip,
-                      onPressed: () {
-                        if (context.canPop()) {
-                          context.pop();
-                        } else {
-                          context.go(AppRoutes.me);
-                        }
-                      },
+                      onPressed: () => context.popOrGo(AppRoutes.me),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -219,10 +213,10 @@ class SelfReviewPage extends StatelessWidget {
                 zhHant: '我看到的模式',
                 ja: '見えてきたパターン'),
             subtitle: AppLocaleText.tr(context,
-                en: 'Early finding based on evidence',
-                zhHans: '基于证据的初步发现',
-                zhHant: '基於證據的初步發現',
-                ja: '証拠にもとづく初期の発見'),
+                en: 'Early finding from Signals',
+                zhHans: '从 Signal 看到的初步发现',
+                zhHant: '從 Signal 看到的初步發現',
+                ja: 'Signal から見えた初期の発見'),
             items: review.repeatedBlockers,
             color: AuroraColors.purple,
           ),
@@ -246,15 +240,15 @@ class SelfReviewPage extends StatelessWidget {
           _ReviewSection(
             number: '03',
             title: AppLocaleText.tr(context,
-                en: 'Next small try',
-                zhHans: '下一步尝试',
-                zhHant: '下一步嘗試',
-                ja: '次の小さな試み'),
+                en: 'Next small experiment',
+                zhHans: '下一步小实验',
+                zhHant: '下一步小實驗',
+                ja: '次の小実験'),
             subtitle: AppLocaleText.tr(context,
-                en: 'Small experiment',
-                zhHans: '小步实验',
-                zhHant: '小步實驗',
-                ja: '小さな実験'),
+                en: 'Life Experiment · Small experiment',
+                zhHans: '生活小实验 · 小实验',
+                zhHant: '生活小實驗 · 小實驗',
+                ja: '生活実験 · 小実験'),
             items: review.helpingPatterns,
             color: AuroraColors.mint,
           ),
@@ -472,10 +466,10 @@ class _SelfReviewActionLoopCard extends StatelessWidget {
         ? review.repeatedBlockers.first
         : AppLocaleText.tr(
             context,
-            en: 'The theme is still forming. Keep the evidence light for now.',
-            zhHans: '这个专题还在形成中，先把证据轻轻留下。',
-            zhHant: '這個專題還在形成中，先把證據輕輕留下。',
-            ja: 'このテーマはまだ形になっている途中です。まずは証拠を軽く残します。',
+            en: 'The theme is still forming. Keep collecting Signals for now.',
+            zhHans: '这个专题还在形成中，先继续留下 Signal。',
+            zhHant: '這個專題還在形成中，先繼續留下 Signal。',
+            ja: 'このテーマはまだ形になっている途中です。まずは Signal を残していきます。',
           );
     final action = review.helpingPatterns.isNotEmpty
         ? review.helpingPatterns.first
@@ -539,10 +533,10 @@ class _SelfReviewActionLoopCard extends StatelessWidget {
             color: AuroraColors.mint,
             label: AppLocaleText.tr(
               context,
-              en: 'Small action',
-              zhHans: '小行动',
-              zhHant: '小行動',
-              ja: '小さな行動',
+              en: 'Small experiment',
+              zhHans: '小实验',
+              zhHant: '小實驗',
+              ja: '小実験',
             ),
             body: action,
           ),

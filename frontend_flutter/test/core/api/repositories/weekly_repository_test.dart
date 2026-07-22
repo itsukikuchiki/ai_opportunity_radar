@@ -14,6 +14,8 @@ import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository
 import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_reflection_result_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_weekly_snapshot_repository.dart';
+import 'package:ai_opportunity_radar/core/models/experiment_evaluation_models.dart';
+import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
 
 String _dateKeyForTest(DateTime value) =>
@@ -993,8 +995,18 @@ void main() {
       expect(reloadedCandidate?.id, experiment.id);
       expect(await harness.tableCount('life_experiments'), 1);
 
+      final db = await harness.localDatabase.database;
+      await db.update(
+        'life_experiments',
+        {
+          'progress_start_date': weekly.weekStart,
+          'progress_end_date': weekly.weekEnd,
+        },
+        where: 'id = ?',
+        whereArgs: [saved!.id],
+      );
       final feedback = await harness.repository.submitLifeExperimentFeedback(
-        experimentId: saved!.id,
+        experimentId: saved.id,
         status: 'not_helpful',
         feedbackText: 'Not helpful this time',
       );
@@ -1009,6 +1021,141 @@ void main() {
       final skipped = await harness.repository.skipLifeExperiment(saved.id);
       expect(skipped?.status, 'skipped');
 
+      await harness.close();
+    });
+
+    test('15a) next-week goal cannot receive completion feedback early',
+        () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
+      );
+      for (var index = 0; index < 3; index++) {
+        await harness.seedSignalCard(
+          id: 'sig_future_feedback_$index',
+          content: 'future feedback signal $index',
+          createdAt: _testNow.add(Duration(minutes: index)),
+        );
+      }
+      final weekly = await harness.repository.fetchCurrentWeekly();
+      final candidate = await harness.repository.fetchWeeklyExperimentCandidate(
+        weekStart: weekly.weekStart,
+      );
+      final saved = await harness.repository.saveLifeExperiment(candidate!.id);
+
+      final result = await harness.repository.submitLifeExperimentFeedback(
+        experimentId: saved!.id,
+        status: 'completed',
+        feedbackText: '',
+      );
+
+      expect(result, isNull);
+      expect(
+        await harness.localLifeExperimentRepository.listFeedbacks(
+          experimentId: saved.id,
+        ),
+        isEmpty,
+      );
+      await harness.close();
+    });
+
+    test(
+        '15b) Weekly small-try feedback stays open without an explicit end date',
+        () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: _testNow.subtract(const Duration(days: 1)),
+      );
+      await harness.localPhase3PlusRepository.upsertMicroAction(
+        MicroActionModel(
+          id: 'weekly_cell_action',
+          judgementId: 'weekly_cell_judgement',
+          title: 'Leave a short buffer',
+          reason: 'A small pause may help.',
+          status: 'active',
+          localUserId: 'local',
+          originCandidateId: 'candidate_weekly_cell',
+          adoptedAt: DateTime(2026, 7, 6),
+          progressStartDate: '2026-07-06',
+          progressEndDate: '2026-07-12',
+        ),
+      );
+      await harness.localPhase3PlusRepository.upsertMicroAction(
+        MicroActionModel(
+          id: 'open_ended_weekly_cell_action',
+          judgementId: 'open_ended_weekly_cell_judgement',
+          title: 'Open-ended try',
+          reason: 'The source week does not close feedback.',
+          status: 'active',
+          localUserId: 'local',
+          originCandidateId: 'candidate_open_ended_weekly_cell',
+          adoptedAt: DateTime(2026, 6, 1),
+          progressStartDate: '2026-06-01',
+        ),
+      );
+      await harness.localPhase3PlusRepository.upsertMicroAction(
+        MicroActionModel(
+          id: 'future_weekly_cell_action',
+          judgementId: 'future_weekly_cell_judgement',
+          title: 'Future try',
+          reason: 'Not active today.',
+          status: 'active',
+          localUserId: 'local',
+          originCandidateId: 'candidate_future_weekly_cell',
+          adoptedAt: DateTime(2026, 7, 13),
+          progressStartDate: '2026-07-13',
+          progressEndDate: '2026-07-19',
+        ),
+      );
+
+      final first = await harness.repository.submitMicroActionFeedback(
+        microActionId: 'weekly_cell_action',
+        status: 'completed',
+        effect: SmallTryEffect.helpful,
+        difficulty: SmallTryDifficulty.easy,
+      );
+      final second = await harness.repository.submitMicroActionFeedback(
+        microActionId: 'weekly_cell_action',
+        status: 'not_completed',
+      );
+      final future = await harness.repository.submitMicroActionFeedback(
+        microActionId: 'future_weekly_cell_action',
+        status: 'completed',
+        effect: SmallTryEffect.helpful,
+        difficulty: SmallTryDifficulty.easy,
+      );
+      final openEnded = await harness.repository.submitMicroActionFeedback(
+        microActionId: 'open_ended_weekly_cell_action',
+        status: 'completed',
+        effect: SmallTryEffect.helpful,
+        difficulty: SmallTryDifficulty.easy,
+      );
+
+      expect(first, isNotNull);
+      expect(second?.feedbackStatus, 'not_completed');
+      expect(future, isNull);
+      expect(openEnded?.feedbackStatus, 'completed');
+      final db = await harness.localDatabase.database;
+      final feedbackRows = await db.query(
+        'micro_action_feedback',
+        where: 'micro_action_id = ?',
+        whereArgs: ['weekly_cell_action'],
+      );
+      expect(feedbackRows, hasLength(2));
+      expect(
+        feedbackRows.map((row) => row['happened']).toSet(),
+        {'completed', 'not_completed'},
+      );
+      expect(
+        await db.query(
+          'micro_action_feedback',
+          where: 'micro_action_id = ?',
+          whereArgs: ['future_weekly_cell_action'],
+        ),
+        isEmpty,
+      );
       await harness.close();
     });
 
@@ -1162,6 +1309,226 @@ void main() {
 
       await harness.close();
     });
+    test('上周回看只在满足门槛时给出具体留意点，行为模式保留日期与 Signal 来源', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: _testNow.subtract(const Duration(days: 30)),
+      );
+      await harness.seedSignalCard(
+        id: 'previous_one',
+        content: '上周只有一条记录',
+        createdAt: DateTime(2026, 7, 1, 9),
+        userConfirmation: 'accurate',
+      );
+      for (var offset = 0; offset < 3; offset++) {
+        await harness.seedSignalCard(
+          id: 'current_pattern_$offset',
+          content: '本周工作中反复切换',
+          createdAt: DateTime(2026, 7, 6 + offset, 9),
+          userConfirmation: 'accurate',
+        );
+      }
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+
+      expect(weekly.previousWeekSummary?.signalCount, 1);
+      expect(
+          weekly.previousWeekSummary?.thisWeekWatchpoint, '本周可留意：记录还少，先继续观察。');
+      expect(weekly.behaviorPatterns, isNotEmpty);
+      expect(
+        weekly.behaviorPatterns.every(
+          (pattern) =>
+              pattern.sourceSignalCardIds.length >= 2 &&
+              pattern.supportDates.length >= 2,
+        ),
+        isTrue,
+      );
+      await harness.close();
+    });
+
+    test('行为模式只在跨日事实充分时展示场景差异、顺序与取舍', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: _testNow.subtract(const Duration(days: 30)),
+      );
+      Future<void> seed({
+        required String id,
+        required DateTime at,
+        required String scene,
+        required String friction,
+        required String energyLoad,
+      }) =>
+          harness.seedSignalCard(
+            id: id,
+            content: '$scene $friction',
+            createdAt: at,
+            scene: scene,
+            friction: friction,
+            energyLoad: energyLoad,
+            userConfirmation: 'accurate',
+          );
+
+      await seed(
+        id: 'work-draining',
+        at: DateTime(2026, 7, 6, 9),
+        scene: '工作',
+        friction: '任务切换',
+        energyLoad: 'draining',
+      );
+      await seed(
+        id: 'sequence-start-one',
+        at: DateTime(2026, 7, 6, 10),
+        scene: '规划',
+        friction: '启动困难',
+        energyLoad: 'steady',
+      );
+      await seed(
+        id: 'sequence-end-one',
+        at: DateTime(2026, 7, 6, 11),
+        scene: '规划',
+        friction: '进入状态',
+        energyLoad: 'steady',
+      );
+      await seed(
+        id: 'home-ease',
+        at: DateTime(2026, 7, 7, 9),
+        scene: '家里',
+        friction: '任务切换',
+        energyLoad: 'ease',
+      );
+      await seed(
+        id: 'sequence-start-two',
+        at: DateTime(2026, 7, 7, 10),
+        scene: '规划',
+        friction: '启动困难',
+        energyLoad: 'steady',
+      );
+      await seed(
+        id: 'sequence-end-two',
+        at: DateTime(2026, 7, 7, 11),
+        scene: '规划',
+        friction: '进入状态',
+        energyLoad: 'steady',
+      );
+      await seed(
+        id: 'work-recovery',
+        at: DateTime(2026, 7, 7, 12),
+        scene: '工作',
+        friction: '恢复空间',
+        energyLoad: 'recovery',
+      );
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+      final patterns = weekly.behaviorPatterns;
+      final kinds = patterns.map((pattern) => pattern.kind).toSet();
+
+      expect(patterns.length, lessThanOrEqualTo(3));
+      expect(
+          kinds,
+          containsAll(<String>[
+            'context_difference',
+            'sequence',
+            'tradeoff',
+          ]));
+      expect(
+        patterns.every(
+          (pattern) =>
+              pattern.sourceSignalCardIds.length >= 2 &&
+              pattern.supportDates.length >= 2,
+        ),
+        isTrue,
+      );
+      await harness.close();
+    });
+
+    test('行为模式缺少跨日依据时不生成场景差异、顺序或取舍', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: _testNow.subtract(const Duration(days: 30)),
+      );
+      await harness.seedSignalCard(
+        id: 'single-day-work',
+        content: '工作中不断切换',
+        createdAt: DateTime(2026, 7, 6, 9),
+        scene: '工作',
+        friction: '任务切换',
+        energyLoad: 'draining',
+        userConfirmation: 'accurate',
+      );
+      await harness.seedSignalCard(
+        id: 'single-day-home',
+        content: '在家也不断切换',
+        createdAt: DateTime(2026, 7, 6, 10),
+        scene: '家里',
+        friction: '任务切换',
+        energyLoad: 'ease',
+        userConfirmation: 'accurate',
+      );
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+      const derivedKinds = {'context_difference', 'sequence', 'tradeoff'};
+      expect(
+        weekly.behaviorPatterns
+            .where((pattern) => derivedKinds.contains(pattern.kind)),
+        isEmpty,
+      );
+      await harness.close();
+    });
+
+    test('本周能量状态的无 Signal 日期固定为平稳占位', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: _testNow.subtract(const Duration(days: 30)),
+      );
+      await harness.seedSignalCard(
+        id: 'energy_only_monday',
+        content: '周一任务很多，感觉有些耗力。',
+        createdAt: DateTime(2026, 7, 6, 9),
+        userConfirmation: 'accurate',
+      );
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+      final emptyDay = weekly.energyProjection?.days
+          .firstWhere((day) => day.date == '2026-07-07');
+
+      expect(emptyDay?.signalCount, 0);
+      expect(emptyDay?.dominantState, 'steady');
+      await harness.close();
+    });
+
+    test('生成深度分析后只保存独立 weekly_deep_analysis，不复用普通 Weekly 快照', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(),
+        installationDate: _testNow.subtract(const Duration(days: 30)),
+      );
+      await harness.seedReadinessFillers(3);
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+      final reflect = await harness.repository.fetchWeeklyReflect();
+      final db = await harness.localDatabase.database;
+      final rows = await db.query(
+        'reflection_results',
+        where: 'source_type = ? AND source_id = ? AND reflection_type = ?',
+        whereArgs: [
+          'weekly_snapshot',
+          weekly.weekStart,
+          'weekly_deep_analysis',
+        ],
+      );
+
+      expect(rows, hasLength(1));
+      expect(rows.single['ai_level'], 'L3');
+      final content = jsonDecode(rows.single['content_json'] as String) as Map;
+      expect(content['summary'], reflect.summary);
+      expect(content['relationship_summary'], reflect.relationshipSummary);
+      expect(content['source_signal_card_ids'], reflect.sourceSignalCardIds);
+      await harness.close();
+    });
   });
 }
 
@@ -1186,6 +1553,11 @@ class _Harness {
     String timezone = 'Asia/Tokyo',
     String sourceType = 'text',
     String userConfirmation = 'unconfirmed',
+    String emotion = 'negative',
+    String scene = 'work',
+    String friction = 'context_switch',
+    String? positiveSignal,
+    String energyLoad = 'draining',
     Map<String, dynamic> userCorrectionJson = const {},
     Map<String, dynamic> rawPayloadJson = const {},
     bool isLegacy = false,
@@ -1214,13 +1586,13 @@ class _Harness {
         'ai_reply': '我听见了，这条先保存下来。',
         'observation': '这是一条 Weekly 测试观察。',
         'try_next': '先轻轻记一下场景。',
-        'emotion': 'negative',
+        'emotion': emotion,
         'intensity': 'medium',
-        'scene': 'work',
-        'friction': 'context_switch',
-        'positive_signal': null,
-        'energy_load': 'draining',
-        'scene_tags_json': '["work"]',
+        'scene': scene,
+        'friction': friction,
+        'positive_signal': positiveSignal,
+        'energy_load': energyLoad,
+        'scene_tags_json': jsonEncode([scene]),
         'intent_tags_json': '["observe"]',
         'user_confirmation': userConfirmation,
         'raw_payload_json': jsonEncode(rawPayloadJson),
@@ -1421,6 +1793,7 @@ Future<_Harness> _createHarness({
     localCaptureRepository: localCaptureRepository,
     localWeeklySnapshotRepository: localWeeklySnapshotRepository,
     localLifeExperimentRepository: localLifeExperimentRepository,
+    localPhase3PlusRepository: localPhase3PlusRepository,
     aiRepository: aiRepository,
     focusAreaLoader: () async => null,
     installationDateLoader: () async => installationDate,
@@ -1477,6 +1850,28 @@ class FakeWeeklyAiRepository extends AiRepository {
         'summary': '当前先把线索留住就够了。',
       },
       feedbackSubmitted: false,
+    );
+  }
+
+  @override
+  Future<WeeklyReflectModel> generateWeeklyReflect({
+    required WeeklyInsightModel weekly,
+    String? focusArea,
+  }) async {
+    return const WeeklyReflectModel(
+      summary: '本周深度分析摘要。',
+      rootTension: '推进与恢复之间需要留出余地。',
+      hiddenPattern: '切换密集时，恢复更难开始。',
+      nextFocus: '下周留意切换后的状态。',
+      riskNote: '这只是本周 Signal 的结构化回看。',
+      patternLabel: '频繁切换',
+      frictionLabel: '切换负荷',
+      impactLabel: '恢复空间变少',
+      relationshipSummary: '切换密集与恢复不足常在同一日出现。',
+      timingSummary: '午后 Signal 更密。',
+      nextQuestion: '切换发生后是否有停顿？',
+      sourceSignalCardIds: ['test_signal_0'],
+      scopeNote: '不表达因果或人格判断。',
     );
   }
 }

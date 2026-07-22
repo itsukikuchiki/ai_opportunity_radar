@@ -8,6 +8,7 @@ import '../../../core/api/repositories/analytics_repository.dart';
 import '../../../core/local/local_candidate_planning_repository.dart';
 import '../../../core/models/candidate_models.dart';
 import '../../../core/models/energy_budget_models.dart';
+import '../../../core/models/phase3_plus_models.dart';
 import '../../../core/models/weekly_models.dart';
 import '../../../core/readiness/report_readiness.dart';
 import '../../../shared/states/load_state.dart';
@@ -22,6 +23,8 @@ class WeeklyViewModel extends ChangeNotifier {
   LoadState loadState = LoadState.initial;
   SubmitState feedbackSubmitState = SubmitState.idle;
   SubmitState experimentSubmitState = SubmitState.idle;
+  SubmitState attemptFeedbackSubmitState = SubmitState.idle;
+  SubmitState goalWeeklySummarySubmitState = SubmitState.idle;
   WeeklyInsightModel? weeklyInsight;
   LifeExperimentModel? currentWeekExperiment;
   LifeExperimentModel? nextWeekExperiment;
@@ -50,6 +53,7 @@ class WeeklyViewModel extends ChangeNotifier {
 
   bool get isLightReady => weeklyInsight?.status == 'light_ready';
   bool get isReady => weeklyInsight?.status == 'ready';
+  DateTime get currentLocalDay => repository.nowLoader().toLocal();
   ReportReadiness get reportReadiness =>
       weeklyInsight?.reportReadiness ??
       ReportReadiness.empty(ReportReadinessEvaluator.weeklyRule);
@@ -93,6 +97,8 @@ class WeeklyViewModel extends ChangeNotifier {
     errorMessage = null;
     feedbackSubmitState = SubmitState.idle;
     experimentSubmitState = SubmitState.idle;
+    attemptFeedbackSubmitState = SubmitState.idle;
+    goalWeeklySummarySubmitState = SubmitState.idle;
     showFirstDayGate = false;
     currentWeekExperiment = null;
     nextWeekExperiment = null;
@@ -154,9 +160,18 @@ class WeeklyViewModel extends ChangeNotifier {
     }
 
     try {
-      final day = DateTime.now();
-      activeMicroActions = await planner.listActiveMicroActionsForDate(day);
-      activeExperiments = await planner.listActiveExperimentsForDate(day);
+      final weekStart = DateTime.tryParse(weekly.weekStart) ??
+          _startOfWeek(repository.nowLoader());
+      final weekEnd = DateTime.tryParse(weekly.weekEnd) ??
+          weekStart.add(const Duration(days: 6));
+      activeMicroActions = await planner.listAdoptedSmallTriesForWeek(
+        weekStart: weekStart,
+        weekEnd: weekEnd,
+      );
+      activeExperiments = await planner.listAdoptedGoalsForWeek(
+        weekStart: weekStart,
+        weekEnd: weekEnd,
+      );
     } catch (_) {
       progressLoadFailed = true;
       activeMicroActions = const [];
@@ -204,7 +219,13 @@ class WeeklyViewModel extends ChangeNotifier {
       localLifeExperimentRepository: lifeExperimentRepository,
       localUserId: repository.localUserId,
       eligibilityService: repository.eligibilityService,
+      nowLoader: repository.nowLoader,
     );
+  }
+
+  static DateTime _startOfWeek(DateTime value) {
+    final day = DateTime(value.year, value.month, value.day);
+    return day.subtract(Duration(days: day.weekday - DateTime.monday));
   }
 
   void _notifyListeners() {
@@ -253,6 +274,163 @@ class WeeklyViewModel extends ChangeNotifier {
     }
 
     _notifyListeners();
+  }
+
+  Future<void> submitMicroActionFeedback({
+    required MicroActionModel action,
+    required String status,
+    String? effect,
+    String? difficulty,
+    String? userNote,
+  }) async {
+    final weekly = weeklyInsight;
+    if (weekly == null ||
+        attemptFeedbackSubmitState == SubmitState.submitting) {
+      return;
+    }
+
+    attemptFeedbackSubmitState = SubmitState.submitting;
+    errorMessage = null;
+    _notifyListeners();
+    try {
+      final updated = await repository.submitMicroActionFeedback(
+        microActionId: action.id,
+        status: status,
+        effect: effect,
+        difficulty: difficulty,
+        userNote: userNote,
+      );
+      if (updated == null) {
+        throw StateError('micro_action_feedback_not_recorded');
+      }
+      await _loadAdoptedProgress(weekly);
+      await analyticsRepository?.track(
+        'weekly_attempt_feedback',
+        properties: {
+          'kind': 'small_try',
+          'status': status,
+          'week_start': weekly.weekStart,
+        },
+      );
+      attemptFeedbackSubmitState = SubmitState.success;
+    } catch (e) {
+      attemptFeedbackSubmitState = SubmitState.failure;
+      errorMessage = e.toString();
+    }
+    _notifyListeners();
+  }
+
+  Future<void> submitLifeExperimentFeedback({
+    required LifeExperimentModel experiment,
+    required String status,
+  }) async {
+    final weekly = weeklyInsight;
+    if (weekly == null ||
+        attemptFeedbackSubmitState == SubmitState.submitting) {
+      return;
+    }
+
+    attemptFeedbackSubmitState = SubmitState.submitting;
+    errorMessage = null;
+    _notifyListeners();
+    try {
+      final updated = await repository.submitLifeExperimentFeedback(
+        experimentId: experiment.id,
+        status: status,
+        feedbackText: '',
+      );
+      if (updated == null) {
+        throw StateError('life_experiment_feedback_not_recorded');
+      }
+      await _loadAdoptedProgress(weekly);
+      await analyticsRepository?.track(
+        'weekly_attempt_feedback',
+        properties: {
+          'kind': 'goal',
+          'status': status,
+          'week_start': weekly.weekStart,
+        },
+      );
+      attemptFeedbackSubmitState = SubmitState.success;
+    } catch (e) {
+      attemptFeedbackSubmitState = SubmitState.failure;
+      errorMessage = e.toString();
+    }
+    _notifyListeners();
+  }
+
+  Future<int> completedGoalObservationDays(
+    LifeExperimentModel experiment,
+  ) async {
+    final localRepository = repository.localLifeExperimentRepository;
+    if (localRepository == null) return 0;
+    final feedbacks = await localRepository.listFeedbacks(
+      experimentId: experiment.id,
+    );
+    final latestByDay = <String, LifeExperimentFeedbackModel>{};
+    for (final feedback in feedbacks) {
+      latestByDay[feedback.localDate] = feedback;
+    }
+    return latestByDay.values
+        .where(
+          (feedback) => const {
+            'done',
+            'completed',
+            'occurred',
+            'happened',
+            'true',
+            'yes',
+            '1',
+          }.contains(feedback.completionStatus.trim().toLowerCase()),
+        )
+        .length;
+  }
+
+  Future<bool> submitGoalWeeklySummary({
+    required LifeExperimentModel experiment,
+    required String outcomeResult,
+    required String burden,
+    String? note,
+  }) async {
+    final weekly = weeklyInsight;
+    final localRepository = repository.localLifeExperimentRepository;
+    if (weekly == null ||
+        localRepository == null ||
+        goalWeeklySummarySubmitState == SubmitState.submitting) {
+      return false;
+    }
+    goalWeeklySummarySubmitState = SubmitState.submitting;
+    errorMessage = null;
+    _notifyListeners();
+    try {
+      final saved = await localRepository.recordWeeklyReview(
+        experimentId: experiment.id,
+        outcomeResult: outcomeResult,
+        burden: burden,
+        reviewNote: note,
+        reviewedAt: currentLocalDay,
+      );
+      if (saved == null) {
+        throw StateError('goal_weekly_summary_not_recorded');
+      }
+      await _loadAdoptedProgress(weekly);
+      await analyticsRepository?.track(
+        'weekly_goal_summary',
+        properties: {
+          'week_start': weekly.weekStart,
+          'outcome_result': outcomeResult,
+          'burden': burden,
+        },
+      );
+      goalWeeklySummarySubmitState = SubmitState.success;
+      _notifyListeners();
+      return true;
+    } catch (error) {
+      goalWeeklySummarySubmitState = SubmitState.failure;
+      errorMessage = error.toString();
+      _notifyListeners();
+      return false;
+    }
   }
 
   Future<void> saveExperiment() async {

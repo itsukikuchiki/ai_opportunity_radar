@@ -12,7 +12,10 @@ from app.services.capture_service import CaptureService
 from app.services.classification_service import ClassificationService
 from app.services.usage_service import UsageService
 from app.services.legacy_telemetry_service import record_legacy_endpoint_call
-from app.repositories.capture_repository import CaptureRepository
+from app.repositories.capture_repository import (
+    CaptureRepository,
+    ImmutableSignalCardError,
+)
 from app.api.deps import get_user_id
 
 router = APIRouter(tags=["captures"])
@@ -121,6 +124,12 @@ def confirm_signal_card(
                 "user_correction_json": card.user_correction_json,
             }
         }
+    except ImmutableSignalCardError as e:
+        raise api_error(
+            status_code=409,
+            code="SIGNAL_CARD_IMMUTABLE",
+            message=error_message(e),
+        )
     except HTTPException:
         raise
     except Exception as e:

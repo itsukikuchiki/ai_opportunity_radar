@@ -7,6 +7,7 @@ import '../api/api_client.dart';
 import '../api/repositories/analytics_repository.dart';
 import '../api/repositories/ai_repository.dart';
 import '../api/repositories/energy_budget_repository.dart';
+import '../api/repositories/journey_pro_repository.dart';
 import '../api/repositories/memory_repository.dart';
 import '../api/repositories/monthly_repository.dart';
 import '../api/repositories/self_review_repository.dart';
@@ -20,8 +21,10 @@ import '../local/local_daily_snapshot_repository.dart';
 import '../local/local_database.dart';
 import '../local/local_feedback_event_repository.dart';
 import '../local/local_journey_snapshot_repository.dart';
+import '../local/local_journey_aggregation_repository.dart';
 import '../local/local_life_experiment_repository.dart';
 import '../local/local_monthly_snapshot_repository.dart';
+import '../local/local_observation_repository.dart';
 import '../local/local_phase3_plus_repository.dart';
 import '../local/local_weekly_snapshot_repository.dart';
 
@@ -34,6 +37,7 @@ class AppDependencies {
   final TodayRepository todayRepository;
   final WeeklyRepository weeklyRepository;
   final MemoryRepository memoryRepository;
+  final JourneyProRepository journeyProRepository;
   final EnergyBudgetRepository energyBudgetRepository;
   final MonthlyRepository monthlyRepository;
   final SelfReviewRepository selfReviewRepository;
@@ -57,6 +61,7 @@ class AppDependencies {
     required this.todayRepository,
     required this.weeklyRepository,
     required this.memoryRepository,
+    required this.journeyProRepository,
     required this.energyBudgetRepository,
     required this.monthlyRepository,
     required this.selfReviewRepository,
@@ -118,6 +123,13 @@ class AppDependencies {
     final externalEnergyHintStore = ExternalEnergyHintStore(prefs);
     final localFeedbackEventRepository =
         LocalFeedbackEventRepository(localDatabase);
+    final localJourneyAggregationRepository = LocalJourneyAggregationRepository(
+      localCaptureRepository: localCaptureRepository,
+      localLifeExperimentRepository: localLifeExperimentRepository,
+      localPhase3PlusRepository: localPhase3PlusRepository,
+      localWeeklySnapshotRepository: localWeeklySnapshotRepository,
+      localFeedbackEventRepository: localFeedbackEventRepository,
+    );
     final energyBudgetRepository = EnergyBudgetRepository(
       localCaptureRepository: localCaptureRepository,
       localLifeExperimentRepository: localLifeExperimentRepository,
@@ -185,6 +197,21 @@ class AppDependencies {
         aiRepository: aiRepository,
         monthlyRepository: monthlyRepository,
         localUserId: localUserId,
+      ),
+      journeyProRepository: JourneyProRepository(
+        localCaptureRepository: localCaptureRepository,
+        journeyAggregationRepository: localJourneyAggregationRepository,
+        energyBudgetRepository: energyBudgetRepository,
+        localObservationRepository: LocalObservationRepository(
+          localDatabase,
+          localUserId: localUserId,
+        ),
+        localUserId: localUserId,
+        installationDateLoader: () async {
+          final raw = prefs.getString('local_app_started_date') ??
+              prefs.getString('installation_date');
+          return DateTime.tryParse(raw ?? '') ?? DateTime(2000, 1, 1);
+        },
       ),
       energyBudgetRepository: energyBudgetRepository,
       monthlyRepository: monthlyRepository,

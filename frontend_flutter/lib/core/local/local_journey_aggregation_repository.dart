@@ -21,6 +21,17 @@ class JourneyAggregationModel {
   final List<MicroActionFeedbackModel> microActionFeedbacks;
   final List<LifeExperimentFeedbackModel> experimentFeedbacks;
   final List<WeeklyInsightModel> weeklyReviews;
+  final Map<String, String> subjectTitles;
+
+  /// Privacy-eligible source history from first app use through periodEnd.
+  /// Period facts above remain bounded to the selected calendar month.
+  final List<RecentSignalModel> sourceSignals;
+  final List<LifeExperimentModel> sourceExperimentHistory;
+  final List<Map<String, dynamic>> sourceExperimentRollups;
+  final List<Map<String, dynamic>> sourcePlanContentVersions;
+  final List<FeedbackEventModel> sourceFeedbackEvents;
+  final List<WeeklyInsightModel> sourceWeeklyReviews;
+  final Map<String, String> sourceSubjectTitles;
 
   const JourneyAggregationModel({
     required this.periodStart,
@@ -34,13 +45,22 @@ class JourneyAggregationModel {
     required this.microActionFeedbacks,
     required this.experimentFeedbacks,
     required this.weeklyReviews,
+    this.subjectTitles = const {},
+    this.sourceSignals = const [],
+    this.sourceExperimentHistory = const [],
+    this.sourceExperimentRollups = const [],
+    this.sourcePlanContentVersions = const [],
+    this.sourceFeedbackEvents = const [],
+    this.sourceWeeklyReviews = const [],
+    this.sourceSubjectTitles = const {},
   });
 
   bool get hasMaterial {
     return signals.isNotEmpty ||
         experimentHistory.isNotEmpty ||
         experimentRollups.isNotEmpty ||
-        feedbackEvents.isNotEmpty;
+        feedbackEvents.isNotEmpty ||
+        weeklyReviews.isNotEmpty;
   }
 }
 
@@ -66,12 +86,58 @@ class LocalJourneyAggregationRepository {
     required DateTime today,
     required DateTime installationDate,
   }) async {
-    final monthStart = DateTime(today.year, today.month);
-    final periodStart =
-        installationDate.isAfter(monthStart) ? installationDate : monthStart;
-    final periodEnd = DateTime(today.year, today.month, today.day);
+    return fetchMonth(
+      localUserId: localUserId,
+      selectedMonth: today,
+      today: today,
+      installationDate: installationDate,
+    );
+  }
+
+  /// Builds a factual projection for any selected user-local calendar month.
+  ///
+  /// The current month is clipped at today. Past months use their complete
+  /// local calendar boundary. Months before first app use return an empty
+  /// projection instead of leaking current-month data into history.
+  Future<JourneyAggregationModel> fetchMonth({
+    required String localUserId,
+    required DateTime selectedMonth,
+    required DateTime today,
+    required DateTime installationDate,
+  }) async {
+    final localToday = _dateOnly(today);
+    final requested = _dateOnly(selectedMonth);
+    final requestedMonth = DateTime(requested.year, requested.month);
+    final currentMonth = DateTime(localToday.year, localToday.month);
+    final effectiveMonth =
+        requestedMonth.isAfter(currentMonth) ? currentMonth : requestedMonth;
+    final monthStart = effectiveMonth;
+    final monthEnd = DateTime(effectiveMonth.year, effectiveMonth.month + 1, 0);
+    final periodEnd = effectiveMonth == currentMonth ? localToday : monthEnd;
+    final installed = _dateOnly(installationDate);
+    final isBeforeFirstUse = periodEnd.isBefore(installed);
+    final periodStart = isBeforeFirstUse
+        ? monthStart
+        : (installed.isAfter(monthStart) ? installed : monthStart);
     final startDate = _dateKey(periodStart);
     final endDate = _dateKey(periodEnd);
+
+    if (isBeforeFirstUse) {
+      return JourneyAggregationModel(
+        periodStart: periodStart,
+        periodEnd: periodEnd,
+        startDate: startDate,
+        endDate: endDate,
+        signals: const [],
+        experimentHistory: const [],
+        experimentRollups: const [],
+        feedbackEvents: const [],
+        microActionFeedbacks: const [],
+        experimentFeedbacks: const [],
+        weeklyReviews: const [],
+        subjectTitles: const {},
+      );
+    }
 
     final rawSignals = await localCaptureRepository.listSignalCardsBetween(
       startDate: startDate,
@@ -104,7 +170,9 @@ class LocalJourneyAggregationRepository {
             const <Map<String, dynamic>>[];
     final feedbackRepository = localFeedbackEventRepository ??
         _feedbackRepositoryFromAvailableLocalDatabase();
-    final feedbackEvents = await feedbackRepository?.listActiveBetween(
+    // Journey may use every privacy-eligible app fact in the selected period
+    // as source material. Readiness still evaluates only `signals` above.
+    final feedbackEvents = await feedbackRepository?.listBetween(
           localUserId: localUserId,
           startDate: startDate,
           endDate: endDate,
@@ -117,6 +185,66 @@ class LocalJourneyAggregationRepository {
         feedbackRepository?.lifeExperimentFeedbacksFrom(feedbackEvents) ??
             const <LifeExperimentFeedbackModel>[];
     final weeklyReviews = await _loadWeeklyReviews(periodStart, periodEnd);
+    final subjectTitles = await _loadSubjectTitles(
+      feedbackEvents,
+      experimentHistory: experimentHistory,
+    );
+
+    final sourceStartDate = _dateKey(installed);
+    final sourceSignals = sourceStartDate == startDate
+        ? signals
+        : eligibilityService.filter(
+            await localCaptureRepository.listSignalCardsBetween(
+              startDate: sourceStartDate,
+              endDate: endDate,
+            ),
+            SignalEligibilityStage.journey,
+          );
+    sourceSignals.sort((a, b) {
+      final dateCompare = a.localDateKey().compareTo(b.localDateKey());
+      if (dateCompare != 0) return dateCompare;
+      final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return aTime.compareTo(bTime);
+    });
+    final sourceExperimentHistory = sourceStartDate == startDate
+        ? experimentHistory
+        : await localLifeExperimentRepository?.listRecentForPeriod(
+              localUserId: localUserId,
+              startDate: sourceStartDate,
+              endDate: endDate,
+            ) ??
+            const <LifeExperimentModel>[];
+    final sourceExperimentRollups = sourceStartDate == startDate
+        ? experimentRollups
+        : await localLifeExperimentRepository?.listRollupsForPeriod(
+              localUserId: localUserId,
+              startDate: sourceStartDate,
+              endDate: endDate,
+            ) ??
+            const <Map<String, dynamic>>[];
+    final sourcePlanContentVersions = await _loadPlanContentVersions(
+      localUserId: localUserId,
+      startDate: sourceStartDate,
+      endDate: endDate,
+    );
+    final sourceFeedbackEvents = sourceStartDate == startDate
+        ? feedbackEvents
+        : await feedbackRepository?.listBetween(
+              localUserId: localUserId,
+              startDate: sourceStartDate,
+              endDate: endDate,
+            ) ??
+            const <FeedbackEventModel>[];
+    final sourceWeeklyReviews = sourceStartDate == startDate
+        ? weeklyReviews
+        : await _loadWeeklyReviews(installed, periodEnd);
+    final sourceSubjectTitles = sourceStartDate == startDate
+        ? subjectTitles
+        : await _loadSubjectTitles(
+            sourceFeedbackEvents,
+            experimentHistory: sourceExperimentHistory,
+          );
 
     return JourneyAggregationModel(
       periodStart: periodStart,
@@ -130,7 +258,70 @@ class LocalJourneyAggregationRepository {
       microActionFeedbacks: microActionFeedbacks,
       experimentFeedbacks: experimentFeedbacks,
       weeklyReviews: weeklyReviews,
+      subjectTitles: subjectTitles,
+      sourceSignals: sourceSignals,
+      sourceExperimentHistory: sourceExperimentHistory,
+      sourceExperimentRollups: sourceExperimentRollups,
+      sourcePlanContentVersions: sourcePlanContentVersions,
+      sourceFeedbackEvents: sourceFeedbackEvents,
+      sourceWeeklyReviews: sourceWeeklyReviews,
+      sourceSubjectTitles: sourceSubjectTitles,
     );
+  }
+
+  DateTime _dateOnly(DateTime date) {
+    final local = date.toLocal();
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  Future<Map<String, String>> _loadSubjectTitles(
+    Iterable<FeedbackEventModel> events, {
+    required Iterable<LifeExperimentModel> experimentHistory,
+  }) async {
+    final result = <String, String>{
+      for (final experiment in experimentHistory)
+        experiment.id: experiment.title,
+    };
+    final microActionIds = events
+        .where((event) => event.subjectType == 'micro_action')
+        .map((event) => event.subjectId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    for (final id in microActionIds) {
+      final action = await localPhase3PlusRepository?.getMicroActionById(id);
+      if (action != null && action.title.trim().isNotEmpty) {
+        result[id] = action.title.trim();
+      }
+    }
+
+    final legacyGoalIds = events
+        .where((event) => event.subjectType == 'goal')
+        .map((event) => event.subjectId)
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    final database = localLifeExperimentRepository?.localDatabase ??
+        localPhase3PlusRepository?.localDatabase;
+    if (database != null && legacyGoalIds.isNotEmpty) {
+      final db = await database.database;
+      for (var start = 0; start < legacyGoalIds.length; start += 400) {
+        final end = (start + 400).clamp(0, legacyGoalIds.length);
+        final chunk = legacyGoalIds.sublist(start, end);
+        final placeholders = List.filled(chunk.length, '?').join(', ');
+        final rows = await db.query(
+          'goals',
+          columns: const ['id', 'title'],
+          where: 'id IN ($placeholders)',
+          whereArgs: chunk,
+        );
+        for (final row in rows) {
+          final id = row['id']?.toString() ?? '';
+          final title = row['title']?.toString().trim() ?? '';
+          if (id.isNotEmpty && title.isNotEmpty) result[id] = title;
+        }
+      }
+    }
+    return result;
   }
 
   LocalFeedbackEventRepository?
@@ -142,6 +333,31 @@ class LocalJourneyAggregationRepository {
       return LocalFeedbackEventRepository(phase3Database);
     }
     return null;
+  }
+
+  Future<List<Map<String, dynamic>>> _loadPlanContentVersions({
+    required String localUserId,
+    required String startDate,
+    required String endDate,
+  }) async {
+    final database = localLifeExperimentRepository?.localDatabase ??
+        localPhase3PlusRepository?.localDatabase;
+    if (database == null) return const [];
+    final db = await database.database;
+    final rows = await db.query(
+      'plan_content_versions',
+      where: '''
+        local_user_id = ?
+        AND effective_from_local_date >= ?
+        AND effective_from_local_date <= ?
+      ''',
+      whereArgs: [localUserId, startDate, endDate],
+      orderBy:
+          'effective_from_local_date ASC, object_kind ASC, object_id ASC, version_no ASC',
+    );
+    return rows
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
   }
 
   Future<List<WeeklyInsightModel>> _loadWeeklyReviews(
@@ -156,7 +372,12 @@ class LocalJourneyAggregationRepository {
     );
     while (!cursor.isAfter(periodEnd)) {
       final weekly = await repository.getByWeekStart(_dateKey(cursor));
-      if (weekly != null && weekly.status != 'insufficient_data') {
+      final weeklyEnd =
+          weekly == null ? null : DateTime.tryParse(weekly.weekEnd);
+      if (weekly != null &&
+          weekly.status != 'insufficient_data' &&
+          weeklyEnd != null &&
+          !weeklyEnd.isAfter(periodEnd)) {
         reviews.add(weekly);
       }
       cursor = cursor.add(const Duration(days: 7));

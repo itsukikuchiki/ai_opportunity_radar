@@ -40,7 +40,7 @@ class HealthRecoverySignalRepository {
       canShowRawHealthTimeline: false,
       canDiagnoseOrScoreHealth: false,
       fallbackMessage:
-          'Health hints are only gentle recovery context. SignalCard remains the main evidence.',
+          'Health hints are only gentle recovery context. Your Signal Cards stay at the center.',
       abstractHints: hints,
     );
   }
@@ -146,7 +146,7 @@ class HealthRecoverySignalRepository {
       canShowRawHealthTimeline: false,
       canDiagnoseOrScoreHealth: false,
       fallbackMessage:
-          'Health access is optional. Energy Budget can keep using your internal SignalCard observations.',
+          'Health access is optional. Energy Budget can keep using your internal Signal Card observations.',
       abstractHints: const {},
     );
   }

@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/phase3_plus_models.dart';
+import '../models/experiment_evaluation_models.dart';
 import 'local_cache_invalidation_repository.dart';
 import 'local_database.dart';
 import 'local_observation_repository.dart';
@@ -134,6 +135,10 @@ class LocalPhase3PlusRepository {
   }
 
   Future<void> upsertMicroAction(MicroActionModel model) async {
+    _validateSmallTryDuration(
+      model.plannedDurationMinutes,
+      argumentName: 'plannedDurationMinutes',
+    );
     final db = await localDatabase.database;
     await db.insert(
       'micro_actions',
@@ -166,11 +171,27 @@ class LocalPhase3PlusRepository {
   Future<void> insertMicroActionFeedback(
     MicroActionFeedbackModel feedback,
   ) async {
+    if (feedback.durationMinutes != null) {
+      _validateSmallTryDuration(
+        feedback.durationMinutes!,
+        argumentName: 'durationMinutes',
+      );
+    }
     final db = await localDatabase.database;
+    final existing = await db.query(
+      'micro_action_feedback',
+      columns: const ['id'],
+      where: 'id = ?',
+      whereArgs: [feedback.id],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      throw StateError('micro_action_feedback_is_append_only:${feedback.id}');
+    }
     await db.insert(
       'micro_action_feedback',
       feedback.toDb(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ConflictAlgorithm.abort,
     );
     await LocalTraceLinkRepository(localDatabase).upsert(
       TraceLinkInput(
@@ -183,6 +204,8 @@ class LocalPhase3PlusRepository {
         metadata: {
           'local_date': feedback.localDate,
           'happened': feedback.happened,
+          if (feedback.durationMinutes != null)
+            'duration_minutes': feedback.durationMinutes,
         },
       ),
     );
@@ -191,6 +214,204 @@ class LocalPhase3PlusRepository {
       localDate: feedback.localDate,
       reason: 'micro_action_feedback_changed',
     );
+  }
+
+  /// Canonical writer for one day's small-try completion and immediate
+  /// effect. [insertMicroActionFeedback] remains available so historical
+  /// values can be restored without being reinterpreted.
+  Future<MicroActionFeedbackModel> recordStructuredMicroActionFeedback({
+    required String microActionId,
+    required String localDate,
+    required String completionStatus,
+    String? effect,
+    String? difficulty,
+    String? note,
+    String nextAdjustment = SmallTryNextAdjustment.keep,
+    int? durationMinutes,
+    DateTime? createdAt,
+  }) async {
+    final normalizedCompletion = completionStatus.trim().toLowerCase();
+    if (!const {'completed', 'not_completed'}.contains(normalizedCompletion)) {
+      throw ArgumentError.value(
+        completionStatus,
+        'completionStatus',
+        'unsupported_small_try_completion',
+      );
+    }
+    final isCompleted = normalizedCompletion == 'completed';
+    if (isCompleted && !SmallTryEffect.values.contains(effect)) {
+      throw ArgumentError.value(
+        effect,
+        'effect',
+        'completed_small_try_requires_effect',
+      );
+    }
+    if (isCompleted && !SmallTryDifficulty.values.contains(difficulty)) {
+      throw ArgumentError.value(
+        difficulty,
+        'difficulty',
+        'completed_small_try_requires_difficulty',
+      );
+    }
+    if (!SmallTryNextAdjustment.values.contains(nextAdjustment)) {
+      throw ArgumentError.value(
+        nextAdjustment,
+        'nextAdjustment',
+        'unsupported_small_try_adjustment',
+      );
+    }
+    if (durationMinutes != null) {
+      _validateSmallTryDuration(
+        durationMinutes,
+        argumentName: 'durationMinutes',
+      );
+    }
+    final date = createdAt ?? DateTime.now();
+    final feedback = MicroActionFeedbackModel(
+      id: createId('maf'),
+      microActionId: microActionId,
+      localDate: localDate,
+      happened: normalizedCompletion,
+      // Empty values mean no judgement was made. In particular, a skipped
+      // attempt must not be reinterpreted as "no effect" or "difficult".
+      effect: isCompleted ? effect! : '',
+      difficulty: isCompleted ? difficulty! : '',
+      userNote: note?.trim().isEmpty == true ? null : note?.trim(),
+      nextAdjustment: nextAdjustment,
+      durationMinutes: isCompleted ? durationMinutes : null,
+      createdAt: date,
+      updatedAt: date,
+    );
+    await insertMicroActionFeedback(feedback);
+    return feedback;
+  }
+
+  /// Appends a round-level evaluation. It never edits or collapses daily
+  /// feedback, and repeated reviews remain visible as separate facts.
+  Future<MicroActionReviewEventModel?> recordMicroActionRoundReview({
+    required String microActionId,
+    required String result,
+    required String effort,
+    required String nextAdjustment,
+    String? note,
+    DateTime? reviewedAt,
+  }) async {
+    if (!SmallTryRoundResult.values.contains(result)) {
+      throw ArgumentError.value(
+        result,
+        'result',
+        'unsupported_small_try_round_result',
+      );
+    }
+    if (!EvaluationEffort.values.contains(effort)) {
+      throw ArgumentError.value(
+        effort,
+        'effort',
+        'unsupported_small_try_round_effort',
+      );
+    }
+    if (!SmallTryNextAdjustment.values.contains(nextAdjustment)) {
+      throw ArgumentError.value(
+        nextAdjustment,
+        'nextAdjustment',
+        'unsupported_small_try_adjustment',
+      );
+    }
+    final action = await getMicroActionById(microActionId);
+    if (action == null) return null;
+    final date = reviewedAt ?? DateTime.now();
+    final created = DateTime.now().toUtc();
+    final model = MicroActionReviewEventModel(
+      id: createId('mar'),
+      microActionId: microActionId,
+      localUserId: action.localUserId,
+      reviewedAt: date,
+      localDate: _dateKey(date),
+      result: result,
+      effort: effort,
+      nextAdjustment: nextAdjustment,
+      note: note?.trim().isEmpty == true ? null : note?.trim(),
+      completedAttemptsAtReview:
+          await _completedMicroActionAttempts(microActionId),
+      createdAt: created,
+    );
+    final db = await localDatabase.database;
+    await db.insert(
+      'micro_action_review_events',
+      model.toDb(),
+      conflictAlgorithm: ConflictAlgorithm.abort,
+    );
+    await LocalTraceLinkRepository(localDatabase).upsert(
+      TraceLinkInput(
+        sourceType: 'micro_action_review',
+        sourceId: model.id,
+        targetType: 'micro_action',
+        targetId: microActionId,
+        relationType: 'review_for',
+        localUserId: action.localUserId,
+        metadata: {
+          'result': result,
+          'effort': effort,
+          'completed_attempts_at_review': model.completedAttemptsAtReview,
+        },
+      ),
+    );
+    await LocalCacheInvalidationRepository(localDatabase)
+        .markMicroActionChanged(
+      localDate: model.localDate,
+      reason: 'micro_action_round_reviewed',
+    );
+    return model;
+  }
+
+  Future<List<MicroActionReviewEventModel>> listMicroActionRoundReviews({
+    required String microActionId,
+  }) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'micro_action_review_events',
+      where: 'micro_action_id = ?',
+      whereArgs: [microActionId],
+      orderBy: 'reviewed_at ASC, created_at ASC, id ASC',
+    );
+    return rows.map(MicroActionReviewEventModel.fromDb).toList(growable: false);
+  }
+
+  Future<int> _completedMicroActionAttempts(String microActionId) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'micro_action_feedback',
+      where: 'micro_action_id = ? AND COALESCE(is_valid, 1) = 1',
+      whereArgs: [microActionId],
+      orderBy:
+          'local_date ASC, COALESCE(updated_at, created_at) ASC, created_at ASC, id ASC',
+    );
+    return rows.where((row) {
+      final happened = row['happened']?.toString().trim().toLowerCase();
+      return const {
+        'completed',
+        'done',
+        'occurred',
+        'happened',
+        'true',
+        'yes',
+        '1',
+      }.contains(happened);
+    }).length;
+  }
+
+  void _validateSmallTryDuration(
+    int durationMinutes, {
+    required String argumentName,
+  }) {
+    if (durationMinutes < 1 ||
+        durationMinutes > SmallTryPlanningLimits.maxDurationMinutes) {
+      throw ArgumentError.value(
+        durationMinutes,
+        argumentName,
+        'small_experiment_duration_must_be_between_1_and_10_minutes',
+      );
+    }
   }
 
   Future<List<MicroActionFeedbackModel>> listMicroActionFeedbacksBetween({
@@ -333,6 +554,7 @@ class LocalPhase3PlusRepository {
   bool _isHappenedFeedback(String happened) {
     return const {
       'yes',
+      'completed',
       'happened',
       'partial',
       'tried',

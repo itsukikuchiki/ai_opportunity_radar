@@ -8,6 +8,8 @@ import 'package:ai_opportunity_radar/core/api/repositories/signal_library_reposi
 import 'package:ai_opportunity_radar/core/eligibility/signal_eligibility_service.dart';
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
+import 'package:ai_opportunity_radar/core/models/signal_library_models.dart';
+import 'package:ai_opportunity_radar/core/preferences/focus_domains.dart';
 
 void main() {
   late Directory tempDir;
@@ -34,7 +36,7 @@ void main() {
 
     final patterns = await repository.listCuratedPatterns();
 
-    expect(patterns, hasLength(greaterThanOrEqualTo(8)));
+    expect(patterns, hasLength(18));
     expect(
         patterns.map((pattern) => pattern.id),
         containsAll([
@@ -55,7 +57,7 @@ void main() {
 
     final patterns = await repository.listCuratedPatterns(language: 'zh-Hans');
 
-    expect(patterns, hasLength(greaterThanOrEqualTo(8)));
+    expect(patterns, hasLength(18));
     expect(patterns.every((pattern) => pattern.language == 'zh-Hans'), isTrue);
     expect(patterns.first.title, '安排过密的一周');
     expect(patterns.first.abstractPattern, contains('固定安排很多'));
@@ -74,8 +76,8 @@ void main() {
         await repository.listCuratedPatterns(language: 'zh-Hant');
     final japanese = await repository.listCuratedPatterns(language: 'ja');
 
-    expect(traditional, hasLength(greaterThanOrEqualTo(8)));
-    expect(japanese, hasLength(greaterThanOrEqualTo(8)));
+    expect(traditional, hasLength(18));
+    expect(japanese, hasLength(18));
     expect(
       traditional.every((pattern) => pattern.language == 'zh-Hant'),
       isTrue,
@@ -95,6 +97,59 @@ void main() {
 
     expect(patterns, isNotEmpty);
     expect(patterns.every((pattern) => pattern.language == 'en'), isTrue);
+  });
+
+  test('every locale has two or three cards for every explicit focus tag',
+      () async {
+    final repository = _buildRepository(dbPath);
+    final domainIds = FocusDomains.options.map((option) => option.id).toSet();
+    final catalogs = <String, List<LibraryPatternModel>>{};
+
+    for (final language in const ['en', 'zh-Hans', 'zh-Hant', 'ja']) {
+      final patterns = await repository.listCuratedPatterns(language: language);
+      catalogs[language] = patterns;
+
+      expect(patterns, hasLength(18), reason: language);
+      expect(
+        patterns.map((pattern) => pattern.focusDomainId).toSet(),
+        domainIds,
+        reason: language,
+      );
+      expect(
+        patterns.map((pattern) => pattern.id).toSet(),
+        hasLength(patterns.length),
+        reason: '$language ids',
+      );
+      expect(
+        patterns.map((pattern) => pattern.abstractPattern).toSet(),
+        hasLength(patterns.length),
+        reason: '$language content',
+      );
+
+      for (final domainId in domainIds) {
+        final count = patterns
+            .where((pattern) => pattern.focusDomainId == domainId)
+            .length;
+        expect(
+          count,
+          allOf(greaterThanOrEqualTo(2), lessThanOrEqualTo(3)),
+          reason: '$language / $domainId',
+        );
+      }
+    }
+
+    final englishDomains = {
+      for (final pattern in catalogs['en']!)
+        _canonicalPatternId(pattern.id): pattern.focusDomainId,
+    };
+    expect(englishDomains, _expectedDomainByPattern);
+    for (final language in const ['zh-Hans', 'zh-Hant', 'ja']) {
+      final localizedDomains = {
+        for (final pattern in catalogs[language]!)
+          _canonicalPatternId(pattern.id): pattern.focusDomainId,
+      };
+      expect(localizedDomains, englishDomains, reason: language);
+    }
   });
 
   test(
@@ -218,6 +273,7 @@ void main() {
     expect(signal.energyLoad, pattern.energyLoadHint);
     expect(signal.positiveSignal, pattern.possiblePositiveSignal);
     expect(signal.rawPayloadJson['library_pattern_id'], pattern.id);
+    expect(signal.rawPayloadJson['focus_domain_id'], pattern.focusDomainId);
     expect(signal.rawPayloadJson['canonical_pattern_id'], pattern.id);
     expect(signal.rawPayloadJson['reference_type'], 'curated_signal_card');
     expect(signal.rawPayloadJson['generation_rule_version'],
@@ -228,6 +284,7 @@ void main() {
         signal.rawPayloadJson.keys,
         unorderedEquals([
           'library_pattern_id',
+          'focus_domain_id',
           'title',
           'abstract_pattern',
           'common_scenes',
@@ -329,7 +386,7 @@ void main() {
     );
   });
 
-  test('same pattern and day upserts instead of duplicating timeline cards',
+  test('same pattern and day replays the immutable card without duplicating',
       () async {
     final localDatabase = LocalDatabase(
       dbPathOverride: dbPath,
@@ -364,8 +421,8 @@ void main() {
       whereArgs: [pattern.id],
     );
     expect(cards, hasLength(1));
-    expect(cards.single['raw_text'], '改成我的情况后再写入。');
-    expect(cards.single['user_confirmation'], 'partial');
+    expect(cards.single['raw_text'], pattern.abstractPattern);
+    expect(cards.single['user_confirmation'], 'accurate');
     expect(actions, isEmpty);
   });
 }
@@ -378,3 +435,28 @@ SignalLibraryRepository _buildRepository(String dbPath) {
     ),
   );
 }
+
+String _canonicalPatternId(String id) {
+  return id.replaceFirst(RegExp(r'_(zh_hans|zh_hant|ja)$'), '');
+}
+
+const Map<String, String> _expectedDomainByPattern = {
+  'over_scheduled_weeks': 'growth_plan',
+  'recovery_debt': 'food_sleep',
+  'attention_switching_fatigue': 'growth_plan',
+  'unclear_expectation_relationship_friction': 'relationship_connection',
+  'late_night_compensation_behavior': 'food_sleep',
+  'weak_positive_signals': 'emotional_stability',
+  'boundary_fatigue': 'self_boundary',
+  'small_freedom_connection_creative_energy': 'creative_expression',
+  'tension_without_a_big_event': 'emotional_stability',
+  'being_heard_before_advice': 'relationship_connection',
+  'busy_without_a_clear_why': 'meaning_value',
+  'contribution_seen_restores_motivation': 'meaning_value',
+  'agreeing_before_checking_capacity': 'self_boundary',
+  'input_without_expression': 'creative_expression',
+  'clutter_keeps_attention_open': 'living_environment',
+  'unclear_spending_background_stress': 'living_environment',
+  'enjoyment_always_comes_last': 'interests_hobbies',
+  'vitality_after_movement_or_nature': 'interests_hobbies',
+};

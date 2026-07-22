@@ -3,11 +3,24 @@ import 'phase3_plus_models.dart';
 import 'weekly_models.dart';
 
 enum CandidateKind {
+  // Storage values stay unchanged for migration and backup compatibility.
+  // In the product language both kinds belong to the Life Experiment domain:
+  // microAction is the short "small experiment" track, while lifeExperiment
+  // is the medium/long-term "goal" track.
   microAction('micro_action'),
   lifeExperiment('life_experiment');
 
   final String storageValue;
   const CandidateKind(this.storageValue);
+}
+
+enum LifeExperimentTrack { smallTry, goal }
+
+extension CandidateKindLifeExperimentTrack on CandidateKind {
+  LifeExperimentTrack get lifeExperimentTrack => switch (this) {
+        CandidateKind.microAction => LifeExperimentTrack.smallTry,
+        CandidateKind.lifeExperiment => LifeExperimentTrack.goal,
+      };
 }
 
 enum CandidateGenerationStatus {
@@ -21,6 +34,25 @@ enum CandidateGenerationStatus {
     return CandidateGenerationStatus.values.firstWhere(
       (item) => item.name == value?.toString(),
       orElse: () => CandidateGenerationStatus.stale,
+    );
+  }
+}
+
+/// A user's explicit decision about a generated candidate.
+///
+/// `undecided` is an internal initial state rather than a third visible
+/// choice. `considering` keeps the candidate as a read-only observation
+/// without creating a progress-bearing plan; `adopted` means a canonical
+/// micro action or life experiment has been created.
+enum CandidateDecisionStatus {
+  undecided,
+  considering,
+  adopted;
+
+  static CandidateDecisionStatus fromStorage(Object? value) {
+    return CandidateDecisionStatus.values.firstWhere(
+      (item) => item.name == value?.toString().trim().toLowerCase(),
+      orElse: () => CandidateDecisionStatus.undecided,
     );
   }
 }
@@ -90,6 +122,26 @@ class CandidateSnapshot<T> {
   });
 }
 
+/// The explicit selection surface for the following Monday. Both tracks live
+/// under Life Experiment: small tries can be attempted immediately once the
+/// target week begins, while goals need repeated practice across that week.
+/// Nothing in this read model is active in Today before `targetWeekStart`.
+class NextWeekPlanCandidateSnapshot {
+  final CandidateGateState gate;
+  final String targetWeekStart;
+  final String targetWeekEnd;
+  final List<MicroActionCandidateModel> smallTryCandidates;
+  final List<ExperimentCandidateRecord> goalCandidates;
+
+  const NextWeekPlanCandidateSnapshot({
+    required this.gate,
+    required this.targetWeekStart,
+    required this.targetWeekEnd,
+    this.smallTryCandidates = const [],
+    this.goalCandidates = const [],
+  });
+}
+
 /// Compact planning fingerprint stored in the existing `source_hash` column.
 ///
 /// Keeping the component hashes in one backward-compatible value avoids a DB
@@ -140,6 +192,8 @@ class CandidatePlanningFingerprint {
 
 class CandidateFeedbackSummary {
   final List<String> effectiveEventIds;
+  final int completedCount;
+  final int notCompletedCount;
   final int helpfulCount;
   final int difficultCount;
   final int skippedCount;
@@ -147,6 +201,8 @@ class CandidateFeedbackSummary {
 
   const CandidateFeedbackSummary({
     this.effectiveEventIds = const [],
+    this.completedCount = 0,
+    this.notCompletedCount = 0,
     this.helpfulCount = 0,
     this.difficultCount = 0,
     this.skippedCount = 0,
@@ -156,6 +212,23 @@ class CandidateFeedbackSummary {
   bool get hasEvidence => effectiveEventIds.isNotEmpty;
 }
 
+/// Optional Pro/deep-analysis context used only to improve the ordering and
+/// wording of next-week candidates. It never opens the candidate gate and is
+/// not required for a free user to receive grounded suggestions.
+class DeepPlanningReference {
+  final String id;
+  final String sourceHash;
+  final String summary;
+  final String? observationPlanId;
+
+  const DeepPlanningReference({
+    required this.id,
+    required this.sourceHash,
+    required this.summary,
+    this.observationPlanId,
+  });
+}
+
 class CandidatePlanningContext {
   final CandidateGateState gate;
   final EnergyBudgetSnapshot energySnapshot;
@@ -163,6 +236,7 @@ class CandidatePlanningContext {
   final List<String> focusDomainIds;
   final CandidateFeedbackSummary feedback;
   final String sourceHash;
+  final DeepPlanningReference? deepReference;
 
   const CandidatePlanningContext({
     required this.gate,
@@ -171,6 +245,7 @@ class CandidatePlanningContext {
     required this.focusDomainIds,
     required this.feedback,
     required this.sourceHash,
+    this.deepReference,
   });
 
   CandidateKind get kind => gate.kind;
@@ -270,6 +345,7 @@ class MicroActionCandidateModel {
   final List<String> linkedSignalCardIds;
   final List<String> focusDomainIds;
   final String status;
+  final CandidateDecisionStatus decisionStatus;
   final String? adoptedMicroActionId;
   final String sourceHash;
   final String energySnapshotHash;
@@ -293,6 +369,7 @@ class MicroActionCandidateModel {
     required this.linkedSignalCardIds,
     required this.focusDomainIds,
     required this.status,
+    this.decisionStatus = CandidateDecisionStatus.undecided,
     required this.sourceHash,
     this.energySnapshotHash = '',
     this.energyCapacityBand = EnergyCapacityBand.unknown,
@@ -305,7 +382,13 @@ class MicroActionCandidateModel {
     this.updatedAt,
   });
 
-  bool get isAdopted => status == 'adopted' && adoptedMicroActionId != null;
+  bool get isAdopted =>
+      (decisionStatus == CandidateDecisionStatus.adopted ||
+          const {'adopted', 'planned', 'active'}.contains(status)) &&
+      adoptedMicroActionId != null;
+
+  bool get isConsidering =>
+      decisionStatus == CandidateDecisionStatus.considering && !isAdopted;
 }
 
 class ExperimentCandidateRecord {
@@ -323,6 +406,7 @@ class ExperimentCandidateRecord {
   final String confidenceLevel;
   final Map<String, dynamic> metadata;
   final String status;
+  final CandidateDecisionStatus decisionStatus;
   final String? adoptedExperimentId;
   final String sourceHash;
   final String energySnapshotHash;
@@ -349,6 +433,7 @@ class ExperimentCandidateRecord {
     required this.confidenceLevel,
     required this.metadata,
     required this.status,
+    this.decisionStatus = CandidateDecisionStatus.undecided,
     required this.sourceHash,
     this.energySnapshotHash = '',
     this.energyCapacityBand = EnergyCapacityBand.unknown,
@@ -361,7 +446,13 @@ class ExperimentCandidateRecord {
     this.updatedAt,
   });
 
-  bool get isAdopted => status == 'adopted' && adoptedExperimentId != null;
+  bool get isAdopted =>
+      (decisionStatus == CandidateDecisionStatus.adopted ||
+          const {'adopted', 'planned', 'active'}.contains(status)) &&
+      adoptedExperimentId != null;
+
+  bool get isConsidering =>
+      decisionStatus == CandidateDecisionStatus.considering && !isAdopted;
 }
 
 enum ProgressCellState { empty, completed, notCompleted }
@@ -381,6 +472,8 @@ class SevenDayProgressCell {
 }
 
 class SevenDayProgressModel {
+  /// Kept for the goal/week compatibility projection. Quick experiments may
+  /// now carry any number of real attempt cells and do not use this ceiling.
   static const totalDays = 7;
 
   final String subjectId;
@@ -395,10 +488,13 @@ class SevenDayProgressModel {
     required this.cells,
   });
 
-  int get completedDays => cells
-      .where((cell) => cell.state == ProgressCellState.completed)
-      .length
-      .clamp(0, totalDays);
+  int get completedEntries =>
+      cells.where((cell) => cell.state == ProgressCellState.completed).length;
+
+  int get completedAttempts => completedEntries;
+
+  /// Compatibility name used by goal/day-grid consumers.
+  int get completedDays => completedEntries;
 }
 
 class AdoptedMicroActionProgress {

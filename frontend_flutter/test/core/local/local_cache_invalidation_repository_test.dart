@@ -196,7 +196,9 @@ void main() {
     );
   });
 
-  test('feedback 修改 propagates rollup / Weekly / Journey stale', () async {
+  test(
+      'same-day appended correction propagates rollup / Weekly / Journey stale',
+      () async {
     const weekStart = '2026-07-06';
     const localDate = '2026-07-08';
     final experiment = await lifeExperimentRepository.ensureSuggested(
@@ -221,21 +223,26 @@ void main() {
       journeyDate: localDate,
     );
 
-    await lifeExperimentRepository.updateFeedback(
-      feedbackId: feedback!.id,
+    expect(feedback, isNotNull);
+    await lifeExperimentRepository.recordFeedback(
+      experimentId: experiment.id,
       completionStatus: 'adjusted',
       helpfulnessScore: 3,
       feedbackText: '需要调轻一点',
+      feedbackDate: DateTime.parse('$localDate 20:00:00'),
       durationMinutes: 8,
     );
 
-    await _expectStale(
-      localDatabase,
-      table: 'life_experiment_rollups',
+    final db = await localDatabase.database;
+    final rollup = (await db.query(
+      'life_experiment_rollups',
       where: 'experiment_id = ?',
       whereArgs: [experiment.id],
-      reason: 'life_experiment_feedback_changed',
-    );
+      limit: 1,
+    ))
+        .single;
+    expect(rollup['total_feedback_count'], 2);
+    expect(rollup['dirty'], 0);
     await _expectStale(
       localDatabase,
       table: 'weekly_snapshots',

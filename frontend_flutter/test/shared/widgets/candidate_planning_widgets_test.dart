@@ -67,7 +67,7 @@ void main() {
       ),
     );
 
-    expect(find.text('3 条信号依据'), findsOneWidget);
+    expect(find.text('3 条 Signal 来源'), findsOneWidget);
     expect(find.text('未选择'), findsOneWidget);
     expect(find.byKey(const ValueKey('candidate-energy-adaptation-cand-1')),
         findsOneWidget);

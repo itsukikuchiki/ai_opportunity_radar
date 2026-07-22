@@ -22,7 +22,7 @@ class AdvancedEnergyBoundaryRepository {
       canContributeToSignalLibrary: false,
       storesRawExternalData: false,
       fallbackMessage: canUseExternal
-          ? 'Health recovery hints can add gentle context, but SignalCard remains the main evidence.'
+          ? 'Health recovery hints can add gentle context, while your Signal Cards stay at the center.'
           : _fallbackMessage(consent),
       abstractExternalMetadata:
           canUseExternal ? summary.toAbstractMetadata() : const {},
@@ -79,14 +79,14 @@ class AdvancedEnergyBoundaryRepository {
   String _fallbackMessage(AdvancedEnergyConsentState consent) {
     if (consent.calendar == ExternalEnergyPermissionStatus.unavailable ||
         consent.healthKit == ExternalEnergyPermissionStatus.unavailable) {
-      return 'Health recovery hints are unavailable right now. Energy Budget can still use your internal SignalCard observations.';
+      return 'Health recovery hints are unavailable right now. Energy Budget can still use your internal Signal Card observations.';
     }
     if (consent.calendar == ExternalEnergyPermissionStatus.denied ||
         consent.healthKit == ExternalEnergyPermissionStatus.denied ||
         consent.calendar == ExternalEnergyPermissionStatus.revoked ||
         consent.healthKit == ExternalEnergyPermissionStatus.revoked) {
-      return 'You can keep Health access off. Energy Budget still works from your own SignalCard observations.';
+      return 'You can keep Health access off. Energy Budget still works from your own Signal Card observations.';
     }
-    return 'Health access is optional. Energy Budget works from internal SignalCard observations first.';
+    return 'Health access is optional. Energy Budget works from internal Signal Card observations first.';
   }
 }

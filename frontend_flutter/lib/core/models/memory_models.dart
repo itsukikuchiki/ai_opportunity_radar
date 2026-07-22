@@ -94,6 +94,11 @@ class JourneyTraceModel {
   final double intensity;
   final String signalLevel;
 
+  /// Typed source metadata used by read projections without changing the
+  /// append-only event identity. Examples include `review_type`,
+  /// `subject_id`, `is_effective`, and the canonical five-state energy key.
+  final Map<String, dynamic> metadata;
+
   const JourneyTraceModel({
     required this.id,
     required this.sourceType,
@@ -103,6 +108,7 @@ class JourneyTraceModel {
     required this.cluster,
     required this.intensity,
     required this.signalLevel,
+    this.metadata = const {},
   });
 
   factory JourneyTraceModel.fromJson(Map<String, dynamic> json) {
@@ -115,6 +121,9 @@ class JourneyTraceModel {
       cluster: (json['cluster'] as String?) ?? 'life',
       intensity: ((json['intensity'] as num?) ?? 0.45).toDouble(),
       signalLevel: (json['signal_level'] as String?) ?? 'weak_signal',
+      metadata: json['metadata'] is Map
+          ? (json['metadata'] as Map).cast<String, dynamic>()
+          : const {},
     );
   }
 
@@ -128,8 +137,201 @@ class JourneyTraceModel {
       'cluster': cluster,
       'intensity': intensity,
       'signal_level': signalLevel,
+      'metadata': metadata,
     };
   }
+}
+
+/// Factual daily projection for one selected local calendar month.
+///
+/// This is not an inferred score. Signal count comes only from eligible
+/// Signal Cards, energy counts are the exhaustive five-state classification
+/// of those same Signals, and feedback counts come from append-only facts.
+class JourneyDayFactModel {
+  final String localDate;
+  final int signalCount;
+  final Map<String, int> energyStateCounts;
+  final int smallExperimentAttemptCount;
+  final int goalFeedbackCount;
+
+  const JourneyDayFactModel({
+    required this.localDate,
+    this.signalCount = 0,
+    this.energyStateCounts = const {},
+    this.smallExperimentAttemptCount = 0,
+    this.goalFeedbackCount = 0,
+  });
+
+  factory JourneyDayFactModel.fromJson(Map<String, dynamic> json) {
+    final rawEnergy = json['energy_state_counts'];
+    return JourneyDayFactModel(
+      localDate: (json['local_date'] as String?) ?? '',
+      signalCount: (json['signal_count'] as num?)?.toInt() ?? 0,
+      energyStateCounts: rawEnergy is Map
+          ? rawEnergy.map(
+              (key, value) => MapEntry(
+                key.toString(),
+                (value as num?)?.toInt() ?? 0,
+              ),
+            )
+          : const {},
+      smallExperimentAttemptCount:
+          (json['small_experiment_attempt_count'] as num?)?.toInt() ?? 0,
+      goalFeedbackCount: (json['goal_feedback_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'local_date': localDate,
+        'signal_count': signalCount,
+        'energy_state_counts': energyStateCounts,
+        'small_experiment_attempt_count': smallExperimentAttemptCount,
+        'goal_feedback_count': goalFeedbackCount,
+      };
+}
+
+/// One read-only small-experiment or goal trajectory in Journey.
+class JourneyExperimentTrackModel {
+  final String subjectId;
+  final String kind;
+  final String title;
+  final int attemptCount;
+  final int feedbackCount;
+  final int roundReviewCount;
+  final int weeklyReviewCount;
+  final int wholeRoundReviewCount;
+  final String latestResult;
+  final String latestLocalDate;
+
+  const JourneyExperimentTrackModel({
+    required this.subjectId,
+    required this.kind,
+    required this.title,
+    this.attemptCount = 0,
+    this.feedbackCount = 0,
+    this.roundReviewCount = 0,
+    this.weeklyReviewCount = 0,
+    this.wholeRoundReviewCount = 0,
+    this.latestResult = '',
+    this.latestLocalDate = '',
+  });
+
+  factory JourneyExperimentTrackModel.fromJson(Map<String, dynamic> json) {
+    return JourneyExperimentTrackModel(
+      subjectId: (json['subject_id'] as String?) ?? '',
+      kind: (json['kind'] as String?) ?? '',
+      title: (json['title'] as String?) ?? '',
+      attemptCount: (json['attempt_count'] as num?)?.toInt() ?? 0,
+      feedbackCount: (json['feedback_count'] as num?)?.toInt() ?? 0,
+      roundReviewCount: (json['round_review_count'] as num?)?.toInt() ?? 0,
+      weeklyReviewCount: (json['weekly_review_count'] as num?)?.toInt() ?? 0,
+      wholeRoundReviewCount:
+          (json['whole_round_review_count'] as num?)?.toInt() ?? 0,
+      latestResult: (json['latest_result'] as String?) ?? '',
+      latestLocalDate: (json['latest_local_date'] as String?) ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'subject_id': subjectId,
+        'kind': kind,
+        'title': title,
+        'attempt_count': attemptCount,
+        'feedback_count': feedbackCount,
+        'round_review_count': roundReviewCount,
+        'weekly_review_count': weeklyReviewCount,
+        'whole_round_review_count': wholeRoundReviewCount,
+        'latest_result': latestResult,
+        'latest_local_date': latestLocalDate,
+      };
+}
+
+/// Complete factual layer for the selected month. Synthesis readiness is
+/// evaluated separately and only eligible Signal Cards contribute to it.
+class JourneyPeriodFactsModel {
+  final String periodStart;
+  final String periodEnd;
+  final int signalCount;
+  final int activeDayCount;
+  final int smallExperimentAttemptCount;
+  final int smallExperimentRoundReviewCount;
+  final int goalFeedbackCount;
+  final int goalWeeklyReviewCount;
+  final int goalWholeRoundReviewCount;
+  final Map<String, int> energyStateCounts;
+  final List<JourneyDayFactModel> days;
+  final List<JourneyExperimentTrackModel> experimentTracks;
+
+  const JourneyPeriodFactsModel({
+    required this.periodStart,
+    required this.periodEnd,
+    this.signalCount = 0,
+    this.activeDayCount = 0,
+    this.smallExperimentAttemptCount = 0,
+    this.smallExperimentRoundReviewCount = 0,
+    this.goalFeedbackCount = 0,
+    this.goalWeeklyReviewCount = 0,
+    this.goalWholeRoundReviewCount = 0,
+    this.energyStateCounts = const {},
+    this.days = const [],
+    this.experimentTracks = const [],
+  });
+
+  factory JourneyPeriodFactsModel.fromJson(Map<String, dynamic> json) {
+    final rawEnergy = json['energy_state_counts'];
+    return JourneyPeriodFactsModel(
+      periodStart: (json['period_start'] as String?) ?? '',
+      periodEnd: (json['period_end'] as String?) ?? '',
+      signalCount: (json['signal_count'] as num?)?.toInt() ?? 0,
+      activeDayCount: (json['active_day_count'] as num?)?.toInt() ?? 0,
+      smallExperimentAttemptCount:
+          (json['small_experiment_attempt_count'] as num?)?.toInt() ?? 0,
+      smallExperimentRoundReviewCount:
+          (json['small_experiment_round_review_count'] as num?)?.toInt() ?? 0,
+      goalFeedbackCount: (json['goal_feedback_count'] as num?)?.toInt() ?? 0,
+      goalWeeklyReviewCount:
+          (json['goal_weekly_review_count'] as num?)?.toInt() ?? 0,
+      goalWholeRoundReviewCount:
+          (json['goal_whole_round_review_count'] as num?)?.toInt() ?? 0,
+      energyStateCounts: rawEnergy is Map
+          ? rawEnergy.map(
+              (key, value) => MapEntry(
+                key.toString(),
+                (value as num?)?.toInt() ?? 0,
+              ),
+            )
+          : const {},
+      days: ((json['days'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => JourneyDayFactModel.fromJson(
+                item.cast<String, dynamic>(),
+              ))
+          .toList(growable: false),
+      experimentTracks: ((json['experiment_tracks'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => JourneyExperimentTrackModel.fromJson(
+                item.cast<String, dynamic>(),
+              ))
+          .toList(growable: false),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'period_start': periodStart,
+        'period_end': periodEnd,
+        'signal_count': signalCount,
+        'active_day_count': activeDayCount,
+        'small_experiment_attempt_count': smallExperimentAttemptCount,
+        'small_experiment_round_review_count': smallExperimentRoundReviewCount,
+        'goal_feedback_count': goalFeedbackCount,
+        'goal_weekly_review_count': goalWeeklyReviewCount,
+        'goal_whole_round_review_count': goalWholeRoundReviewCount,
+        'energy_state_counts': energyStateCounts,
+        'days': days.map((item) => item.toJson()).toList(growable: false),
+        'experiment_tracks': experimentTracks
+            .map((item) => item.toJson())
+            .toList(growable: false),
+      };
 }
 
 class JourneyEvidenceItemModel {
@@ -248,6 +450,7 @@ class MemorySummaryModel {
   final List<JourneyTraceModel> journeyTraces;
   final List<JourneyObservationModel> observations;
   final PhaseMemoryModel? phaseMemory;
+  final JourneyPeriodFactsModel? periodFacts;
 
   MemorySummaryModel({
     required this.patterns,
@@ -260,6 +463,7 @@ class MemorySummaryModel {
     this.journeyTraces = const [],
     this.observations = const [],
     this.phaseMemory,
+    this.periodFacts,
   });
 
   factory MemorySummaryModel.fromJson(Map<String, dynamic> json) {
@@ -312,6 +516,11 @@ class MemorySummaryModel {
               (json['phase_memory'] as Map).cast<String, dynamic>(),
             )
           : null,
+      periodFacts: json['period_facts'] is Map
+          ? JourneyPeriodFactsModel.fromJson(
+              (json['period_facts'] as Map).cast<String, dynamic>(),
+            )
+          : null,
     );
   }
 
@@ -334,6 +543,7 @@ class MemorySummaryModel {
     List<JourneyTraceModel>? journeyTraces,
     List<JourneyObservationModel>? observations,
     PhaseMemoryModel? phaseMemory,
+    JourneyPeriodFactsModel? periodFacts,
   }) {
     return MemorySummaryModel(
       patterns: patterns ?? this.patterns,
@@ -346,6 +556,7 @@ class MemorySummaryModel {
       journeyTraces: journeyTraces ?? this.journeyTraces,
       observations: observations ?? this.observations,
       phaseMemory: phaseMemory ?? this.phaseMemory,
+      periodFacts: periodFacts ?? this.periodFacts,
     );
   }
 

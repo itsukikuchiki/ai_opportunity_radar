@@ -8,6 +8,7 @@ import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_feedback_event_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dart';
+import 'package:ai_opportunity_radar/core/models/experiment_evaluation_models.dart';
 import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 
 void main() {
@@ -217,7 +218,64 @@ void main() {
   });
 
   test(
-      'deleted source feedback is excluded and life feedback trace is inactive',
+      'round and outcome reviews enter feedback projection but not Signal data',
+      () async {
+    await phase3PlusRepository.upsertMicroAction(
+      MicroActionModel(
+        id: 'micro_review_projection',
+        judgementId: '',
+        title: '留两分钟缓冲',
+        reason: '观察切换感受',
+        status: 'active',
+        localUserId: 'local',
+        adoptedAt: DateTime(2026, 7, 2),
+        progressStartDate: '2026-07-02',
+      ),
+    );
+    await phase3PlusRepository.recordMicroActionRoundReview(
+      microActionId: 'micro_review_projection',
+      result: SmallTryRoundResult.adjustAndRetry,
+      effort: EvaluationEffort.acceptable,
+      nextAdjustment: SmallTryNextAdjustment.makeLighter,
+      reviewedAt: DateTime(2026, 7, 5, 10),
+    );
+
+    final experiment = await lifeExperimentRepository.ensureSuggested(
+      localUserId: 'local',
+      weekStart: '2026-07-01',
+      weekEnd: '2026-08-31',
+      title: '午后留白',
+      hypothesis: '观察长期恢复变化',
+      suggestedAction: '每周三次留白',
+      linkedSignalCardIds: const [],
+      status: 'active',
+      minimumObservationDays: 3,
+    );
+    await lifeExperimentRepository.recordWholeRoundReview(
+      experimentId: experiment.id,
+      outcomeResult: GoalOutcomeResult.unclear,
+      burden: EvaluationEffort.acceptable,
+      userConfirmedRoundEnd: true,
+      reviewedAt: DateTime(2026, 7, 6, 18),
+    );
+
+    final events = await repository.listActiveBetween(
+      localUserId: 'local',
+      startDate: '2026-07-01',
+      endDate: '2026-07-31',
+    );
+    expect(events.map((event) => event.sourceType), [
+      'micro_action_round_review',
+      'life_experiment_outcome_review',
+    ]);
+    expect(events.first.effect, SmallTryRoundResult.adjustAndRetry);
+    expect(events.last.effect, GoalOutcomeResult.unclear);
+    expect(events.last.metadata['review_type'], GoalReviewType.wholeRound);
+    expect(events.last.metadata['minimum_observation_days'], 3);
+  });
+
+  test(
+      'whole-chain experiment deletion removes feedback and inactivates its trace',
       () async {
     final experiment = await lifeExperimentRepository.ensureSuggested(
       localUserId: 'local',
@@ -234,6 +292,8 @@ void main() {
       completionStatus: 'helpful',
       feedbackDate: DateTime(2026, 7, 2),
     );
+    expect(feedback, isNotNull);
+    final feedbackId = feedback!.id;
     final scheduleId = await _seedLegacySchedule(
       localDatabase,
       id: 'schedule_deleted',
@@ -251,7 +311,7 @@ void main() {
       feedbackDate: '2026-07-04',
     );
 
-    await lifeExperimentRepository.deleteFeedback(feedback!.id);
+    await lifeExperimentRepository.deleteExperiment(experiment.id);
     final db = await localDatabase.database;
     final deletedAt = DateTime.now().toUtc().toIso8601String();
     await db.update(
@@ -277,7 +337,7 @@ void main() {
     final traceLinks = await db.query(
       'trace_links',
       where: 'source_type = ? AND source_id = ?',
-      whereArgs: ['life_experiment_feedback', feedback.id],
+      whereArgs: ['life_experiment_feedback', feedbackId],
     );
     expect(traceLinks, isNotEmpty);
     expect(traceLinks.every((row) => row['status'] == 'inactive'), isTrue);

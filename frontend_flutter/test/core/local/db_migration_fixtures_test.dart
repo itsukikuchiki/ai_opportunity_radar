@@ -20,6 +20,363 @@ void main() {
   );
 
   group('P2.1-11 DB migration fixtures', () {
+    test('v38 adds candidate decisions and backfills adopted history',
+        () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('db_v38_candidate_decision_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final path = p.join(tempDir.path, 'legacy_v37.db');
+      final legacy = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 37,
+          onCreate: (db, _) async {
+            await db.execute('''
+              CREATE TABLE micro_action_candidates (
+                id TEXT PRIMARY KEY,
+                local_user_id TEXT NOT NULL DEFAULT 'local',
+                status TEXT NOT NULL DEFAULT 'generated',
+                adopted_micro_action_id TEXT,
+                updated_at TEXT NOT NULL
+              )
+            ''');
+            await db.execute('''
+              CREATE TABLE experiment_candidates (
+                id TEXT PRIMARY KEY,
+                local_user_id TEXT NOT NULL DEFAULT 'local',
+                status TEXT NOT NULL DEFAULT 'generated',
+                adopted_experiment_id TEXT,
+                updated_at TEXT NOT NULL
+              )
+            ''');
+          },
+        ),
+      );
+      const timestamp = '2026-07-16T00:00:00.000Z';
+      await legacy.insert('micro_action_candidates', {
+        'id': 'micro-adopted',
+        'status': 'generated',
+        'adopted_micro_action_id': 'micro-1',
+        'updated_at': timestamp,
+      });
+      await legacy.insert('micro_action_candidates', {
+        'id': 'micro-considering',
+        'status': 'observing',
+        'updated_at': timestamp,
+      });
+      await legacy.insert('experiment_candidates', {
+        'id': 'goal-planned',
+        'status': 'planned',
+        'updated_at': timestamp,
+      });
+      await legacy.insert('experiment_candidates', {
+        'id': 'goal-undecided',
+        'status': 'generated',
+        'updated_at': timestamp,
+      });
+      await legacy.close();
+
+      final localDatabase = LocalDatabase(
+        dbPathOverride: path,
+        databaseFactoryOverride: databaseFactoryFfi,
+      );
+      addTearDown(localDatabase.close);
+      final upgraded = await localDatabase.database;
+      expect(await _userVersion(upgraded), 40);
+      final microRows = {
+        for (final row in await upgraded.query('micro_action_candidates'))
+          row['id']: row['decision_status'],
+      };
+      final goalRows = {
+        for (final row in await upgraded.query('experiment_candidates'))
+          row['id']: row['decision_status'],
+      };
+      expect(microRows['micro-adopted'], 'adopted');
+      expect(microRows['micro-considering'], 'considering');
+      expect(goalRows['goal-planned'], 'adopted');
+      expect(goalRows['goal-undecided'], 'undecided');
+    });
+
+    test('v39 adds effect review storage without rewriting old feedback',
+        () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('db_v39_effect_review_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final path = p.join(tempDir.path, 'legacy_v38.db');
+      final legacy = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 38,
+          onCreate: (db, _) async {
+            await db.execute('''
+              CREATE TABLE life_experiments (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL
+              )
+            ''');
+            await db.execute('''
+              CREATE TABLE micro_action_feedback (
+                id TEXT PRIMARY KEY,
+                micro_action_id TEXT NOT NULL,
+                local_date TEXT NOT NULL,
+                happened TEXT NOT NULL,
+                effect TEXT,
+                difficulty TEXT,
+                user_note TEXT,
+                next_adjustment TEXT,
+                created_at TEXT NOT NULL
+              )
+            ''');
+          },
+        ),
+      );
+      await legacy.insert('life_experiments', {
+        'id': 'legacy-goal',
+        'title': '旧目标',
+      });
+      await legacy.insert('micro_action_feedback', {
+        'id': 'legacy-feedback',
+        'micro_action_id': 'legacy-action',
+        'local_date': '2026-07-20',
+        'happened': 'done',
+        'effect': 'helpful',
+        'difficulty': 'adjusted',
+        'user_note': '旧事实必须保留',
+        'next_adjustment': 'continue',
+        'created_at': '2026-07-20T00:00:00.000Z',
+      });
+      await legacy.close();
+
+      final localDatabase = LocalDatabase(
+        dbPathOverride: path,
+        databaseFactoryOverride: databaseFactoryFfi,
+      );
+      addTearDown(localDatabase.close);
+      final upgraded = await localDatabase.database;
+      expect(await _userVersion(upgraded), 40);
+      final goal = (await upgraded.query('life_experiments')).single;
+      expect(goal['minimum_observation_days'], 3);
+      expect(await _tableExists(upgraded, 'micro_action_review_events'), true);
+      final legacyFeedback =
+          (await upgraded.query('micro_action_feedback')).single;
+      expect(legacyFeedback['effect'], 'helpful');
+      expect(legacyFeedback['difficulty'], 'adjusted');
+      expect(legacyFeedback['user_note'], '旧事实必须保留');
+    });
+
+    test('fresh v40 database creates candidate columns before v40 repair',
+        () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('db_v40_fresh_order_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final path = p.join(tempDir.path, 'fresh_v40.db');
+      final localDatabase = LocalDatabase(
+        dbPathOverride: path,
+        databaseFactoryOverride: databaseFactoryFfi,
+      );
+      addTearDown(localDatabase.close);
+
+      final db = await localDatabase.database;
+      expect(await _userVersion(db), 40);
+      final columns = await db.rawQuery('PRAGMA table_info(micro_actions)');
+      final names = columns.map((row) => row['name']).toSet();
+      expect(names, contains('progress_end_date'));
+      expect(names, contains('planned_duration_minutes'));
+    });
+
+    test('v40 migrates real-attempt and typed-review fields compatibly',
+        () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('db_v40_attempt_review_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final path = p.join(tempDir.path, 'legacy_v39.db');
+      final legacy = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 39,
+          onCreate: (db, _) async {
+            await db.execute('''
+              CREATE TABLE micro_actions (
+                id TEXT PRIMARY KEY,
+                status TEXT,
+                progress_start_date TEXT,
+                progress_end_date TEXT
+              )
+            ''');
+            await db.execute('''
+              CREATE TABLE micro_action_feedback (
+                id TEXT PRIMARY KEY
+              )
+            ''');
+            await db.execute('''
+              CREATE TABLE micro_action_review_events (
+                id TEXT PRIMARY KEY,
+                completed_days_at_review INTEGER NOT NULL DEFAULT 0
+              )
+            ''');
+            await db.execute('''
+              CREATE TABLE life_experiment_lifecycle_events (
+                id TEXT PRIMARY KEY,
+                experiment_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                event_date TEXT NOT NULL
+              )
+            ''');
+          },
+        ),
+      );
+      await legacy.insert('micro_actions', {
+        'id': 'open-seven-day-row',
+        'status': 'active',
+        'progress_start_date': '2026-07-01',
+        'progress_end_date': '2026-07-07',
+      });
+      await legacy.insert('micro_actions', {
+        'id': 'terminal-seven-day-row',
+        'status': 'completed',
+        'progress_start_date': '2026-07-01',
+        'progress_end_date': '2026-07-07',
+      });
+      await legacy.insert('micro_action_feedback', {'id': 'feedback-1'});
+      await legacy.insert('micro_action_review_events', {
+        'id': 'review-1',
+        'completed_days_at_review': 2,
+      });
+      await legacy.insert('life_experiment_lifecycle_events', {
+        'id': 'goal-review-1',
+        'experiment_id': 'goal-1',
+        'event_type': 'outcome_reviewed',
+        'event_date': '2026-07-07T10:00:00.000Z',
+      });
+      await legacy.close();
+
+      final localDatabase = LocalDatabase(
+        dbPathOverride: path,
+        databaseFactoryOverride: databaseFactoryFfi,
+      );
+      addTearDown(localDatabase.close);
+      final db = await localDatabase.database;
+      expect(await _userVersion(db), 40);
+
+      final open = (await db.query(
+        'micro_actions',
+        where: 'id = ?',
+        whereArgs: ['open-seven-day-row'],
+      ))
+          .single;
+      final terminal = (await db.query(
+        'micro_actions',
+        where: 'id = ?',
+        whereArgs: ['terminal-seven-day-row'],
+      ))
+          .single;
+      expect(open['progress_end_date'], isNull);
+      expect(open['planned_duration_minutes'], 10);
+      expect(terminal['progress_end_date'], '2026-07-07');
+      expect(
+        (await db.query('micro_action_review_events'))
+            .single['completed_attempts_at_review'],
+        2,
+      );
+      expect(
+        (await db.query('life_experiment_lifecycle_events'))
+            .single['review_type'],
+        'whole_round',
+      );
+      expect(
+        () => db.update(
+          'micro_actions',
+          {'planned_duration_minutes': 11},
+          where: 'id = ?',
+          whereArgs: ['open-seven-day-row'],
+        ),
+        throwsA(isA<DatabaseException>()),
+      );
+      expect(
+        () => db.update(
+          'micro_action_feedback',
+          {'duration_minutes': 11},
+          where: 'id = ?',
+          whereArgs: ['feedback-1'],
+        ),
+        throwsA(isA<DatabaseException>()),
+      );
+    });
+
+    test('v35 restores legacy daily-completed small tries to active lifecycle',
+        () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('db_v35_micro_action_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final path = p.join(tempDir.path, 'legacy_v34.db');
+      final legacy = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 34,
+          onCreate: (db, _) async {
+            await db.execute('''
+              CREATE TABLE micro_actions (
+                id TEXT PRIMARY KEY,
+                status TEXT,
+                adopted_at TEXT,
+                origin_candidate_id TEXT
+              )
+            ''');
+            await db.execute('''
+              CREATE TABLE micro_action_feedback (
+                id TEXT PRIMARY KEY,
+                micro_action_id TEXT NOT NULL
+              )
+            ''');
+          },
+        ),
+      );
+      await legacy.insert('micro_actions', {
+        'id': 'daily-completion',
+        'status': 'done',
+        'adopted_at': '2026-07-15T09:00:00Z',
+      });
+      await legacy.insert('micro_action_feedback', {
+        'id': 'feedback-1',
+        'micro_action_id': 'daily-completion',
+      });
+      await legacy.insert('micro_actions', {
+        'id': 'explicit-lifecycle-done',
+        'status': 'done',
+        'adopted_at': '2026-07-15T09:00:00Z',
+      });
+      await legacy.close();
+
+      final localDatabase = LocalDatabase(
+        dbPathOverride: path,
+        databaseFactoryOverride: databaseFactoryFfi,
+      );
+      addTearDown(localDatabase.close);
+      final upgraded = await localDatabase.database;
+      final daily = await upgraded.query(
+        'micro_actions',
+        where: 'id = ?',
+        whereArgs: ['daily-completion'],
+      );
+      final explicit = await upgraded.query(
+        'micro_actions',
+        where: 'id = ?',
+        whereArgs: ['explicit-lifecycle-done'],
+      );
+      expect(daily.single['status'], 'active');
+      expect(explicit.single['status'], 'done');
+    });
+
     test('all requested fixture files exist with expected user_version',
         () async {
       final expectedVersions = <String, int>{
@@ -162,7 +519,7 @@ void main() {
       await localDatabase.init();
       final db = await localDatabase.database;
 
-      expect(await _userVersion(db), 34);
+      expect(await _userVersion(db), 40);
       final candidates = await db.query('experiment_candidates');
       expect(candidates, hasLength(1));
       expect(candidates.single['title'], '旧内嵌实验');
@@ -259,7 +616,7 @@ void main() {
       expect(partial.single['observation_text'], '用户修改后的最终表述');
       expect(partial.single['confirmed_at'], isNotNull);
       expect(partial.single['dismissed_at'], isNull);
-      expect(await _userVersion(upgradedDb), 34);
+      expect(await _userVersion(upgradedDb), 40);
     });
   });
 }
@@ -290,6 +647,17 @@ Future<Database> _openReadOnly(File file) {
 Future<int> _userVersion(Database db) async {
   final rows = await db.rawQuery('PRAGMA user_version');
   return rows.single.values.single as int;
+}
+
+Future<bool> _tableExists(Database db, String table) async {
+  final rows = await db.query(
+    'sqlite_master',
+    columns: const ['name'],
+    where: 'type = ? AND name = ?',
+    whereArgs: ['table', table],
+    limit: 1,
+  );
+  return rows.isNotEmpty;
 }
 
 Future<int> _count(

@@ -42,7 +42,7 @@ or restore made with `Runner-LocalStoreKit` as a TestFlight restore result.
 The review-only TestFlight package may enable
 `SIGNALPATH_QA_SHOWCASE_DATA=true`. On first launch it adds namespaced local
 fixture rows without replacing user rows, marks onboarding complete, and makes
-the current Weekly, Journey, deep-analysis, micro-action, and life-experiment
+the current Weekly, Journey, deep-analysis, 小实验, and 目标
 states inspectable immediately. The fixture is idempotent for the same local
 day and owns only rows whose identifiers use the `qa_demo_` namespace.
 
@@ -50,6 +50,40 @@ The QA Pro preview is memory-only: it does not write a StoreKit entitlement or
 modify restore-purchase state. StoreKit purchase and restore acceptance must
 still be run separately with a normal `Runner` TestFlight build. A production
 App Store archive must omit this define (the default is `false`).
+
+### Current internal candidate: `4.0.0 (14)`
+
+The user-authorized build `14` is a release archive made with the `Runner`
+scheme, staging API, debug surfaces disabled, and QA showcase data enabled:
+
+```sh
+flutter build ipa --release --build-name=4.0.0 --build-number=14 \
+  --dart-define=SIGNALPATH_QA_SHOWCASE_DATA=true \
+  --dart-define=SIGNALPATH_BUILD_PROFILE=staging \
+  --dart-define=SIGNALPATH_ENABLE_DEBUG_TOOLS=false \
+  --dart-define=SIGNALPATH_ENABLE_PIPELINE_LOGS=false \
+  --dart-define=API_BASE_URL=https://aiopportunityradar-staging.up.railway.app
+```
+
+This combination is intentional: it gives internal testers deterministic
+Weekly, Journey, Pro, 小实验, and 目标 content while keeping the archive close to
+release behavior. The seeded rows are local QA fixtures, not proof of staging
+data generation, long-term accumulation, or StoreKit entitlement behavior.
+
+Pre-archive engineering evidence recorded on 2026-07-23:
+
+| Gate | Result |
+| --- | --- |
+| Flutter full suite | `595 / 595` passed |
+| Flutter analyzer | Passed |
+| Release UI guardrails | `11 / 11` passed; `320 / 390 / 430 / 768` widths, four languages at 1.3x, 44pt hit targets, and VoiceOver semantics |
+| Backend suite | `104 passed / 2 PostgreSQL-only skipped` |
+| Formatting, CI manifest, diff whitespace | Passed |
+
+These are automated engineering checks. VoiceOver speech order/pronunciation,
+keyboard and safe-area behavior on hardware, HealthKit native permissions,
+TestFlight Sandbox products, purchase, Restore Purchase, and entitlement/quota
+refresh remain physical-device acceptance items.
 
 ## Build Script
 

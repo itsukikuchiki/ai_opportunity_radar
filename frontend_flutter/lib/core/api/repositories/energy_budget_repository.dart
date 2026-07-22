@@ -33,6 +33,11 @@ class EnergyBudgetRepository {
             eligibilityService ?? const SignalEligibilityService(),
         nowLoader = nowLoader ?? DateTime.now;
 
+  /// Canonical five-state classifier shared by status, time-use and weekly
+  /// read models. It is pure and never writes a Signal or budget snapshot.
+  EnergySignalState classifySignal(RecentSignalModel signal) =>
+      _energyStateFor(signal);
+
   Future<EnergyBudgetModel> fetchBasicEnergyBudget({
     WeeklyInsightModel? weekly,
     MemorySummaryModel? journey,
@@ -155,6 +160,7 @@ class EnergyBudgetRepository {
             weekly: weekly,
             journey: journey,
             externalSummary: resolvedExternalSummary,
+            energyStateCounts: stats.energyStateCounts,
           )
         : EnergyBudgetModel(
             status: readiness,
@@ -171,6 +177,7 @@ class EnergyBudgetRepository {
             recoverySignalHint: _recoverySignalHint(externalHints),
             externalConflictNote: _externalConflictNote(stats, externalHints),
             abstractExternalHints: externalHints,
+            energyStateCounts: stats.energyStateCounts,
             blocks: _blocks(stats),
           );
     final evidenceIds = eligibleSignals
@@ -208,7 +215,7 @@ class EnergyBudgetRepository {
       confidence: _snapshotConfidence(
         eligibleSignals.length,
         feedbackEvents.length,
-        _latestExplicitEnergyLevel(eligibleSignals) != null,
+        eligibleSignals.any((signal) => _budgetEnergyLevel(signal) != null),
       ),
       updatedAt: updatedAt,
       budget: budget,
@@ -222,12 +229,20 @@ class EnergyBudgetRepository {
     final positives = <String, int>{};
     final stages = <String, int>{};
     final evidenceLevels = <String, String>{};
+    final energyStateCounts = <String, int>{
+      for (final state in EnergySignalState.values) state.storageValue: 0,
+    };
 
     for (final signal in signals) {
+      final energyState = _energyStateFor(signal);
+      energyStateCounts[energyState.storageValue] =
+          (energyStateCounts[energyState.storageValue] ?? 0) + 1;
       final evidenceLevel = _evidenceLevel(signal);
       _countIfPresent(scenes, signal.scene);
       if (signal.sourceType == 'time_use') {
-        final category = signal.rawPayloadJson['category']?.toString();
+        final category = (signal.rawPayloadJson['focus_domain_id'] ??
+                signal.rawPayloadJson['category'])
+            ?.toString();
         if ((category ?? '').trim().toLowerCase() !=
             (signal.scene ?? '').trim().toLowerCase()) {
           _countIfPresent(scenes, category);
@@ -252,6 +267,7 @@ class EnergyBudgetRepository {
       signals: signals,
       blockCounts: counts,
       blockEvidenceLevels: evidenceLevels,
+      energyStateCounts: energyStateCounts,
       topScene: _topKey(scenes),
       topFriction: _topKey(frictions),
       topPositive: _topKey(positives),
@@ -268,15 +284,17 @@ class EnergyBudgetRepository {
 
   List<String> _blockTypesFor(RecentSignalModel signal) {
     final types = <String>{};
-    final energyLoad = (signal.energyLoad ?? '').toLowerCase();
+    final ignoresTimeUseEnergy =
+        signal.sourceType == 'time_use' && !_isCompletedTimeUse(signal);
+    final energyLoad =
+        ignoresTimeUseEnergy ? '' : (signal.energyLoad ?? '').toLowerCase();
     final friction = (signal.friction ?? '').toLowerCase();
     final scene = (signal.scene ?? '').toLowerCase();
     final positive = (signal.positiveSignal ?? '').toLowerCase();
-    final structuredEnergy =
-        (signal.rawPayloadJson['energy_effect']?.toString() ?? '')
+    final structuredEnergy = ignoresTimeUseEnergy
+        ? ''
+        : (signal.rawPayloadJson['energy_effect']?.toString() ?? '')
             .toLowerCase();
-    final timeUseCategory =
-        (signal.rawPayloadJson['category']?.toString() ?? '').toLowerCase();
     final stages =
         signal.linkedLifeChainStages.map((stage) => stage.toLowerCase());
 
@@ -302,7 +320,6 @@ class EnergyBudgetRepository {
         ) ||
         positive.isNotEmpty ||
         structuredEnergy == 'restoring' ||
-        timeUseCategory == 'recovery' ||
         stages.contains('recovery')) {
       types.add('recovery');
     }
@@ -420,7 +437,7 @@ class EnergyBudgetRepository {
     }
     final weeklyExperiment = weekly?.lifeExperiment;
     if (weeklyExperiment != null) {
-      return '可以连接到本周的小实验：“${weeklyExperiment.title}”。先看它有没有帮你省一点力。';
+      return '可以连接到本周的生活小实验目标：“${weeklyExperiment.title}”。先看它有没有帮你省一点力。';
     }
     final journeyAdjustment = journey?.nextAdjustmentDirection.summary.trim();
     if (journeyAdjustment != null && journeyAdjustment.isNotEmpty) {
@@ -433,6 +450,7 @@ class EnergyBudgetRepository {
     WeeklyInsightModel? weekly,
     MemorySummaryModel? journey,
     AdvancedEnergyExternalSummary? externalSummary,
+    Map<String, int> energyStateCounts = const {},
   }) {
     final externalHints = _safeExternalHints(externalSummary);
     return EnergyBudgetModel(
@@ -453,8 +471,191 @@ class EnergyBudgetRepository {
       recoverySignalHint: _recoverySignalHint(externalHints),
       externalConflictNote: '外部提示只是辅助线索。内部 Signal Card 不足时，不自动下结论。',
       abstractExternalHints: externalHints,
+      energyStateCounts: energyStateCounts,
       blocks: const [],
     );
+  }
+
+  /// Projects one eligible Signal into exactly one user-facing energy state.
+  ///
+  /// Explicit user input wins over derived markers. A planned time-use Signal
+  /// is still a real Signal, but its prospective energy selection is not an
+  /// observed fact, so it is projected as steady. The semantic fallback order
+  /// is boundary/buffer -> recovery -> draining -> ease. Directionless or
+  /// unsupported values resolve to steady; there is no unknown bucket.
+  EnergySignalState _energyStateFor(RecentSignalModel signal) {
+    if (signal.sourceType == 'time_use' && !_isCompletedTimeUse(signal)) {
+      return EnergySignalState.steady;
+    }
+
+    final explicitLevel = _parsedEnergyLevel(signal, state: '');
+    if (explicitLevel != null) {
+      if (explicitLevel.$1 <= 0) return EnergySignalState.draining;
+      if (explicitLevel.$1 >= 2) return EnergySignalState.ease;
+      return EnergySignalState.steady;
+    }
+
+    final legacyEffect = signal.rawPayloadJson['energy_effect']
+            ?.toString()
+            .trim()
+            .toLowerCase() ??
+        '';
+    switch (legacyEffect) {
+      case 'draining':
+        return EnergySignalState.draining;
+      case 'restoring':
+      case 'recovery':
+        return EnergySignalState.recovery;
+      case 'ease':
+      case 'resourced':
+        return EnergySignalState.ease;
+      case 'neutral':
+      case 'steady':
+        return EnergySignalState.steady;
+    }
+
+    final serverState = signal.energyState?.trim().toLowerCase();
+    if (serverState != null &&
+        EnergySignalState.values
+            .any((state) => state.storageValue == serverState)) {
+      return EnergySignalState.fromStorage(serverState);
+    }
+
+    final energyLoad = (signal.energyLoad ?? '').trim().toLowerCase();
+    final friction = (signal.friction ?? '').trim().toLowerCase();
+    final positive = (signal.positiveSignal ?? '').trim().toLowerCase();
+    final content = signal.content.trim().toLowerCase();
+    final stages = signal.linkedLifeChainStages
+        .map((stage) => stage.trim().toLowerCase())
+        .toSet();
+
+    final hasBoundaryBufferMarker =
+        _containsAny(energyLoad, const ['boundary_buffer', 'buffer']) ||
+            _containsAny(
+              friction,
+              const [
+                'boundary',
+                'self_boundary',
+                'boundary_load',
+                'overcommit',
+                'capacity_limit',
+              ],
+            ) ||
+            stages.any(
+              const {
+                'boundary',
+                'boundary_load',
+                'buffer',
+                'boundary_buffer',
+              }.contains,
+            ) ||
+            _containsAny(
+              content,
+              const [
+                '留出余地',
+                '留一点余地',
+                '留了余地',
+                '留出空间',
+                '留了空间',
+                '留出缓冲',
+                '留了缓冲',
+                '设了边界',
+                '守住边界',
+                '拒绝了',
+                '说了不',
+                'made room',
+                'left room',
+                'left a buffer',
+                'set a boundary',
+                'said no',
+                '余白を残',
+                '境界を守',
+                '断った',
+              ],
+            );
+    if (hasBoundaryBufferMarker) return EnergySignalState.boundaryBuffer;
+
+    final hasRecoveryMarker = _containsAny(
+          energyLoad,
+          const ['restore', 'restoring', 'restorative', 'recovery'],
+        ) ||
+        stages.contains('recovery') ||
+        _containsAny(
+          content,
+          const [
+            '恢复了一点',
+            '恢复过来',
+            '缓过来',
+            '补回精力',
+            '休息后',
+            '散步后',
+            '睡了一觉',
+            '充上电',
+            'recovered',
+            'felt restored',
+            'after resting',
+            'after a walk',
+            '回復した',
+            '休んだ後',
+            '散歩の後',
+          ],
+        );
+    if (hasRecoveryMarker) return EnergySignalState.recovery;
+
+    final hasDrainingMarker = _containsAny(
+          energyLoad,
+          const ['drain', 'draining', 'high_drain', 'exhaust'],
+        ) ||
+        stages.contains('energy_drain') ||
+        _containsAny(
+          content,
+          const [
+            '很耗力',
+            '有点耗力',
+            '特别消耗',
+            '精疲力尽',
+            '很累',
+            '疲惫',
+            'exhausted',
+            'draining',
+            'worn out',
+            '疲れた',
+            '消耗した',
+          ],
+        );
+    if (hasDrainingMarker) return EnergySignalState.draining;
+
+    final hasEaseMarker = _containsAny(
+          energyLoad,
+          const [
+            'ease',
+            'easy',
+            'light',
+            'resourced',
+          ],
+        ) ||
+        positive.isNotEmpty ||
+        _containsAny(
+          content,
+          const [
+            '有余力',
+            '很轻松',
+            '比较轻松',
+            '很顺畅',
+            '精力很足',
+            '状态很好',
+            'felt easy',
+            'felt light',
+            'had energy left',
+            'went smoothly',
+            '余力がある',
+            '楽だった',
+            '順調だった',
+          ],
+        );
+    if (hasEaseMarker) return EnergySignalState.ease;
+
+    return EnergySignalState.steady;
   }
 
   Map<String, String> _safeExternalHints(
@@ -547,14 +748,23 @@ class EnergyBudgetRepository {
     required _EnergyStats stats,
     required Map<String, String> externalHints,
   }) {
-    final explicitLevel = _latestExplicitEnergyLevel(signals);
+    final explicitLevel = _latestOneTapEnergyLevel(signals);
     if (periodKind == EnergyBudgetPeriodKind.daily) {
-      if (explicitLevel == null) return EnergyCapacityBand.unknown;
-      return _capacityFromExplicitLevel(explicitLevel.$1, explicitLevel.$2);
+      if (explicitLevel != null) {
+        // A direct status check-in is the current-state anchor. A completed
+        // time-use observation can add context, but it must never replace a
+        // user's latest explicit one-tap state for the day.
+        return _capacityFromExplicitLevel(explicitLevel.$1, explicitLevel.$2);
+      }
+      final contextualLevels = signals
+          .map(_completedTimeUseEnergyLevel)
+          .whereType<(int, String)>()
+          .toList(growable: false);
+      return _capacityFromTimeUseContext(contextualLevels);
     }
 
     final explicitLevels = signals
-        .map(_explicitEnergyLevel)
+        .map(_budgetEnergyLevel)
         .whereType<(int, String)>()
         .toList(growable: false);
     final hasCapacityEvidence = explicitLevels.isNotEmpty ||
@@ -597,11 +807,11 @@ class EnergyBudgetRepository {
     return EnergyCapacityBand.medium;
   }
 
-  (int, String)? _latestExplicitEnergyLevel(
+  (int, String)? _latestOneTapEnergyLevel(
     Iterable<RecentSignalModel> signals,
   ) {
     final explicit = signals
-        .map((signal) => (signal, value: _explicitEnergyLevel(signal)))
+        .map((signal) => (signal, value: _oneTapEnergyLevel(signal)))
         .where((entry) => entry.value != null)
         .toList()
       ..sort((a, b) {
@@ -615,14 +825,92 @@ class EnergyBudgetRepository {
     return explicit.isEmpty ? null : explicit.last.value;
   }
 
-  (int, String)? _explicitEnergyLevel(RecentSignalModel signal) {
+  (int, String)? _oneTapEnergyLevel(RecentSignalModel signal) {
     if (signal.sourceType != 'one_tap') return null;
+    return _parsedEnergyLevel(
+      signal,
+      state: signal.rawPayloadJson['quick_status']?.toString() ?? '',
+    );
+  }
+
+  (int, String)? _completedTimeUseEnergyLevel(RecentSignalModel signal) {
+    if (!_isCompletedTimeUse(signal)) return null;
+    final level = _parsedEnergyLevel(signal, state: '');
+    if (level != null) return level;
+
+    // v1 compatibility: the old three-way effect was an explicit user
+    // selection. Preserve all three values (including neutral) as contextual
+    // evidence while v2 writes the shared 0/1/2 energy scale.
+    final legacyEffect = signal.rawPayloadJson['energy_effect']
+            ?.toString()
+            .trim()
+            .toLowerCase() ??
+        '';
+    return switch (legacyEffect) {
+      'draining' => (0, ''),
+      'neutral' => (1, ''),
+      'restoring' => (2, ''),
+      _ => null,
+    };
+  }
+
+  (int, String)? _budgetEnergyLevel(RecentSignalModel signal) {
+    return _oneTapEnergyLevel(signal) ?? _completedTimeUseEnergyLevel(signal);
+  }
+
+  (int, String)? _parsedEnergyLevel(
+    RecentSignalModel signal, {
+    required String state,
+  }) {
     final raw = signal.rawPayloadJson['energy_level'];
-    final level =
-        raw is num ? raw.toInt() : int.tryParse(raw?.toString() ?? '');
-    if (level == null) return null;
-    final state = signal.rawPayloadJson['quick_status']?.toString() ?? '';
-    return (level.clamp(0, 2), state);
+    final level = switch (raw) {
+      final int value => value,
+      final num value when value == value.roundToDouble() => value.toInt(),
+      _ => int.tryParse(raw?.toString() ?? ''),
+    };
+    if (level == null || level < 0 || level > 2) return null;
+    return (level, state);
+  }
+
+  bool _isCompletedTimeUse(RecentSignalModel signal) {
+    if (signal.sourceType != 'time_use') return false;
+    final status = signal.rawPayloadJson['record_status']
+            ?.toString()
+            .trim()
+            .toLowerCase() ??
+        '';
+    final schemaVersionRaw = signal.rawPayloadJson['schema_version'];
+    final schemaVersion = schemaVersionRaw is num
+        ? schemaVersionRaw.toInt()
+        : int.tryParse(schemaVersionRaw?.toString() ?? '');
+    final legacyEffect = signal.rawPayloadJson['energy_effect']
+            ?.toString()
+            .trim()
+            .toLowerCase() ??
+        '';
+    final explicitlyCompleted =
+        const {'completed', 'occurred', 'actual'}.contains(status);
+    final legacyCompletedWithoutStatus = status.isEmpty &&
+        (schemaVersion ?? 1) < 2 &&
+        const {'draining', 'neutral', 'restoring'}.contains(legacyEffect);
+    if (!explicitlyCompleted && !legacyCompletedWithoutStatus) return false;
+    final rawEndAt = signal.rawPayloadJson['end_at']?.toString().trim() ?? '';
+    final endAt = DateTime.tryParse(rawEndAt);
+    if (endAt != null && endAt.toUtc().isAfter(nowLoader().toUtc())) {
+      return false;
+    }
+    return true;
+  }
+
+  EnergyCapacityBand _capacityFromTimeUseContext(
+    List<(int, String)> levels,
+  ) {
+    if (levels.isEmpty) return EnergyCapacityBand.unknown;
+    final average =
+        levels.fold<int>(0, (sum, value) => sum + value.$1) / levels.length;
+    if (average < 0.75) return EnergyCapacityBand.low;
+    if (average > 1.5) return EnergyCapacityBand.high;
+    return EnergyCapacityBand.medium;
   }
 
   EnergyCapacityBand _capacityFromExplicitLevel(int level, String state) {
@@ -814,6 +1102,7 @@ class _EnergyStats {
   final List<RecentSignalModel> signals;
   final Map<String, int> blockCounts;
   final Map<String, String> blockEvidenceLevels;
+  final Map<String, int> energyStateCounts;
   final String topScene;
   final String topFriction;
   final String topPositive;
@@ -823,6 +1112,7 @@ class _EnergyStats {
     required this.signals,
     required this.blockCounts,
     required this.blockEvidenceLevels,
+    required this.energyStateCounts,
     required this.topScene,
     required this.topFriction,
     required this.topPositive,
@@ -833,6 +1123,13 @@ class _EnergyStats {
       : signals = const [],
         blockCounts = const {},
         blockEvidenceLevels = const {},
+        energyStateCounts = const {
+          'draining': 0,
+          'steady': 0,
+          'ease': 0,
+          'recovery': 0,
+          'boundary_buffer': 0,
+        },
         topScene = '',
         topFriction = '',
         topPositive = '',

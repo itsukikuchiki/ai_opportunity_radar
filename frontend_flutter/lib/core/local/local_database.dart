@@ -6,7 +6,8 @@ import 'package:sqflite/sqflite.dart';
 
 class LocalDatabase {
   static const _databaseName = 'ai_opportunity_radar_local.db';
-  static const _databaseVersion = 34;
+  static const schemaVersion = 40;
+  static const _databaseVersion = schemaVersion;
 
   final String? dbPathOverride;
   final DatabaseFactory? databaseFactoryOverride;
@@ -267,6 +268,32 @@ class LocalDatabase {
             await _addCandidatePlanningColumns(db);
             await _backfillCandidatePlanningData(db);
           }
+
+          if (oldVersion < 35) {
+            await _repairLegacyDailyCompletionLifecycle(db);
+          }
+
+          if (oldVersion < 36) {
+            await _createPlanContentVersionTables(db);
+            await _backfillPlanContentVersions(db);
+          }
+
+          if (oldVersion < 37) {
+            await _createDeepeningObservationPlanTables(db);
+          }
+
+          if (oldVersion < 38) {
+            await _addCandidateDecisionColumns(db);
+            await _backfillCandidateDecisions(db);
+          }
+
+          if (oldVersion < 39) {
+            await _createExperimentEvaluationTables(db);
+          }
+
+          if (oldVersion < 40) {
+            await _upgradeExperimentEvaluationV40(db);
+          }
         },
       ),
     );
@@ -374,15 +401,25 @@ class LocalDatabase {
     await _createPipelineRunTables(db);
     await _createExperimentCandidateTables(db);
     await _createLifeExperimentLifecycleTables(db);
+    await _createExperimentEvaluationTables(db);
     await _createTraceLinkTables(db);
     await _addCacheVersioningColumns(db);
     await _addExperimentCandidateInvalidationColumns(db);
     await _addLifeExperimentRollupInvalidationColumns(db);
     await _createCandidatePlanningTables(db);
     await _addCandidatePlanningColumns(db);
+    await _addCandidateDecisionColumns(db);
+    // v40 reads candidate-planning columns such as progress_end_date, so it
+    // must run after those columns exist on a fresh database. Upgrade paths
+    // already reach the same state before oldVersion < 40 is evaluated.
+    await _upgradeExperimentEvaluationV40(db);
+    await _createPlanContentVersionTables(db);
+    await _createDeepeningObservationPlanTables(db);
     await _createPeriodQueryIndexes(db);
     await _runP2LegacyDataMigration(db);
     await _backfillCandidatePlanningData(db);
+    await _backfillCandidateDecisions(db);
+    await _backfillPlanContentVersions(db);
 
     await db.execute(
       'CREATE INDEX idx_captures_created_at ON captures(created_at DESC)',
@@ -1051,6 +1088,27 @@ class LocalDatabase {
     return 'generated';
   }
 
+  /// Builds 34 and earlier used `micro_actions.status = done` for a single
+  /// day's completion feedback.  The final model keeps daily completion in
+  /// `micro_action_feedback`; lifecycle status is independent from any one
+  /// real attempt and no longer assumes a fixed seven-day window.
+  Future<void> _repairLegacyDailyCompletionLifecycle(Database db) async {
+    await db.rawUpdate('''
+      UPDATE micro_actions
+      SET status = 'active'
+      WHERE LOWER(TRIM(COALESCE(status, ''))) = 'done'
+        AND (
+          adopted_at IS NOT NULL
+          OR TRIM(COALESCE(origin_candidate_id, '')) != ''
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM micro_action_feedback feedback
+          WHERE feedback.micro_action_id = micro_actions.id
+        )
+      ''');
+  }
+
   Future<void> _repairObservationFeedbackState(Database db) async {
     final now = DateTime.now().toUtc().toIso8601String();
     await db.rawUpdate(
@@ -1313,6 +1371,8 @@ class LocalDatabase {
         linked_signal_card_ids_json TEXT NOT NULL DEFAULT '[]',
         linked_observation_ids_json TEXT NOT NULL DEFAULT '[]',
         status TEXT NOT NULL DEFAULT 'generated',
+        decision_status TEXT NOT NULL DEFAULT 'undecided'
+          CHECK(decision_status IN ('undecided', 'considering', 'adopted')),
         confidence_level TEXT NOT NULL DEFAULT 'medium',
         metadata_json TEXT NOT NULL DEFAULT '{}',
         adopted_experiment_id TEXT,
@@ -1392,6 +1452,139 @@ class LocalDatabase {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_life_experiment_rollups_root ON life_experiment_rollups(root_experiment_id, source_week_start DESC)',
     );
+  }
+
+  /// v39 adds append-only effect reviews without rewriting historical daily
+  /// feedback. Goal reviews reuse the lifecycle event stream; the additive
+  /// column snapshots the minimum amount of observation required before the
+  /// user is asked to summarize a round.
+  Future<void> _createExperimentEvaluationTables(Database db) async {
+    final lifeExperimentColumns =
+        await _tableColumnNames(db, 'life_experiments');
+    if (lifeExperimentColumns.isNotEmpty) {
+      await _addColumnIfNeeded(
+        db,
+        'life_experiments',
+        'minimum_observation_days INTEGER NOT NULL DEFAULT 3',
+      );
+      await db.rawUpdate('''
+        UPDATE life_experiments
+        SET minimum_observation_days = 3
+        WHERE minimum_observation_days IS NULL OR minimum_observation_days < 1
+      ''');
+    }
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS micro_action_review_events (
+        id TEXT PRIMARY KEY,
+        micro_action_id TEXT NOT NULL,
+        local_user_id TEXT NOT NULL DEFAULT 'local',
+        reviewed_at TEXT NOT NULL,
+        local_date TEXT NOT NULL,
+        result TEXT NOT NULL,
+        effort TEXT NOT NULL,
+        next_adjustment TEXT NOT NULL,
+        note TEXT,
+        completed_days_at_review INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_micro_action_review_action ON micro_action_review_events(micro_action_id, reviewed_at ASC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_micro_action_review_user_date ON micro_action_review_events(local_user_id, local_date DESC)',
+    );
+  }
+
+  /// v40 removes the legacy seven-day lifecycle from quick experiments,
+  /// persists their ten-minute product boundary, and gives goal reviews an
+  /// explicit writer surface. Existing facts remain append-only.
+  Future<void> _upgradeExperimentEvaluationV40(Database db) async {
+    final microActionColumns = await _tableColumnNames(db, 'micro_actions');
+    if (microActionColumns.isNotEmpty) {
+      await _addColumnIfNeeded(
+        db,
+        'micro_actions',
+        'planned_duration_minutes INTEGER NOT NULL DEFAULT 10 '
+            'CHECK(planned_duration_minutes BETWEEN 1 AND 10)',
+      );
+      // Candidate adoption previously materialized an artificial end exactly
+      // six days after the start. Open lifecycle rows must remain available
+      // until the user explicitly completes them. Terminal rows keep their
+      // old end date so historical diary projections remain stable.
+      final currentColumns = await _tableColumnNames(db, 'micro_actions');
+      if (currentColumns.containsAll(
+        const {'status', 'progress_start_date', 'progress_end_date'},
+      )) {
+        await db.rawUpdate('''
+          UPDATE micro_actions
+          SET progress_end_date = NULL
+          WHERE progress_start_date IS NOT NULL
+            AND progress_end_date = DATE(progress_start_date, '+6 days')
+            AND LOWER(TRIM(COALESCE(status, ''))) IN (
+              'planned', 'accepted', 'active', 'adjusted', 'paused', 'done'
+            )
+        ''');
+      }
+    }
+
+    final feedbackColumns =
+        await _tableColumnNames(db, 'micro_action_feedback');
+    if (feedbackColumns.isNotEmpty) {
+      await _addColumnIfNeeded(
+        db,
+        'micro_action_feedback',
+        'duration_minutes INTEGER '
+            'CHECK(duration_minutes IS NULL OR '
+            'duration_minutes BETWEEN 1 AND 10)',
+      );
+    }
+
+    final reviewColumns =
+        await _tableColumnNames(db, 'micro_action_review_events');
+    if (reviewColumns.isNotEmpty) {
+      await _addColumnIfNeeded(
+        db,
+        'micro_action_review_events',
+        'completed_attempts_at_review INTEGER NOT NULL DEFAULT 0',
+      );
+      if (reviewColumns.contains('completed_days_at_review')) {
+        await db.rawUpdate('''
+          UPDATE micro_action_review_events
+          SET completed_attempts_at_review = completed_days_at_review
+          WHERE completed_attempts_at_review = 0
+            AND completed_days_at_review > 0
+        ''');
+      }
+    }
+
+    final lifecycleColumns =
+        await _tableColumnNames(db, 'life_experiment_lifecycle_events');
+    if (lifecycleColumns.isNotEmpty) {
+      await _addColumnIfNeeded(
+        db,
+        'life_experiment_lifecycle_events',
+        "review_type TEXT CHECK(review_type IS NULL OR "
+            "review_type IN ('weekly', 'whole_round'))",
+      );
+      if (lifecycleColumns.contains('event_type')) {
+        await db.rawUpdate('''
+          UPDATE life_experiment_lifecycle_events
+          SET review_type = 'whole_round'
+          WHERE event_type = 'outcome_reviewed'
+            AND (review_type IS NULL OR TRIM(review_type) = '')
+        ''');
+      }
+      if (lifecycleColumns.containsAll(
+        const {'experiment_id', 'event_date'},
+      )) {
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_life_experiment_review_type '
+          'ON life_experiment_lifecycle_events('
+          'experiment_id, review_type, event_date DESC)',
+        );
+      }
+    }
   }
 
   Future<void> _createPeriodQueryIndexes(Database db) async {
@@ -1580,6 +1773,8 @@ class LocalDatabase {
         linked_signal_card_ids_json TEXT NOT NULL DEFAULT '[]',
         focus_domain_ids_json TEXT NOT NULL DEFAULT '[]',
         status TEXT NOT NULL DEFAULT 'generated',
+        decision_status TEXT NOT NULL DEFAULT 'undecided'
+          CHECK(decision_status IN ('undecided', 'considering', 'adopted')),
         adopted_micro_action_id TEXT,
         source_hash TEXT NOT NULL,
         dirty INTEGER NOT NULL DEFAULT 0,
@@ -1595,6 +1790,38 @@ class LocalDatabase {
     );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_micro_action_candidates_read ON micro_action_candidates(local_user_id, local_date, status, dirty, is_stale, rank)',
+    );
+  }
+
+  /// Dedicated, bounded storage for an explicitly adopted deepening
+  /// observation. This intentionally does not reuse the legacy observations
+  /// table: a plan is a future-week question and must never become a Signal or
+  /// an implicit task.
+  Future<void> _createDeepeningObservationPlanTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS observation_plans (
+        id TEXT PRIMARY KEY,
+        local_user_id TEXT NOT NULL DEFAULT 'local',
+        source_week_start TEXT NOT NULL,
+        source_week_end TEXT NOT NULL,
+        target_week_start TEXT NOT NULL,
+        question TEXT NOT NULL,
+        what_to_watch_json TEXT NOT NULL DEFAULT '[]',
+        source_signal_card_ids_json TEXT NOT NULL DEFAULT '[]',
+        source_hash TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'planned',
+        result_status TEXT,
+        result_summary TEXT,
+        result_signal_card_ids_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        resolved_at TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_observation_plans_source_week ON observation_plans(local_user_id, source_week_start)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_observation_plans_target_week ON observation_plans(local_user_id, target_week_start, status)',
     );
   }
 
@@ -1661,6 +1888,292 @@ class LocalDatabase {
     );
   }
 
+  /// v38 separates the user's explicit candidate decision from the existing
+  /// generation/adoption lifecycle string. Keeping this additive preserves
+  /// old backups and every legacy status value.
+  Future<void> _addCandidateDecisionColumns(Database db) async {
+    await _addColumnIfNeeded(
+      db,
+      'micro_action_candidates',
+      "decision_status TEXT NOT NULL DEFAULT 'undecided'",
+    );
+    await _addColumnIfNeeded(
+      db,
+      'experiment_candidates',
+      "decision_status TEXT NOT NULL DEFAULT 'undecided'",
+    );
+    final microColumns = await _tableColumnNames(
+      db,
+      'micro_action_candidates',
+    );
+    if (microColumns.containsAll(
+      const {'local_user_id', 'decision_status', 'updated_at'},
+    )) {
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_micro_action_candidates_decision
+        ON micro_action_candidates(local_user_id, decision_status, updated_at DESC)
+      ''');
+    }
+    final experimentColumns = await _tableColumnNames(
+      db,
+      'experiment_candidates',
+    );
+    if (experimentColumns.containsAll(
+      const {'local_user_id', 'decision_status', 'updated_at'},
+    )) {
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_experiment_candidates_decision
+        ON experiment_candidates(local_user_id, decision_status, updated_at DESC)
+      ''');
+    }
+  }
+
+  Future<void> _backfillCandidateDecisions(Database db) async {
+    final microColumns = await _tableColumnNames(
+      db,
+      'micro_action_candidates',
+    );
+    if (microColumns.containsAll(const {
+      'status',
+      'decision_status',
+      'adopted_micro_action_id',
+    })) {
+      await db.rawUpdate('''
+        UPDATE micro_action_candidates
+        SET decision_status = CASE
+          WHEN adopted_micro_action_id IS NOT NULL
+            OR LOWER(COALESCE(status, '')) IN ('adopted', 'planned', 'active')
+            THEN 'adopted'
+          WHEN LOWER(COALESCE(status, '')) IN
+            ('considering', 'observing', 'reviewing', 'saved')
+            THEN 'considering'
+          WHEN decision_status IN ('undecided', 'considering', 'adopted')
+            THEN decision_status
+          ELSE 'undecided'
+        END
+      ''');
+    }
+    final experimentColumns = await _tableColumnNames(
+      db,
+      'experiment_candidates',
+    );
+    if (experimentColumns.containsAll(const {
+      'status',
+      'decision_status',
+      'adopted_experiment_id',
+    })) {
+      await db.rawUpdate('''
+        UPDATE experiment_candidates
+        SET decision_status = CASE
+          WHEN adopted_experiment_id IS NOT NULL
+            OR LOWER(COALESCE(status, '')) IN
+              ('adopted', 'planned', 'active')
+            THEN 'adopted'
+          WHEN LOWER(COALESCE(status, '')) IN
+            ('considering', 'observing', 'reviewing', 'saved')
+            THEN 'considering'
+          WHEN decision_status IN ('undecided', 'considering', 'adopted')
+            THEN decision_status
+          ELSE 'undecided'
+        END
+      ''');
+    }
+  }
+
+  Future<void> _createPlanContentVersionTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS plan_content_versions (
+        id TEXT PRIMARY KEY,
+        local_user_id TEXT NOT NULL DEFAULT 'local',
+        object_kind TEXT NOT NULL CHECK(object_kind IN ('quick_try', 'goal')),
+        object_id TEXT NOT NULL,
+        version_no INTEGER NOT NULL CHECK(version_no >= 1),
+        effective_from_local_date TEXT NOT NULL,
+        content_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        UNIQUE(local_user_id, object_kind, object_id, version_no)
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_plan_content_versions_resolve
+      ON plan_content_versions(
+        local_user_id,
+        object_kind,
+        object_id,
+        effective_from_local_date DESC,
+        version_no DESC
+      )
+    ''');
+  }
+
+  Future<void> _backfillPlanContentVersions(Database db) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final microActionColumns = await _tableColumnNames(db, 'micro_actions');
+    final microActions = microActionColumns.containsAll(const {
+      'id',
+      'title',
+      'created_at',
+    })
+        ? await db.query('micro_actions')
+        : const <Map<String, Object?>>[];
+    for (final row in microActions) {
+      if (!_isAdoptedPlanRow(row, goal: false)) continue;
+      final objectId = (row['id'] as String?)?.trim() ?? '';
+      final effectiveDate = _firstPlanLocalDate(row, const [
+        'progress_start_date',
+        'planned_date',
+        'adopted_at',
+        'created_at',
+      ]);
+      if (objectId.isEmpty || effectiveDate == null) continue;
+      final localUserId =
+          (row['local_user_id'] as String?)?.trim().isNotEmpty == true
+              ? (row['local_user_id'] as String).trim()
+              : 'local';
+      await db.insert(
+        'plan_content_versions',
+        {
+          'id': 'plan_v1_quick_try_$objectId',
+          'local_user_id': localUserId,
+          'object_kind': 'quick_try',
+          'object_id': objectId,
+          'version_no': 1,
+          'effective_from_local_date': effectiveDate,
+          'content_json': jsonEncode({
+            'title': row['title'],
+            'reason': row['reason'],
+            'action_type': row['action_type'],
+            'difficulty': row['difficulty'],
+            'planned_duration_minutes': row['planned_duration_minutes'] ?? 10,
+            'planned_date': row['planned_date'],
+            'planned_time': row['planned_time'],
+          }),
+          'created_at': (row['created_at'] as String?) ?? now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+
+    final goalColumns = await _tableColumnNames(db, 'life_experiments');
+    final goals = goalColumns.containsAll(const {
+      'id',
+      'title',
+      'hypothesis',
+      'suggested_action',
+      'created_at',
+    })
+        ? await db.query('life_experiments')
+        : const <Map<String, Object?>>[];
+    for (final row in goals) {
+      if (!_isAdoptedPlanRow(row, goal: true)) continue;
+      final objectId = (row['id'] as String?)?.trim() ?? '';
+      final effectiveDate = _firstPlanLocalDate(row, const [
+        'progress_start_date',
+        'source_week_start',
+        'adopted_at',
+        'created_at',
+      ]);
+      if (objectId.isEmpty || effectiveDate == null) continue;
+      final localUserId =
+          (row['local_user_id'] as String?)?.trim().isNotEmpty == true
+              ? (row['local_user_id'] as String).trim()
+              : 'local';
+      await db.insert(
+        'plan_content_versions',
+        {
+          'id': 'plan_v1_goal_$objectId',
+          'local_user_id': localUserId,
+          'object_kind': 'goal',
+          'object_id': objectId,
+          'version_no': 1,
+          'effective_from_local_date': effectiveDate,
+          'content_json': jsonEncode({
+            'title': row['title'],
+            'hypothesis': row['hypothesis'],
+            'suggested_action': row['suggested_action'],
+            'focus_area_id': row['focus_area_id'],
+            'pattern_id': row['pattern_id'],
+            'feedback_pattern_id': row['feedback_pattern_id'],
+            'icon_asset_id': row['icon_asset_id'],
+            'planned_frequency': row['planned_frequency'],
+            'planned_duration_minutes': row['planned_duration_minutes'],
+            'planned_total_days': row['planned_total_days'],
+          }),
+          'created_at': (row['created_at'] as String?) ?? now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+  }
+
+  Future<Set<String>> _tableColumnNames(Database db, String table) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    return rows
+        .map((row) => row['name']?.toString() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toSet();
+  }
+
+  bool _isAdoptedPlanRow(
+    Map<String, Object?> row, {
+    required bool goal,
+  }) {
+    final adoptedAt = row['adopted_at']?.toString().trim() ?? '';
+    final candidateId = row['origin_candidate_id']?.toString().trim() ?? '';
+    if (adoptedAt.isNotEmpty || candidateId.isNotEmpty) return true;
+
+    final status = row['status']?.toString().trim().toLowerCase() ?? '';
+    final adoptedStatuses = goal
+        ? const {
+            'accepted',
+            'saved',
+            'active',
+            'adjusted',
+            'done',
+            'completed',
+            'paused',
+            'stopped',
+            'archived',
+            'effective',
+            'not_effective',
+          }
+        : const {
+            'accepted',
+            'active',
+            'adjusted',
+            'done',
+            'completed',
+            'paused',
+            'stopped',
+            'archived',
+          };
+    return adoptedStatuses.contains(status);
+  }
+
+  String? _firstPlanLocalDate(
+    Map<String, Object?> row,
+    List<String> columns,
+  ) {
+    for (final column in columns) {
+      final normalized = _normalizePlanLocalDate(row[column]);
+      if (normalized != null) return normalized;
+    }
+    return null;
+  }
+
+  String? _normalizePlanLocalDate(Object? raw) {
+    final value = raw?.toString().trim() ?? '';
+    if (value.isEmpty) return null;
+    if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) {
+      return DateTime.tryParse(value) == null ? null : value;
+    }
+    final parsed = DateTime.tryParse(value)?.toLocal();
+    if (parsed == null) return null;
+    return '${parsed.year.toString().padLeft(4, '0')}-'
+        '${parsed.month.toString().padLeft(2, '0')}-'
+        '${parsed.day.toString().padLeft(2, '0')}';
+  }
+
   Future<void> _backfillCandidatePlanningData(Database db) async {
     final now = DateTime.now().toUtc().toIso8601String();
     await db.rawUpdate('''
@@ -1672,13 +2185,12 @@ class LocalDatabase {
       UPDATE micro_actions
       SET adopted_at = COALESCE(adopted_at, created_at),
           progress_start_date = COALESCE(progress_start_date, planned_date),
-          progress_end_date = COALESCE(
-            progress_end_date,
-            CASE
-              WHEN planned_date IS NOT NULL THEN date(planned_date, '+6 days')
-              ELSE NULL
-            END
-          )
+          progress_end_date = CASE
+            WHEN progress_end_date IS NOT NULL THEN progress_end_date
+            WHEN status IN ('done', 'completed') AND planned_date IS NOT NULL
+              THEN date(planned_date, '+6 days')
+            ELSE NULL
+          END
       WHERE status IN ('accepted', 'active', 'done', 'completed')
     ''');
     await db.rawUpdate('''

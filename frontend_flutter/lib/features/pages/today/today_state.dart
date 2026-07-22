@@ -15,6 +15,7 @@ class TodayState {
   final DailyBestActionModel? bestAction;
   final List<RecentSignalModel> recentSignals;
   final AiJudgementModel? aiJudgement;
+  final bool aiJudgementExhausted;
   final List<MicroActionModel> microActions;
   final LifeExperimentModel? todayLifeExperiment;
   final String? errorMessage;
@@ -34,6 +35,7 @@ class TodayState {
     required this.bestAction,
     required this.recentSignals,
     required this.aiJudgement,
+    required this.aiJudgementExhausted,
     required this.microActions,
     required this.todayLifeExperiment,
     required this.errorMessage,
@@ -54,6 +56,7 @@ class TodayState {
         bestAction: null,
         recentSignals: [],
         aiJudgement: null,
+        aiJudgementExhausted: false,
         microActions: [],
         todayLifeExperiment: null,
         errorMessage: null,
@@ -99,6 +102,7 @@ class TodayState {
     DailyBestActionModel? bestAction,
     List<RecentSignalModel>? recentSignals,
     Object? aiJudgement = _unset,
+    bool? aiJudgementExhausted,
     List<MicroActionModel>? microActions,
     Object? todayLifeExperiment = _unset,
     String? errorMessage,
@@ -128,6 +132,7 @@ class TodayState {
       aiJudgement: identical(aiJudgement, _unset)
           ? this.aiJudgement
           : aiJudgement as AiJudgementModel?,
+      aiJudgementExhausted: aiJudgementExhausted ?? this.aiJudgementExhausted,
       microActions: microActions ?? this.microActions,
       todayLifeExperiment: identical(todayLifeExperiment, _unset)
           ? this.todayLifeExperiment

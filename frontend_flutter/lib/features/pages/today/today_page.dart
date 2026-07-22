@@ -10,13 +10,16 @@ import '../../../app/app_router.dart';
 import '../../../core/di/app_dependencies.dart';
 import '../../../core/eligibility/signal_eligibility_service.dart';
 import '../../../core/i18n/app_locale_text.dart';
+import '../../../core/i18n/energy_budget_text.dart';
 import '../../../core/models/phase3_plus_models.dart';
 import '../../../core/models/today_models.dart';
+import '../../../core/preferences/focus_domains.dart';
 import '../../../core/purchases/purchase_controller.dart';
 import '../../../core/state/app_data_refresh_coordinator.dart';
 import '../../../shared/utils/user_visible_text_sanitizer.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../../../shared/widgets/editable_timeline_decision_dialog.dart';
+import '../../../shared/widgets/experiment_feedback_sheets.dart';
 import '../../paywall/paywall_sheet.dart';
 import 'today_state.dart';
 import 'today_view_model.dart';
@@ -33,7 +36,6 @@ class _TodayPageState extends State<TodayPage> {
   late final TextEditingController _controller;
   late final FocusNode _captureFocusNode;
   int _lastCaptureSuccessTick = 0;
-  int _lastFollowupSuccessTick = 0;
 
   @override
   void initState() {
@@ -62,6 +64,7 @@ class _TodayPageState extends State<TodayPage> {
       context,
       initialText: initialText,
       keyPrefix: 'ai-prediction',
+      saveAsTodaySignal: true,
     );
     if (decision == null || !mounted) return;
     final original = judgement.predictedSignalText.trim();
@@ -94,11 +97,6 @@ class _TodayPageState extends State<TodayPage> {
 
       if (state.captureSuccessTick > _lastCaptureSuccessTick) {
         _lastCaptureSuccessTick = state.captureSuccessTick;
-        FocusScope.of(context).unfocus();
-      }
-
-      if (state.followupSuccessTick > _lastFollowupSuccessTick) {
-        _lastFollowupSuccessTick = state.followupSuccessTick;
         FocusScope.of(context).unfocus();
       }
     });
@@ -174,6 +172,7 @@ class _TodayPageState extends State<TodayPage> {
                   _AiJudgementPanel(
                     key: const ValueKey('today-ai-prediction-panel'),
                     judgement: state.aiJudgement,
+                    exhausted: state.aiJudgementExhausted,
                     microAction: null,
                     isBusy: state.isCaptureSubmitting,
                     onAccurate: (judgement) => _respondToPredictionMatch(
@@ -186,10 +185,8 @@ class _TodayPageState extends State<TodayPage> {
                       judgement: judgement,
                       status: 'partial',
                     ),
-                    onInaccurate: (judgement) => vm.respondToAiJudgement(
+                    onInaccurate: (judgement) => vm.showAnotherAiJudgement(
                       judgement: judgement,
-                      status: 'inaccurate',
-                      addToTimeline: false,
                       language: AppLocaleText.resolve(context),
                     ),
                     onMicroActionChoice: (action, choice) =>
@@ -198,89 +195,19 @@ class _TodayPageState extends State<TodayPage> {
                       choice: choice,
                       language: AppLocaleText.resolve(context),
                     ),
-                    onFeedback: (action, feedback) async {
-                      if (feedback == 'note') {
-                        final text = await _askForShortText(
-                          context,
-                          title: AppLocaleText.tr(
-                            context,
-                            en: 'Add one note',
-                            zhHans: '补一句反馈',
-                            zhHant: '補一句回饋',
-                            ja: '一言フィードバック',
-                          ),
-                          hint: AppLocaleText.tr(
-                            context,
-                            en: 'What happened after trying it?',
-                            zhHans: '试过之后发生了什么？',
-                            zhHant: '試過之後發生了什麼？',
-                            ja: '試した後、何が起きましたか？',
-                          ),
-                        );
-                        if (text == null ||
-                            text.trim().isEmpty ||
-                            !context.mounted) {
-                          return;
-                        }
-                        await vm.submitMicroActionFeedback(
-                          action: action,
-                          feedback: feedback,
-                          userNote: text.trim(),
-                        );
-                        return;
-                      }
-                      await vm.submitMicroActionFeedback(
-                        action: action,
-                        feedback: feedback,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: AuroraMainPageSpec.sectionGap),
-                  TodayAdoptedPlansSection(
-                    signals: state.recentSignals,
-                    compatibilityAction: state.activeMicroAction,
-                    compatibilityExperiment: state.todayLifeExperiment,
-                    isBusy: state.isCaptureSubmitting,
-                    onActionFeedback: (action, feedback) async {
-                      await vm.submitMicroActionFeedback(
-                        action: action,
-                        feedback: feedback,
-                      );
-                      if (!context.mounted) return;
-                      _showSoftMessage(
+                    onFeedback: (action, _) async {
+                      final draft = await showSmallTryAttemptFeedbackSheet(
                         context,
-                        AppLocaleText.tr(
-                          context,
-                          en: 'Your action feedback is saved.',
-                          zhHans: '今日小行动反馈已保存。',
-                          zhHant: '今日小行動回饋已保存。',
-                          ja: '今日の小さな行動の反応を保存しました。',
-                        ),
+                        title: action.title,
                       );
-                    },
-                    onOpenActionHub: () async {
-                      if (!await _confirmLeaveWithUnsavedInput(context)) {
-                        return;
-                      }
-                      if (!context.mounted) return;
-                      await context.push(AppRoutes.todayActionCandidates);
-                      if (context.mounted) await vm.load();
-                    },
-                    onOpenExperimentHub: () async {
-                      if (!await _confirmLeaveWithUnsavedInput(context)) {
-                        return;
-                      }
-                      if (!context.mounted) return;
-                      await context.push(AppRoutes.weeklyExperimentCandidates);
-                      if (context.mounted) await vm.load();
-                    },
-                    onOpenExperiment: () async {
-                      if (!await _confirmLeaveWithUnsavedInput(context)) {
-                        return;
-                      }
-                      if (context.mounted) {
-                        context.go(AppRoutes.experiment);
-                      }
+                      if (draft == null || !context.mounted) return;
+                      await vm.submitMicroActionFeedback(
+                        action: action,
+                        feedback: draft.completionStatus,
+                        effect: draft.effect,
+                        difficulty: draft.difficulty,
+                        userNote: draft.note,
+                      );
                     },
                   ),
                   const SizedBox(height: AuroraMainPageSpec.sectionGap),
@@ -305,14 +232,75 @@ class _TodayPageState extends State<TodayPage> {
                       }
                     },
                   ),
-                  if (state.pendingQuestion != null) ...[
-                    const SizedBox(height: 10),
-                    _FollowupQuestionCard(
-                      question: state.pendingQuestion!,
-                      isSubmitting: state.isFollowupSubmitting,
-                      onSubmit: vm.submitFollowup,
-                    ),
-                  ],
+                  const SizedBox(height: AuroraMainPageSpec.sectionGap),
+                  TodayAdoptedPlansSection(
+                    signals: state.recentSignals,
+                    compatibilityAction: state.activeMicroAction,
+                    compatibilityExperiment: state.todayLifeExperiment,
+                    isBusy: state.isCaptureSubmitting,
+                    onActionFeedback: (action, feedback) async {
+                      await vm.submitMicroActionFeedback(
+                        action: action,
+                        feedback: feedback.completionStatus,
+                        effect: feedback.effect,
+                        difficulty: feedback.difficulty,
+                        userNote: feedback.note,
+                      );
+                      if (!context.mounted) return;
+                      _showSoftMessage(
+                        context,
+                        AppLocaleText.tr(
+                          context,
+                          en: 'Your small experiment completion is saved.',
+                          zhHans: '今日小实验完成情况已保存。',
+                          zhHant: '今日小實驗完成情況已保存。',
+                          ja: '今日の小実験の完了状況を保存しました。',
+                        ),
+                      );
+                    },
+                    onExperimentFeedback: (experiment, feedback) async {
+                      await vm.submitTodayLifeExperimentFeedback(
+                        experiment: experiment,
+                        status: feedback,
+                        feedbackText: '',
+                      );
+                      if (!context.mounted) return;
+                      _showSoftMessage(
+                        context,
+                        AppLocaleText.tr(
+                          context,
+                          en: 'Your goal completion is saved.',
+                          zhHans: '目标完成情况已保存。',
+                          zhHant: '目標完成情況已保存。',
+                          ja: '目標の完了状況を保存しました。',
+                        ),
+                      );
+                    },
+                    onOpenAll: () async {
+                      if (!await _confirmLeaveWithUnsavedInput(context)) {
+                        return;
+                      }
+                      if (!context.mounted) return;
+                      await context.push(AppRoutes.experiment);
+                      if (context.mounted) await vm.load();
+                    },
+                    onOpenActionHub: () async {
+                      if (!await _confirmLeaveWithUnsavedInput(context)) {
+                        return;
+                      }
+                      if (!context.mounted) return;
+                      await context.push(AppRoutes.todayActionCandidates);
+                      if (context.mounted) await vm.load();
+                    },
+                    onOpenExperimentHub: () async {
+                      if (!await _confirmLeaveWithUnsavedInput(context)) {
+                        return;
+                      }
+                      if (!context.mounted) return;
+                      await context.push(AppRoutes.weeklyExperimentCandidates);
+                      if (context.mounted) await vm.load();
+                    },
+                  ),
                   if (state.isInitialLoading) ...[
                     const SizedBox(height: 18),
                     const Center(child: CircularProgressIndicator()),
@@ -478,7 +466,7 @@ class _TodayPageState extends State<TodayPage> {
       category: result.category,
       categoryLabel: result.categoryLabel,
       recordStatus: result.recordStatus,
-      energyEffect: result.energyEffect,
+      energyLevel: result.energyLevel,
       note: result.note,
       language: language,
     );
@@ -610,74 +598,9 @@ class _TodayPageState extends State<TodayPage> {
   }
 }
 
-Future<String?> _askForShortText(
-  BuildContext context, {
-  required String title,
-  required String hint,
-}) async {
-  final controller = TextEditingController();
-  final result = await showDialog<String>(
-    context: context,
-    builder: (dialogContext) {
-      return AuroraDialog(
-        key: const ValueKey('today-short-text-aurora-dialog'),
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 3,
-          minLines: 1,
-          textInputAction: TextInputAction.done,
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: Colors.white.withValues(alpha: 0.72),
-            hintText: hint,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-          onSubmitted: (_) {
-            Navigator.of(dialogContext).pop(controller.text.trim());
-          },
-        ),
-        actions: [
-          TextButton(
-            style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(
-              AppLocaleText.tr(
-                context,
-                en: 'Cancel',
-                zhHans: '取消',
-                zhHant: '取消',
-                ja: 'キャンセル',
-              ),
-            ),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(minimumSize: const Size(88, 44)),
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: Text(
-              AppLocaleText.tr(
-                context,
-                en: 'Save',
-                zhHans: '保存',
-                zhHant: '儲存',
-                ja: '保存',
-              ),
-            ),
-          ),
-        ],
-      );
-    },
-  );
-  controller.dispose();
-  return result;
-}
-
 class _AiJudgementPanel extends StatelessWidget {
   final AiJudgementModel? judgement;
+  final bool exhausted;
   final MicroActionModel? microAction;
   final bool isBusy;
   final ValueChanged<AiJudgementModel> onAccurate;
@@ -690,6 +613,7 @@ class _AiJudgementPanel extends StatelessWidget {
   const _AiJudgementPanel({
     super.key,
     required this.judgement,
+    required this.exhausted,
     required this.microAction,
     required this.isBusy,
     required this.onAccurate,
@@ -759,7 +683,7 @@ class _AiJudgementPanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 5),
-            _AiJudgementEmptyState(),
+            _AiJudgementEmptyState(exhausted: exhausted),
           ] else
             _AiJudgementContent(
               judgement: judgement!,
@@ -778,16 +702,28 @@ class _AiJudgementPanel extends StatelessWidget {
 }
 
 class _AiJudgementEmptyState extends StatelessWidget {
+  final bool exhausted;
+
+  const _AiJudgementEmptyState({required this.exhausted});
+
   @override
   Widget build(BuildContext context) {
     return Text(
-      AppLocaleText.tr(
-        context,
-        en: 'No prediction yet',
-        zhHans: '暂时还没有预判',
-        zhHant: '暫時還沒有預判',
-        ja: 'まだ予測はありません',
-      ),
+      exhausted
+          ? AppLocaleText.tr(
+              context,
+              en: 'No new prediction for now',
+              zhHans: '暂时没有新预判',
+              zhHant: '暫時沒有新預判',
+              ja: '今は新しい予測がありません',
+            )
+          : AppLocaleText.tr(
+              context,
+              en: 'No prediction yet',
+              zhHans: '暂时还没有预判',
+              zhHant: '暫時還沒有預判',
+              ja: 'まだ予測はありません',
+            ),
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
       style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -1055,10 +991,10 @@ class _MicroActionCard extends StatelessWidget {
               _MicroActionChoiceButton(
                 label: AppLocaleText.tr(
                   context,
-                  en: 'Add to experiment archive',
-                  zhHans: '加入实验档案',
-                  zhHant: '加入實驗檔案',
-                  ja: '実験アーカイブへ',
+                  en: 'Add as a Life Experiment goal',
+                  zhHans: '加入生活小实验目标',
+                  zhHant: '加入生活小實驗目標',
+                  ja: '生活実験の目標に追加',
                 ),
                 onPressed: isBusy ? null : () => onChoice('add_to_weekly'),
               ),
@@ -1092,60 +1028,13 @@ class _MicroActionCard extends StatelessWidget {
               _FeedbackChip(
                 label: AppLocaleText.tr(
                   context,
-                  en: 'Happened',
-                  zhHans: '发生了',
-                  zhHant: '發生了',
-                  ja: '起きた',
-                ),
-                selected: const {'happened', 'occurred'}
-                    .contains(action.feedbackStatus),
-                onPressed: isBusy ? null : () => onFeedback('occurred'),
-              ),
-              _FeedbackChip(
-                label: AppLocaleText.tr(
-                  context,
-                  en: 'Did not happen',
-                  zhHans: '没发生',
-                  zhHant: '沒發生',
-                  ja: '起きなかった',
-                ),
-                selected: const {'not_happened', 'not_occurred'}
-                    .contains(action.feedbackStatus),
-                onPressed: isBusy ? null : () => onFeedback('not_occurred'),
-              ),
-              _FeedbackChip(
-                label: AppLocaleText.tr(
-                  context,
-                  en: 'Helpful',
-                  zhHans: '有帮助',
-                  zhHant: '有幫助',
-                  ja: '助かった',
-                ),
-                selected: action.feedbackStatus == 'helpful',
-                onPressed: isBusy ? null : () => onFeedback('helpful'),
-              ),
-              _FeedbackChip(
-                label: AppLocaleText.tr(
-                  context,
-                  en: 'Not suitable today',
-                  zhHans: '今天不适合',
-                  zhHant: '今天不適合',
-                  ja: '今日は合わない',
-                ),
-                selected: action.feedbackStatus == 'not_suitable_today',
-                onPressed:
-                    isBusy ? null : () => onFeedback('not_suitable_today'),
-              ),
-              _FeedbackChip(
-                label: AppLocaleText.tr(
-                  context,
-                  en: 'Add a line',
-                  zhHans: '补一句',
-                  zhHant: '補一句',
-                  ja: '一言足す',
+                  en: 'Record an attempt',
+                  zhHans: '登记一次',
+                  zhHant: '登記一次',
+                  ja: '1回記録',
                 ),
                 selected: false,
-                onPressed: isBusy ? null : () => onFeedback('note'),
+                onPressed: isBusy ? null : () => onFeedback('record_once'),
               ),
             ],
           ),
@@ -1167,10 +1056,10 @@ class _MicroActionCard extends StatelessWidget {
       case 'active':
         return AppLocaleText.tr(
           context,
-          en: 'weekly experiment',
-          zhHans: '实验档案中',
-          zhHant: '實驗檔案中',
-          ja: '実験アーカイブ',
+          en: 'goal in progress',
+          zhHans: '目标进行中',
+          zhHant: '目標進行中',
+          ja: '目標を実行中',
         );
       case 'skipped':
         return AppLocaleText.tr(
@@ -1463,24 +1352,10 @@ class _CaptureInputCard extends StatelessWidget {
           LayoutBuilder(
             builder: (context, constraints) {
               const gap = 4.0;
-              final buttonWidth = (constraints.maxWidth - gap * 4) / 5;
+              final buttonWidth = (constraints.maxWidth - gap * 3) / 4;
 
               return Row(
                 children: [
-                  _ComposerModeButton(
-                    key: const ValueKey('today-text-action'),
-                    width: buttonWidth,
-                    onPressed: isSubmitting ? null : onTextMode,
-                    icon: Icons.text_fields_rounded,
-                    label: AppLocaleText.tr(
-                      context,
-                      en: 'Text',
-                      zhHans: '文字',
-                      zhHant: '文字',
-                      ja: 'テキスト',
-                    ),
-                  ),
-                  const SizedBox(width: gap),
                   _ComposerModeButton(
                     key: const ValueKey('today-voice-action'),
                     width: buttonWidth,
@@ -1721,26 +1596,46 @@ class _ComposerModeButton extends StatelessWidget {
 enum _TodayHeroEnergyState {
   waiting,
   steady,
+  enough,
   draining,
   restoring,
   mixed,
 }
 
+enum _TodayHeroFrictionState {
+  waiting,
+  low,
+  medium,
+  high,
+  attention,
+}
+
+enum _TodayHeroRecoveryState {
+  waiting,
+  low,
+  average,
+  good,
+}
+
 class _TodayOverviewData {
+  final int eligibleSignalCount;
   final int drainingCount;
   final int restoringCount;
   final int mixedCount;
   final int neutralCount;
   final int frictionClueCount;
   final int recoveryClueCount;
+  final int? latestExplicitEnergyLevel;
 
   const _TodayOverviewData({
+    required this.eligibleSignalCount,
     required this.drainingCount,
     required this.restoringCount,
     required this.mixedCount,
     required this.neutralCount,
     required this.frictionClueCount,
     required this.recoveryClueCount,
+    required this.latestExplicitEnergyLevel,
   });
 
   factory _TodayOverviewData.fromSignals(List<RecentSignalModel> signals) {
@@ -1754,9 +1649,54 @@ class _TodayOverviewData {
     var neutral = 0;
     var frictionClues = 0;
     var recoveryClues = 0;
+    int? latestEnergyLevel;
+
+    final newestFirst = [...eligibleSignals]..sort((a, b) {
+        final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bTime.compareTo(aTime);
+      });
+
+    int? explicitEnergyLevel(RecentSignalModel signal) {
+      final rawLevel = signal.rawPayloadJson['energy_level'];
+      final parsedLevel = rawLevel is num
+          ? rawLevel.toInt()
+          : int.tryParse(rawLevel?.toString() ?? '');
+      if (parsedLevel == null || parsedLevel < 0 || parsedLevel > 2) {
+        return null;
+      }
+      return parsedLevel;
+    }
+
+    // A current-state check-in is the clearest reading of "right now" and
+    // therefore wins even when a completed time-use entry was recorded later.
+    for (final signal in newestFirst) {
+      if (signal.sourceType != 'one_tap') continue;
+      latestEnergyLevel = explicitEnergyLevel(signal);
+      if (latestEnergyLevel != null) break;
+    }
+    // A completed time entry can provide explicit context when no current
+    // state exists. Planned entries never describe energy that was felt.
+    if (latestEnergyLevel == null) {
+      for (final signal in newestFirst) {
+        if (signal.sourceType != 'time_use' ||
+            signal.rawPayloadJson['record_status'] == 'planned') {
+          continue;
+        }
+        latestEnergyLevel = explicitEnergyLevel(signal);
+        if (latestEnergyLevel != null) break;
+      }
+    }
 
     for (final signal in eligibleSignals) {
-      final energy = (signal.energyLoad ?? '').trim().toLowerCase();
+      final rawEnergy = signal.rawPayloadJson['energy_effect']
+          ?.toString()
+          .trim()
+          .toLowerCase();
+      final energy =
+          rawEnergy != null && rawEnergy.isNotEmpty && rawEnergy != 'unknown'
+              ? rawEnergy
+              : (signal.energyLoad ?? '').trim().toLowerCase();
       switch (energy) {
         case 'draining':
         case 'high_draining':
@@ -1793,12 +1733,14 @@ class _TodayOverviewData {
     }
 
     return _TodayOverviewData(
+      eligibleSignalCount: eligibleSignals.length,
       drainingCount: draining,
       restoringCount: restoring,
       mixedCount: mixed,
       neutralCount: neutral,
       frictionClueCount: frictionClues,
       recoveryClueCount: recoveryClues,
+      latestExplicitEnergyLevel: latestEnergyLevel,
     );
   }
 
@@ -1806,9 +1748,20 @@ class _TodayOverviewData {
       drainingCount + restoringCount + mixedCount + neutralCount;
 
   bool get hasEvidence =>
-      energyEvidenceCount > 0 || frictionClueCount > 0 || recoveryClueCount > 0;
+      latestExplicitEnergyLevel != null ||
+      energyEvidenceCount > 0 ||
+      frictionClueCount > 0 ||
+      recoveryClueCount > 0;
 
   _TodayHeroEnergyState get energyState {
+    final explicit = latestExplicitEnergyLevel;
+    if (explicit != null) {
+      return switch (explicit) {
+        0 => _TodayHeroEnergyState.draining,
+        1 => _TodayHeroEnergyState.steady,
+        _ => _TodayHeroEnergyState.enough,
+      };
+    }
     if (energyEvidenceCount == 0) return _TodayHeroEnergyState.waiting;
     if (restoringCount > drainingCount && restoringCount >= mixedCount) {
       return _TodayHeroEnergyState.restoring;
@@ -1819,6 +1772,36 @@ class _TodayOverviewData {
     }
     if (mixedCount > 0) return _TodayHeroEnergyState.mixed;
     return _TodayHeroEnergyState.steady;
+  }
+
+  _TodayHeroFrictionState get frictionState {
+    if (eligibleSignalCount == 0 ||
+        (energyEvidenceCount == 0 && frictionClueCount == 0)) {
+      return _TodayHeroFrictionState.waiting;
+    }
+    if (frictionClueCount == 0) return _TodayHeroFrictionState.low;
+    if (frictionClueCount * 3 <= eligibleSignalCount) {
+      return _TodayHeroFrictionState.medium;
+    }
+    if (frictionClueCount >= 3 &&
+        frictionClueCount * 3 > eligibleSignalCount * 2) {
+      return _TodayHeroFrictionState.attention;
+    }
+    return _TodayHeroFrictionState.high;
+  }
+
+  _TodayHeroRecoveryState get recoveryState {
+    if (eligibleSignalCount == 0 || !hasEvidence) {
+      return _TodayHeroRecoveryState.waiting;
+    }
+    if (restoringCount >= 2 && restoringCount > drainingCount) {
+      return _TodayHeroRecoveryState.good;
+    }
+    if (recoveryClueCount > 0 || restoringCount > 0) {
+      return _TodayHeroRecoveryState.average;
+    }
+    if (drainingCount > 0) return _TodayHeroRecoveryState.low;
+    return _TodayHeroRecoveryState.waiting;
   }
 }
 
@@ -1851,157 +1834,162 @@ class _TodayHeroHeader extends StatelessWidget {
       ja: '${now.month}月${now.day}日 $weekday',
     );
 
-    return ConstrainedBox(
+    return AuroraCard(
       key: const ValueKey('today-hero-header'),
-      constraints: BoxConstraints(
-        minHeight: overview.hasEvidence ? 160 : 126,
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(24),
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          const Color(0xFFFFFBF6).withValues(alpha: 0.92),
+          const Color(0xFFF7F1FF).withValues(alpha: 0.82),
+          const Color(0xFFEEF5FF).withValues(alpha: 0.78),
+        ],
       ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            right: compact ? -16 : -12,
-            top: compact ? -24 : -28,
-            width: compact ? 118 : 142,
-            height: compact ? 118 : 142,
-            child: IgnorePointer(
-              child: AuroraHeroEmblem(
-                size: compact ? 118 : 142,
-                opacity: 0.88,
-              ),
-            ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minHeight: overview.hasEvidence ? 184 : 132,
           ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(2, compact ? 2 : 4, 2, 0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                AuroraHeroTitle(
-                  text: AppLocaleText.tr(
-                    context,
-                    en: 'Today',
-                    zhHans: '今天',
-                    zhHant: '今天',
-                    ja: '今日',
-                  ),
-                  fontSize: compact ? 34 : 36,
-                  maxLines: 1,
+          child: Stack(
+            children: [
+              Positioned(
+                key: const ValueKey('today-hero-signal-pattern'),
+                right: compact ? -22 : -16,
+                top: compact ? -20 : -24,
+                width: compact ? 146 : 160,
+                height: compact ? 122 : 132,
+                child: const IgnorePointer(
+                  child: AuroraSignalHeroPattern(),
                 ),
-                const SizedBox(height: 7),
-                Text(
-                  dateText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AuroraColors.ink.withValues(alpha: 0.88),
-                        fontWeight: FontWeight.w600,
-                        fontSize: compact ? 13.5 : 15,
-                      ),
+              ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  compact ? 14 : 16,
+                  compact ? 13 : 15,
+                  compact ? 14 : 16,
+                  compact ? 12 : 14,
                 ),
-                const SizedBox(height: 10),
-                Padding(
-                  key: const ValueKey('today-hero-observation'),
-                  padding: EdgeInsets.only(right: compact ? 86 : 108),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        AppLocaleText.tr(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.only(right: compact ? 72 : 96),
+                      child: AuroraHeroTitle(
+                        text: AppLocaleText.tr(
                           context,
-                          en: 'Today, you can look at it this way',
-                          zhHans: '今天可以先这样看',
-                          zhHant: '今天可以先這樣看',
-                          ja: '今日はまずこう見てみる',
+                          en: 'Today',
+                          zhHans: '今天',
+                          zhHant: '今天',
+                          ja: '今日',
                         ),
+                        fontSize: compact ? 33 : 36,
+                        maxLines: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Padding(
+                      padding: EdgeInsets.only(right: compact ? 70 : 92),
+                      child: Text(
+                        dateText,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style:
-                            Theme.of(context).textTheme.labelMedium?.copyWith(
-                                  color: AuroraColors.purple,
-                                  fontSize: compact ? 10.5 : 11.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(
+                              color: AuroraColors.ink.withValues(alpha: 0.88),
+                              fontWeight: FontWeight.w600,
+                              fontSize: compact ? 13.5 : 15,
+                            ),
                       ),
-                      const SizedBox(height: 3),
-                      Text(
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      key: const ValueKey('today-hero-observation'),
+                      padding: EdgeInsets.only(right: compact ? 90 : 106),
+                      child: Text(
                         _withoutSummaryPrefix(insightText),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: AuroraColors.ink.withValues(alpha: 0.78),
-                              height: 1.32,
+                              color: AuroraColors.ink.withValues(alpha: 0.79),
+                              height: 1.34,
                               fontWeight: FontWeight.w500,
                               fontSize: compact ? 12.5 : 13.5,
                             ),
                       ),
+                    ),
+                    if (overview.hasEvidence) ...[
+                      const SizedBox(height: 11),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _TodayHeroMetricChip(
+                              key: const ValueKey('today-hero-energy'),
+                              icon: Icons.battery_saver_rounded,
+                              label: AppLocaleText.tr(
+                                context,
+                                en: 'Energy',
+                                zhHans: '能量',
+                                zhHant: '能量',
+                                ja: 'エネルギー',
+                              ),
+                              value:
+                                  _energyValue(context, overview.energyState),
+                              color: AuroraColors.purple,
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: _TodayHeroMetricChip(
+                              key: const ValueKey('today-hero-friction'),
+                              icon: Icons.monitor_heart_outlined,
+                              label: AppLocaleText.tr(
+                                context,
+                                en: 'Friction',
+                                zhHans: '摩擦',
+                                zhHant: '摩擦',
+                                ja: '摩擦',
+                              ),
+                              value: _frictionValue(
+                                context,
+                                overview.frictionState,
+                              ),
+                              color: AuroraColors.orange,
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: _TodayHeroMetricChip(
+                              key: const ValueKey('today-hero-recovery'),
+                              icon: Icons.nights_stay_outlined,
+                              label: AppLocaleText.tr(
+                                context,
+                                en: 'Recovery',
+                                zhHans: '恢复',
+                                zhHant: '恢復',
+                                ja: '回復',
+                              ),
+                              value: _recoveryValue(
+                                context,
+                                overview.recoveryState,
+                              ),
+                              color: AuroraColors.mint,
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
-                  ),
+                  ],
                 ),
-                if (overview.hasEvidence) ...[
-                  const SizedBox(height: 9),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _TodayHeroMetricChip(
-                          key: const ValueKey('today-hero-energy'),
-                          icon: Icons.battery_saver_rounded,
-                          label: AppLocaleText.tr(
-                            context,
-                            en: 'Energy',
-                            zhHans: '能量',
-                            zhHant: '能量',
-                            ja: 'エネルギー',
-                          ),
-                          value: _energyValue(context, overview.energyState),
-                          color: AuroraColors.purple,
-                        ),
-                      ),
-                      const SizedBox(width: 7),
-                      Expanded(
-                        child: _TodayHeroMetricChip(
-                          key: const ValueKey('today-hero-friction'),
-                          icon: Icons.monitor_heart_outlined,
-                          label: AppLocaleText.tr(
-                            context,
-                            en: 'Friction',
-                            zhHans: '摩擦',
-                            zhHant: '摩擦',
-                            ja: '摩擦',
-                          ),
-                          value: _frictionValue(
-                            context,
-                            overview.frictionClueCount,
-                          ),
-                          color: AuroraColors.orange,
-                        ),
-                      ),
-                      const SizedBox(width: 7),
-                      Expanded(
-                        child: _TodayHeroMetricChip(
-                          key: const ValueKey('today-hero-recovery'),
-                          icon: Icons.nights_stay_outlined,
-                          label: AppLocaleText.tr(
-                            context,
-                            en: 'Recovery',
-                            zhHans: '恢复',
-                            zhHant: '恢復',
-                            ja: '回復',
-                          ),
-                          value: _recoveryValue(
-                            context,
-                            overview.recoveryClueCount,
-                          ),
-                          color: AuroraColors.mint,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -2037,12 +2025,19 @@ class _TodayHeroHeader extends StatelessWidget {
           zhHant: '平穩',
           ja: '安定',
         ),
+      _TodayHeroEnergyState.enough => AppLocaleText.tr(
+          context,
+          en: 'Enough',
+          zhHans: '较足',
+          zhHant: '較足',
+          ja: '十分',
+        ),
       _TodayHeroEnergyState.draining => AppLocaleText.tr(
           context,
-          en: 'Draining',
-          zhHans: '有消耗',
-          zhHant: '有消耗',
-          ja: '消耗あり',
+          en: 'Low',
+          zhHans: '偏低',
+          zhHant: '偏低',
+          ja: '低め',
         ),
       _TodayHeroEnergyState.restoring => AppLocaleText.tr(
           context,
@@ -2062,32 +2057,71 @@ class _TodayHeroHeader extends StatelessWidget {
     };
   }
 
-  String _frictionValue(BuildContext context, int clueCount) {
-    if (clueCount == 0) return _waitingValue(context);
-    if (clueCount > 1) {
-      return AppLocaleText.tr(
-        context,
-        en: 'More clues',
-        zhHans: '线索较多',
-        zhHant: '線索較多',
-        ja: '手がかり多め',
-      );
-    }
-    return _clueValue(context);
+  String _frictionValue(
+    BuildContext context,
+    _TodayHeroFrictionState state,
+  ) {
+    return switch (state) {
+      _TodayHeroFrictionState.waiting => _waitingValue(context),
+      _TodayHeroFrictionState.low => AppLocaleText.tr(
+          context,
+          en: 'Low',
+          zhHans: '较低',
+          zhHant: '較低',
+          ja: '低め',
+        ),
+      _TodayHeroFrictionState.medium => AppLocaleText.tr(
+          context,
+          en: 'Medium',
+          zhHans: '中等',
+          zhHant: '中等',
+          ja: '中程度',
+        ),
+      _TodayHeroFrictionState.high => AppLocaleText.tr(
+          context,
+          en: 'High',
+          zhHans: '偏高',
+          zhHant: '偏高',
+          ja: '高め',
+        ),
+      _TodayHeroFrictionState.attention => AppLocaleText.tr(
+          context,
+          en: 'Watch',
+          zhHans: '需留意',
+          zhHant: '需留意',
+          ja: '要注意',
+        ),
+    };
   }
 
-  String _recoveryValue(BuildContext context, int clueCount) {
-    return clueCount > 0 ? _clueValue(context) : _waitingValue(context);
-  }
-
-  String _clueValue(BuildContext context) {
-    return AppLocaleText.tr(
-      context,
-      en: 'A clue',
-      zhHans: '有线索',
-      zhHant: '有線索',
-      ja: '手がかりあり',
-    );
+  String _recoveryValue(
+    BuildContext context,
+    _TodayHeroRecoveryState state,
+  ) {
+    return switch (state) {
+      _TodayHeroRecoveryState.waiting => _waitingValue(context),
+      _TodayHeroRecoveryState.low => AppLocaleText.tr(
+          context,
+          en: 'Low',
+          zhHans: '偏少',
+          zhHant: '偏少',
+          ja: '少なめ',
+        ),
+      _TodayHeroRecoveryState.average => AppLocaleText.tr(
+          context,
+          en: 'Moderate',
+          zhHans: '一般',
+          zhHant: '一般',
+          ja: '普通',
+        ),
+      _TodayHeroRecoveryState.good => AppLocaleText.tr(
+          context,
+          en: 'Good',
+          zhHans: '较好',
+          zhHant: '較好',
+          ja: '良好',
+        ),
+    };
   }
 
   String _waitingValue(BuildContext context) {
@@ -2419,7 +2453,7 @@ class _TimeUseSignalResult {
   final String category;
   final String categoryLabel;
   final String recordStatus;
-  final String energyEffect;
+  final int? energyLevel;
   final String note;
 
   const _TimeUseSignalResult({
@@ -2429,7 +2463,7 @@ class _TimeUseSignalResult {
     required this.category,
     required this.categoryLabel,
     required this.recordStatus,
-    required this.energyEffect,
+    required this.energyLevel,
     required this.note,
   });
 }
@@ -2447,8 +2481,8 @@ class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
   late TimeOfDay _startTime;
   late TimeOfDay _endTime;
   String _recordStatus = 'completed';
-  String _category = 'work';
-  String _energyEffect = 'unknown';
+  String? _category;
+  int? _energyLevel;
   String? _validationMessage;
 
   @override
@@ -2540,9 +2574,21 @@ class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
       });
       return;
     }
+    final selectedCategory = _category;
+    if (selectedCategory == null) {
+      setState(() {
+        _validationMessage = AppLocaleText.tr(
+          context,
+          en: 'Choose the life area this time belonged to.',
+          zhHans: '请选择这段时间对应的关注领域。',
+          zhHant: '請選擇這段時間對應的關注領域。',
+          ja: 'この時間に当てはまる生活領域を選んでください。',
+        );
+      });
+      return;
+    }
     final category = categories.firstWhere(
-      (item) => item.value == _category,
-      orElse: () => categories.first,
+      (item) => item.value == selectedCategory,
     );
     Navigator.of(context).pop(
       _TimeUseSignalResult(
@@ -2552,7 +2598,7 @@ class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
         category: category.value,
         categoryLabel: category.label,
         recordStatus: _recordStatus,
-        energyEffect: _energyEffect,
+        energyLevel: _recordStatus == 'completed' ? _energyLevel : null,
         note: _noteController.text.trim(),
       ),
     );
@@ -2562,7 +2608,6 @@ class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final categories = _categories(context);
-    final energyOptions = _energyOptions(context);
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
@@ -2591,10 +2636,13 @@ class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
               child: Stack(
                 children: [
                   const Positioned(
-                    top: 6,
-                    right: 10,
+                    key: ValueKey('time-use-sheet-signal-pattern'),
+                    top: -28,
+                    right: -24,
+                    width: 176,
+                    height: 176,
                     child: IgnorePointer(
-                      child: AuroraHeroEmblem(size: 128, opacity: 0.28),
+                      child: AuroraSignalHeroPattern(opacity: 0.30),
                     ),
                   ),
                   ListView(
@@ -2701,9 +2749,10 @@ class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
                                     ja: '完了した',
                                   ),
                                   selected: _recordStatus == 'completed',
-                                  onSelected: () => setState(
-                                    () => _recordStatus = 'completed',
-                                  ),
+                                  onSelected: () => setState(() {
+                                    _recordStatus = 'completed';
+                                    _validationMessage = null;
+                                  }),
                                 ),
                                 _TimeUseChoiceChip(
                                   key:
@@ -2716,9 +2765,11 @@ class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
                                     ja: 'これからの予定',
                                   ),
                                   selected: _recordStatus == 'planned',
-                                  onSelected: () => setState(
-                                    () => _recordStatus = 'planned',
-                                  ),
+                                  onSelected: () => setState(() {
+                                    _recordStatus = 'planned';
+                                    _energyLevel = null;
+                                    _validationMessage = null;
+                                  }),
                                 ),
                               ],
                             ),
@@ -2817,39 +2868,72 @@ class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
                               children: [
                                 for (final item in categories)
                                   _TimeUseChoiceChip(
+                                    key: ValueKey(
+                                      'time-use-category-${item.value}',
+                                    ),
                                     label: item.label,
                                     selected: _category == item.value,
-                                    onSelected: () => setState(
-                                      () => _category = item.value,
-                                    ),
+                                    onSelected: () => setState(() {
+                                      _category = item.value;
+                                      _validationMessage = null;
+                                    }),
                                   ),
                               ],
                             ),
                             const SizedBox(height: 16),
-                            _TimeUseLabel(
-                              label: AppLocaleText.tr(
-                                context,
-                                en: 'How did it feel? (optional)',
-                                zhHans: '这段时间的体感（可选）',
-                                zhHant: '這段時間的體感（可選）',
-                                ja: 'この時間の感覚（任意）',
+                            if (_recordStatus == 'completed') ...[
+                              _TimeUseLabel(
+                                label: AppLocaleText.tr(
+                                  context,
+                                  en: 'Energy after this time (optional)',
+                                  zhHans: '这段时间结束后的精力（可选）',
+                                  zhHant: '這段時間結束後的精力（可選）',
+                                  ja: 'この時間の後のエネルギー（任意）',
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 7,
-                              runSpacing: 7,
-                              children: [
-                                for (final item in energyOptions)
-                                  _TimeUseChoiceChip(
-                                    label: item.label,
-                                    selected: _energyEffect == item.value,
-                                    onSelected: () => setState(
-                                      () => _energyEffect = item.value,
+                              const SizedBox(height: 8),
+                              _EnergyLevelSelector(
+                                value: _energyLevel,
+                                keyPrefix: 'time-use-energy',
+                                onChanged: (value) =>
+                                    setState(() => _energyLevel = value),
+                              ),
+                            ] else
+                              Container(
+                                key: const ValueKey(
+                                  'time-use-planned-energy-hint',
+                                ),
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 11,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.46),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: AuroraColors.line.withValues(
+                                      alpha: 0.68,
                                     ),
                                   ),
-                              ],
-                            ),
+                                ),
+                                child: Text(
+                                  AppLocaleText.tr(
+                                    context,
+                                    en: 'You can add how your energy felt after it is complete.',
+                                    zhHans: '完成后可补记精力。',
+                                    zhHant: '完成後可補記精力。',
+                                    ja: '完了後にエネルギーを追記できます。',
+                                  ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color: AuroraColors.muted,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                              ),
                             const SizedBox(height: 16),
                             TextField(
                               key: const ValueKey('time-use-note-field'),
@@ -2885,17 +2969,45 @@ class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
                               ),
                             ],
                             const SizedBox(height: 16),
-                            _VoicePrimaryAction(
-                              key: const ValueKey('time-use-save-action'),
-                              label: AppLocaleText.tr(
-                                context,
-                                en: 'Add to today’s timeline',
-                                zhHans: '加入今天时间线',
-                                zhHant: '加入今天時間線',
-                                ja: '今日のタイムラインに追加',
-                              ),
-                              icon: Icons.check_rounded,
-                              onPressed: () => _save(categories),
+                            Row(
+                              children: [
+                                Expanded(
+                                  flex: 5,
+                                  child: _VoicePrimaryAction(
+                                    key: const ValueKey(
+                                      'time-use-save-action',
+                                    ),
+                                    label: AppLocaleText.tr(
+                                      context,
+                                      en: 'Save as today’s signal',
+                                      zhHans: '保存为今天的信号',
+                                      zhHant: '保存為今天的信號',
+                                      ja: '今日のシグナルに保存',
+                                    ),
+                                    icon: Icons.auto_awesome_rounded,
+                                    onPressed: () => _save(categories),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  flex: 3,
+                                  child: _VoiceAction(
+                                    key: const ValueKey(
+                                      'time-use-skip-action',
+                                    ),
+                                    icon: Icons.close_rounded,
+                                    label: AppLocaleText.tr(
+                                      context,
+                                      en: 'Skip',
+                                      zhHans: '先跳过',
+                                      zhHant: '先跳過',
+                                      ja: 'スキップ',
+                                    ),
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -2912,53 +3024,8 @@ class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
   }
 
   List<_TimeUseOption> _categories(BuildContext context) => [
-        _TimeUseOption(
-            'work',
-            AppLocaleText.tr(context,
-                en: 'Work', zhHans: '工作', zhHant: '工作', ja: '仕事')),
-        _TimeUseOption(
-            'commute',
-            AppLocaleText.tr(context,
-                en: 'Commute', zhHans: '通勤', zhHant: '通勤', ja: '移動')),
-        _TimeUseOption(
-            'household',
-            AppLocaleText.tr(context,
-                en: 'Home', zhHans: '家务', zhHant: '家務', ja: '家事')),
-        _TimeUseOption(
-            'relationship',
-            AppLocaleText.tr(context,
-                en: 'People', zhHans: '关系', zhHant: '關係', ja: '人間関係')),
-        _TimeUseOption(
-            'recovery',
-            AppLocaleText.tr(context,
-                en: 'Recovery', zhHans: '恢复', zhHant: '恢復', ja: '回復')),
-        _TimeUseOption(
-            'interest',
-            AppLocaleText.tr(context,
-                en: 'Interest', zhHans: '兴趣', zhHant: '興趣', ja: '趣味')),
-        _TimeUseOption(
-            'other',
-            AppLocaleText.tr(context,
-                en: 'Other', zhHans: '其他', zhHant: '其他', ja: 'その他')),
-      ];
-
-  List<_TimeUseOption> _energyOptions(BuildContext context) => [
-        _TimeUseOption(
-            'unknown',
-            AppLocaleText.tr(context,
-                en: 'Not sure', zhHans: '不确定', zhHant: '不確定', ja: '不明')),
-        _TimeUseOption(
-            'draining',
-            AppLocaleText.tr(context,
-                en: 'Draining', zhHans: '偏耗力', zhHant: '偏耗力', ja: '消耗')),
-        _TimeUseOption(
-            'neutral',
-            AppLocaleText.tr(context,
-                en: 'Neutral', zhHans: '一般', zhHant: '一般', ja: '普通')),
-        _TimeUseOption(
-            'restoring',
-            AppLocaleText.tr(context,
-                en: 'Restoring', zhHans: '偏恢复', zhHant: '偏恢復', ja: '回復')),
+        for (final option in FocusDomains.options)
+          _TimeUseOption(option.id, option.label(context)),
       ];
 }
 
@@ -3078,9 +3145,9 @@ class _TimeUseTimeButton extends StatelessWidget {
 }
 
 class _StatusSignalResult {
-  final String mood;
+  final String? mood;
   final String detail;
-  final int energyLevel;
+  final int? energyLevel;
   final String note;
 
   const _StatusSignalResult({
@@ -3101,8 +3168,9 @@ class _StatusSignalSheet extends StatefulWidget {
 class _StatusSignalSheetState extends State<_StatusSignalSheet> {
   final TextEditingController _noteController = TextEditingController();
   final String _detail = '';
-  String _mood = 'tired';
-  int _energyLevel = 0;
+  String? _mood;
+  int? _energyLevel;
+  String? _validationMessage;
 
   @override
   void dispose() {
@@ -3111,6 +3179,20 @@ class _StatusSignalSheetState extends State<_StatusSignalSheet> {
   }
 
   void _save() {
+    if (_mood == null &&
+        _energyLevel == null &&
+        _noteController.text.trim().isEmpty) {
+      setState(() {
+        _validationMessage = AppLocaleText.tr(
+          context,
+          en: 'Choose a state, energy level, or add a short note first.',
+          zhHans: '请先选择状态、精力，或补充一句。',
+          zhHant: '請先選擇狀態、精力，或補充一句。',
+          ja: '状態かエネルギーを選ぶか、一言入力してください。',
+        );
+      });
+      return;
+    }
     Navigator.of(context).pop(
       _StatusSignalResult(
         mood: _mood,
@@ -3155,10 +3237,13 @@ class _StatusSignalSheetState extends State<_StatusSignalSheet> {
               child: Stack(
                 children: [
                   const Positioned(
-                    top: 20,
-                    right: 28,
+                    key: ValueKey('status-sheet-signal-pattern'),
+                    top: -26,
+                    right: -24,
+                    width: 188,
+                    height: 188,
                     child: IgnorePointer(
-                      child: AuroraHeroEmblem(size: 150, opacity: 0.84),
+                      child: AuroraSignalHeroPattern(opacity: 0.44),
                     ),
                   ),
                   const Positioned(
@@ -3255,8 +3340,10 @@ class _StatusSignalSheetState extends State<_StatusSignalSheet> {
                               const SizedBox(height: 18),
                               _MoodOptionStrip(
                                 selectedMood: _mood,
-                                onSelect: (value) =>
-                                    setState(() => _mood = value),
+                                onSelect: (value) => setState(() {
+                                  _mood = value;
+                                  _validationMessage = null;
+                                }),
                               ),
                               const SizedBox(height: 24),
                               Row(
@@ -3288,11 +3375,30 @@ class _StatusSignalSheetState extends State<_StatusSignalSheet> {
                               const SizedBox(height: 12),
                               _EnergyLevelSelector(
                                 value: _energyLevel,
-                                onChanged: (value) =>
-                                    setState(() => _energyLevel = value),
+                                onChanged: (value) => setState(() {
+                                  _energyLevel = value;
+                                  _validationMessage = null;
+                                }),
                               ),
                               const SizedBox(height: 20),
                               _StatusNoteField(controller: _noteController),
+                              if (_validationMessage != null) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  _validationMessage!,
+                                  key: const ValueKey(
+                                    'status-validation-message',
+                                  ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color:
+                                            Theme.of(context).colorScheme.error,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                              ],
                               const SizedBox(height: 16),
                               Container(
                                 width: double.infinity,
@@ -3319,10 +3425,10 @@ class _StatusSignalSheetState extends State<_StatusSignalSheet> {
                                       child: Text(
                                         AppLocaleText.tr(
                                           context,
-                                          en: 'AI hint: the more specific the state, the closer later small actions can be.',
-                                          zhHans: 'AI 提示：状态越具体，后面的小行动会更贴近你。',
-                                          zhHant: 'AI 提示：狀態越具體，後面的小行動會更貼近你。',
-                                          ja: 'AIヒント：状態が具体的なほど、後の小さな行動が合いやすくなります。',
+                                          en: 'AI hint: the more specific the state, the closer later small experiments can be.',
+                                          zhHans: 'AI 提示：状态越具体，后面的小实验会更贴近你。',
+                                          zhHant: 'AI 提示：狀態越具體，後面的小實驗會更貼近你。',
+                                          ja: 'AIヒント：状態が具体的なほど、後の小実験が合いやすくなります。',
                                         ),
                                         style: Theme.of(context)
                                             .textTheme
@@ -3394,7 +3500,7 @@ class _StatusSignalSheetState extends State<_StatusSignalSheet> {
 }
 
 class _MoodOptionStrip extends StatelessWidget {
-  final String selectedMood;
+  final String? selectedMood;
   final ValueChanged<String> onSelect;
 
   const _MoodOptionStrip({
@@ -3573,12 +3679,14 @@ class _StatusMoodCard extends StatelessWidget {
 }
 
 class _EnergyLevelSelector extends StatelessWidget {
-  final int value;
+  final int? value;
   final ValueChanged<int> onChanged;
+  final String keyPrefix;
 
   const _EnergyLevelSelector({
     required this.value,
     required this.onChanged,
+    this.keyPrefix = 'status-energy',
   });
 
   @override
@@ -3593,7 +3701,7 @@ class _EnergyLevelSelector extends StatelessWidget {
     ];
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.42),
         borderRadius: BorderRadius.circular(20),
@@ -3601,71 +3709,72 @@ class _EnergyLevelSelector extends StatelessWidget {
       ),
       child: Column(
         children: [
-          SizedBox(
-            height: 24,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned(
-                  left: 28,
-                  right: 28,
-                  child: Container(
-                    height: 2,
-                    color: AuroraColors.line.withValues(alpha: 0.72),
-                  ),
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    for (var i = 0; i < 3; i++)
-                      GestureDetector(
-                        onTap: () => onChanged(i),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 160),
-                          width: value == i ? 28 : 11,
-                          height: value == i ? 28 : 11,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: value == i
-                                ? AuroraColors.purple
-                                : AuroraColors.muted.withValues(alpha: 0.34),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.92),
-                              width: value == i ? 5 : 0,
-                            ),
-                            boxShadow: value == i
-                                ? [
-                                    BoxShadow(
-                                      color: AuroraColors.purple
-                                          .withValues(alpha: 0.22),
-                                      blurRadius: 16,
-                                      offset: const Offset(0, 5),
-                                    ),
-                                  ]
-                                : null,
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 2,
+              activeTrackColor: value == null
+                  ? AuroraColors.line.withValues(alpha: 0.72)
+                  : AuroraColors.purple.withValues(alpha: 0.74),
+              inactiveTrackColor: AuroraColors.line.withValues(alpha: 0.72),
+              activeTickMarkColor: Colors.white.withValues(alpha: 0.96),
+              inactiveTickMarkColor: AuroraColors.muted.withValues(alpha: 0.42),
+              thumbColor:
+                  value == null ? Colors.transparent : AuroraColors.purple,
+              overlayColor: AuroraColors.purple.withValues(alpha: 0.12),
+              thumbShape: const RoundSliderThumbShape(
+                enabledThumbRadius: 11,
+                elevation: 4,
+                pressedElevation: 7,
+              ),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 22),
+              tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 4),
+            ),
+            child: Slider(
+              key: ValueKey('$keyPrefix-slider'),
+              value: (value ?? 1).toDouble(),
+              min: 0,
+              max: 2,
+              divisions: 2,
+              onChanged: (nextValue) => onChanged(nextValue.round()),
+              semanticFormatterCallback: (nextValue) =>
+                  labels[nextValue.round()],
+            ),
+          ),
+          Row(
+            children: [
+              for (var i = 0; i < labels.length; i++)
+                Expanded(
+                  child: Semantics(
+                    button: true,
+                    selected: value == i,
+                    label: labels[i],
+                    child: InkWell(
+                      key: ValueKey('$keyPrefix-option-$i'),
+                      onTap: () => onChanged(i),
+                      borderRadius: BorderRadius.circular(12),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 44),
+                        child: Align(
+                          alignment: i == 0
+                              ? Alignment.centerLeft
+                              : i == labels.length - 1
+                                  ? Alignment.centerRight
+                                  : Alignment.center,
+                          child: Text(
+                            labels[i],
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelLarge
+                                ?.copyWith(
+                                  color: value == i
+                                      ? AuroraColors.purple
+                                      : AuroraColors.muted,
+                                  fontWeight: FontWeight.w800,
+                                ),
                           ),
                         ),
                       ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              for (var i = 0; i < labels.length; i++)
-                GestureDetector(
-                  onTap: () => onChanged(i),
-                  child: Text(
-                    labels[i],
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: value == i
-                              ? AuroraColors.purple
-                              : AuroraColors.muted,
-                          fontWeight: FontWeight.w800,
-                        ),
+                    ),
                   ),
                 ),
             ],
@@ -3769,6 +3878,7 @@ class _DiaryTimelineSection extends StatelessWidget {
     ]..sort((a, b) => b.sortKey.compareTo(a.sortKey));
     final visibleItems = items.take(4).toList(growable: false);
     return AuroraCard(
+      key: const ValueKey('today-timeline-section'),
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       borderRadius: BorderRadius.circular(20),
       color: Colors.white.withValues(alpha: 0.68),
@@ -3951,10 +4061,10 @@ class _DiaryTimelineItem {
     if (signal.isLibrarySaved) {
       return AppLocaleText.tr(
         context,
-        en: 'Added from a Signal Library reference after your confirmation.',
-        zhHans: '这条 Signal Card 来自信号库参考，并由你确认后加入。',
-        zhHant: '這條 SignalCard 來自信號庫參考，並由你確認後加入。',
-        ja: 'シグナルライブラリの参考から、確認後に追加したSignalCardです。',
+        en: 'You confirmed and saved this signal.',
+        zhHans: '你确认并保存了这条信号。',
+        zhHant: '你確認並保存了這條信號。',
+        ja: 'このシグナルを確認して保存しました。',
       );
     }
 
@@ -3964,19 +4074,19 @@ class _DiaryTimelineItem {
         content.contains('耗')) {
       return AppLocaleText.tr(
         context,
-        en: 'This looks like an energy signal. Keep it light for now.',
-        zhHans: '这更像一条能量信号，今天先把动作放轻一点。',
-        zhHant: '這更像一條能量信號，今天先把動作放輕一點。',
-        ja: 'これはエネルギーのシグナルに見えます。今日は軽めでよさそうです。',
+        en: 'You wrote that the moment felt tiring, and I am keeping that feeling here.',
+        zhHans: '你写下了那一刻很累，这份感受先留在这里。',
+        zhHant: '你寫下了那一刻很累，這份感受先留在這裡。',
+        ja: 'そのとき疲れたと書いてくれましたね。その気持ちをここに残します。',
       );
     }
     if (content.contains('睡') || content.contains('休息')) {
       return AppLocaleText.tr(
         context,
-        en: 'This may be pointing to recovery. Notice whether it repeats.',
-        zhHans: '这可能在指向恢复，可以留意它是否反复出现。',
-        zhHant: '這可能在指向恢復，可以留意它是否反覆出現。',
-        ja: '回復に関係していそうです。繰り返すか見てみましょう。',
+        en: 'You wrote that you wanted sleep or rest, and I am keeping that here.',
+        zhHans: '你写下了当时想睡或休息，这一条先留在这里。',
+        zhHant: '你寫下了當時想睡或休息，這一條先留在這裡。',
+        ja: '眠りたい、休みたいと書いてくれましたね。そのままここに残します。',
       );
     }
     if (content.contains('上班') ||
@@ -3984,23 +4094,23 @@ class _DiaryTimelineItem {
         content.contains('会议')) {
       return AppLocaleText.tr(
         context,
-        en: 'This may be about work rhythm rather than a single event.',
-        zhHans: '这可能不只是单个事件，而是今天工作节奏的一条线索。',
-        zhHant: '這可能不只是單個事件，而是今天工作節奏的一條線索。',
-        ja: '単発の出来事より、今日の仕事リズムの手がかりかもしれません。',
+        en: 'You recorded this part of your workday, and I am keeping it here.',
+        zhHans: '你记录了这段和工作有关的经历，我先把它留在这里。',
+        zhHant: '你記錄了這段和工作有關的經歷，我先把它留在這裡。',
+        ja: '仕事に関するこの出来事を書いてくれましたね。そのままここに残します。',
       );
     }
     return AppLocaleText.tr(
       context,
-      en: 'This is one small signal from today.',
-      zhHans: '这是今天的一条生活信号。',
-      zhHant: '這是今天的一條生活信號。',
-      ja: 'これは今日の小さな生活シグナルです。',
+      en: 'I hear this small but real part of your day.',
+      zhHans: '今天这个很小但很真实的片段，我接住了。',
+      zhHant: '今天這個很小但很真實的片段，我接住了。',
+      ja: '今日の小さくても本当にあったこの瞬間、ちゃんと受け取りました。',
     );
   }
 
   static String? _usableAiReply(String? raw) {
-    return sanitizeUserVisibleAiText(raw);
+    return sanitizeTimelineAcknowledgement(raw);
   }
 
   static List<_DiaryTag> _tagsForSignal(
@@ -4008,9 +4118,44 @@ class _DiaryTimelineItem {
     RecentSignalModel signal,
   ) {
     if (signal.sourceType == 'time_use') {
-      final category =
-          signal.rawPayloadJson['category']?.toString() ?? 'time_use';
-      final energy = signal.rawPayloadJson['energy_effect']?.toString();
+      final category = signal.rawPayloadJson['focus_domain_id']?.toString() ??
+          signal.rawPayloadJson['category']?.toString() ??
+          'time_use';
+      final categoryLabel = FocusDomains.optionFor(category) == null
+          ? _diaryLabelTag(context, category)
+          : FocusDomains.labelFor(context, category);
+      final rawEnergyLevel = signal.rawPayloadJson['energy_level'];
+      final energyLevel = rawEnergyLevel is num
+          ? rawEnergyLevel.toInt()
+          : int.tryParse(rawEnergyLevel?.toString() ?? '');
+      final legacyEnergy = signal.rawPayloadJson['energy_effect']?.toString();
+      final energyLabel = energyLevel == null
+          ? (legacyEnergy == null || legacyEnergy == 'unknown'
+              ? null
+              : _diaryLabelTag(context, legacyEnergy))
+          : switch (energyLevel) {
+              0 => AppLocaleText.tr(
+                  context,
+                  en: 'low energy',
+                  zhHans: '精力偏低',
+                  zhHant: '精力偏低',
+                  ja: 'エネルギー低め',
+                ),
+              1 => AppLocaleText.tr(
+                  context,
+                  en: 'okay energy',
+                  zhHans: '精力还好',
+                  zhHant: '精力還好',
+                  ja: 'エネルギーまあまあ',
+                ),
+              _ => AppLocaleText.tr(
+                  context,
+                  en: 'high energy',
+                  zhHans: '精力很足',
+                  zhHant: '精力很足',
+                  ja: 'エネルギー十分',
+                ),
+            };
       return [
         _DiaryTag(
           AppLocaleText.tr(
@@ -4022,9 +4167,8 @@ class _DiaryTimelineItem {
           ),
           AuroraColors.blue,
         ),
-        _DiaryTag(_diaryLabelTag(context, category), AuroraColors.purple),
-        if (energy != null && energy != 'unknown')
-          _DiaryTag(_diaryLabelTag(context, energy), AuroraColors.mint),
+        _DiaryTag(categoryLabel, AuroraColors.purple),
+        if (energyLabel != null) _DiaryTag(energyLabel, AuroraColors.mint),
       ];
     }
     final raw = <String>[
@@ -4067,7 +4211,8 @@ class _DiaryTimelineItem {
   }
 
   static String _diaryLabelTag(BuildContext context, String value) {
-    switch (value) {
+    final normalized = value.trim().toLowerCase().replaceAll(' ', '_');
+    switch (normalized) {
       case 'work':
       case 'work_tasks':
         return AppLocaleText.tr(context,
@@ -4100,11 +4245,53 @@ class _DiaryTimelineItem {
       case 'neutral':
         return AppLocaleText.tr(context,
             en: 'neutral', zhHans: '中性', zhHant: '中性', ja: '中立');
+      case 'unknown':
+        return AppLocaleText.tr(
+          context,
+          en: 'to observe',
+          zhHans: '待观察',
+          zhHant: '待觀察',
+          ja: '観察中',
+        );
+      case 'from_library':
+        return AppLocaleText.tr(
+          context,
+          en: 'From Library',
+          zhHans: '来自 Library',
+          zhHant: '來自 Library',
+          ja: 'Library から保存',
+        );
+      case 'adapted':
+        return AppLocaleText.tr(
+          context,
+          en: 'Adapted',
+          zhHans: '已改成我的说法',
+          zhHant: '已改成我的說法',
+          ja: '自分向けに調整',
+        );
+      case 'other':
+        return AppLocaleText.tr(
+          context,
+          en: 'other',
+          zhHans: '其他',
+          zhHant: '其他',
+          ja: 'その他',
+        );
       default:
-        return value
-            .replaceAll('_', ' ')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim();
+        final localized = EnergyBudgetText.localizeCopy(context, normalized);
+        if (localized != normalized) return localized;
+        final languageCode = Localizations.localeOf(context).languageCode;
+        if (languageCode != 'en' &&
+            RegExp(r'^[a-z0-9_-]+$').hasMatch(normalized)) {
+          return AppLocaleText.tr(
+            context,
+            en: normalized.replaceAll('_', ' '),
+            zhHans: '其他',
+            zhHant: '其他',
+            ja: 'その他',
+          );
+        }
+        return normalized.replaceAll('_', ' ');
     }
   }
 }
@@ -4349,161 +4536,6 @@ class _InlineStatusCard extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _FollowupQuestionCard extends StatelessWidget {
-  final FollowupQuestionModel question;
-  final bool isSubmitting;
-  final ValueChanged<String> onSubmit;
-
-  const _FollowupQuestionCard({
-    required this.question,
-    required this.isSubmitting,
-    required this.onSubmit,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _UnifiedCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const AuroraSectionIcon(
-                icon: Icons.chat_bubble_outline_rounded,
-                color: AuroraColors.blue,
-                size: 36,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  question.question,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AuroraColors.ink,
-                        fontWeight: FontWeight.w700,
-                        height: 1.35,
-                      ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: question.options
-                .map(
-                  (option) => OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(44, 44),
-                      foregroundColor: AuroraColors.purple,
-                      side: BorderSide(
-                        color: AuroraColors.purple.withValues(alpha: 0.26),
-                      ),
-                      backgroundColor: Colors.white.withValues(alpha: 0.58),
-                    ),
-                    onPressed:
-                        isSubmitting ? null : () => onSubmit(option.value),
-                    child: Text(option.label),
-                  ),
-                )
-                .toList(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CorrectionDialog extends StatefulWidget {
-  final String confirmation;
-
-  const _CorrectionDialog({required this.confirmation});
-
-  @override
-  State<_CorrectionDialog> createState() => _CorrectionDialogState();
-}
-
-class _CorrectionDialogState extends State<_CorrectionDialog> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AuroraDialog(
-      key: const ValueKey('today-correction-aurora-dialog'),
-      title: Text(
-        widget.confirmation == 'edited'
-            ? AppLocaleText.tr(
-                context,
-                en: 'Edit Signal Card',
-                zhHans: '修改 Signal Card',
-                zhHant: '修改 Signal Card',
-                ja: 'Signal Card を修正',
-              )
-            : AppLocaleText.tr(
-                context,
-                en: 'Add a supplement',
-                zhHans: '补充一点',
-                zhHant: '補充一點',
-                ja: '補足する',
-              ),
-      ),
-      content: TextField(
-        controller: _controller,
-        minLines: 3,
-        maxLines: 5,
-        decoration: InputDecoration(
-          filled: true,
-          fillColor: Colors.white.withValues(alpha: 0.72),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Cancel',
-              zhHans: '取消',
-              zhHant: '取消',
-              ja: 'キャンセル',
-            ),
-          ),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(minimumSize: const Size(88, 44)),
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Save',
-              zhHans: '保存',
-              zhHant: '保存',
-              ja: '保存',
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -4814,10 +4846,13 @@ class _VoiceTranscriptSheetState extends State<_VoiceTranscriptSheet> {
               child: Stack(
                 children: [
                   const Positioned(
-                    top: 24,
-                    right: 24,
+                    key: ValueKey('voice-sheet-signal-pattern'),
+                    top: -24,
+                    right: -24,
+                    width: 188,
+                    height: 188,
                     child: IgnorePointer(
-                      child: AuroraHeroEmblem(size: 150, opacity: 0.84),
+                      child: AuroraSignalHeroPattern(opacity: 0.44),
                     ),
                   ),
                   const Positioned(
@@ -5693,21 +5728,4 @@ class _VoiceWavePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _UnifiedCard extends StatelessWidget {
-  final Widget child;
-
-  const _UnifiedCard({
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AuroraCard(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-      borderRadius: BorderRadius.circular(18),
-      child: child,
-    );
-  }
 }

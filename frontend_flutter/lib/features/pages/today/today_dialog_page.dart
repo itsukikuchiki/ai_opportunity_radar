@@ -3,14 +3,16 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_router.dart';
 import '../../../core/di/app_dependencies.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/today_models.dart';
+import '../../../core/navigation/app_back_navigation.dart';
+import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/widgets/aurora_ui.dart';
+import '../../../shared/utils/user_visible_text_sanitizer.dart';
 
 class TodayDialogPage extends StatefulWidget {
   final String captureId;
@@ -26,8 +28,8 @@ class TodayDialogPage extends StatefulWidget {
 
 class _TodayDialogPageState extends State<TodayDialogPage> {
   final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   final List<LightDialogTurnModel> _turns = [];
-  List<String> _suggestedPrompts = const [];
   RecentSignalModel? _signal;
   bool _isLoading = true;
   bool _isSending = false;
@@ -42,7 +44,20 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
   @override
   void dispose() {
     _controller.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scrollToLatest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final target = _scrollController.position.maxScrollExtent;
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   Future<void> _load() async {
@@ -55,9 +70,9 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
       _isLoading = false;
       _error = signal == null ? 'not_found' : null;
       if (signal != null) {
-        final opening = (signal.acknowledgement ?? '').trim().isNotEmpty
-            ? signal.acknowledgement!.trim()
-            : _openingQuestion(context, signal);
+        final opening =
+            sanitizeTimelineAcknowledgement(signal.acknowledgement) ??
+                _openingAcknowledgement(context, signal);
         _turns.add(
           LightDialogTurnModel(
             role: 'assistant',
@@ -68,21 +83,25 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
     });
   }
 
-  String _openingQuestion(BuildContext context, RecentSignalModel signal) {
+  String _openingAcknowledgement(
+    BuildContext context,
+    RecentSignalModel signal,
+  ) {
     final short = _compactSignalText(signal.content);
     return AppLocaleText.tr(
       context,
-      en: 'You mentioned “$short”. Has this been showing up often lately?',
-      zhHans: '你说“$short”，这种情况最近常出现吗？',
-      zhHant: '你說「$short」，這種情況最近常出現嗎？',
-      ja: '「$short」と書いていましたね。最近よく出ていますか？',
+      en: 'You mentioned “$short”. I’m here with this moment.',
+      zhHans: '你说“$short”，这个片段我接住了。',
+      zhHant: '你說「$short」，這個片段我接住了。',
+      ja: '「$short」と書いていましたね。この瞬間を受け止めました。',
     );
   }
 
-  Future<void> _send([String? preset]) async {
+  Future<void> _send() async {
     final signal = _signal;
-    final text = (preset ?? _controller.text).trim();
+    final text = _controller.text.trim();
     if (signal == null || text.isEmpty || _isSending) return;
+    final previousTurns = List<LightDialogTurnModel>.from(_turns);
 
     setState(() {
       _isSending = true;
@@ -90,6 +109,7 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
       _turns.add(LightDialogTurnModel(role: 'user', text: text));
       _controller.clear();
     });
+    _scrollToLatest();
 
     try {
       final result = await context
@@ -97,20 +117,21 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
           .todayRepository
           .continueLightDialog(
             signal: signal,
-            history: List<LightDialogTurnModel>.from(_turns),
+            history: previousTurns,
             userMessage: text,
           );
 
       if (!mounted) return;
       setState(() {
         _turns.add(LightDialogTurnModel(role: 'assistant', text: result.reply));
-        _suggestedPrompts = result.suggestedPrompts;
       });
+      _scrollToLatest();
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _error = 'send_failed';
       });
+      _scrollToLatest();
     } finally {
       if (mounted) {
         setState(() {
@@ -173,6 +194,12 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                                 ),
                                 Expanded(
                                   child: ListView(
+                                    key: const ValueKey(
+                                        'today-dialog-message-list'),
+                                    controller: _scrollController,
+                                    keyboardDismissBehavior:
+                                        ScrollViewKeyboardDismissBehavior
+                                            .onDrag,
                                     padding: const EdgeInsets.fromLTRB(
                                         20, 34, 20, 18),
                                     children: [
@@ -192,10 +219,12 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                                       Text(
                                         AppLocaleText.tr(
                                           context,
-                                          en: 'Say a little more around this entry and see what it may still be pointing to.',
-                                          zhHans: '围绕这条记录，多说一点，看看它还在提示你什么。',
-                                          zhHant: '圍繞這條記錄，多說一點，看看它還在提示你什麼。',
-                                          ja: 'この記録について少し話して、何を示しているか見てみます。',
+                                          en: 'Chat around this entry. AI will first acknowledge what you express without offering unsolicited advice.',
+                                          zhHans:
+                                              '可以围绕这条记录对话。AI 会先承接你的表达，不主动给建议。',
+                                          zhHant:
+                                              '可以圍繞這條記錄對話。AI 會先承接你的表達，不主動給建議。',
+                                          ja: 'この記録を起点に対話できます。AI はまず表現を受け止め、求められない助言はしません。',
                                         ),
                                         style: Theme.of(context)
                                             .textTheme
@@ -211,108 +240,6 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                                       _SignalSummaryCard(signal: signal),
                                       const SizedBox(height: 22),
                                       ..._buildTurns(context),
-                                      const SizedBox(height: 10),
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: _DialogQuickAction(
-                                              icon: Icons.chat_bubble_rounded,
-                                              label: AppLocaleText.tr(
-                                                context,
-                                                en: 'Say more',
-                                                zhHans: '再说一点',
-                                                zhHant: '再說一點',
-                                                ja: 'もう少し',
-                                              ),
-                                              onPressed: _isSending
-                                                  ? null
-                                                  : () => _send(
-                                                        AppLocaleText.tr(
-                                                          context,
-                                                          en: 'Help me think one step further.',
-                                                          zhHans:
-                                                              '帮我围绕这条记录再多看一点。',
-                                                          zhHant:
-                                                              '幫我圍繞這條記錄再多看一點。',
-                                                          ja: 'もう一歩整理して。',
-                                                        ),
-                                                      ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: _DialogQuickAction(
-                                              icon:
-                                                  Icons.directions_run_rounded,
-                                              label: AppLocaleText.tr(
-                                                context,
-                                                en: 'Small action',
-                                                zhHans: '看看小行动',
-                                                zhHant: '看看小行動',
-                                                ja: '小さな行動',
-                                              ),
-                                              onPressed: _isSending
-                                                  ? null
-                                                  : () => _send(
-                                                        AppLocaleText.tr(
-                                                          context,
-                                                          en: 'What is one lighter action I can try today?',
-                                                          zhHans:
-                                                              '今天可以试一个更轻的小动作吗？',
-                                                          zhHant:
-                                                              '今天可以試一個更輕的小動作嗎？',
-                                                          ja: '今日できる軽い行動は？',
-                                                        ),
-                                                      ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: _DialogQuickAction(
-                                              icon: Icons.bookmark_rounded,
-                                              label: AppLocaleText.tr(
-                                                context,
-                                                en: 'Summarize',
-                                                zhHans: '总结这条',
-                                                zhHant: '總結這條',
-                                                ja: '要約',
-                                              ),
-                                              onPressed: _isSending
-                                                  ? null
-                                                  : () => _send(
-                                                        AppLocaleText.tr(
-                                                          context,
-                                                          en: 'Please summarize this into one small observation.',
-                                                          zhHans:
-                                                              '请帮我总结成一个小观察。',
-                                                          zhHant:
-                                                              '請幫我總結成一個小觀察。',
-                                                          ja: '小さな観察としてまとめて。',
-                                                        ),
-                                                      ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      if (_suggestedPrompts.isNotEmpty) ...[
-                                        const SizedBox(height: 14),
-                                        Wrap(
-                                          spacing: 10,
-                                          runSpacing: 10,
-                                          children: _suggestedPrompts
-                                              .map(
-                                                (prompt) => AuroraPillButton(
-                                                  icon: Icons
-                                                      .lightbulb_outline_rounded,
-                                                  label: prompt,
-                                                  onPressed: _isSending
-                                                      ? null
-                                                      : () => _send(prompt),
-                                                ),
-                                              )
-                                              .toList(),
-                                        ),
-                                      ],
                                       const SizedBox(height: 16),
                                     ],
                                   ),
@@ -459,11 +386,7 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
   }
 
   void _goBack() {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go(AppRoutes.today);
-    }
+    context.popOrGo(AppRoutes.today);
   }
 }
 
@@ -656,6 +579,9 @@ Color _signalAccentColor(RecentSignalModel signal) {
 }
 
 String _signalDomainLabel(BuildContext context, RecentSignalModel signal) {
+  final explicitDomain = _explicitSignalDomainLabel(context, signal);
+  if (explicitDomain != null) return explicitDomain;
+
   final text = [
     signal.content,
     signal.scene ?? '',
@@ -675,6 +601,15 @@ String _signalDomainLabel(BuildContext context, RecentSignalModel signal) {
       ja: '食事と睡眠',
     );
   }
+  if (signal.sourceType == 'time_use') {
+    return AppLocaleText.tr(
+      context,
+      en: 'Time use',
+      zhHans: '时间去向',
+      zhHant: '時間去向',
+      ja: '時間の使い方',
+    );
+  }
   return AppLocaleText.tr(
     context,
     en: 'Emotional calm',
@@ -684,13 +619,142 @@ String _signalDomainLabel(BuildContext context, RecentSignalModel signal) {
   );
 }
 
+String? _explicitSignalDomainLabel(
+  BuildContext context,
+  RecentSignalModel signal,
+) {
+  final candidates = <String?>[
+    signal.rawPayloadJson['focus_domain_id']?.toString(),
+    signal.rawPayloadJson['category']?.toString(),
+    signal.scene,
+    if (signal.sceneTags.isNotEmpty) signal.sceneTags.first,
+  ];
+  for (final raw in candidates) {
+    final normalized = raw?.trim().toLowerCase() ?? '';
+    if (normalized.isEmpty) continue;
+    final focusDomain = FocusDomains.optionFor(normalized);
+    if (focusDomain != null) return focusDomain.label(context);
+    if (signal.sourceType != 'time_use') continue;
+    final legacy = _legacyTimeUseDomainLabel(context, normalized);
+    if (legacy != null) return legacy;
+  }
+  return null;
+}
+
+String? _legacyTimeUseDomainLabel(BuildContext context, String value) {
+  return switch (value) {
+    'work' => AppLocaleText.tr(
+        context,
+        en: 'Work',
+        zhHans: '工作',
+        zhHant: '工作',
+        ja: '仕事',
+      ),
+    'commute' => AppLocaleText.tr(
+        context,
+        en: 'Commute',
+        zhHans: '通勤',
+        zhHant: '通勤',
+        ja: '通勤',
+      ),
+    'household' => AppLocaleText.tr(
+        context,
+        en: 'Household',
+        zhHans: '家务',
+        zhHant: '家務',
+        ja: '家事',
+      ),
+    'relationship' => AppLocaleText.tr(
+        context,
+        en: 'Relationships',
+        zhHans: '关系',
+        zhHant: '關係',
+        ja: '関係',
+      ),
+    'recovery' => AppLocaleText.tr(
+        context,
+        en: 'Recovery',
+        zhHans: '恢复',
+        zhHant: '恢復',
+        ja: '回復',
+      ),
+    'interest' => AppLocaleText.tr(
+        context,
+        en: 'Interests',
+        zhHans: '兴趣',
+        zhHant: '興趣',
+        ja: '趣味',
+      ),
+    'other' => AppLocaleText.tr(
+        context,
+        en: 'Other',
+        zhHans: '其他',
+        zhHant: '其他',
+        ja: 'その他',
+      ),
+    _ => null,
+  };
+}
+
+String? _signalEnergyLabel(BuildContext context, RecentSignalModel signal) {
+  final rawLevel = signal.rawPayloadJson['energy_level'];
+  final level = rawLevel is num
+      ? rawLevel.toInt()
+      : int.tryParse(rawLevel?.toString() ?? '');
+  if (level != null && level >= 0 && level <= 2) {
+    return _energyLevelLabel(context, level);
+  }
+
+  final legacy = (signal.rawPayloadJson['energy_effect'] ?? signal.energyLoad)
+          ?.toString()
+          .trim()
+          .toLowerCase() ??
+      '';
+  final legacyLevel = switch (legacy) {
+    'draining' || 'low' || 'very_low' || '偏低' => 0,
+    'neutral' || 'medium' || 'okay' || '还好' || '還好' => 1,
+    'restoring' || 'high' || 'full' || 'enough' || '很足' => 2,
+    _ => null,
+  };
+  return legacyLevel == null ? null : _energyLevelLabel(context, legacyLevel);
+}
+
+String _energyLevelLabel(BuildContext context, int level) {
+  return switch (level) {
+    0 => AppLocaleText.tr(
+        context,
+        en: 'Low',
+        zhHans: '偏低',
+        zhHant: '偏低',
+        ja: '低め',
+      ),
+    1 => AppLocaleText.tr(
+        context,
+        en: 'Okay',
+        zhHans: '还好',
+        zhHant: '還好',
+        ja: 'まあまあ',
+      ),
+    _ => AppLocaleText.tr(
+        context,
+        en: 'Enough',
+        zhHans: '很足',
+        zhHant: '很足',
+        ja: '十分',
+      ),
+  };
+}
+
 class _DialogHeroArt extends StatelessWidget {
   const _DialogHeroArt();
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: AuroraHeroEmblem(size: 196, opacity: 0.84),
+    return const AuroraSignalHeroPattern(
+      key: ValueKey('today-dialog-signal-pattern'),
+      opacity: 0.76,
+      alignment: Alignment.centerRight,
+      fit: BoxFit.cover,
     );
   }
 }
@@ -816,6 +880,7 @@ class _LegacySignalSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final energyLabel = _signalEnergyLabel(context, signal);
     return AuroraCard(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
       child: Column(
@@ -920,9 +985,11 @@ class _LegacySignalSummaryCard extends StatelessWidget {
                     if ((signal.friction ?? '').isNotEmpty)
                       AuroraChip(
                           label: signal.friction!, color: AuroraColors.orange),
-                    if ((signal.energyLoad ?? '').isNotEmpty)
+                    if (energyLabel != null)
                       AuroraChip(
-                          label: signal.energyLoad!, color: AuroraColors.mint),
+                        label: energyLabel,
+                        color: AuroraColors.mint,
+                      ),
                   ],
                 ),
               ],
@@ -963,62 +1030,6 @@ class _DialogSectionTitle extends StatelessWidget {
   }
 }
 
-class _DialogQuickAction extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback? onPressed;
-
-  const _DialogQuickAction({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(18),
-        child: Ink(
-          height: 54,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.66),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.84)),
-            boxShadow: [
-              BoxShadow(
-                color: AuroraColors.purple.withValues(alpha: 0.07),
-                blurRadius: 18,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 20, color: AuroraColors.purple),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: AuroraColors.ink.withValues(alpha: 0.78),
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _DialogMicroActionCard extends StatelessWidget {
   final RecentSignalModel signal;
 
@@ -1031,10 +1042,10 @@ class _DialogMicroActionCard extends StatelessWidget {
         raw.length > 18 ? '${raw.substring(0, 18).trim()}...' : raw;
     final actionText = AppLocaleText.tr(
       context,
-      en: 'Turn this into one very small try for today.',
+      en: 'Turn this into one very small experiment for today.',
       zhHans: '把刚才说到的线索，变成今天一个很小的尝试。',
       zhHant: '把剛才說到的線索，變成今天一個很小的嘗試。',
-      ja: '今話した手がかりを、今日の小さな試みにします。',
+      ja: '今話した手がかりを、今日の小実験にします。',
     );
     final suggested = shortSignal.isEmpty
         ? actionText
@@ -1071,10 +1082,10 @@ class _DialogMicroActionCard extends StatelessWidget {
                 child: Text(
                   AppLocaleText.tr(
                     context,
-                    en: 'Make this a small action?',
-                    zhHans: '要不要变成一个小行动？',
-                    zhHant: '要不要變成一個小行動？',
-                    ja: '小さな行動にしますか？',
+                    en: 'Make this a small experiment?',
+                    zhHans: '要不要变成一个小实验？',
+                    zhHant: '要不要變成一個小實驗？',
+                    ja: '小実験にしますか？',
                   ),
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: AuroraColors.ink,
@@ -1108,27 +1119,27 @@ class _DialogMicroActionCard extends StatelessWidget {
                 ),
                 onPressed: () => showSaved(AppLocaleText.tr(
                   context,
-                  en: 'Saved as a small action for today.',
-                  zhHans: '已保存为今天的小行动。',
-                  zhHant: '已保存為今天的小行動。',
-                  ja: '今日の小さな行動として保存しました。',
+                  en: 'Saved as a small experiment for today.',
+                  zhHans: '已保存为今天的小实验。',
+                  zhHant: '已保存為今天的小實驗。',
+                  ja: '今日の小実験として保存しました。',
                 )),
               ),
               _DialogActionDecision(
                 icon: Icons.science_rounded,
                 label: AppLocaleText.tr(
                   context,
-                  en: 'Add to archive',
-                  zhHans: '加入实验档案',
-                  zhHant: '加入實驗檔案',
-                  ja: 'アーカイブへ',
+                  en: 'Save as a goal',
+                  zhHans: '保存为目标',
+                  zhHant: '儲存為目標',
+                  ja: '目標として保存',
                 ),
                 onPressed: () => showSaved(AppLocaleText.tr(
                   context,
-                  en: 'Saved to the experiment archive.',
-                  zhHans: '已加入实验档案。',
-                  zhHant: '已加入實驗檔案。',
-                  ja: '実験アーカイブに保存しました。',
+                  en: 'Saved as a goal in Life Experiment.',
+                  zhHans: '已保存为生活小实验中的目标。',
+                  zhHant: '已保存為生活小實驗中的目標。',
+                  ja: '生活実験の目標として保存しました。',
                 )),
               ),
               _DialogActionDecision(
@@ -1208,23 +1219,27 @@ class _RelatedEvidenceStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final energyLabel = _signalEnergyLabel(context, signal) ??
+        AppLocaleText.tr(
+          context,
+          en: 'Not recorded',
+          zhHans: '未记录',
+          zhHant: '未記錄',
+          ja: '未記録',
+        );
     final items = [
       (
         Icons.battery_3_bar_rounded,
         AppLocaleText.tr(context,
             en: 'Energy', zhHans: '能量', zhHant: '能量', ja: 'エネルギー'),
-        signal.energyLoad ??
-            AppLocaleText.tr(context,
-                en: 'low', zhHans: '偏低', zhHant: '偏低', ja: '低め'),
+        energyLabel,
         AuroraColors.mint,
       ),
       (
         Icons.repeat_rounded,
         AppLocaleText.tr(context,
             en: 'Pattern', zhHans: '长期模式', zhHant: '長期模式', ja: 'パターン'),
-        signal.scene ??
-            AppLocaleText.tr(context,
-                en: 'stable', zhHans: '稳定模式', zhHant: '穩定模式', ja: '安定'),
+        _signalDomainLabel(context, signal),
         AuroraColors.orange,
       ),
       (
@@ -1239,7 +1254,7 @@ class _RelatedEvidenceStrip extends StatelessWidget {
       (
         Icons.science_rounded,
         AppLocaleText.tr(context,
-            en: 'Experiment', zhHans: '小实验', zhHant: '小實驗', ja: '小さな試み'),
+            en: 'Goal', zhHans: '目标', zhHant: '目標', ja: '目標'),
         AppLocaleText.tr(context,
             en: 'try gently', zhHans: '轻量尝试', zhHant: '輕量嘗試', ja: '軽く試す'),
         AuroraColors.purple,
@@ -1257,10 +1272,10 @@ class _RelatedEvidenceStrip extends StatelessWidget {
               Text(
                 AppLocaleText.tr(
                   context,
-                  en: 'Related evidence',
-                  zhHans: '相关依据',
-                  zhHant: '相關依據',
-                  ja: '関連する手がかり',
+                  en: 'Related Signals',
+                  zhHans: '相关 Signal',
+                  zhHant: '相關 Signal',
+                  ja: '関連する Signal',
                 ),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       color: AuroraColors.ink,
@@ -1366,6 +1381,7 @@ class _ComposerBar extends StatelessWidget {
             children: [
               Expanded(
                 child: TextField(
+                  key: const ValueKey('today-dialog-composer-input'),
                   controller: controller,
                   minLines: 1,
                   maxLines: 3,
@@ -1407,6 +1423,14 @@ class _ComposerBar extends StatelessWidget {
                   ],
                 ),
                 child: IconButton(
+                  key: const ValueKey('today-dialog-send'),
+                  tooltip: AppLocaleText.tr(
+                    context,
+                    en: 'Send',
+                    zhHans: '发送',
+                    zhHant: '傳送',
+                    ja: '送信',
+                  ),
                   onPressed: isSending ? null : onSend,
                   icon: isSending
                       ? const SizedBox.square(

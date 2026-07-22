@@ -106,12 +106,14 @@ void main() {
       _expectNoRenderFailure(tester);
       _expectInViewport(tester, find.text('Weekly Review').first);
       await tester.scrollUntilVisible(
-        find.text('Behavior pattern'),
+        find.text('This week’s review report'),
         220,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pump();
-      _expectInViewport(tester, find.text('Behavior pattern').first);
+      _expectInViewport(tester, find.text('This week’s review report').first);
+      expect(find.text('Signal facts'), findsOneWidget);
+      expect(find.text('Behavior patterns'), findsOneWidget);
 
       await _pumpExperiment(tester);
       _expectNoRenderFailure(tester);
@@ -215,7 +217,13 @@ void main() {
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
     await tester.pumpAndSettle();
 
-    for (final label in ['Today', 'Weekly', 'Experiment', 'Journey', 'Me']) {
+    for (final label in [
+      'Today',
+      'Weekly',
+      'Life Experiment',
+      'Journey',
+      'Me'
+    ]) {
       final finder = find.text(label);
       expect(finder, findsOneWidget);
       _expectInViewport(tester, finder);
@@ -250,7 +258,6 @@ void main() {
     _expectNoRenderFailure(tester);
 
     const controls = <(String, ValueKey<String>)>[
-      ('Text', ValueKey('today-text-action')),
       ('Voice', ValueKey('today-voice-action')),
       ('State', ValueKey('today-status-action')),
       ('Plan', ValueKey('today-schedule-action')),
@@ -304,6 +311,7 @@ void _expectNoRenderFailure(WidgetTester tester) {
   }
   final exception = tester.takeException();
   if (exception is FlutterError) {
+    debugPrint(exception.toStringDeep());
     fail(exception.toStringDeep());
   }
   expect(exception, isNull);
@@ -609,6 +617,7 @@ class _GuardrailLibraryRepository extends SignalLibraryRepository {
 
 final _workPattern = LibraryPatternModel(
   id: 'over_scheduled_weeks',
+  focusDomainId: 'growth_plan',
   title: 'Over-scheduled weeks',
   abstractPattern: 'A week with fixed commitments and little buffer.',
   commonScenes: const ['work', 'planning'],
@@ -622,6 +631,7 @@ final _workPattern = LibraryPatternModel(
 
 final _recoveryPattern = LibraryPatternModel(
   id: 'recovery_debt',
+  focusDomainId: 'food_sleep',
   title: 'Recovery debt',
   abstractPattern: 'Rest may start to feel like something to catch up on.',
   commonScenes: const ['body', 'rest'],
@@ -681,7 +691,7 @@ const _localeCases = <_LocaleCase>[
     locale: Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
     todayTitle: '今天過得怎麼樣？',
     weeklyTitle: '每週復盤',
-    experimentTitle: '小實驗',
+    experimentTitle: '生活小實驗',
     journeyTitle: '旅程',
     meTitle: '我的',
     libraryTitle: '信號庫',
@@ -691,7 +701,7 @@ const _localeCases = <_LocaleCase>[
     locale: Locale('ja'),
     todayTitle: '今日はどんな一日ですか？',
     weeklyTitle: '今週の振り返り',
-    experimentTitle: '小さな実験',
+    experimentTitle: '生活実験',
     journeyTitle: '旅程',
     meTitle: '私',
     libraryTitle: 'シグナルライブラリ',

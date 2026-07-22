@@ -5,26 +5,35 @@ import '../config/build_environment.dart';
 import '../diagnostics/privacy_safe_logger.dart';
 import '../di/app_dependencies.dart';
 import '../notifications/schedule_notification_service.dart';
+import '../notifications/signal_reminder_repository.dart';
 import '../qa/qa_showcase_seeder.dart';
 
 typedef AppDependenciesFactory = Future<AppDependencies> Function();
+typedef SignalReminderTodayDestinationReader = Future<bool> Function();
 
 class AppBootstrapState extends ChangeNotifier {
   final AppDependenciesFactory _dependenciesFactory;
   final PrivacySafeLogger _logger;
+  final SignalReminderTodayDestinationReader
+      _signalReminderTodayDestinationReader;
   SharedPreferences? _preferences;
   AppDependencies? _dependencies;
   bool _initialized = false;
   bool _initializing = false;
   bool _onboardingCompleted = false;
+  bool _signalReminderTodayPending = false;
   Object? _initError;
   String? _initErrorEventId;
 
   AppBootstrapState({
     AppDependenciesFactory? dependenciesFactory,
     PrivacySafeLogger? logger,
+    SignalReminderTodayDestinationReader? signalReminderTodayDestinationReader,
   })  : _dependenciesFactory = dependenciesFactory ?? AppDependencies.create,
-        _logger = logger ?? PrivacySafeLogger.instance;
+        _logger = logger ?? PrivacySafeLogger.instance,
+        _signalReminderTodayDestinationReader =
+            signalReminderTodayDestinationReader ??
+                ScheduleNotificationService().consumeTodayDestination;
 
   AppDependencies get dependencies {
     final deps = _dependencies;
@@ -40,6 +49,20 @@ class AppBootstrapState extends ChangeNotifier {
   bool get hasError => _initError != null;
   Object? get initError => _initError;
   String? get initErrorEventId => _initErrorEventId;
+  bool get signalReminderTodayPending => _signalReminderTodayPending;
+
+  /// Reads and consumes the platform's one-time notification destination.
+  ///
+  /// The platform returns only a boolean route marker; no Signal is created or
+  /// mutated by this handoff.
+  Future<bool> refreshSignalReminderTodayDestination() async {
+    if (_signalReminderTodayPending) return true;
+    final pending = await _signalReminderTodayDestinationReader();
+    if (!pending) return false;
+    _signalReminderTodayPending = true;
+    notifyListeners();
+    return true;
+  }
 
   Future<void> prepareLaunch() async {
     final prefs = await SharedPreferences.getInstance();
@@ -70,6 +93,12 @@ class AppBootstrapState extends ChangeNotifier {
       }
       _dependencies = dependencies;
       await _clearLegacyScheduleNotificationsOnce(prefs);
+      await refreshSignalReminderTodayDestination();
+      // Local weekly rules are expanded into one-time notifications. Refreshing
+      // on launch keeps their local clock time correct after timezone/DST
+      // changes and never asks for notification permission.
+      await SignalReminderRepository(preferences: prefs)
+          .rescheduleEnabledRules();
       _initialized = true;
       _initError = null;
       _initErrorEventId = null;
@@ -115,6 +144,7 @@ class AppBootstrapState extends ChangeNotifier {
   Future<void> resetAfterDataDeletion() async {
     _initialized = false;
     _onboardingCompleted = false;
+    _signalReminderTodayPending = false;
     _initError = null;
     _initErrorEventId = null;
     _dependencies = null;

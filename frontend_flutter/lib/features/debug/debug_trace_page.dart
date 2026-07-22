@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../app/app_router.dart';
 import '../../core/debug/legacy_fallback_monitor.dart';
 import '../../core/config/build_environment.dart';
 import '../../core/di/app_dependencies.dart';
+import '../../core/navigation/app_back_navigation.dart';
 import '../../shared/widgets/aurora_ui.dart';
 
 class DebugTracePage extends StatefulWidget {
@@ -136,7 +138,7 @@ class _DebugTracePageState extends State<DebugTracePage> {
                   IconButton(
                     tooltip: 'Back',
                     icon: const Icon(Icons.arrow_back_rounded),
-                    onPressed: () => Navigator.of(context).maybePop(),
+                    onPressed: () => context.popOrGo(AppRoutes.me),
                   ),
                   const SizedBox(width: 8),
                   Expanded(

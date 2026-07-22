@@ -3,10 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/signal_library_models.dart';
+import '../../../core/navigation/app_back_navigation.dart';
 import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/widgets/aurora_ui.dart';
+import '../../../shared/widgets/editable_timeline_decision_dialog.dart';
 import '../../../shared/widgets/signal_illustration_kit.dart';
 import 'signal_library_view_model.dart';
 
@@ -38,11 +41,7 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
   Widget build(BuildContext context) {
     final viewModel = context.watch<SignalLibraryViewModel>();
     final theme = Theme.of(context);
-    final patterns = _filterPatterns(
-      context,
-      viewModel.patterns,
-      viewModel.selectedCategory,
-    );
+    final patterns = _filterPatterns(viewModel.visiblePatterns);
 
     return Scaffold(
       body: Stack(
@@ -62,24 +61,22 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
                   child: ListView(
                     padding: AuroraMainPageSpec.scrollPadding(context),
                     children: [
-                      if (Navigator.of(context).canPop()) ...[
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: IconButton(
-                            onPressed: () => Navigator.of(context).maybePop(),
-                            icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                            color: AuroraColors.ink,
-                            tooltip: AppLocaleText.tr(
-                              context,
-                              en: 'Back',
-                              zhHans: '返回',
-                              zhHant: '返回',
-                              ja: '戻る',
-                            ),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: IconButton(
+                          onPressed: () => context.popOrGo(AppRoutes.today),
+                          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                          color: AuroraColors.ink,
+                          tooltip: AppLocaleText.tr(
+                            context,
+                            en: 'Back',
+                            zhHans: '返回',
+                            zhHant: '返回',
+                            ja: '戻る',
                           ),
                         ),
-                        const SizedBox(height: 2),
-                      ],
+                      ),
+                      const SizedBox(height: 2),
                       AuroraHeroTitle(
                         text: AppLocaleText.tr(
                           context,
@@ -95,10 +92,10 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
                       Text(
                         AppLocaleText.tr(
                           context,
-                          en: 'Browse common SignalCard references and decide whether one matches your recent life.',
+                          en: 'Browse common Signal Card references and decide whether one matches your recent life.',
                           zhHans: '浏览常见的 Signal Card 参考，判断它是否像你最近的情况。',
-                          zhHant: '瀏覽常見的 SignalCard 參考，判斷它是否像你最近的情況。',
-                          ja: 'よくあるSignalCardの参考から、最近の自分に近いものか判断できます。',
+                          zhHant: '瀏覽常見的 Signal Card 參考，判斷它是否像你最近的情況。',
+                          ja: 'よくある Signal Card の参考から、最近の自分に近いものか判断できます。',
                         ),
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: AuroraColors.ink.withValues(alpha: 0.74),
@@ -131,6 +128,7 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
                               bottom: AuroraMainPageSpec.sectionGap,
                             ),
                             child: _PatternCard(
+                              key: ValueKey('library-pattern-${pattern.id}'),
                               pattern: pattern,
                               submitting:
                                   _submittingPatternIds.contains(pattern.id),
@@ -157,20 +155,12 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
   }
 
   List<LibraryPatternModel> _filterPatterns(
-    BuildContext context,
     List<LibraryPatternModel> patterns,
-    String selectedCategory,
   ) {
     final query = _query.trim().toLowerCase();
-    final categoryFiltered = selectedCategory == 'all'
+    final filtered = query.isEmpty
         ? patterns
         : patterns.where((pattern) {
-            return _LibraryDomainStyle.resolve(context, pattern).id ==
-                selectedCategory;
-          }).toList(growable: false);
-    final filtered = query.isEmpty
-        ? categoryFiltered
-        : categoryFiltered.where((pattern) {
             final text = [
               pattern.title,
               pattern.abstractPattern,
@@ -179,22 +169,19 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
             ].join(' ').toLowerCase();
             return text.contains(query);
           }).toList(growable: false);
-    return [...filtered]..sort(_compareLibraryPatternPriority);
-  }
-
-  int _compareLibraryPatternPriority(
-    LibraryPatternModel a,
-    LibraryPatternModel b,
-  ) {
-    return _libraryPatternPriority(a.id)
-        .compareTo(_libraryPatternPriority(b.id));
-  }
-
-  int _libraryPatternPriority(String id) {
-    if (id.contains('recovery_debt')) return 0;
-    if (id.contains('boundary_fatigue')) return 1;
-    if (id.contains('late_night_compensation')) return 2;
-    return 10;
+    final domainOrder = {
+      for (var index = 0; index < FocusDomains.options.length; index++)
+        FocusDomains.options[index].id: index,
+    };
+    final indexed = filtered.indexed.toList(growable: false)
+      ..sort((a, b) {
+        final domainComparison =
+            (domainOrder[a.$2.focusDomainId] ?? domainOrder.length).compareTo(
+          domainOrder[b.$2.focusDomainId] ?? domainOrder.length,
+        );
+        return domainComparison != 0 ? domainComparison : a.$1.compareTo(b.$1);
+      });
+    return indexed.map((entry) => entry.$2).toList(growable: false);
   }
 
   String _languageCode(BuildContext context) {
@@ -237,11 +224,20 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
       return;
     }
 
+    final decision = await showEditableTimelineDecisionDialog(
+      context,
+      initialText: pattern.abstractPattern.trim(),
+      keyPrefix: 'library-pattern-${pattern.id}',
+      saveAsTodaySignal: true,
+    );
+    if (decision == null || !decision.addToTimeline || !mounted) return;
+
     setState(() => _submittingPatternIds.add(pattern.id));
     try {
       final signal = await viewModel.respondToPattern(
         pattern: pattern,
         status: status,
+        userText: decision.text,
         addToTimeline: true,
       );
       if (!mounted) return;
@@ -422,10 +418,10 @@ class _LibraryFooterHint extends StatelessWidget {
             child: Text(
               AppLocaleText.tr(
                 context,
-                en: 'Library items are references only. You decide whether one becomes your SignalCard.',
+                en: 'Library items are references only. You decide whether one becomes your Signal Card.',
                 zhHans: '信号库内容只是参考；是否成为你自己的 Signal Card，由你决定。',
-                zhHant: '信號庫內容只是參考；是否成為你自己的 SignalCard，由你決定。',
-                ja: 'ライブラリは参考です。自分のSignalCardにするかは自分で選べます。',
+                zhHant: '信號庫內容只是參考；是否成為你自己的 Signal Card，由你決定。',
+                ja: 'ライブラリは参考です。自分の Signal Card にするかは自分で選べます。',
               ),
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: AuroraColors.ink.withValues(alpha: 0.72),
@@ -445,8 +441,11 @@ class _LibraryHeroDecor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: AuroraHeroEmblem(size: 170, opacity: 0.86),
+    return const AuroraSignalHeroPattern(
+      key: ValueKey('signal-library-signal-pattern'),
+      opacity: 0.76,
+      alignment: Alignment.centerRight,
+      fit: BoxFit.cover,
     );
   }
 }
@@ -718,6 +717,7 @@ class _PatternCard extends StatelessWidget {
   final ValueChanged<String> onRespond;
 
   const _PatternCard({
+    super.key,
     required this.pattern,
     required this.submitting,
     required this.onRespond,
@@ -962,148 +962,13 @@ class _LibraryDomainStyle {
     BuildContext context,
     LibraryPatternModel pattern,
   ) {
-    final haystack = [
-      pattern.id,
-      pattern.title,
-      pattern.abstractPattern,
-      pattern.energyLoadHint,
-      pattern.possiblePositiveSignal,
-      ...pattern.commonScenes,
-      ...pattern.commonFrictions,
-    ].join(' ').toLowerCase();
-
-    if (_containsAny(haystack, [
-      'relationship',
-      'relationships',
-      'communication',
-      'connection',
-      'expectation',
-      'expectations',
-      'unclear expectation',
-      '关系',
-      '關係',
-      '沟通',
-      '溝通',
-      '连接',
-      '連結',
-      '期待',
-      '说清楚',
-      '說清楚',
-      '被理解',
-      '関係',
-      'コミュニケーション',
-      'つながり',
-    ])) {
-      return _LibraryDomainStyle(
-        id: 'relationship_connection',
-        label: AppLocaleText.tr(
-          context,
-          en: 'Relationships',
-          zhHans: '关系连接',
-          zhHant: '關係連結',
-          ja: '関係性',
-        ),
-        icon: Icons.groups_rounded,
-        color: AuroraColors.blue,
-      );
-    }
-
-    if (_containsAny(haystack, [
-      'boundary',
-      'personal time',
-      'agency',
-      '边界',
-      '邊界',
-      '个人时间',
-      '個人時間',
-      '自由感',
-      '自我边界',
-      '自我邊界',
-    ])) {
-      return _LibraryDomainStyle(
-        id: 'self_boundary',
-        label: AppLocaleText.tr(
-          context,
-          en: 'Boundaries',
-          zhHans: '自我边界',
-          zhHant: '自我邊界',
-          ja: '自分の境界',
-        ),
-        icon: Icons.shield_rounded,
-        color: AuroraColors.purple,
-      );
-    }
-
-    if (_containsAny(haystack, [
-      'sleep',
-      'late-night',
-      'night',
-      'rest',
-      'body',
-      '睡眠',
-      '深夜',
-      '晚上',
-      '休息',
-      '身体',
-      '身體',
-    ])) {
-      return _LibraryDomainStyle(
-        id: 'food_sleep',
-        label: AppLocaleText.tr(
-          context,
-          en: 'Food & sleep',
-          zhHans: '饮食睡眠',
-          zhHant: '飲食睡眠',
-          ja: '食事と睡眠',
-        ),
-        icon: Icons.nights_stay_rounded,
-        color: AuroraColors.blue,
-      );
-    }
-
-    if (_containsAny(haystack, [
-      'planning',
-      'work',
-      'attention',
-      'growth',
-      'schedule',
-      '安排',
-      '工作',
-      '注意力',
-      '成长',
-      '成長',
-      '计划',
-      '計劃',
-    ])) {
-      return _LibraryDomainStyle(
-        id: 'growth_plan',
-        label: AppLocaleText.tr(
-          context,
-          en: 'Growth plan',
-          zhHans: '成长计划',
-          zhHant: '成長計劃',
-          ja: '成長計画',
-        ),
-        icon: Icons.spa_rounded,
-        color: AuroraColors.mint,
-      );
-    }
-
+    final option = FocusDomains.optionFor(pattern.focusDomainId) ??
+        FocusDomains.options.first;
     return _LibraryDomainStyle(
-      id: 'emotional_stability',
-      label: AppLocaleText.tr(
-        context,
-        en: 'Emotional calm',
-        zhHans: '情绪安定',
-        zhHant: '情緒安定',
-        ja: '感情の安定',
-      ),
-      icon: Icons.sentiment_satisfied_alt_rounded,
-      color: AuroraColors.gold,
+      id: option.id,
+      label: option.label(context),
+      icon: option.icon,
+      color: option.color,
     );
-  }
-
-  static bool _containsAny(String haystack, List<String> values) {
-    return values.any((value) => haystack.contains(value.toLowerCase()));
   }
 }

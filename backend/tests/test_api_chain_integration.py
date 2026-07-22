@@ -66,6 +66,14 @@ def test_capture_persists_and_recent_returns_acknowledgement(client, monkeypatch
     assert isinstance(recent_signals[0]["acknowledgement"], str)
     assert recent_signals[0]["acknowledgement"].strip() != ""
     assert recent_signals[0]["created_at"].endswith(("Z", "+00:00"))
+    assert recent_signals[0]["energy_state"] == "draining"
+    assert recent_signals[0]["energy_state"] in {
+        "draining",
+        "steady",
+        "ease",
+        "recovery",
+        "boundary_buffer",
+    }
 
     from app.core.db import SessionLocal
     from app.models import LegacyEndpointTelemetry
@@ -81,6 +89,41 @@ def test_capture_persists_and_recent_returns_acknowledgement(client, monkeypatch
     finally:
         db.close()
     assert len(counters) >= 2
+
+
+def test_saved_signal_card_confirmation_cannot_be_rewritten(client, monkeypatch):
+    _patch_demo_user(monkeypatch)
+    headers = _headers("test-user-immutable-signal")
+    created = client.post(
+        "/api/v1/captures",
+        headers=headers,
+        json={
+            "content": "这是一条已经保存的事实",
+            "input_mode": "text",
+            "language": "zh-Hans",
+            "timezone": "Asia/Tokyo",
+        },
+    )
+    assert created.status_code == 200, created.text
+    signal = created.json()["data"]["recent_signals"][0]
+    assert signal["user_confirmation"] == "confirmed"
+
+    rewritten = client.patch(
+        f"/api/v1/captures/signal-cards/{signal['signal_card_id']}/confirmation",
+        headers=headers,
+        json={
+            "user_confirmation": "edited",
+            "user_correction_json": {"edited_text": "试图覆盖历史"},
+        },
+    )
+    assert rewritten.status_code == 409, rewritten.text
+    assert rewritten.json()["detail"]["code"] == "SIGNAL_CARD_IMMUTABLE"
+
+    recent = client.get("/api/v1/captures/recent", headers=headers)
+    assert recent.status_code == 200, recent.text
+    saved = recent.json()["data"]["recent_signals"][0]
+    assert saved["content"] == "这是一条已经保存的事实"
+    assert saved["user_confirmation"] == "confirmed"
 
 
 def test_saved_immediate_risk_signal_uses_safety_reply_and_is_not_analyzable(

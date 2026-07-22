@@ -148,6 +148,15 @@ void main() {
         );
         expect(experimentRows, hasLength(1));
 
+        await db.update(
+          'life_experiments',
+          {
+            'progress_start_date': weekly.weekStart,
+            'progress_end_date': weekly.weekEnd,
+          },
+          where: 'id = ?',
+          whereArgs: [savedExperiment.id],
+        );
         await harness.weeklyRepository.submitLifeExperimentFeedback(
           experimentId: savedExperiment.id,
           status: 'helpful',
@@ -367,7 +376,7 @@ void main() {
 
         try {
           final upgradedDb = await upgraded.database;
-          expect(await _userVersion(upgradedDb), 34);
+          expect(await _userVersion(upgradedDb), 40);
 
           final candidates = await upgradedDb.query('experiment_candidates');
           expect(candidates, hasLength(1));

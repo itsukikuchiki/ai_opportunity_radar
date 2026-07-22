@@ -59,6 +59,8 @@ class RecentSignalSchema(BaseModel):
     friction: Optional[str] = None
     positive_signal: Optional[str] = None
     energy_load: Optional[str] = None
+    energy_state: str = "steady"
+    linked_life_chain_stage: list[str] = Field(default_factory=list)
     user_confirmation: str = "unconfirmed"
     user_correction_json: dict = Field(default_factory=dict)
     included_in_summary: bool = False

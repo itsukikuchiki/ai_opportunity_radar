@@ -313,6 +313,10 @@ class MicroActionModel {
   final String reason;
   final String actionType;
   final String difficulty;
+
+  /// Maximum duration of one real attempt. Quick experiments are always
+  /// bounded to 1-10 minutes; goals use a different model.
+  final int plannedDurationMinutes;
   final String? plannedDate;
   final DateTime? plannedTime;
   final String? linkedScheduleSignalId;
@@ -338,6 +342,7 @@ class MicroActionModel {
     required this.reason,
     this.actionType = 'today_try',
     this.difficulty = 'very_light',
+    this.plannedDurationMinutes = 10,
     this.plannedDate,
     this.plannedTime,
     this.linkedScheduleSignalId,
@@ -370,6 +375,7 @@ class MicroActionModel {
       'reason': reason,
       'action_type': actionType,
       'difficulty': difficulty,
+      'planned_duration_minutes': plannedDurationMinutes,
       'planned_date': plannedDate,
       'planned_time': plannedTime?.toUtc().toIso8601String(),
       'linked_schedule_signal_id': linkedScheduleSignalId,
@@ -398,6 +404,8 @@ class MicroActionModel {
       reason: row['reason'] as String? ?? '',
       actionType: row['action_type'] as String? ?? 'today_try',
       difficulty: row['difficulty'] as String? ?? 'very_light',
+      plannedDurationMinutes:
+          int.tryParse('${row['planned_duration_minutes'] ?? 10}') ?? 10,
       plannedDate: row['planned_date'] as String?,
       plannedTime: ScheduleSignalModel._parseDate(row['planned_time']),
       linkedScheduleSignalId: row['linked_schedule_signal_id'] as String?,
@@ -430,6 +438,10 @@ class MicroActionFeedbackModel {
   final String difficulty;
   final String? userNote;
   final String nextAdjustment;
+
+  /// Actual duration of this attempt when captured. Legacy feedback may not
+  /// have a value; new writes validate the same 1-10 minute boundary.
+  final int? durationMinutes;
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final bool isValid;
@@ -443,6 +455,7 @@ class MicroActionFeedbackModel {
     this.difficulty = 'okay',
     this.userNote,
     this.nextAdjustment = 'continue',
+    this.durationMinutes,
     this.createdAt,
     this.updatedAt,
     this.isValid = true,
@@ -459,6 +472,7 @@ class MicroActionFeedbackModel {
       'difficulty': difficulty,
       'user_note': userNote,
       'next_adjustment': nextAdjustment,
+      'duration_minutes': durationMinutes,
       'created_at': created.toUtc().toIso8601String(),
       'updated_at': (updatedAt ?? created).toUtc().toIso8601String(),
       'is_valid': isValid ? 1 : 0,
@@ -475,6 +489,7 @@ class MicroActionFeedbackModel {
       difficulty: row['difficulty'] as String? ?? 'okay',
       userNote: row['user_note'] as String?,
       nextAdjustment: row['next_adjustment'] as String? ?? 'continue',
+      durationMinutes: int.tryParse('${row['duration_minutes'] ?? ''}'),
       createdAt: ScheduleSignalModel._parseDate(row['created_at']),
       updatedAt: ScheduleSignalModel._parseDate(row['updated_at']),
       isValid: row['is_valid'] == null

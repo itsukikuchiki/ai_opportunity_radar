@@ -10,6 +10,16 @@ import 'local_database.dart';
 import 'local_trace_link_repository.dart';
 
 class LocalCaptureRepository {
+  static const Set<String> _terminalSignalConfirmations = {
+    'confirmed',
+    'accurate',
+    'partial',
+    'edited',
+    'supplemented',
+    'adjusted',
+    'inaccurate',
+  };
+
   final LocalDatabase localDatabase;
   final Uuid _uuid = const Uuid();
 
@@ -175,6 +185,89 @@ class LocalCaptureRepository {
     );
 
     return rows.map(_mapSignalCardRowToSignal).toList();
+  }
+
+  /// Loads only the Signal Cards linked by the currently visible objects.
+  ///
+  /// IDs are chunked because every identifier is bound twice (`id` and the
+  /// remote-compatible `signal_card_id`) and SQLite commonly caps a statement
+  /// at 999 bound parameters.
+  Future<List<RecentSignalModel>> listSignalCardsByIds(
+    Iterable<String> signalCardIds,
+  ) async {
+    final ids = signalCardIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (ids.isEmpty) return const [];
+
+    final db = await localDatabase.database;
+    await mirrorLegacyCapturesToSignalCards();
+    await _backfillSplitTablesFromSignalCards(db);
+
+    final byId = <String, RecentSignalModel>{};
+    for (var start = 0; start < ids.length; start += 400) {
+      final end = start + 400 < ids.length ? start + 400 : ids.length;
+      final chunk = ids.sublist(start, end);
+      final placeholders = List.filled(chunk.length, '?').join(', ');
+      final rows = await db.rawQuery(
+        '''
+        ${_signalCardSelectSql()}
+        WHERE sc.id IN ($placeholders)
+           OR sc.signal_card_id IN ($placeholders)
+        ORDER BY sc.local_date DESC, sc.created_at DESC
+        ''',
+        [...chunk, ...chunk],
+      );
+      for (final row in rows) {
+        final signal = _mapSignalCardRowToSignal(row);
+        final key = signal.id ?? signal.signalCardId ?? '';
+        if (key.isNotEmpty) byId[key] = signal;
+      }
+    }
+    final result = byId.values.toList()
+      ..sort(
+        (a, b) => (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
+      );
+    return result;
+  }
+
+  /// Reads one diary day without first loading an arbitrary recent-history
+  /// window. This keeps every day reachable even after the account has more
+  /// than a few thousand Signal Cards.
+  Future<List<RecentSignalModel>> listSignalCardsForDate(
+    String localDate,
+  ) async {
+    final db = await localDatabase.database;
+    await mirrorLegacyCapturesToSignalCards();
+    await _backfillSplitTablesFromSignalCards(db);
+
+    final rows = await db.rawQuery(
+      '${_signalCardSelectSql()} WHERE sc.local_date = ? ORDER BY sc.created_at DESC',
+      [localDate],
+    );
+    return rows.map(_mapSignalCardRowToSignal).toList();
+  }
+
+  /// Lightweight, unbounded date index used by the diary calendar. Only date
+  /// keys are read; full Signal Card payloads remain date-scoped.
+  Future<Set<String>> listSignalCardDateKeys() async {
+    final db = await localDatabase.database;
+    await mirrorLegacyCapturesToSignalCards();
+    await _backfillSplitTablesFromSignalCards(db);
+
+    final rows = await db.rawQuery('''
+      SELECT DISTINCT local_date
+      FROM signal_cards
+      WHERE local_date IS NOT NULL AND TRIM(local_date) != ''
+      ORDER BY local_date ASC
+    ''');
+    return rows
+        .map((row) => row['local_date']?.toString())
+        .whereType<String>()
+        .toSet();
   }
 
   Future<List<RecentSignalModel>> listSignalCardsBetween({
@@ -345,13 +438,18 @@ class LocalCaptureRepository {
     final localDate = _dateKey(now);
     final existing = await db.query(
       'signal_cards',
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? OR signal_card_id = ?',
+      whereArgs: [id, id],
       limit: 1,
     );
-    final createdAt = existing.isEmpty
-        ? nowUtc.toIso8601String()
-        : existing.first['created_at'] as String? ?? nowUtc.toIso8601String();
+    // A Signal Card is an immutable fact once it has been saved. Stable IDs
+    // are intentionally reused by Signal Library and AI-prediction retries;
+    // replaying the same confirmation must therefore be idempotent instead
+    // of silently replacing the wording or structured payload.
+    if (existing.isNotEmpty) {
+      return _mapSignalCardRowToSignal(existing.first);
+    }
+    final createdAt = nowUtc.toIso8601String();
 
     await db.insert(
       'signal_cards',
@@ -544,8 +642,8 @@ class LocalCaptureRepository {
       await _upsertAnalysisPolicy(
         db,
         signalId: stableId,
-        privacyLevel: signal.privacyLevel,
-        userConfirmation: signal.userConfirmation,
+        privacyLevel: row['privacy_level']?.toString(),
+        userConfirmation: row['user_confirmation']?.toString(),
         updatedAt: now,
       );
       await _upsertSyncIdentity(
@@ -729,11 +827,37 @@ class LocalCaptureRepository {
     required Map<String, dynamic> userCorrectionJson,
   }) async {
     final db = await localDatabase.database;
+    final currentRows = await db.query(
+      'signal_cards',
+      columns: ['id', 'signal_card_id', 'user_confirmation'],
+      where: 'id = ? OR signal_card_id = ?',
+      whereArgs: [signalCardId, signalCardId],
+      limit: 1,
+    );
+    if (currentRows.isEmpty) {
+      throw StateError('signal_card_not_found');
+    }
+    final currentConfirmation = currentRows.first['user_confirmation']
+            ?.toString()
+            .trim()
+            .toLowerCase() ??
+        'unconfirmed';
+    if (currentConfirmation != 'unconfirmed') {
+      throw StateError('saved_signal_card_is_immutable');
+    }
+    final normalizedConfirmation = userConfirmation.trim().toLowerCase();
+    if (!_terminalSignalConfirmations.contains(normalizedConfirmation)) {
+      throw ArgumentError.value(
+        userConfirmation,
+        'userConfirmation',
+        'confirmation_must_be_terminal',
+      );
+    }
     final affectedBefore = await _affectedSignalRows(db, [signalCardId]);
     await db.update(
       'signal_cards',
       {
-        'user_confirmation': userConfirmation,
+        'user_confirmation': normalizedConfirmation,
         'user_correction_json': jsonEncode(userCorrectionJson),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       },
@@ -746,10 +870,10 @@ class LocalCaptureRepository {
       await _upsertAnalysisPolicy(
         db,
         signalId: id,
-        userConfirmation: userConfirmation,
+        userConfirmation: normalizedConfirmation,
         updatedAt: now,
       );
-      if (userConfirmation == 'inaccurate') {
+      if (normalizedConfirmation == 'inaccurate') {
         await LocalTraceLinkRepository(localDatabase).markInactiveForTarget(
           targetType: 'signal_card',
           targetId: id,
@@ -758,7 +882,7 @@ class LocalCaptureRepository {
     }
     await _propagateSignalChanges(
       affectedBefore,
-      reason: userConfirmation == 'inaccurate'
+      reason: normalizedConfirmation == 'inaccurate'
           ? 'signal_marked_inaccurate'
           : 'signal_confirmation_changed',
     );
@@ -1495,11 +1619,9 @@ class LocalCaptureRepository {
         signalRow?['user_confirmation'] as String? ??
         (existingPolicy?['confirmed_by_user'] == 1 ? 'confirmed' : null);
     final inaccurate = resolvedConfirmation == 'inaccurate';
-    final confirmed = const {
-      'confirmed',
-      'edited',
-      'supplemented',
-    }.contains(resolvedConfirmation);
+    final confirmed = resolvedConfirmation != null &&
+        _terminalSignalConfirmations.contains(resolvedConfirmation) &&
+        resolvedConfirmation != 'inaccurate';
     final exclusionReason = inaccurate
         ? 'inaccurate'
         : _isPrivacyExcluded(resolvedPrivacy)
@@ -1643,18 +1765,29 @@ class LocalCaptureRepository {
         localUpdatedAt.isAfter(remoteUpdatedAt);
     final localConfirmation =
         existing['user_confirmation']?.toString().trim() ?? '';
-    final hasLocalCorrection =
-        (existing['user_correction_json']?.toString().trim().isNotEmpty ??
-                false) &&
-            existing['user_correction_json'] != '{}';
+    final localIsFinal = _terminalSignalConfirmations.contains(
+      localConfirmation.toLowerCase(),
+    );
 
-    if (localIsNewer &&
-        (localConfirmation == 'edited' ||
-            localConfirmation == 'supplemented' ||
-            localConfirmation == 'inaccurate' ||
-            hasLocalCorrection)) {
+    // Remote refreshes may enrich AI-owned fields, but must never rewrite the
+    // user-owned fact. This also keeps an already-final confirmation terminal
+    // when an older server projection still says `unconfirmed`.
+    for (final field in const [
+      'raw_text',
+      'source_type',
+      'created_at',
+      'local_date',
+      'timezone',
+      'language',
+      'raw_payload_json',
+    ]) {
+      merged[field] = existing[field];
+    }
+    if (localIsFinal) {
       merged['user_confirmation'] = existing['user_confirmation'];
       merged['user_correction_json'] = existing['user_correction_json'];
+    }
+    if (localIsNewer) {
       merged['privacy_level'] = existing['privacy_level'];
     }
     return merged;

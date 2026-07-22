@@ -8,6 +8,7 @@ import 'package:ai_opportunity_radar/core/api/api_client.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/analytics_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/ai_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/energy_budget_repository.dart';
+import 'package:ai_opportunity_radar/core/api/repositories/journey_pro_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/memory_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/monthly_repository.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/self_review_repository.dart';
@@ -22,18 +23,20 @@ import 'package:ai_opportunity_radar/core/local/local_candidate_planning_reposit
 import 'package:ai_opportunity_radar/core/local/local_daily_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_feedback_event_repository.dart';
+import 'package:ai_opportunity_radar/core/local/local_journey_aggregation_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_journey_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_monthly_snapshot_repository.dart';
+import 'package:ai_opportunity_radar/core/local/local_observation_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_weekly_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/models/energy_budget_models.dart';
 import 'package:ai_opportunity_radar/core/models/memory_models.dart';
 import 'package:ai_opportunity_radar/core/models/journey_pro_models.dart';
 import 'package:ai_opportunity_radar/core/models/monthly_models.dart';
+import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 import 'package:ai_opportunity_radar/core/models/today_models.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
-import 'package:ai_opportunity_radar/core/readiness/report_readiness.dart';
 import 'package:ai_opportunity_radar/features/pages/me/me_view_model.dart';
 
 class DummyAiRepository extends AiRepository {
@@ -97,7 +100,9 @@ class StubTodayRepository extends TodayRepository {
   final List<Map<String, dynamic>> submittedLifeExperimentFeedbacks = [];
   final List<Map<String, dynamic>> confirmedSignals = [];
   final List<Map<String, dynamic>> aiJudgementResponses = [];
+  final List<int> aiJudgementGenerationVariants = [];
   final List<String> lightDialogMessages = [];
+  final List<List<LightDialogTurnModel>> lightDialogHistories = [];
   int fetchTodayCallCount = 0;
   int retryPendingDraftsCallCount = 0;
 
@@ -148,6 +153,7 @@ class StubTodayRepository extends TodayRepository {
     required String userMessage,
   }) async {
     lightDialogMessages.add(userMessage);
+    lightDialogHistories.add(List<LightDialogTurnModel>.from(history));
     return const LightDialogResponseModel(
       reply: '我会先贴着这条记录看，不急着下结论。',
       suggestedPrompts: ['再往下想一步', '帮我整理成一句话'],
@@ -213,11 +219,15 @@ class StubTodayRepository extends TodayRepository {
   Future<Map<String, dynamic>> submitMicroActionFeedback({
     required String microActionId,
     required String feedback,
+    String? effect,
+    String? difficulty,
     String? userNote,
   }) async {
     submittedMicroActionFeedbacks.add({
       'microActionId': microActionId,
       'feedback': feedback,
+      'effect': effect,
+      'difficulty': difficulty,
       'userNote': userNote,
     });
     return fetchTodayResult;
@@ -255,6 +265,7 @@ class StubTodayRepository extends TodayRepository {
     required String judgementId,
     required String status,
     String? userAdjustmentText,
+    AiJudgementModel? displayedJudgement,
     bool addToTimeline = true,
     AppLanguage language = AppLanguage.english,
   }) async {
@@ -266,6 +277,34 @@ class StubTodayRepository extends TodayRepository {
       'language': language.name,
     });
     return fetchTodayResult;
+  }
+
+  @override
+  Future<AiJudgementModel?> createAiJudgementForToday({
+    AppLanguage language = AppLanguage.english,
+    int variationIndex = 0,
+  }) async {
+    aiJudgementGenerationVariants.add(variationIndex);
+    final current = fetchTodayResult['aiJudgement'] as AiJudgementModel?;
+    if (current == null) return null;
+    return AiJudgementModel(
+      id: current.id,
+      sourceSignalCardIds: current.sourceSignalCardIds,
+      sourceScheduleSignalIds: current.sourceScheduleSignalIds,
+      sourceGoalTaskInstanceIds: current.sourceGoalTaskInstanceIds,
+      localDate: current.localDate,
+      judgementText: 'Another prediction ${variationIndex + 1}',
+      evidenceText: current.evidenceText,
+      predictionKind: current.predictionKind,
+      suggestedPattern: 'alternate_${variationIndex + 1}',
+      suggestedLifeChainStage: current.suggestedLifeChainStage,
+      confidenceLevel: current.confidenceLevel,
+      status: 'pending',
+      includedInWeekly: false,
+      includedInJourney: false,
+      createdAt: current.createdAt,
+      updatedAt: DateTime.now(),
+    );
   }
 }
 
@@ -335,6 +374,23 @@ Future<AppDependencies> buildTestDependencies({
           localJourneySnapshotRepository: localJourneySnapshotRepository,
           aiRepository: aiRepository,
         ),
+    journeyProRepository: JourneyProRepository(
+      localCaptureRepository: localCaptureRepository,
+      journeyAggregationRepository: LocalJourneyAggregationRepository(
+        localCaptureRepository: localCaptureRepository,
+        localLifeExperimentRepository: localLifeExperimentRepository,
+        localPhase3PlusRepository: localPhase3PlusRepository,
+        localWeeklySnapshotRepository: localWeeklySnapshotRepository,
+        localFeedbackEventRepository: localFeedbackEventRepository,
+      ),
+      energyBudgetRepository: resolvedEnergyBudgetRepository,
+      localObservationRepository: LocalObservationRepository(
+        localDatabase,
+        localUserId: 'widget-test-user',
+      ),
+      localUserId: 'widget-test-user',
+      installationDateLoader: () async => DateTime(2000, 1, 1),
+    ),
     energyBudgetRepository: resolvedEnergyBudgetRepository,
     monthlyRepository: MonthlyRepository(
       localCaptureRepository: localCaptureRepository,
@@ -361,15 +417,13 @@ Future<AppDependencies> buildTestDependencies({
 class StubMemoryRepository extends MemoryRepository {
   final MemoryFetchResult result;
   final List<JourneyEvidenceItemModel> evidenceItems;
-  final JourneyProReportModel? proReportResult;
   int fetchCallCount = 0;
   int evidenceCallCount = 0;
-  int proReportCallCount = 0;
+  final List<DateTime?> requestedMonths = <DateTime?>[];
 
   StubMemoryRepository({
     required this.result,
     this.evidenceItems = const [],
-    this.proReportResult,
   }) : super(
           localCaptureRepository: LocalCaptureRepository(createDummyDatabase()),
           localJourneySnapshotRepository: LocalJourneySnapshotRepository(
@@ -379,8 +433,9 @@ class StubMemoryRepository extends MemoryRepository {
         );
 
   @override
-  Future<MemoryFetchResult> fetchMemorySummaryResult() async {
+  Future<MemoryFetchResult> fetchMemorySummaryResult({DateTime? month}) async {
     fetchCallCount += 1;
+    requestedMonths.add(month);
     return result;
   }
 
@@ -391,30 +446,30 @@ class StubMemoryRepository extends MemoryRepository {
     evidenceCallCount += 1;
     return evidenceItems;
   }
+}
+
+class StubJourneyProRepository extends JourneyProRepository {
+  final JourneyProReportModel report;
+  final Object? loadError;
+  final List<String?> requestedMonths = <String?>[];
+
+  StubJourneyProRepository({
+    required this.report,
+    this.loadError,
+  }) : super(
+          localCaptureRepository: LocalCaptureRepository(createDummyDatabase()),
+        );
 
   @override
-  Future<JourneyProReportModel> fetchJourneyProReport() async {
-    proReportCallCount += 1;
-    return proReportResult ??
-        JourneyProReportModel(
-          readiness: result.proReadiness ??
-              ReportReadiness.empty(ReportReadinessEvaluator.journeyProRule),
-          periodStart: '2026-01-01',
-          periodEnd: '2026-01-28',
-          currentWeek: const JourneyProWeekStats(
-            weekStart: '2026-01-26',
-            weekEnd: '2026-02-01',
-            signalCount: 0,
-            activeDayCount: 0,
-          ),
-          previousWeek: const JourneyProWeekStats(
-            weekStart: '2026-01-19',
-            weekEnd: '2026-01-25',
-            signalCount: 0,
-            activeDayCount: 0,
-          ),
-          evidence: const [],
-        );
+  String get currentMonthKey => '2026-07';
+
+  @override
+  Future<JourneyProReportModel> fetchThreeMonthChange({
+    String? selectedMonthKey,
+  }) async {
+    requestedMonths.add(selectedMonthKey);
+    if (loadError != null) throw loadError!;
+    return report;
   }
 }
 

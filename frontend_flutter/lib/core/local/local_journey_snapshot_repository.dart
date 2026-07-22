@@ -64,6 +64,7 @@ class LocalJourneySnapshotRepository {
               summary.journeyTraces.map((e) => e.toJson()).toList(),
           'observations': summary.observations.map((e) => e.toJson()).toList(),
           'phase_memory': summary.phaseMemory?.toJson(),
+          'period_facts': summary.periodFacts?.toJson(),
         }),
         'source_hash': sourceHash,
         'schema_version': 1,
@@ -94,6 +95,7 @@ class LocalJourneySnapshotRepository {
               summary.journeyTraces.map((e) => e.toJson()).toList(),
           'observations': summary.observations.map((e) => e.toJson()).toList(),
           'phase_memory': summary.phaseMemory?.toJson(),
+          'period_facts': summary.periodFacts?.toJson(),
         },
       },
       sourceHash: sourceHash,
@@ -233,6 +235,11 @@ class LocalJourneySnapshotRepository {
       phaseMemory: journeyData['phase_memory'] is Map
           ? PhaseMemoryModel.fromJson(
               (journeyData['phase_memory'] as Map).cast<String, dynamic>(),
+            )
+          : null,
+      periodFacts: journeyData['period_facts'] is Map
+          ? JourneyPeriodFactsModel.fromJson(
+              (journeyData['period_facts'] as Map).cast<String, dynamic>(),
             )
           : null,
     );

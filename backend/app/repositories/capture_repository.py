@@ -21,6 +21,21 @@ from app.models import (
 from app.repositories.core_repository import ensure_demo_user
 
 
+FINAL_SIGNAL_CONFIRMATIONS = {
+    "confirmed",
+    "accurate",
+    "partial",
+    "edited",
+    "supplemented",
+    "adjusted",
+    "inaccurate",
+}
+
+
+class ImmutableSignalCardError(ValueError):
+    """Raised when a caller attempts to rewrite an already-saved fact."""
+
+
 class CaptureRepository:
     def __init__(self, db: Any):
         self.db = db
@@ -188,7 +203,10 @@ class CaptureRepository:
             energy_load=None,
             linked_life_chain_stage={},
             confidence_score=None,
-            user_confirmation="unconfirmed",
+            # POST /captures is the user's explicit save action. The record is
+            # therefore a final, immutable fact immediately; AI parsing may
+            # enrich derived fields later but cannot reopen the fact payload.
+            user_confirmation="confirmed",
             user_correction_json={},
             included_in_summary=False,
             included_in_weekly=False,
@@ -223,7 +241,7 @@ class CaptureRepository:
         self._ensure_analysis_policy(
             signal_card_id=signal_card_id,
             privacy_level="private",
-            user_confirmation="unconfirmed",
+            user_confirmation="confirmed",
         )
         if commit:
             self.db.commit()
@@ -752,12 +770,20 @@ class CaptureRepository:
         if signal_card is None:
             return None
 
-        signal_card.user_confirmation = user_confirmation
+        current_confirmation = (signal_card.user_confirmation or "unconfirmed").strip().lower()
+        if current_confirmation != "unconfirmed":
+            raise ImmutableSignalCardError("saved_signal_card_is_immutable")
+
+        normalized_confirmation = (user_confirmation or "").strip().lower()
+        if normalized_confirmation not in FINAL_SIGNAL_CONFIRMATIONS:
+            raise ValueError("confirmation_must_be_terminal")
+
+        signal_card.user_confirmation = normalized_confirmation
         signal_card.user_correction_json = user_correction or {}
         self._ensure_analysis_policy(
             signal_card_id=signal_card.id,
             privacy_level=signal_card.privacy_level,
-            user_confirmation=user_confirmation,
+            user_confirmation=normalized_confirmation,
         )
         if commit:
             self.db.commit()

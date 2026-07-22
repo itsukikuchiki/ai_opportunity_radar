@@ -5,6 +5,7 @@ import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/phase3_plus_models.dart';
 import '../../../core/models/today_models.dart';
 import '../../../core/models/weekly_models.dart';
+import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/states/load_state.dart';
 import 'today_state.dart';
 
@@ -13,12 +14,35 @@ enum DraftSyncResult { completed, stillPending, noPending }
 class TodayViewModel extends ChangeNotifier {
   final TodayRepository repository;
   final Set<String> _sessionHiddenJudgementIds = <String>{};
+  final Set<String> _sessionRejectedPredictionKeys = <String>{};
+  static const int _maxAiJudgementAlternatives = 3;
+  int _sessionAiJudgementVariation = 0;
+  String? _sessionAiJudgementSourceSignature;
+  bool _sessionAiJudgementExhausted = false;
 
   TodayState _state = TodayState.initial();
   TodayState get state => _state;
 
   TodayViewModel(this.repository) {
     load();
+  }
+
+  /// Starts a fresh in-memory AI-prediction session for the Today page.
+  ///
+  /// Rejected alternatives and the three-replacement allowance belong only
+  /// to one visit to Today. None of these values is persisted, so resetting
+  /// them must not write or alter a saved Signal Card or AI judgement.
+  void resetAiJudgementPageSession() {
+    _sessionHiddenJudgementIds.clear();
+    _sessionRejectedPredictionKeys.clear();
+    _sessionAiJudgementVariation = 0;
+    _sessionAiJudgementSourceSignature = null;
+    _sessionAiJudgementExhausted = false;
+    _state = _state.copyWith(
+      aiJudgement: null,
+      aiJudgementExhausted: false,
+    );
+    notifyListeners();
   }
 
   Future<void> load() async {
@@ -37,10 +61,11 @@ class TodayViewModel extends ChangeNotifier {
       _state = _state.copyWith(
         loadState: LoadState.ready,
         insight: data['insight'] as TodayInsightModel?,
-        pendingQuestion: data['pendingQuestion'] as FollowupQuestionModel?,
+        clearPendingQuestion: true,
         bestAction: data['bestAction'] as DailyBestActionModel?,
         recentSignals: fetchedSignals,
-        aiJudgement: _visibleJudgement(data['aiJudgement']),
+        aiJudgement: _resolveVisibleJudgement(data['aiJudgement']),
+        aiJudgementExhausted: _sessionAiJudgementExhausted,
         microActions:
             data['microActions'] as List<MicroActionModel>? ?? const [],
         todayLifeExperiment:
@@ -83,10 +108,11 @@ class TodayViewModel extends ChangeNotifier {
       _state = _state.copyWith(
         loadState: LoadState.ready,
         insight: data['insight'] as TodayInsightModel?,
-        pendingQuestion: data['pendingQuestion'] as FollowupQuestionModel?,
+        clearPendingQuestion: true,
         bestAction: data['bestAction'] as DailyBestActionModel?,
         recentSignals: fetchedSignals,
-        aiJudgement: _visibleJudgement(data['aiJudgement']),
+        aiJudgement: _resolveVisibleJudgement(data['aiJudgement']),
+        aiJudgementExhausted: _sessionAiJudgementExhausted,
         microActions:
             data['microActions'] as List<MicroActionModel>? ?? const [],
         todayLifeExperiment:
@@ -161,11 +187,12 @@ class TodayViewModel extends ChangeNotifier {
         captureSubmitState: SubmitState.success,
         inputText: '',
         acknowledgement: result['acknowledgement'] as String?,
-        pendingQuestion: result['followup'] as FollowupQuestionModel?,
+        clearPendingQuestion: true,
         insight: refreshed['insight'] as TodayInsightModel?,
         bestAction: refreshed['bestAction'] as DailyBestActionModel?,
         recentSignals: updatedSignals,
-        aiJudgement: refreshed['aiJudgement'] as AiJudgementModel?,
+        aiJudgement: _resolveVisibleJudgement(refreshed['aiJudgement']),
+        aiJudgementExhausted: _sessionAiJudgementExhausted,
         microActions:
             refreshed['microActions'] as List<MicroActionModel>? ?? const [],
         todayLifeExperiment:
@@ -216,7 +243,8 @@ class TodayViewModel extends ChangeNotifier {
         bestAction: refreshed['bestAction'] as DailyBestActionModel?,
         recentSignals:
             refreshed['recentSignals'] as List<RecentSignalModel>? ?? const [],
-        aiJudgement: refreshed['aiJudgement'] as AiJudgementModel?,
+        aiJudgement: _resolveVisibleJudgement(refreshed['aiJudgement']),
+        aiJudgementExhausted: _sessionAiJudgementExhausted,
         microActions:
             refreshed['microActions'] as List<MicroActionModel>? ?? const [],
         todayLifeExperiment:
@@ -235,14 +263,15 @@ class TodayViewModel extends ChangeNotifier {
   }
 
   Future<void> submitQuickStatus({
-    required String choice,
+    String? choice,
     AppLanguage language = AppLanguage.english,
     String? detail,
     int? energyLevel,
     String? note,
   }) async {
+    final normalizedChoice = choice?.trim();
     final content = _quickStatusText(
-      choice,
+      normalizedChoice,
       language,
       detail: detail,
       energyLevel: energyLevel,
@@ -250,7 +279,8 @@ class TodayViewModel extends ChangeNotifier {
     );
     if (content.trim().isEmpty) return;
     final rawPayloadJson = {
-      'quick_status': choice,
+      if (normalizedChoice != null && normalizedChoice.isNotEmpty)
+        'quick_status': normalizedChoice,
       'user_triggered': true,
       if (detail != null && detail.trim().isNotEmpty) 'detail': detail,
       if (energyLevel != null) 'energy_level': energyLevel,
@@ -290,7 +320,8 @@ class TodayViewModel extends ChangeNotifier {
         recentSignals: !refreshedIncludesSubmitted
             ? localFallbackSignals
             : refreshedSignals,
-        aiJudgement: refreshed['aiJudgement'] as AiJudgementModel?,
+        aiJudgement: _resolveVisibleJudgement(refreshed['aiJudgement']),
+        aiJudgementExhausted: _sessionAiJudgementExhausted,
         microActions:
             refreshed['microActions'] as List<MicroActionModel>? ?? const [],
         todayLifeExperiment:
@@ -315,7 +346,7 @@ class TodayViewModel extends ChangeNotifier {
     required String category,
     required String categoryLabel,
     required String recordStatus,
-    String? energyEffect,
+    int? energyLevel,
     String? note,
     AppLanguage language = AppLanguage.english,
   }) async {
@@ -331,19 +362,32 @@ class TodayViewModel extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    final normalizedFocusDomains = FocusDomains.normalizeIds([category]);
+    if (normalizedFocusDomains.isEmpty) {
+      _state = _state.copyWith(errorMessage: 'invalid_focus_domain');
+      notifyListeners();
+      return;
+    }
+    final focusDomainId = normalizedFocusDomains.single;
 
     final durationMinutes = endAt.difference(startAt).inMinutes;
+    final completedEnergyLevel = recordStatus == 'completed' &&
+            energyLevel != null &&
+            energyLevel >= 0 &&
+            energyLevel <= 2
+        ? energyLevel
+        : null;
     final rawPayloadJson = <String, dynamic>{
       'timeline_type': 'time_use',
-      'schema_version': 1,
+      'schema_version': 2,
       'title': normalizedTitle,
       'record_status': recordStatus,
-      'category': category,
+      'focus_domain_id': focusDomainId,
+      'category': focusDomainId,
       'start_at': startAt.toIso8601String(),
       'end_at': endAt.toIso8601String(),
       'duration_minutes': durationMinutes,
-      if (energyEffect != null && energyEffect.trim().isNotEmpty)
-        'energy_effect': energyEffect.trim(),
+      if (completedEnergyLevel != null) 'energy_level': completedEnergyLevel,
       if (normalizedNote.isNotEmpty) 'note': normalizedNote,
       'user_triggered': true,
     };
@@ -353,7 +397,7 @@ class TodayViewModel extends ChangeNotifier {
       endAt: endAt,
       categoryLabel: categoryLabel,
       recordStatus: recordStatus,
-      energyEffect: energyEffect,
+      energyLevel: completedEnergyLevel,
       note: normalizedNote,
       language: language,
     );
@@ -394,7 +438,8 @@ class TodayViewModel extends ChangeNotifier {
         recentSignals: refreshedIncludesSubmitted
             ? refreshedSignals
             : localFallbackSignals,
-        aiJudgement: refreshed['aiJudgement'] as AiJudgementModel?,
+        aiJudgement: _resolveVisibleJudgement(refreshed['aiJudgement']),
+        aiJudgementExhausted: _sessionAiJudgementExhausted,
         microActions:
             refreshed['microActions'] as List<MicroActionModel>? ?? const [],
         todayLifeExperiment:
@@ -431,7 +476,9 @@ class TodayViewModel extends ChangeNotifier {
       sceneTags: switch (sourceType) {
         'one_tap' => const ['state'],
         'time_use' => [
-            rawPayloadJson['category']?.toString() ?? 'time_use',
+            rawPayloadJson['focus_domain_id']?.toString() ??
+                rawPayloadJson['category']?.toString() ??
+                'time_use',
           ],
         _ => const <String>[],
       },
@@ -474,7 +521,7 @@ class TodayViewModel extends ChangeNotifier {
     required DateTime endAt,
     required String categoryLabel,
     required String recordStatus,
-    required String? energyEffect,
+    required int? energyLevel,
     required String note,
     required AppLanguage language,
   }) {
@@ -489,7 +536,7 @@ class TodayViewModel extends ChangeNotifier {
       (AppLanguage.japanese, _) => '完了',
       (AppLanguage.english, _) => 'Completed',
     };
-    final energyLabel = _timeUseEnergyLabel(energyEffect, language);
+    final energyLabel = _timeUseEnergyLabel(energyLevel, language);
     return switch (language) {
       AppLanguage.simplifiedChinese =>
         '$range · $categoryLabel · $title（$statusLabel${energyLabel.isEmpty ? '' : '，$energyLabel'}）${note.isEmpty ? '' : '。补充：$note'}',
@@ -502,21 +549,21 @@ class TodayViewModel extends ChangeNotifier {
     };
   }
 
-  String _timeUseEnergyLabel(String? value, AppLanguage language) {
-    if (value == null || value.trim().isEmpty || value == 'unknown') return '';
+  String _timeUseEnergyLabel(int? value, AppLanguage language) {
+    if (value == null || value < 0 || value > 2) return '';
     return switch ((language, value)) {
-      (AppLanguage.simplifiedChinese, 'draining') => '偏耗力',
-      (AppLanguage.simplifiedChinese, 'restoring') => '偏恢复',
-      (AppLanguage.simplifiedChinese, _) => '体感一般',
-      (AppLanguage.traditionalChinese, 'draining') => '偏耗力',
-      (AppLanguage.traditionalChinese, 'restoring') => '偏恢復',
-      (AppLanguage.traditionalChinese, _) => '體感一般',
-      (AppLanguage.japanese, 'draining') => '消耗気味',
-      (AppLanguage.japanese, 'restoring') => '回復寄り',
-      (AppLanguage.japanese, _) => '負荷は普通',
-      (AppLanguage.english, 'draining') => 'draining',
-      (AppLanguage.english, 'restoring') => 'restoring',
-      (AppLanguage.english, _) => 'neutral',
+      (AppLanguage.simplifiedChinese, 0) => '结束后精力偏低',
+      (AppLanguage.simplifiedChinese, 1) => '结束后精力还好',
+      (AppLanguage.simplifiedChinese, _) => '结束后精力很足',
+      (AppLanguage.traditionalChinese, 0) => '結束後精力偏低',
+      (AppLanguage.traditionalChinese, 1) => '結束後精力還好',
+      (AppLanguage.traditionalChinese, _) => '結束後精力很足',
+      (AppLanguage.japanese, 0) => '終了後のエネルギーは低め',
+      (AppLanguage.japanese, 1) => '終了後のエネルギーはまあまあ',
+      (AppLanguage.japanese, _) => '終了後のエネルギーは十分',
+      (AppLanguage.english, 0) => 'energy was low afterward',
+      (AppLanguage.english, 1) => 'energy was okay afterward',
+      (AppLanguage.english, _) => 'energy was high afterward',
     };
   }
 
@@ -585,9 +632,11 @@ class TodayViewModel extends ChangeNotifier {
         judgementId: judgement.id,
         status: status,
         userAdjustmentText: userAdjustmentText,
+        displayedJudgement: judgement,
         addToTimeline: addToTimeline,
         language: language,
       );
+      _sessionHiddenJudgementIds.add(judgement.id);
       _applyTodayRefresh(
         refreshed,
         submitState: SubmitState.success,
@@ -596,6 +645,57 @@ class TodayViewModel extends ChangeNotifier {
     } catch (e) {
       _state = _state.copyWith(
         captureSubmitState: SubmitState.failure,
+        errorMessage: e.toString(),
+      );
+    }
+    notifyListeners();
+  }
+
+  /// Replaces an inaccurate prediction in the current session without
+  /// persisting a rejection or creating any feedback/Signal Card.
+  Future<void> showAnotherAiJudgement({
+    required AiJudgementModel judgement,
+    AppLanguage language = AppLanguage.english,
+  }) async {
+    _sessionRejectedPredictionKeys.add(_predictionKey(judgement));
+    _state = _state.copyWith(
+      captureSubmitState: SubmitState.submitting,
+      aiJudgement: null,
+      aiJudgementExhausted: false,
+      clearErrorMessage: true,
+    );
+    notifyListeners();
+
+    try {
+      AiJudgementModel? alternate;
+      while (_sessionAiJudgementVariation < _maxAiJudgementAlternatives) {
+        _sessionAiJudgementVariation += 1;
+        final candidate = await repository.createAiJudgementForToday(
+          language: language,
+          variationIndex: _sessionAiJudgementVariation,
+        );
+        if (candidate == null ||
+            _sessionRejectedPredictionKeys.contains(
+              _predictionKey(candidate),
+            )) {
+          continue;
+        }
+        alternate = candidate;
+        break;
+      }
+      _sessionAiJudgementExhausted = alternate == null;
+      _state = _state.copyWith(
+        captureSubmitState: SubmitState.success,
+        aiJudgement: alternate,
+        aiJudgementExhausted: _sessionAiJudgementExhausted,
+        clearErrorMessage: true,
+      );
+    } catch (e) {
+      _sessionAiJudgementExhausted = true;
+      _state = _state.copyWith(
+        captureSubmitState: SubmitState.failure,
+        aiJudgement: null,
+        aiJudgementExhausted: true,
         errorMessage: e.toString(),
       );
     }
@@ -636,6 +736,8 @@ class TodayViewModel extends ChangeNotifier {
   Future<void> submitMicroActionFeedback({
     required MicroActionModel action,
     required String feedback,
+    String? effect,
+    String? difficulty,
     String? userNote,
   }) async {
     _state = _state.copyWith(
@@ -648,6 +750,8 @@ class TodayViewModel extends ChangeNotifier {
       final refreshed = await repository.submitMicroActionFeedback(
         microActionId: action.id,
         feedback: feedback,
+        effect: effect,
+        difficulty: difficulty,
         userNote: userNote,
       );
       _applyTodayRefresh(
@@ -718,11 +822,12 @@ class TodayViewModel extends ChangeNotifier {
     _state = _state.copyWith(
       captureSubmitState: submitState,
       insight: refreshed['insight'] as TodayInsightModel?,
-      pendingQuestion: refreshed['pendingQuestion'] as FollowupQuestionModel?,
+      clearPendingQuestion: true,
       bestAction: refreshed['bestAction'] as DailyBestActionModel?,
       recentSignals:
           refreshed['recentSignals'] as List<RecentSignalModel>? ?? const [],
-      aiJudgement: _visibleJudgement(refreshed['aiJudgement']),
+      aiJudgement: _resolveVisibleJudgement(refreshed['aiJudgement']),
+      aiJudgementExhausted: _sessionAiJudgementExhausted,
       microActions:
           refreshed['microActions'] as List<MicroActionModel>? ?? const [],
       todayLifeExperiment:
@@ -734,37 +839,82 @@ class TodayViewModel extends ChangeNotifier {
     );
   }
 
-  AiJudgementModel? _visibleJudgement(Object? value) {
+  AiJudgementModel? _resolveVisibleJudgement(Object? value) {
     final judgement = value as AiJudgementModel?;
+    final status = judgement?.status.trim().toLowerCase();
+    if (judgement != null &&
+        !const {'pending', 'suggested', 'generated', 'unconfirmed'}
+            .contains(status)) {
+      return null;
+    }
+    if (judgement != null) {
+      final sourceIds = judgement.sourceSignalCardIds
+          .where((id) => id.trim().isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+      final sourceSignature = sourceIds.join('|');
+      final sourceChanged = _sessionAiJudgementSourceSignature != null &&
+          _sessionAiJudgementSourceSignature != sourceSignature;
+      if (sourceChanged) {
+        _sessionHiddenJudgementIds.clear();
+        _sessionRejectedPredictionKeys.clear();
+        _sessionAiJudgementVariation = 0;
+        _sessionAiJudgementExhausted = false;
+      }
+      _sessionAiJudgementSourceSignature = sourceSignature;
+    }
     if (judgement == null ||
         _sessionHiddenJudgementIds.contains(judgement.id)) {
+      return null;
+    }
+    if (_sessionRejectedPredictionKeys.contains(_predictionKey(judgement))) {
+      final current = _state.aiJudgement;
+      if (current != null &&
+          !_sessionRejectedPredictionKeys.contains(_predictionKey(current)) &&
+          current.sourceSignalCardIds.toSet().containsAll(
+                judgement.sourceSignalCardIds,
+              ) &&
+          judgement.sourceSignalCardIds.toSet().containsAll(
+                current.sourceSignalCardIds,
+              )) {
+        return current;
+      }
       return null;
     }
     return judgement;
   }
 
+  String _predictionKey(AiJudgementModel judgement) {
+    return '${judgement.suggestedPattern.trim()}\u241f'
+        '${judgement.predictedSignalText.trim()}';
+  }
+
   String _quickStatusText(
-    String choice,
+    String? choice,
     AppLanguage language, {
     String? detail,
     int? energyLevel,
     String? note,
   }) {
     final noteText = note?.trim();
-    final base = _quickStatusBaseText(choice, language);
+    final base = choice == null || choice.isEmpty
+        ? ''
+        : _quickStatusBaseText(choice, language);
     final detailText = _quickStatusDetailText(detail, language);
     final energyText = _quickStatusEnergyText(energyLevel, language);
     if (noteText != null && noteText.isNotEmpty) {
-      return switch (language) {
+      return (switch (language) {
         AppLanguage.simplifiedChinese =>
           '$base$detailText$energyText 补充：$noteText',
         AppLanguage.traditionalChinese =>
           '$base$detailText$energyText 補充：$noteText',
         AppLanguage.japanese => '$base$detailText$energyText 補足：$noteText',
         AppLanguage.english => '$base$detailText$energyText Note: $noteText',
-      };
+      })
+          .trim();
     }
-    return '$base$detailText$energyText';
+    return '$base$detailText$energyText'.trim();
   }
 
   String _quickStatusBaseText(String choice, AppLanguage language) {
@@ -922,36 +1072,6 @@ class TodayViewModel extends ChangeNotifier {
       );
     }
 
-    notifyListeners();
-  }
-
-  Future<void> confirmSignal({
-    required RecentSignalModel signal,
-    required String confirmation,
-    Map<String, dynamic>? correction,
-  }) async {
-    final signalCardId = signal.signalCardId ?? signal.id;
-    if (signalCardId == null || signalCardId.trim().isEmpty) return;
-
-    await repository.confirmSignalCard(
-      signalCardId: signalCardId,
-      userConfirmation: confirmation,
-      userCorrectionJson: correction ?? const {},
-    );
-
-    final refreshed = await repository.fetchToday();
-    _state = _state.copyWith(
-      insight: refreshed['insight'] as TodayInsightModel?,
-      bestAction: refreshed['bestAction'] as DailyBestActionModel?,
-      recentSignals:
-          refreshed['recentSignals'] as List<RecentSignalModel>? ?? const [],
-      aiJudgement: refreshed['aiJudgement'] as AiJudgementModel?,
-      microActions:
-          refreshed['microActions'] as List<MicroActionModel>? ?? const [],
-      todayLifeExperiment:
-          refreshed['todayLifeExperiment'] as LifeExperimentModel?,
-      clearErrorMessage: true,
-    );
     notifyListeners();
   }
 

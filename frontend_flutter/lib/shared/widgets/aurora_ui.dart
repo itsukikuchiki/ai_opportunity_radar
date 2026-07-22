@@ -9,6 +9,7 @@ class AuroraColors {
   static const surface = Color(0xFFFFFCFB);
   static const purple = Color(0xFF7767F4);
   static const blue = Color(0xFF5E8FF0);
+  static const cyan = Color(0xFF55BEE8);
   static const mint = Color(0xFF55C8A2);
   static const orange = Color(0xFFFFA05F);
   static const gold = Color(0xFFF7C85E);
@@ -506,6 +507,514 @@ class AuroraBrandMark extends StatelessWidget {
       height: size,
       child: CustomPaint(painter: _AuroraBrandPainter()),
     );
+  }
+}
+
+/// Scattered signal points used by Today and the pages opened from it.
+///
+/// The points deliberately do not connect: Today captures individual signals
+/// before the app interprets a relationship between them.
+class AuroraSignalHeroPattern extends StatelessWidget {
+  final double opacity;
+  final Alignment alignment;
+  final BoxFit fit;
+
+  const AuroraSignalHeroPattern({
+    super.key,
+    this.opacity = 0.92,
+    this.alignment = Alignment.centerRight,
+    this.fit = BoxFit.cover,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _AuroraHeroPatternSurface(
+      kind: _AuroraHeroPatternKind.signal,
+      opacity: opacity,
+      alignment: alignment,
+      fit: fit,
+    );
+  }
+}
+
+/// The same signal points as Today, softly connected into review relationships.
+class AuroraReviewHeroPattern extends StatelessWidget {
+  final double opacity;
+  final Alignment alignment;
+  final BoxFit fit;
+
+  const AuroraReviewHeroPattern({
+    super.key,
+    this.opacity = 0.90,
+    this.alignment = Alignment.centerRight,
+    this.fit = BoxFit.cover,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _AuroraHeroPatternSurface(
+      kind: _AuroraHeroPatternKind.review,
+      opacity: opacity,
+      alignment: alignment,
+      fit: fit,
+    );
+  }
+}
+
+/// Premium branching artwork used by Life Experiment and pages opened from it.
+///
+/// The source artwork is rendered in the same pearlescent glass language as
+/// the app icon: real Signal points open into several possible paths, without
+/// implying a closed loop or a single prescribed outcome.
+class AuroraExperimentHeroPattern extends StatelessWidget {
+  final double opacity;
+  final Alignment alignment;
+  final BoxFit fit;
+
+  const AuroraExperimentHeroPattern({
+    super.key,
+    this.opacity = 0.72,
+    this.alignment = Alignment.centerRight,
+    this.fit = BoxFit.cover,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: Opacity(
+        opacity: opacity,
+        child: ShaderMask(
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (bounds) => const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0x00FFFFFF),
+              Color(0xFFFFFFFF),
+              Color(0xFFFFFFFF),
+              Color(0x00FFFFFF),
+            ],
+            stops: [0, 0.10, 0.88, 1],
+          ).createShader(bounds),
+          child: ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (bounds) => const LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                Color(0x00FFFFFF),
+                Color(0xB8FFFFFF),
+                Color(0xFFFFFFFF),
+              ],
+              stops: [0, 0.22, 1],
+            ).createShader(bounds),
+            child: Image.asset(
+              'assets/experiment/life-experiment-branching-v2.png',
+              alignment: alignment,
+              fit: fit,
+              filterQuality: FilterQuality.high,
+              gaplessPlayback: true,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A long path growing out of a circular marker, used by Journey pages.
+class AuroraJourneyHeroPattern extends StatelessWidget {
+  final double opacity;
+  final Alignment alignment;
+  final BoxFit fit;
+
+  const AuroraJourneyHeroPattern({
+    super.key,
+    this.opacity = 0.92,
+    this.alignment = Alignment.centerRight,
+    this.fit = BoxFit.cover,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _AuroraHeroPatternSurface(
+      kind: _AuroraHeroPatternKind.journey,
+      opacity: opacity,
+      alignment: alignment,
+      fit: fit,
+    );
+  }
+}
+
+enum _AuroraHeroPatternKind { signal, review, journey }
+
+class _AuroraHeroPatternSurface extends StatelessWidget {
+  final _AuroraHeroPatternKind kind;
+  final double opacity;
+  final Alignment alignment;
+  final BoxFit fit;
+
+  const _AuroraHeroPatternSurface({
+    required this.kind,
+    required this.opacity,
+    required this.alignment,
+    required this.fit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final assetPath = switch (kind) {
+      _AuroraHeroPatternKind.signal =>
+        'assets/hero_art/today-signal-points-v1.png',
+      _AuroraHeroPatternKind.review =>
+        'assets/hero_art/weekly-review-network-v1.png',
+      _AuroraHeroPatternKind.journey =>
+        'assets/hero_art/journey-ring-path-v1.png',
+    };
+    final image = Image.asset(
+      assetPath,
+      alignment: alignment,
+      fit: fit,
+      filterQuality: FilterQuality.high,
+      gaplessPlayback: true,
+    );
+    final fadedImage = kind == _AuroraHeroPatternKind.review
+        ? ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (bounds) => const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0x00FFFFFF),
+                Color(0xFFFFFFFF),
+                Color(0xFFFFFFFF),
+                Color(0x00FFFFFF),
+              ],
+              stops: [0, 0.16, 0.84, 1],
+            ).createShader(bounds),
+            child: ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (bounds) => const LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  Color(0x00FFFFFF),
+                  Color(0xE8FFFFFF),
+                  Color(0xFFFFFFFF),
+                  Color(0x00FFFFFF),
+                ],
+                stops: [0, 0.24, 0.82, 1],
+              ).createShader(bounds),
+              child: image,
+            ),
+          )
+        : ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (bounds) => const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0x00FFFFFF),
+                Color(0xFFFFFFFF),
+                Color(0xFFFFFFFF),
+                Color(0x00FFFFFF),
+              ],
+              stops: [0, 0.08, 0.88, 1],
+            ).createShader(bounds),
+            child: ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (bounds) => const LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  Color(0x00FFFFFF),
+                  Color(0xA8FFFFFF),
+                  Color(0xFFFFFFFF),
+                ],
+                stops: [0, 0.30, 0.58],
+              ).createShader(bounds),
+              child: image,
+            ),
+          );
+    return ExcludeSemantics(
+      child: Opacity(opacity: opacity, child: fadedImage),
+    );
+  }
+}
+
+// Retained only while older golden references are migrated; live hero
+// patterns above use the icon-quality raster assets.
+// ignore: unused_element
+class _AuroraHeroPatternPainter extends CustomPainter {
+  final _AuroraHeroPatternKind kind;
+  final Alignment alignment;
+  final BoxFit fit;
+
+  const _AuroraHeroPatternPainter({
+    required this.kind,
+    required this.alignment,
+    required this.fit,
+  });
+
+  static const _signalPoints = <Offset>[
+    Offset(0.14, 0.29),
+    Offset(0.29, 0.69),
+    Offset(0.43, 0.32),
+    Offset(0.59, 0.57),
+    Offset(0.76, 0.23),
+    Offset(0.86, 0.71),
+    Offset(0.53, 0.84),
+  ];
+
+  static const _palette = <Color>[
+    AuroraColors.orange,
+    AuroraColors.purple,
+    AuroraColors.blue,
+    AuroraColors.cyan,
+    AuroraColors.mint,
+    AuroraColors.purple,
+    AuroraColors.blue,
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    canvas.save();
+    _applyAlignmentAndFit(canvas, size);
+    _drawHalo(canvas, size);
+    switch (kind) {
+      case _AuroraHeroPatternKind.signal:
+        _drawSignalPoints(canvas, size);
+        break;
+      case _AuroraHeroPatternKind.review:
+        _drawReviewConnections(canvas, size);
+        _drawSignalPoints(canvas, size);
+        break;
+      case _AuroraHeroPatternKind.journey:
+        _drawJourney(canvas, size);
+        break;
+    }
+    canvas.restore();
+  }
+
+  void _applyAlignmentAndFit(Canvas canvas, Size size) {
+    final scale = switch (fit) {
+      BoxFit.contain || BoxFit.none || BoxFit.scaleDown => 0.88,
+      BoxFit.fitHeight => 0.94,
+      BoxFit.fitWidth => 1.02,
+      BoxFit.cover || BoxFit.fill => 1.0,
+    };
+    final center = Offset(size.width / 2, size.height / 2);
+    final shift = Offset(
+      alignment.x * size.width * 0.045,
+      alignment.y * size.height * 0.035,
+    );
+    canvas.translate(center.dx + shift.dx, center.dy + shift.dy);
+    canvas.scale(scale);
+    canvas.translate(-center.dx, -center.dy);
+  }
+
+  void _drawHalo(Canvas canvas, Size size) {
+    final center = switch (kind) {
+      _AuroraHeroPatternKind.journey =>
+        Offset(size.width * 0.62, size.height * 0.43),
+      _ => Offset(size.width * 0.54, size.height * 0.48),
+    };
+    final halo = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          AuroraColors.purple.withValues(alpha: 0.18),
+          AuroraColors.cyan.withValues(alpha: 0.11),
+          AuroraColors.orange.withValues(alpha: 0.07),
+          Colors.transparent,
+        ],
+        stops: const [0, 0.38, 0.70, 1],
+      ).createShader(
+        Rect.fromCircle(
+          center: center,
+          radius: math.max(size.width, size.height) * 0.57,
+        ),
+      );
+    canvas.drawRect(Offset.zero & size, halo);
+  }
+
+  Offset _point(Size size, Offset normalized) => Offset(
+        normalized.dx * size.width,
+        normalized.dy * size.height,
+      );
+
+  void _drawSignalPoints(Canvas canvas, Size size) {
+    for (var index = 0; index < _signalPoints.length; index++) {
+      _drawStarPoint(
+        canvas,
+        _point(size, _signalPoints[index]),
+        _palette[index],
+        size.shortestSide,
+        prominent: index == 2 || index == 5,
+      );
+    }
+  }
+
+  void _drawReviewConnections(Canvas canvas, Size size) {
+    const relations = <(int, int)>[
+      (0, 2),
+      (2, 4),
+      (2, 3),
+      (1, 3),
+      (3, 5),
+      (3, 6),
+    ];
+    final glow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(3.2, size.shortestSide * 0.024)
+      ..strokeCap = StrokeCap.round
+      ..color = AuroraColors.purple.withValues(alpha: 0.10);
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.15, size.shortestSide * 0.009)
+      ..strokeCap = StrokeCap.round
+      ..color = Colors.white.withValues(alpha: 0.78);
+    for (final relation in relations) {
+      final start = _point(size, _signalPoints[relation.$1]);
+      final end = _point(size, _signalPoints[relation.$2]);
+      final bend = Offset(
+        (start.dx + end.dx) / 2,
+        (start.dy + end.dy) / 2 - size.height * 0.035,
+      );
+      final path = Path()
+        ..moveTo(start.dx, start.dy)
+        ..quadraticBezierTo(bend.dx, bend.dy, end.dx, end.dy);
+      canvas.drawPath(path, glow);
+      canvas.drawPath(path, line);
+    }
+  }
+
+  void _drawJourney(Canvas canvas, Size size) {
+    final center = Offset(size.width * 0.62, size.height * 0.31);
+    final radius = math.min(size.width * 0.23, size.height * 0.25);
+    final ringRect = Rect.fromCircle(center: center, radius: radius);
+    final ringGlow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(7.0, size.shortestSide * 0.052)
+      ..color = AuroraColors.purple.withValues(alpha: 0.12);
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(2.0, size.shortestSide * 0.015)
+      ..strokeCap = StrokeCap.round
+      ..shader = const SweepGradient(
+        colors: [
+          AuroraColors.orange,
+          AuroraColors.purple,
+          AuroraColors.blue,
+          AuroraColors.cyan,
+          AuroraColors.mint,
+          AuroraColors.orange,
+        ],
+      ).createShader(ringRect);
+    canvas.drawCircle(center, radius, ringGlow);
+    canvas.drawCircle(center, radius, ring);
+
+    final start = Offset(center.dx, center.dy + radius * 0.12);
+    final path = Path()
+      ..moveTo(start.dx, start.dy)
+      ..cubicTo(
+        size.width * 0.64,
+        size.height * 0.51,
+        size.width * 0.42,
+        size.height * 0.55,
+        size.width * 0.46,
+        size.height * 0.67,
+      )
+      ..cubicTo(
+        size.width * 0.50,
+        size.height * 0.78,
+        size.width * 0.72,
+        size.height * 0.75,
+        size.width * 0.61,
+        size.height * 0.96,
+      );
+    final pathBounds = path.getBounds();
+    final pathGlow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(6.0, size.shortestSide * 0.044)
+      ..strokeCap = StrokeCap.round
+      ..color = AuroraColors.blue.withValues(alpha: 0.11);
+    final pathLine = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.8, size.shortestSide * 0.013)
+      ..strokeCap = StrokeCap.round
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          AuroraColors.orange,
+          AuroraColors.purple,
+          AuroraColors.blue,
+          AuroraColors.cyan,
+          AuroraColors.mint,
+        ],
+      ).createShader(pathBounds);
+    canvas.drawPath(path, pathGlow);
+    canvas.drawPath(path, pathLine);
+
+    _drawStarPoint(
+      canvas,
+      center,
+      AuroraColors.orange,
+      size.shortestSide,
+      prominent: true,
+    );
+    _drawStarPoint(
+      canvas,
+      Offset(size.width * 0.46, size.height * 0.67),
+      AuroraColors.cyan,
+      size.shortestSide,
+    );
+    _drawStarPoint(
+      canvas,
+      Offset(size.width * 0.61, size.height * 0.94),
+      AuroraColors.mint,
+      size.shortestSide,
+      prominent: true,
+    );
+  }
+
+  void _drawStarPoint(
+    Canvas canvas,
+    Offset point,
+    Color color,
+    double reference, {
+    bool prominent = false,
+  }) {
+    final coreRadius = reference * (prominent ? 0.020 : 0.014);
+    final glowRadius = coreRadius * 3.5;
+    canvas.drawCircle(
+      point,
+      glowRadius,
+      Paint()..color = color.withValues(alpha: 0.17),
+    );
+    canvas.drawCircle(
+      point,
+      coreRadius * 1.7,
+      Paint()..color = Colors.white.withValues(alpha: 0.92),
+    );
+    canvas.drawCircle(point, coreRadius, Paint()..color = color);
+
+    if (!prominent) return;
+    final ray = coreRadius * 2.9;
+    final rayPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.78)
+      ..strokeWidth = math.max(0.8, reference * 0.006)
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(point - Offset(ray, 0), point + Offset(ray, 0), rayPaint);
+    canvas.drawLine(point - Offset(0, ray), point + Offset(0, ray), rayPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _AuroraHeroPatternPainter oldDelegate) {
+    return kind != oldDelegate.kind ||
+        alignment != oldDelegate.alignment ||
+        fit != oldDelegate.fit;
   }
 }
 

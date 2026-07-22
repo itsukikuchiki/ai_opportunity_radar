@@ -61,7 +61,7 @@ def test_save_first_keeps_signal_card_when_parser_and_reply_fail():
             assert card.ai_reply == result.acknowledgement
             assert card.metadata_json["parser_status"] == "failed"
             assert card.metadata_json["ai_reply_status"] == "fallback"
-            assert card.user_confirmation == "unconfirmed"
+            assert card.user_confirmation == "confirmed"
             assert card.privacy_level == "private"
 
             quota_events = db.scalars(select(QuotaGateEvent)).all()
@@ -219,26 +219,21 @@ def test_signal_card_confirmation_writes_user_correction():
 
         from app.models import SignalCard
         from app.repositories.capture_repository import CaptureRepository
-        from app.services.capture_service import CaptureService
-        from app.services.classification_service import ClassificationService
-        from app.services.usage_service import UsageService
 
         db = SessionLocal()
         try:
-            service = CaptureService(
-                CaptureRepository(db),
-                ClassificationService(),
-                UsageService(db),
-            )
-            service.submit_capture(
+            repository = CaptureRepository(db)
+            created = repository.create_capture_skeleton(
                 user_id="phase3-confirm",
-                content="今天沟通来回确认，很消耗",
+                content="确认前的兼容候选",
                 language="zh-Hans",
                 timezone_name="Asia/Tokyo",
             )
-            card = db.scalars(select(SignalCard)).one()
+            card = db.get(SignalCard, created["signal_card_id"])
+            card.user_confirmation = "unconfirmed"
+            db.commit()
 
-            updated = CaptureRepository(db).update_signal_card_confirmation(
+            updated = repository.update_signal_card_confirmation(
                 user_id="phase3-confirm",
                 signal_card_id=card.id,
                 user_confirmation="edited",
@@ -249,6 +244,20 @@ def test_signal_card_confirmation_writes_user_correction():
             assert updated is not None
             assert updated.user_confirmation == "edited"
             assert updated.user_correction_json["friction"] == "coordination"
+
+            from app.repositories.capture_repository import ImmutableSignalCardError
+
+            try:
+                repository.update_signal_card_confirmation(
+                    user_id="phase3-confirm",
+                    signal_card_id=card.id,
+                    user_confirmation="supplemented",
+                    user_correction={"note": "第二次修改不应成功"},
+                    commit=True,
+                )
+                assert False, "a saved SignalCard must be immutable"
+            except ImmutableSignalCardError as error:
+                assert str(error) == "saved_signal_card_is_immutable"
         finally:
             db.close()
     finally:
@@ -292,17 +301,24 @@ def test_signal_card_processing_state_and_analysis_policy_are_split():
             assert policy is not None
             assert policy.privacy_level == "private"
             assert policy.inaccurate is False
+            assert policy.confirmed_by_user is True
 
-            CaptureRepository(db).update_signal_card_confirmation(
-                user_id="phase3-split-state",
-                signal_card_id=signal_card_id,
-                user_confirmation="inaccurate",
-                user_correction={"note": "不是有效记录"},
-                commit=True,
-            )
+            from app.repositories.capture_repository import ImmutableSignalCardError
+
+            try:
+                CaptureRepository(db).update_signal_card_confirmation(
+                    user_id="phase3-split-state",
+                    signal_card_id=signal_card_id,
+                    user_confirmation="inaccurate",
+                    user_correction={"note": "不是有效记录"},
+                    commit=True,
+                )
+                assert False, "saved direct records cannot be reclassified"
+            except ImmutableSignalCardError:
+                pass
             updated_policy = db.get(SignalAnalysisPolicy, signal_card_id)
-            assert updated_policy.inaccurate is True
-            assert updated_policy.exclusion_reason == "inaccurate"
+            assert updated_policy.inaccurate is False
+            assert updated_policy.exclusion_reason is None
         finally:
             db.close()
     finally:

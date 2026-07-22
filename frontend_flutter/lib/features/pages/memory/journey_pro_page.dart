@@ -1,20 +1,31 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
+import '../../../core/models/energy_budget_models.dart';
 import '../../../core/models/journey_pro_models.dart';
-import '../../../core/models/memory_models.dart';
-import '../../../core/readiness/report_readiness.dart';
+import '../../../core/navigation/app_back_navigation.dart';
+import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/states/load_state.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../../../shared/widgets/empty_state_block.dart';
-import 'journey_display_text.dart';
-import 'memory_view_model.dart';
+import 'journey_pro_view_model.dart';
 
+/// Pro projection for the selected month and its two preceding natural months.
+///
+/// This surface intentionally contains only three-month change. Experiments,
+/// goals, analysis-scope copy, raw Signal drill-down, date drill-down, and AI
+/// chat belong to other surfaces and must not be reintroduced here.
 class JourneyProPage extends StatefulWidget {
-  const JourneyProPage({super.key});
+  final String? initialMonthKey;
+
+  const JourneyProPage({
+    super.key,
+    this.initialMonthKey,
+  });
 
   @override
   State<JourneyProPage> createState() => _JourneyProPageState();
@@ -25,13 +36,16 @@ class _JourneyProPageState extends State<JourneyProPage> {
   void initState() {
     super.initState();
     Future<void>.microtask(() {
-      if (mounted) context.read<MemoryViewModel>().loadProReport();
+      if (!mounted) return;
+      context.read<JourneyProViewModel>().load(
+            selectedMonthKey: widget.initialMonthKey,
+          );
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final vm = context.watch<MemoryViewModel>();
+    final vm = context.watch<JourneyProViewModel>();
     return Scaffold(
       body: Stack(
         children: [
@@ -42,9 +56,18 @@ class _JourneyProPageState extends State<JourneyProPage> {
                 key: const ValueKey('journey-pro-scroll-view'),
                 padding: AuroraMainPageSpec.scrollPadding(context),
                 children: [
-                  _ProHeader(onBack: () => _goBack(context)),
-                  const SizedBox(height: AuroraMainPageSpec.heroGap),
-                  _ProHero(readiness: vm.proReport?.readiness),
+                  _Header(onBack: () => context.popOrGo(AppRoutes.memory)),
+                  const SizedBox(height: 14),
+                  _Hero(
+                    report: vm.report,
+                    onPrevious: vm.loadState == LoadState.loading
+                        ? null
+                        : () => vm.moveByMonths(-1),
+                    onNext: vm.loadState == LoadState.loading ||
+                            !vm.canMoveToNextMonth
+                        ? null
+                        : () => vm.moveByMonths(1),
+                  ),
                   const SizedBox(height: AuroraMainPageSpec.sectionGap),
                   ..._body(context, vm),
                 ],
@@ -57,12 +80,12 @@ class _JourneyProPageState extends State<JourneyProPage> {
     );
   }
 
-  List<Widget> _body(BuildContext context, MemoryViewModel vm) {
-    switch (vm.proReportLoadState) {
+  List<Widget> _body(BuildContext context, JourneyProViewModel vm) {
+    switch (vm.loadState) {
       case LoadState.initial:
       case LoadState.loading:
         return const [
-          SizedBox(height: 80),
+          SizedBox(height: 88),
           Center(child: CircularProgressIndicator()),
         ];
       case LoadState.error:
@@ -71,21 +94,20 @@ class _JourneyProPageState extends State<JourneyProPage> {
             icon: Icons.error_outline_rounded,
             title: AppLocaleText.tr(
               context,
-              en: 'Pro report failed to load',
-              zhHans: 'Pro 报告加载失败',
-              zhHant: 'Pro 報告載入失敗',
-              ja: 'Pro レポートを読み込めませんでした',
+              en: 'Three-month change failed to load',
+              zhHans: '三个月变化加载失败',
+              zhHant: '三個月變化載入失敗',
+              ja: '3か月の変化を読み込めませんでした',
             ),
-            subtitle: vm.proReportErrorMessage ??
-                AppLocaleText.tr(
-                  context,
-                  en: 'Your local Journey data was not changed.',
-                  zhHans: '你的本地旅程数据没有被修改。',
-                  zhHant: '你的本地 Journey 資料沒有被修改。',
-                  ja: 'ローカルの Journey データは変更されていません。',
-                ),
+            subtitle: AppLocaleText.tr(
+              context,
+              en: 'Your Journey data was not changed. Please try again.',
+              zhHans: '你的旅程数据没有被修改，请重新加载。',
+              zhHant: '你的旅程資料沒有被修改，請重新載入。',
+              ja: '旅程データは変更されていません。再読み込みしてください。',
+            ),
           ),
-          const SizedBox(height: AuroraMainPageSpec.sectionGap),
+          const SizedBox(height: 12),
           SizedBox(
             height: 44,
             child: AuroraPillButton(
@@ -97,56 +119,34 @@ class _JourneyProPageState extends State<JourneyProPage> {
                 ja: '再読み込み',
               ),
               icon: Icons.refresh_rounded,
-              onPressed: vm.loadProReport,
+              onPressed: vm.retry,
             ),
           ),
         ];
       case LoadState.empty:
-        final report = vm.proReport;
-        return [
-          if (report != null) _ProReadinessCard(report: report),
-          const SizedBox(height: AuroraMainPageSpec.sectionGap),
-          _BoundaryCard(
-            text: AppLocaleText.tr(
-              context,
-              en: 'L3 content is not generated before every requirement is met. Journey Free still keeps your timeline, calendar, curve, and evidence available.',
-              zhHans: '所有条件同时达到前，不生成深度分析综合或周期结论。旅程免费层的时间线、日历、曲线和证据仍可正常查看。',
-              zhHant:
-                  '所有條件同時達到前，不生成 L3 綜合或週期結論。Journey 免費層的時間線、日曆、曲線和證據仍可正常查看。',
-              ja: 'すべての条件を満たす前に L3 の統合や期間結論は生成しません。Journey Free のタイムライン、カレンダー、曲線、根拠は引き続き利用できます。',
-            ),
-          ),
-        ];
       case LoadState.ready:
-        final report = vm.proReport;
+        final report = vm.report;
         if (report == null) return const [SizedBox.shrink()];
         return [
-          _ProReadinessCard(report: report),
+          _ThreeMonthChart(report: report),
           const SizedBox(height: AuroraMainPageSpec.sectionGap),
-          _L3SynthesisCard(report: report, summary: vm.summary),
+          _EnergyStateTrend(report: report),
           const SizedBox(height: AuroraMainPageSpec.sectionGap),
-          _PeriodComparisonCard(report: report),
+          _DomainTrend(report: report),
           const SizedBox(height: AuroraMainPageSpec.sectionGap),
-          _ProEvidenceCard(report: report),
-          const SizedBox(height: AuroraMainPageSpec.sectionGap),
-          _FollowupCard(report: report),
+          if (report.canShowChange)
+            _ChangeSummary(report: report)
+          else
+            _ComparisonReadiness(report: report),
         ];
-    }
-  }
-
-  void _goBack(BuildContext context) {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go(AppRoutes.memory);
     }
   }
 }
 
-class _ProHeader extends StatelessWidget {
+class _Header extends StatelessWidget {
   final VoidCallback onBack;
 
-  const _ProHeader({required this.onBack});
+  const _Header({required this.onBack});
 
   @override
   Widget build(BuildContext context) {
@@ -162,10 +162,10 @@ class _ProHeader extends StatelessWidget {
           child: Text(
             AppLocaleText.tr(
               context,
-              en: 'Journey Pro L3',
-              zhHans: '旅程 Pro 深度分析',
-              zhHant: 'Journey Pro L3',
-              ja: 'Journey Pro L3',
+              en: 'Journey Pro',
+              zhHans: '旅程 Pro',
+              zhHant: '旅程 Pro',
+              ja: '旅程 Pro',
             ),
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   color: AuroraColors.ink,
@@ -178,73 +178,222 @@ class _ProHeader extends StatelessWidget {
   }
 }
 
-class _ProHero extends StatelessWidget {
-  final ReportReadiness? readiness;
+class _Hero extends StatelessWidget {
+  final JourneyProReportModel? report;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
 
-  const _ProHero({required this.readiness});
+  const _Hero({
+    required this.report,
+    required this.onPrevious,
+    required this.onNext,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final isReady = readiness?.isReady == true;
-    final compact =
-        MediaQuery.sizeOf(context).width < AuroraMainPageSpec.compactBreakpoint;
-    return ConstrainedBox(
-      key: const ValueKey('journey-pro-hero'),
-      constraints: const BoxConstraints(minHeight: 144),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            right: compact ? -18 : -12,
-            top: compact ? -26 : -32,
-            child: IgnorePointer(
-              child: AuroraHeroEmblem(
-                size: compact ? 116 : 140,
-                opacity: 0.80,
+    final selectedMonth = report?.selectedMonthKey;
+    return AuroraCard(
+      key: const ValueKey('journey-pro-three-month-hero'),
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(24),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 210),
+          child: Stack(
+            children: [
+              const Positioned.fill(
+                child: AuroraJourneyHeroPattern(
+                  opacity: 0.62,
+                  alignment: Alignment.centerRight,
+                ),
               ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(2, 4, 2, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: EdgeInsets.only(right: compact ? 76 : 98),
-                  child: AuroraHeroTitle(
-                    text: AppLocaleText.tr(
-                      context,
-                      en: isReady
-                          ? 'Cross-period review'
-                          : 'Cross-period review is forming',
-                      zhHans: isReady ? '跨周期深度回看' : '跨周期报告正在形成',
-                      zhHant: isReady ? '跨週期深度回看' : '跨週期報告正在形成',
-                      ja: isReady ? '期間をまたぐ振り返り' : '期間比較を準備中',
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AuroraHeroTitle(
+                      text: AppLocaleText.tr(
+                        context,
+                        en: 'Three-month change',
+                        zhHans: '三个月变化',
+                        zhHant: '三個月變化',
+                        ja: '3か月の変化',
+                      ),
+                      fontSize: 31,
+                      maxLines: 1,
                     ),
-                    fontSize: compact ? 29 : 32,
-                    maxLines: 2,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Padding(
-                  padding: EdgeInsets.only(right: compact ? 58 : 82),
-                  child: Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'Latest 28 local dates · Monday-Sunday week buckets',
-                      zhHans: '最新 28 个本地日期 · 周一至周日自然周',
-                      zhHant: '最新 28 個本地日期 · 週一至週日自然週',
-                      ja: '直近 28 ローカル日 · 月曜〜日曜の週区切り',
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AuroraColors.ink.withValues(alpha: 0.74),
-                          height: 1.4,
-                          fontWeight: FontWeight.w500,
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: 236,
+                      child: Text(
+                        AppLocaleText.tr(
+                          context,
+                          en: 'Compare the selected month with the two natural months before it.',
+                          zhHans: '比较选定月与之前两个自然月的记录变化。',
+                          zhHant: '比較選定月與之前兩個自然月的記錄變化。',
+                          ja: '選択した月と、その前の2か月の記録変化を比べます。',
                         ),
-                  ),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: AuroraColors.muted,
+                              height: 1.42,
+                            ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _MonthArrow(
+                          icon: Icons.chevron_left_rounded,
+                          onPressed: onPrevious,
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          key: const ValueKey('journey-pro-selected-month'),
+                          constraints: const BoxConstraints(minWidth: 112),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.78),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color:
+                                  AuroraColors.purple.withValues(alpha: 0.16),
+                            ),
+                          ),
+                          child: Text(
+                            selectedMonth == null
+                                ? AppLocaleText.tr(
+                                    context,
+                                    en: 'Loading…',
+                                    zhHans: '加载中…',
+                                    zhHant: '載入中…',
+                                    ja: '読み込み中…',
+                                  )
+                                : _monthLabel(context, selectedMonth),
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelLarge
+                                ?.copyWith(
+                                  color: AuroraColors.purple,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _MonthArrow(
+                          icon: Icons.chevron_right_rounded,
+                          onPressed: onNext,
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MonthArrow extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  const _MonthArrow({required this.icon, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon),
+        color: AuroraColors.purple,
+        disabledColor: AuroraColors.muted.withValues(alpha: 0.28),
+        tooltip: MaterialLocalizations.of(context).previousMonthTooltip,
+      ),
+    );
+  }
+}
+
+class _ThreeMonthChart extends StatelessWidget {
+  final JourneyProReportModel report;
+
+  const _ThreeMonthChart({required this.report});
+
+  @override
+  Widget build(BuildContext context) {
+    final maxSignals = math.max(
+      JourneyProReportModel.minimumSignalsPerMonth,
+      report.months
+          .fold<int>(0, (value, month) => math.max(value, month.signalCount)),
+    );
+    final maxDays = math.max(
+      JourneyProReportModel.minimumActiveDaysPerMonth,
+      report.months.fold<int>(
+          0, (value, month) => math.max(value, month.activeDayCount)),
+    );
+    return AuroraCard(
+      key: const ValueKey('journey-pro-three-month-chart'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Three natural months',
+              zhHans: '三个自然月',
+              zhHant: '三個自然月',
+              ja: '3つの暦月',
+            ),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const _Legend(color: AuroraColors.purple, label: 'Signal'),
+              const SizedBox(width: 16),
+              _Legend(
+                color: AuroraColors.mint,
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'recording days',
+                  zhHans: '记录日',
+                  zhHant: '記錄日',
+                  ja: '記録日',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 188,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var index = 0; index < report.months.length; index++) ...[
+                  if (index > 0) const SizedBox(width: 8),
+                  Expanded(
+                    child: _MonthColumn(
+                      month: report.months[index],
+                      maxSignals: maxSignals,
+                      maxDays: maxDays,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -254,46 +403,436 @@ class _ProHero extends StatelessWidget {
   }
 }
 
-class _ProReadinessCard extends StatelessWidget {
-  final JourneyProReportModel report;
+class _Legend extends StatelessWidget {
+  final Color color;
+  final String label;
 
-  const _ProReadinessCard({required this.report});
+  const _Legend({required this.color, required this.label});
 
   @override
   Widget build(BuildContext context) {
-    final readiness = report.readiness;
-    final detail = AppLocaleText.tr(
-      context,
-      en: '${readiness.signalCount}/14 eligible SignalCards · ${readiness.distinctDayCount}/7 recorded days · ${readiness.distinctWeekCount}/2 local weeks',
-      zhHans:
-          '${readiness.signalCount}/14 条有效 Signal Card · ${readiness.distinctDayCount}/7 个记录日 · ${readiness.distinctWeekCount}/2 个本地自然周',
-      zhHant:
-          '${readiness.signalCount}/14 條有效 SignalCard · ${readiness.distinctDayCount}/7 個記錄日 · ${readiness.distinctWeekCount}/2 個本地自然週',
-      ja: '有効 SignalCard ${readiness.signalCount}/14 件 · 記録日 ${readiness.distinctDayCount}/7 日 · ローカル週 ${readiness.distinctWeekCount}/2 週',
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: AuroraColors.muted,
+              ),
+        ),
+      ],
     );
+  }
+}
+
+class _MonthColumn extends StatelessWidget {
+  final JourneyProMonthChangeModel month;
+  final int maxSignals;
+  final int maxDays;
+
+  const _MonthColumn({
+    required this.month,
+    required this.maxSignals,
+    required this.maxDays,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Expanded(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _Bar(
+                value: month.signalCount,
+                maximum: maxSignals,
+                color: AuroraColors.purple,
+              ),
+              const SizedBox(width: 7),
+              _Bar(
+                value: month.activeDayCount,
+                maximum: maxDays,
+                color: AuroraColors.mint,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _shortMonthLabel(context, month.monthKey),
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: AuroraColors.ink,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          AppLocaleText.tr(
+            context,
+            en: '${month.signalCount} · ${month.activeDayCount} days',
+            zhHans: '${month.signalCount} 条 · ${month.activeDayCount} 日',
+            zhHant: '${month.signalCount} 條 · ${month.activeDayCount} 日',
+            ja: '${month.signalCount}件 · ${month.activeDayCount}日',
+          ),
+          maxLines: 1,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: AuroraColors.muted,
+              ),
+        ),
+        const SizedBox(height: 5),
+        Icon(
+          month.meetsComparisonMinimum
+              ? Icons.check_circle_rounded
+              : Icons.circle_outlined,
+          size: 17,
+          color: month.meetsComparisonMinimum
+              ? AuroraColors.mint
+              : AuroraColors.muted.withValues(alpha: 0.42),
+        ),
+      ],
+    );
+  }
+}
+
+class _Bar extends StatelessWidget {
+  final int value;
+  final int maximum;
+  final Color color;
+
+  const _Bar({
+    required this.value,
+    required this.maximum,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fraction = maximum <= 0 ? 0.0 : (value / maximum).clamp(0.0, 1.0);
+    return Tooltip(
+      message: '$value',
+      child: Container(
+        width: 25,
+        height: math.max(8, 110 * fraction),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [color, color.withValues(alpha: 0.42)],
+          ),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
+        ),
+      ),
+    );
+  }
+}
+
+class _EnergyStateTrend extends StatelessWidget {
+  final JourneyProReportModel report;
+
+  const _EnergyStateTrend({required this.report});
+
+  static const _colors = <EnergySignalState, Color>{
+    EnergySignalState.draining: Color(0xFFF39A66),
+    EnergySignalState.steady: Color(0xFF6E9BF2),
+    EnergySignalState.ease: Color(0xFFF2C85B),
+    EnergySignalState.recovery: Color(0xFF58C6A7),
+    EnergySignalState.boundaryBuffer: Color(0xFF9A78E8),
+  };
+
+  @override
+  Widget build(BuildContext context) {
     return AuroraCard(
-      key: const ValueKey('journey-pro-l3-readiness'),
-      padding: AuroraMainPageSpec.comfortableCardPadding,
-      borderRadius: BorderRadius.circular(AuroraMainPageSpec.cardRadius),
+      key: const ValueKey('journey-pro-energy-state-trend'),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Energy-state change',
+              zhHans: '能量状态变化',
+              zhHant: '能量狀態變化',
+              ja: 'エネルギー状態の変化',
+            ),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 7,
+            children: [
+              for (final state in EnergySignalState.values)
+                _Legend(
+                  color: _colors[state]!,
+                  label: _energyStateLabel(context, state),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          for (final month in report.months) ...[
+            _StackedEnergyRow(
+              month: month,
+              colors: _colors,
+            ),
+            if (month != report.months.last) const SizedBox(height: 12),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _StackedEnergyRow extends StatelessWidget {
+  final JourneyProMonthChangeModel month;
+  final Map<EnergySignalState, Color> colors;
+
+  const _StackedEnergyRow({required this.month, required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = month.energyStateCounts.values.fold<int>(0, (a, b) => a + b);
+    return Row(
+      children: [
+        SizedBox(
+          width: 44,
+          child: Text(
+            _shortMonthLabel(context, month.monthKey),
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: AuroraColors.muted,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: Container(
+              height: 18,
+              color: AuroraColors.muted.withValues(alpha: 0.08),
+              child: total == 0
+                  ? const SizedBox.shrink()
+                  : Row(
+                      children: [
+                        for (final state in EnergySignalState.values)
+                          if (month.energyCount(state.storageValue) > 0)
+                            Expanded(
+                              flex: month.energyCount(state.storageValue),
+                              child: ColoredBox(color: colors[state]!),
+                            ),
+                      ],
+                    ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 24,
+          child: Text(
+            '$total',
+            textAlign: TextAlign.end,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: AuroraColors.muted,
+                ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DomainTrend extends StatelessWidget {
+  final JourneyProReportModel report;
+
+  const _DomainTrend({required this.report});
+
+  @override
+  Widget build(BuildContext context) {
+    final totals = <String, int>{};
+    for (final month in report.months) {
+      for (final entry in month.domainCounts.entries) {
+        totals[entry.key] = (totals[entry.key] ?? 0) + entry.value;
+      }
+    }
+    final domains = totals.keys.toList()
+      ..sort((a, b) {
+        final count = (totals[b] ?? 0).compareTo(totals[a] ?? 0);
+        return count == 0 ? a.compareTo(b) : count;
+      });
+    final visibleDomains = domains.take(4).toList(growable: false);
+    final maxCount = report.months
+        .expand((month) => month.domainCounts.values)
+        .fold<int>(1, math.max);
+    return AuroraCard(
+      key: const ValueKey('journey-pro-domain-trend'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Life-area change',
+              zhHans: '生活领域变化',
+              zhHant: '生活領域變化',
+              ja: '生活領域の変化',
+            ),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 14),
+          if (visibleDomains.isEmpty)
+            Text(
+              AppLocaleText.tr(
+                context,
+                en: 'No eligible Signal yet.',
+                zhHans: '暂时还没有可统计的 Signal。',
+                zhHant: '暫時還沒有可統計的 Signal。',
+                ja: '集計できるSignalはまだありません。',
+              ),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AuroraColors.muted,
+                  ),
+            )
+          else ...[
+            Row(
+              children: [
+                const SizedBox(width: 92),
+                for (final month in report.months)
+                  Expanded(
+                    child: Text(
+                      _shortMonthLabel(context, month.monthKey),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: AuroraColors.muted,
+                          ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            for (final domainId in visibleDomains) ...[
+              _DomainRow(
+                domainId: domainId,
+                months: report.months,
+                maxCount: maxCount,
+              ),
+              if (domainId != visibleDomains.last) const SizedBox(height: 9),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DomainRow extends StatelessWidget {
+  final String domainId;
+  final List<JourneyProMonthChangeModel> months;
+  final int maxCount;
+
+  const _DomainRow({
+    required this.domainId,
+    required this.months,
+    required this.maxCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 92,
+          child: Text(
+            _domainLabel(context, domainId),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ),
+        for (final month in months)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: _DomainCountCell(
+                value: month.domainCount(domainId),
+                maximum: maxCount,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _DomainCountCell extends StatelessWidget {
+  final int value;
+  final int maximum;
+
+  const _DomainCountCell({required this.value, required this.maximum});
+
+  @override
+  Widget build(BuildContext context) {
+    final intensity = maximum <= 0 ? 0.0 : value / maximum;
+    return Container(
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AuroraColors.purple.withValues(alpha: 0.05 + intensity * 0.22),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        '$value',
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: value == 0 ? AuroraColors.muted : AuroraColors.purple,
+              fontWeight: FontWeight.w700,
+            ),
+      ),
+    );
+  }
+}
+
+class _ComparisonReadiness extends StatelessWidget {
+  final JourneyProReportModel report;
+
+  const _ComparisonReadiness({required this.report});
+
+  @override
+  Widget build(BuildContext context) {
+    return AuroraCard(
+      key: const ValueKey('journey-pro-three-month-readiness'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const AuroraSoftIconCircle(
-                icon: Icons.query_stats_rounded,
-                color: AuroraColors.gold,
-                size: 44,
+              const AuroraSectionIcon(
+                icon: Icons.hourglass_top_rounded,
+                color: AuroraColors.orange,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   AppLocaleText.tr(
                     context,
-                    en: report.isReady ? 'Evidence ready' : 'Evidence progress',
-                    zhHans: report.isReady ? '证据门槛已达到' : '证据积累进度',
-                    zhHant: report.isReady ? '證據門檻已達到' : '證據累積進度',
-                    ja: report.isReady ? '根拠がそろいました' : '根拠の進捗',
+                    en: 'Change is still forming',
+                    zhHans: '变化还在形成',
+                    zhHant: '變化還在形成',
+                    ja: '変化はまだ形成中です',
                   ),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: AuroraColors.ink,
@@ -301,40 +840,22 @@ class _ProReadinessCard extends StatelessWidget {
                       ),
                 ),
               ),
-              if (report.isReady)
-                const Icon(Icons.check_circle_rounded,
-                    color: AuroraColors.mint),
             ],
           ),
           const SizedBox(height: 12),
           Text(
-            detail,
+            AppLocaleText.tr(
+              context,
+              en: '${report.readyMonthCount}/2 months are ready. A month counts after 7 eligible Signals across 3 recording days.',
+              zhHans:
+                  '已有 ${report.readyMonthCount}/2 个自然月可比较。每个月达到 7 条有效 Signal、覆盖 3 个记录日后计入。',
+              zhHant:
+                  '已有 ${report.readyMonthCount}/2 個自然月可比較。每個月達到 7 條有效 Signal、覆蓋 3 個記錄日後計入。',
+              ja: '${report.readyMonthCount}/2か月が比較可能です。各月で有効なSignal 7件・記録日3日を満たすと対象になります。',
+            ),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AuroraColors.muted,
-                  height: 1.45,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          const SizedBox(height: 10),
-          Semantics(
-            label: detail,
-            value: '${(readiness.progress * 100).round()}%',
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                value: readiness.progress,
-                minHeight: 8,
-                color: AuroraColors.gold,
-                backgroundColor: AuroraColors.gold.withValues(alpha: 0.14),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${report.periodStart} — ${report.periodEnd}',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: AuroraColors.muted,
-                  fontWeight: FontWeight.w700,
+                  height: 1.48,
                 ),
           ),
         ],
@@ -343,328 +864,133 @@ class _ProReadinessCard extends StatelessWidget {
   }
 }
 
-class _L3SynthesisCard extends StatelessWidget {
+class _ChangeSummary extends StatelessWidget {
   final JourneyProReportModel report;
-  final MemorySummaryModel? summary;
 
-  const _L3SynthesisCard({required this.report, required this.summary});
+  const _ChangeSummary({required this.report});
 
   @override
   Widget build(BuildContext context) {
-    final items = _summaryItems(summary);
-    return _ProSectionCard(
-      key: const ValueKey('journey-pro-l3-synthesis'),
-      icon: Icons.hub_rounded,
-      color: AuroraColors.purple,
-      title: AppLocaleText.tr(
-        context,
-        en: 'L3 evidence synthesis',
-        zhHans: '深度分析证据综合',
-        zhHant: 'L3 證據綜合',
-        ja: 'L3 根拠の統合',
-      ),
-      children: [
-        Text(
-          AppLocaleText.tr(
-            context,
-            en: 'The verified 28-day window contains ${report.readiness.signalCount} eligible SignalCards across ${report.readiness.distinctDayCount} local days and ${report.readiness.distinctWeekCount} Monday-Sunday weeks.',
-            zhHans:
-                '可验证的 28 日窗口内共有 ${report.readiness.signalCount} 条有效 Signal Card，覆盖 ${report.readiness.distinctDayCount} 个本地记录日和 ${report.readiness.distinctWeekCount} 个周一至周日自然周。',
-            zhHant:
-                '可驗證的 28 日窗口內共有 ${report.readiness.signalCount} 條有效 SignalCard，覆蓋 ${report.readiness.distinctDayCount} 個本地記錄日和 ${report.readiness.distinctWeekCount} 個週一至週日自然週。',
-            ja: '検証可能な 28 日間に、有効 SignalCard ${report.readiness.signalCount} 件、ローカル記録日 ${report.readiness.distinctDayCount} 日、月曜〜日曜の週 ${report.readiness.distinctWeekCount} 週があります。',
+    return AuroraCard(
+      key: const ValueKey('journey-pro-three-month-change'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const AuroraSectionIcon(
+                icon: Icons.auto_graph_rounded,
+                color: AuroraColors.blue,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Latest monthly change',
+                    zhHans: '最近一个月的变化',
+                    zhHant: '最近一個月的變化',
+                    ja: '直近1か月の変化',
+                  ),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+            ],
           ),
-          style: _bodyStyle(context),
-        ),
-        if (items.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _DeltaTile(
+                  label: 'Signal',
+                  delta: report.latestSignalDelta,
+                  color: AuroraColors.purple,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _DeltaTile(
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Recording days',
+                    zhHans: '记录日',
+                    zhHant: '記錄日',
+                    ja: '記録日',
+                  ),
+                  delta: report.latestActiveDayDelta,
+                  color: AuroraColors.mint,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            _factChangeSummary(context, report),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  height: 1.5,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
           const SizedBox(height: 12),
           Text(
             AppLocaleText.tr(
               context,
-              en: 'Available Journey synthesis',
-              zhHans: '已有旅程综合',
-              zhHant: '已有 Journey 綜合',
-              ja: '利用可能な Journey 統合',
+              en: 'These are recording changes between natural months, not a score or a causal conclusion.',
+              zhHans: '这里只比较自然月之间的记录变化，不代表评分，也不推断因果。',
+              zhHant: '這裡只比較自然月之間的記錄變化，不代表評分，也不推斷因果。',
+              ja: '暦月ごとの記録変化だけを示します。スコアや因果の結論ではありません。',
             ),
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: AuroraColors.purple,
-                  fontWeight: FontWeight.w700,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AuroraColors.muted,
+                  height: 1.45,
                 ),
           ),
-          const SizedBox(height: 8),
-          for (final item in items)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _SummaryRow(item: item),
-            ),
-        ] else ...[
-          const SizedBox(height: 10),
-          _BoundaryCard(
-            text: AppLocaleText.tr(
-              context,
-              en: 'No interpretive Journey summary is cached for the current month, so this page shows verified statistics and source evidence only.',
-              zhHans: '本月尚无已生成的解释性旅程综合，因此这里只展示可验证统计和来源证据。',
-              zhHant: '本月尚無已生成的解釋性 Journey 綜合，因此這裡只展示可驗證統計和來源證據。',
-              ja: '今月の解釈的な Journey 統合はまだ保存されていないため、検証可能な統計と出典のみを表示します。',
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  List<_SummaryItem> _summaryItems(MemorySummaryModel? summary) {
-    if (summary == null) return const [];
-    return [
-      ...summary.patterns.map((item) => _SummaryItem('Pattern', item)),
-      ...summary.frictions.map((item) => _SummaryItem('Friction', item)),
-      ...summary.desires.map((item) => _SummaryItem('Recovery', item)),
-      ...summary.experiments.map((item) => _SummaryItem('Experiment', item)),
-    ].take(4).toList(growable: false);
-  }
-}
-
-class _SummaryItem {
-  final String label;
-  final JourneySignalItemModel item;
-
-  const _SummaryItem(this.label, this.item);
-}
-
-class _SummaryRow extends StatelessWidget {
-  final _SummaryItem item;
-
-  const _SummaryRow({required this.item});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AuroraColors.purple.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            _label(context),
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: AuroraColors.purple,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            localizeJourneyDisplayText(context, item.item.name),
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: AuroraColors.ink,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          if (item.item.summary.trim().isNotEmpty) ...[
-            const SizedBox(height: 3),
-            Text(
-              localizeJourneyDisplayText(context, item.item.summary),
-              style: _bodyStyle(context),
-            ),
-          ],
         ],
       ),
     );
   }
-
-  String _label(BuildContext context) {
-    switch (item.label) {
-      case 'Pattern':
-        return AppLocaleText.tr(
-          context,
-          en: 'Pattern',
-          zhHans: '模式',
-          zhHant: '模式',
-          ja: 'パターン',
-        );
-      case 'Friction':
-        return AppLocaleText.tr(
-          context,
-          en: 'Friction',
-          zhHans: '摩擦',
-          zhHant: '摩擦',
-          ja: '摩擦',
-        );
-      case 'Recovery':
-        return AppLocaleText.tr(
-          context,
-          en: 'Recovery',
-          zhHans: '恢复',
-          zhHant: '恢復',
-          ja: '回復',
-        );
-      default:
-        return AppLocaleText.tr(
-          context,
-          en: 'Experiment',
-          zhHans: '小实验',
-          zhHant: '小實驗',
-          ja: '小さな実験',
-        );
-    }
-  }
 }
 
-class _PeriodComparisonCard extends StatelessWidget {
-  final JourneyProReportModel report;
-
-  const _PeriodComparisonCard({required this.report});
-
-  @override
-  Widget build(BuildContext context) {
-    return _ProSectionCard(
-      key: const ValueKey('journey-pro-period-comparison'),
-      icon: Icons.compare_arrows_rounded,
-      color: AuroraColors.blue,
-      title: AppLocaleText.tr(
-        context,
-        en: 'Monday-Sunday period comparison',
-        zhHans: '周一至周日周期对比',
-        zhHant: '週一至週日週期對比',
-        ja: '月曜〜日曜の期間比較',
-      ),
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: _WeekStatTile(
-                label: AppLocaleText.tr(
-                  context,
-                  en: 'Previous week',
-                  zhHans: '上一自然周',
-                  zhHant: '上一自然週',
-                  ja: '前の週',
-                ),
-                stats: report.previousWeek,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _WeekStatTile(
-                label: AppLocaleText.tr(
-                  context,
-                  en: 'Current week to date',
-                  zhHans: '本周截至今天',
-                  zhHant: '本週截至今天',
-                  ja: '今週（今日まで）',
-                ),
-                stats: report.currentWeek,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            AuroraChip(
-              label: AppLocaleText.tr(
-                context,
-                en: 'Signals ${_signed(report.weekSignalDelta)}',
-                zhHans: '信号 ${_signed(report.weekSignalDelta)}',
-                zhHant: '信號 ${_signed(report.weekSignalDelta)}',
-                ja: 'シグナル ${_signed(report.weekSignalDelta)}',
-              ),
-              color: AuroraColors.blue,
-            ),
-            AuroraChip(
-              label: AppLocaleText.tr(
-                context,
-                en: 'Recorded days ${_signed(report.weekActiveDayDelta)}',
-                zhHans: '记录日 ${_signed(report.weekActiveDayDelta)}',
-                zhHant: '記錄日 ${_signed(report.weekActiveDayDelta)}',
-                ja: '記録日 ${_signed(report.weekActiveDayDelta)}',
-              ),
-              color: AuroraColors.mint,
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Text(
-          AppLocaleText.tr(
-            context,
-            en: 'Counts are factual. This comparison does not label an increase or decrease as better or worse.',
-            zhHans: '这里只比较事实数量，不把增加或减少判断为更好或更差。',
-            zhHant: '這裡只比較事實數量，不把增加或減少判斷為更好或更差。',
-            ja: 'ここでは事実の件数だけを比較し、増減を良し悪しとして評価しません。',
-          ),
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AuroraColors.muted,
-                height: 1.4,
-              ),
-        ),
-      ],
-    );
-  }
-
-  String _signed(int value) => value > 0 ? '+$value' : '$value';
-}
-
-class _WeekStatTile extends StatelessWidget {
+class _DeltaTile extends StatelessWidget {
   final String label;
-  final JourneyProWeekStats stats;
+  final int delta;
+  final Color color;
 
-  const _WeekStatTile({required this.label, required this.stats});
+  const _DeltaTile({
+    required this.label,
+    required this.delta,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final value = delta > 0 ? '+$delta' : '$delta';
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AuroraColors.blue.withValues(alpha: 0.06),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AuroraColors.blue.withValues(alpha: 0.12)),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: AuroraColors.blue,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: '${stats.signalCount} signals',
-              zhHans: '${stats.signalCount} 条信号',
-              zhHant: '${stats.signalCount} 條信號',
-              ja: '${stats.signalCount} 件',
-            ),
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: AuroraColors.ink,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: '${stats.activeDayCount} recorded days',
-              zhHans: '${stats.activeDayCount} 个记录日',
-              zhHant: '${stats.activeDayCount} 個記錄日',
-              ja: '${stats.activeDayCount} 記録日',
-            ),
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
                   color: AuroraColors.muted,
                 ),
           ),
           const SizedBox(height: 5),
           Text(
-            '${stats.weekStart}\n${stats.weekEnd}',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: AuroraColors.muted,
-                  height: 1.35,
+            value,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ],
@@ -673,222 +999,167 @@ class _WeekStatTile extends StatelessWidget {
   }
 }
 
-class _ProEvidenceCard extends StatelessWidget {
-  final JourneyProReportModel report;
+String _monthLabel(BuildContext context, String monthKey) {
+  final month = _parseMonthKey(monthKey);
+  if (month == null) return monthKey;
+  return MaterialLocalizations.of(context).formatMonthYear(month);
+}
 
-  const _ProEvidenceCard({required this.report});
+String _shortMonthLabel(BuildContext context, String monthKey) {
+  final month = _parseMonthKey(monthKey);
+  if (month == null) return monthKey;
+  final locale = Localizations.localeOf(context).languageCode;
+  if (locale == 'zh' || locale == 'ja') return '${month.month}月';
+  const labels = <String>[
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return labels[month.month - 1];
+}
 
-  @override
-  Widget build(BuildContext context) {
-    return _ProSectionCard(
-      key: const ValueKey('journey-pro-evidence'),
-      icon: Icons.fact_check_outlined,
-      color: AuroraColors.mint,
-      title: AppLocaleText.tr(
+DateTime? _parseMonthKey(String value) {
+  final match = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(value);
+  if (match == null) return null;
+  final year = int.tryParse(match.group(1)!);
+  final month = int.tryParse(match.group(2)!);
+  if (year == null || month == null || month < 1 || month > 12) return null;
+  return DateTime(year, month);
+}
+
+String _energyStateLabel(BuildContext context, EnergySignalState state) {
+  return switch (state) {
+    EnergySignalState.draining => AppLocaleText.tr(
         context,
-        en: 'Source evidence',
-        zhHans: '来源证据',
-        zhHant: '來源證據',
-        ja: '出典となる根拠',
+        en: 'draining',
+        zhHans: '偏耗力',
+        zhHant: '偏耗力',
+        ja: '消耗気味',
       ),
-      children: [
-        for (var index = 0; index < report.evidence.length; index++) ...[
-          _EvidenceRow(evidence: report.evidence[index]),
-          if (index < report.evidence.length - 1) const SizedBox(height: 8),
-        ],
-      ],
-    );
-  }
-}
-
-class _EvidenceRow extends StatelessWidget {
-  final JourneyProEvidenceModel evidence;
-
-  const _EvidenceRow({required this.evidence});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AuroraColors.mint.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  evidence.localDate,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: AuroraColors.mint,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-              AuroraChip(
-                label: journeySourceTypeLabel(context, evidence.sourceType),
-                color: AuroraColors.mint,
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            localizeJourneyDisplayText(context, evidence.content),
-            style: _bodyStyle(context),
-          ),
-          const SizedBox(height: 5),
-          SizedBox(
-            height: 44,
-            child: TextButton.icon(
-              onPressed: () => context.push(
-                '${AppRoutes.todayDialog}/${Uri.encodeComponent(evidence.signalId)}',
-              ),
-              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
-              label: Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'Ask from this evidence',
-                  zhHans: '围绕这条证据追问',
-                  zhHant: '圍繞這條證據追問',
-                  ja: 'この根拠から質問する',
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FollowupCard extends StatelessWidget {
-  final JourneyProReportModel report;
-
-  const _FollowupCard({required this.report});
-
-  @override
-  Widget build(BuildContext context) {
-    final evidence = report.evidence.isEmpty ? null : report.evidence.first;
-    return _ProSectionCard(
-      key: const ValueKey('journey-pro-followup'),
-      icon: Icons.chat_bubble_outline_rounded,
-      color: AuroraColors.orange,
-      title: AppLocaleText.tr(
+    EnergySignalState.steady => AppLocaleText.tr(
         context,
-        en: 'Follow up with evidence',
-        zhHans: '带着证据继续追问',
-        zhHant: '帶著證據繼續追問',
-        ja: '根拠からさらに質問',
+        en: 'steady',
+        zhHans: '平稳',
+        zhHant: '平穩',
+        ja: '安定',
       ),
-      children: [
-        Text(
-          AppLocaleText.tr(
-            context,
-            en: 'The conversation opens from an actual SignalCard, so the question keeps a traceable source.',
-            zhHans: '对话会从真实 Signal Card 打开，让追问始终保留可追溯来源。',
-            zhHant: '對話會從真實 SignalCard 打開，讓追問始終保留可追溯來源。',
-            ja: '実際の SignalCard から会話を開くため、質問の出典を追跡できます。',
-          ),
-          style: _bodyStyle(context),
-        ),
-        if (evidence != null) ...[
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 44,
-            child: AuroraPillButton(
-              label: AppLocaleText.tr(
-                context,
-                en: 'Start evidence follow-up',
-                zhHans: '开始证据追问',
-                zhHant: '開始證據追問',
-                ja: '根拠から質問する',
-              ),
-              icon: Icons.arrow_forward_rounded,
-              filled: true,
-              onPressed: () => context.push(
-                '${AppRoutes.todayDialog}/${Uri.encodeComponent(evidence.signalId)}',
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
+    EnergySignalState.ease => AppLocaleText.tr(
+        context,
+        en: 'at ease',
+        zhHans: '有余力',
+        zhHant: '有餘力',
+        ja: '余力あり',
+      ),
+    EnergySignalState.recovery => AppLocaleText.tr(
+        context,
+        en: 'recovery',
+        zhHans: '恢复',
+        zhHant: '恢復',
+        ja: '回復',
+      ),
+    EnergySignalState.boundaryBuffer => AppLocaleText.tr(
+        context,
+        en: 'boundary & buffer',
+        zhHans: '边界与余地',
+        zhHant: '邊界與餘地',
+        ja: '境界と余白',
+      ),
+  };
 }
 
-class _ProSectionCard extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String title;
-  final List<Widget> children;
-
-  const _ProSectionCard({
-    super.key,
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.children,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AuroraCard(
-      padding: AuroraMainPageSpec.comfortableCardPadding,
-      borderRadius: BorderRadius.circular(AuroraMainPageSpec.cardRadius),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              AuroraSoftIconCircle(icon: icon, color: color, size: 44),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AuroraColors.ink,
-                        fontSize: AuroraMainPageSpec.sectionTitleSize,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ...children,
-        ],
-      ),
+String _domainLabel(BuildContext context, String domainId) {
+  if (domainId == 'other') {
+    return AppLocaleText.tr(
+      context,
+      en: 'Other',
+      zhHans: '其他',
+      zhHant: '其他',
+      ja: 'その他',
     );
   }
+  return FocusDomains.labelFor(context, domainId);
 }
 
-class _BoundaryCard extends StatelessWidget {
-  final String text;
+String _factChangeSummary(
+  BuildContext context,
+  JourneyProReportModel report,
+) {
+  if (report.months.length < 2) return '';
+  final previous = report.months[report.months.length - 2];
+  final latest = report.months.last;
+  final previousDomain = _topCountKey(previous.domainCounts);
+  final latestDomain = _topCountKey(latest.domainCounts);
+  final previousEnergy = _topCountKey(previous.energyStateCounts);
+  final latestEnergy = _topCountKey(latest.energyStateCounts);
 
-  const _BoundaryCard({required this.text});
+  final domainText = previousDomain == null || latestDomain == null
+      ? AppLocaleText.tr(
+          context,
+          en: 'The life-area distribution is still sparse.',
+          zhHans: '生活领域分布还比较稀疏。',
+          zhHant: '生活領域分布還比較稀疏。',
+          ja: '生活領域の分布はまだ少ない状態です。',
+        )
+      : previousDomain == latestDomain
+          ? AppLocaleText.tr(
+              context,
+              en: '${_domainLabel(context, latestDomain)} remained the most-recorded life area in the latest two months.',
+              zhHans:
+                  '最近两个月，${_domainLabel(context, latestDomain)}都是记录最多的生活领域。',
+              zhHant:
+                  '最近兩個月，${_domainLabel(context, latestDomain)}都是記錄最多的生活領域。',
+              ja: '直近2か月は、${_domainLabel(context, latestDomain)}の記録が最も多くなっています。',
+            )
+          : AppLocaleText.tr(
+              context,
+              en: 'The most-recorded life area changed from ${_domainLabel(context, previousDomain)} to ${_domainLabel(context, latestDomain)}.',
+              zhHans:
+                  '记录最多的生活领域从${_domainLabel(context, previousDomain)}变为${_domainLabel(context, latestDomain)}。',
+              zhHant:
+                  '記錄最多的生活領域從${_domainLabel(context, previousDomain)}變為${_domainLabel(context, latestDomain)}。',
+              ja: '記録が最も多い生活領域は、${_domainLabel(context, previousDomain)}から${_domainLabel(context, latestDomain)}に変わりました。',
+            );
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AuroraColors.gold.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AuroraColors.gold.withValues(alpha: 0.18)),
-      ),
-      child: Text(text, style: _bodyStyle(context)),
-    );
-  }
+  final previousEnergyState = EnergySignalState.fromStorage(previousEnergy);
+  final latestEnergyState = EnergySignalState.fromStorage(latestEnergy);
+  final energyText = previousEnergy == null || latestEnergy == null
+      ? ''
+      : previousEnergyState == latestEnergyState
+          ? AppLocaleText.tr(
+              context,
+              en: '${_energyStateLabel(context, latestEnergyState)} remained the largest energy-state share.',
+              zhHans:
+                  '${_energyStateLabel(context, latestEnergyState)}仍是占比最多的能量状态。',
+              zhHant:
+                  '${_energyStateLabel(context, latestEnergyState)}仍是佔比最多的能量狀態。',
+              ja: '${_energyStateLabel(context, latestEnergyState)}が引き続き最も多い状態です。',
+            )
+          : AppLocaleText.tr(
+              context,
+              en: 'The largest energy-state share changed from ${_energyStateLabel(context, previousEnergyState)} to ${_energyStateLabel(context, latestEnergyState)}.',
+              zhHans:
+                  '占比最多的能量状态从${_energyStateLabel(context, previousEnergyState)}变为${_energyStateLabel(context, latestEnergyState)}。',
+              zhHant:
+                  '佔比最多的能量狀態從${_energyStateLabel(context, previousEnergyState)}變為${_energyStateLabel(context, latestEnergyState)}。',
+              ja: '最も多いエネルギー状態は、${_energyStateLabel(context, previousEnergyState)}から${_energyStateLabel(context, latestEnergyState)}に変わりました。',
+            );
+  return '$domainText${energyText.isEmpty ? '' : ' $energyText'}';
 }
 
-TextStyle? _bodyStyle(BuildContext context) {
-  return Theme.of(context).textTheme.bodyMedium?.copyWith(
-        color: AuroraColors.muted,
-        fontSize: AuroraMainPageSpec.bodySize,
-        height: 1.45,
-        fontWeight: FontWeight.w600,
-      );
+String? _topCountKey(Map<String, int> values) {
+  final positive = values.entries.where((entry) => entry.value > 0).toList()
+    ..sort((a, b) {
+      final count = b.value.compareTo(a.value);
+      return count == 0 ? a.key.compareTo(b.key) : count;
+    });
+  return positive.isEmpty ? null : positive.first.key;
 }

@@ -1,5 +1,6 @@
 class LibraryPatternModel {
   final String id;
+  final String focusDomainId;
   final String title;
   final String abstractPattern;
   final List<String> commonScenes;
@@ -12,6 +13,7 @@ class LibraryPatternModel {
 
   const LibraryPatternModel({
     required this.id,
+    required this.focusDomainId,
     required this.title,
     required this.abstractPattern,
     required this.commonScenes,
@@ -26,6 +28,7 @@ class LibraryPatternModel {
   Map<String, dynamic> toPayloadJson() {
     return {
       'library_pattern_id': id,
+      'focus_domain_id': focusDomainId,
       'title': title,
       'abstract_pattern': abstractPattern,
       'common_scenes': commonScenes,
