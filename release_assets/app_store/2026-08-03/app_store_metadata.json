@@ -1,0 +1,48 @@
+{
+  "appId": "6761879857",
+  "bundleId": "jp.sunrise.signalpath",
+  "version": "5.0.0",
+  "build": "18",
+  "buildId": "7b15cdfe-c9cb-4dfa-b06d-7440a637814c",
+  "urls": {
+    "appStore": "https://apps.apple.com/app/id6761879857",
+    "marketing": "https://signalpath-app-preview.itsukikuchiki.chatgpt.site/",
+    "support": "https://signalpath-app-preview.itsukikuchiki.chatgpt.site/#guestbook",
+    "privacyPolicy": "https://signalpath-app-preview.itsukikuchiki.chatgpt.site/privacy",
+    "eula": "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
+  },
+  "localizations": {
+    "en-US": {
+      "name": "Signal Path: AI Journal",
+      "subtitle": "Reflect, try, and see change",
+      "promotionalText": "Turn everyday Signals into weekly patterns, Spot Tries, longer-term goals, and a traceable Journey—at your own pace.",
+      "keywords": "journal,diary,reflection,wellbeing,habits,goals,weekly,AI,signals",
+      "description": "Signal Path turns everyday moments into a traceable path of reflection and change.\n\nStart with one Signal:\n• Save a short note, voice transcription, current state, or schedule.\n• You decide what becomes part of your journal and later reviews.\n• AI offers low-pressure organization and observations, not conclusions.\n\nSee the week in context:\n• Review confirmed Signals and the days they appeared.\n• Notice recurring behavior patterns and energy states when enough real records are available.\n• Read actual feedback before deciding what to try next.\n\nTry what fits:\n• A Spot Try is a small, low-pressure experiment.\n• A goal holds a medium- to long-term direction.\n• Record both helpfulness and effort, so progress is based on real feedback instead of completion scores.\n\nLook back over time:\n• Journey organizes Signals, Spot Tries, goals, and energy rhythm by calendar month.\n• When data is thin, the app shows facts without inventing themes or conclusions.\n• Pro Deep Analysis connects context, behavior, energy, and feedback, then shows long-term change from first use through the latest completed month.\n\nYour records, your decisions:\nSignal Path is not a medical, mental-health, diagnostic, or scoring tool. AI-generated interpretations remain suggestions, and important reflections retain links to the Signals that support them. If AI organization is temporarily unavailable, your original entry is still saved first.\n\nSome Pro features require an auto-renewable subscription. Some analyses appear only after enough eligible Signals have been recorded.\n\nPrivacy Policy:\nhttps://signalpath-app-preview.itsukikuchiki.chatgpt.site/privacy\n\nTerms of Use (EULA):\nhttps://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
+      "whatsNew": "Signal Path 5.0.0 rebuilds the path from one Signal to long-term reflection.\n\n• Spot Try now represents a small, low-pressure experiment, clearly separated from medium- and long-term goals.\n• Weekly Review and Journey charts use actual records and avoid conclusions from an unfinished month.\n• Journey Deep Analysis covers completed months from first use through the latest finished month.\n• Theme classifications stay within the nine focus areas.\n• Improved four-language copy, navigation, spacing, and Pro content consistency.\n• Updated support and privacy links."
+    },
+    "ja": {
+      "name": "Signal Path：AI手帳",
+      "subtitle": "日々のSignalから、自分のリズムへ",
+      "promotionalText": "日々の Signal を週間の手がかり、Spot Try、中長期の目標、追跡できる Journey へ。自分のペースで変化を見つめます。",
+      "keywords": "手帳,日記,振り返り,習慣,生活,目標,AI,記録,気づき",
+      "description": "Signal Path は、日々の出来事を、振り返り、確かめ、たどり直せる生活の道筋へつなげる AI 手帳です。\n\nひとつの Signal から始めます：\n• 短い文章、音声の文字起こし、今の状態、予定を記録できます。\n• 手帳や後の振り返りに残す内容は、自分で確認します。\n• AI は負担の少ない整理と観察を行いますが、結論を決めません。\n\n1週間を一緒に見ます：\n• 確認済みの Signal と記録日を週間レビューで振り返ります。\n• 十分な記録があるときだけ、繰り返す行動パターンやエネルギー状態を表示します。\n• 実際のフィードバックを見て、次に何を試すかを選べます。\n\n自分に合う方法を確かめます：\n• Spot Try は、範囲が小さく負担の少ない気軽な試みです。\n• 目標は中長期の方向と段階的な進み方を扱います。\n• 効果と負担の両方を記録し、達成率で生活を採点しません。\n\n長い Journey を振り返ります：\n• 自然月ごとに Signal、Spot Try、目標、エネルギーのリズムを整理します。\n• 情報が足りないときは事実だけを表示し、テーマや結論を作りません。\n• Pro 深度分析は、場面・行動・エネルギー・フィードバックをつなぎ、利用開始から直近の完了月までの長期変化を示します。\n\n記録も決定も、自分のものです：\nSignal Path は医療、メンタルヘルス、診断、採点のためのツールではありません。AI の解釈は提案であり、重要な振り返りには元の Signal との関係が残ります。AI の整理が一時的に利用できない場合も、元の記録を先に保存します。\n\n一部の Pro 機能には自動更新サブスクリプションが必要です。分析によっては、十分な有効 Signal が記録された後に表示されます。\n\nプライバシーポリシー：\nhttps://signalpath-app-preview.itsukikuchiki.chatgpt.site/privacy\n\n利用規約（EULA）：\nhttps://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
+      "whatsNew": "Signal Path 5.0.0 では、ひとつの Signal から長期的な振り返りまでの流れを整えました。\n\n• Spot Try を、範囲が小さく負担の少ない試みとして、中長期の目標と明確に分けました。\n• 週間レビューと Journey のグラフは実際の記録を反映し、進行中の月から結論を作りません。\n• Journey 深度分析は、利用開始から直近の完了月までを対象にします。\n• テーマ分類は9つの注目領域の中で統一しました。\n• 4言語の文言、ナビゲーション、余白、Pro 表示の一貫性を改善しました。\n• サポートとプライバシーのリンクを更新しました。"
+    },
+    "zh-Hans": {
+      "name": "Signal Path：AI手帐",
+      "subtitle": "从生活 Signal，看见自己的节奏",
+      "promotionalText": "把日常 Signal 连接成每周线索、Spot Try、中长期目标和可追溯的旅程，按自己的节奏看见变化。",
+      "keywords": "手帐,日记,反思,习惯,生活,目标,AI,记录,自我观察",
+      "description": "Signal Path 把日常片段连接成可回看、可验证、可追溯的生活路径。\n\n从一条 Signal 开始：\n• 用文字、语音转写、状态或安排记录真实发生的事。\n• 由你确认什么进入手帐和后续复盘。\n• AI 只提供低压力的整理与观察，不替你下结论。\n\n把一周放在一起看：\n• 每周复盘整理已确认的 Signal 与出现日期。\n• 在资料足够时呈现重复的行为模式和能量状态。\n• 结合真实反馈，再决定下周是否尝试。\n\n用真实反馈调整：\n• Spot Try 是范围小、压力低的简单尝试。\n• 目标用于中长期方向与阶段进展。\n• 同时记录帮助程度与负担，不用完成率给生活打分。\n\n回看更长的旅程：\n• 旅程按自然月整理 Signal、Spot Try、目标与能量节奏。\n• 资料不足时只展示事实，不制造主题或结论。\n• Pro 深度分析连接场景、行为、能量与反馈，并从开始使用到最近一个完整月份呈现长期变化。\n\n你的记录，你的决定：\nSignal Path 不是医疗、心理健康、诊断或评分工具。AI 生成内容只是建议；重要解读保留来源 Signal。即使 AI 整理暂时不可用，原始记录也会优先保存。\n\n部分 Pro 功能需要自动续期订阅；某些分析需在积累足够的有效 Signal 后才会显示。\n\n隐私政策：\nhttps://signalpath-app-preview.itsukikuchiki.chatgpt.site/privacy\n\n使用条款（EULA）：\nhttps://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
+      "whatsNew": "Signal Path 5.0.0 重新整理了从一条 Signal 到长期回看的完整路径。\n\n• Spot Try 现在代表范围小、压力低的简单尝试，并与中长期目标明确区分。\n• 每周复盘和旅程图表只反映真实记录，不再用进行中的月份生成结论。\n• 旅程深度分析覆盖从开始使用到最近一个已结束的自然月。\n• 主题分类统一限定在 9 个关注领域内。\n• 改善四语言文案、导航栏、页面留白和 Pro 内容一致性。\n• 更新帮助与隐私链接。"
+    },
+    "zh-Hant": {
+      "name": "Signal Path：AI手帳",
+      "subtitle": "從生活 Signal，看見自己的節奏",
+      "promotionalText": "把日常 Signal 連接成每週線索、Spot Try、中長期目標與可追溯的旅程，按自己的節奏看見變化。",
+      "keywords": "手帳,日記,反思,習慣,生活,目標,AI,記錄,自我觀察",
+      "description": "Signal Path 把日常片段連接成可回看、可驗證、可追溯的生活路徑。\n\n從一條 Signal 開始：\n• 用文字、語音轉寫、狀態或安排記錄真實發生的事。\n• 由你確認什麼進入手帳與後續回顧。\n• AI 只提供低壓力的整理與觀察，不替你下結論。\n\n把一週放在一起看：\n• 每週復盤整理已確認的 Signal 與出現日期。\n• 在資料足夠時呈現重複的行為模式與能量狀態。\n• 結合真實回饋，再決定下週是否嘗試。\n\n用真實回饋調整：\n• Spot Try 是範圍小、壓力低的簡單嘗試。\n• 目標用於中長期方向與階段進展。\n• 同時記錄幫助程度與負擔，不用完成率為生活評分。\n\n回看更長的旅程：\n• 旅程按自然月整理 Signal、Spot Try、目標與能量節奏。\n• 資料不足時只展示事實，不製造主題或結論。\n• Pro 深度分析連接情境、行為、能量與回饋，並從開始使用到最近一個完整月份呈現長期變化。\n\n你的記錄，你的決定：\nSignal Path 不是醫療、心理健康、診斷或評分工具。AI 產生內容只是建議；重要解讀保留來源 Signal。即使 AI 整理暫時無法使用，原始記錄也會優先保存。\n\n部分 Pro 功能需要自動續期訂閱；某些分析需在累積足夠的有效 Signal 後才會顯示。\n\n隱私權政策：\nhttps://signalpath-app-preview.itsukikuchiki.chatgpt.site/privacy\n\n使用條款（EULA）：\nhttps://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
+      "whatsNew": "Signal Path 5.0.0 重新整理了從一條 Signal 到長期回看的完整路徑。\n\n• Spot Try 現在代表範圍小、壓力低的簡單嘗試，並與中長期目標明確區分。\n• 每週復盤與旅程圖表只反映真實記錄，不再用進行中的月份產生結論。\n• 旅程深度分析涵蓋從開始使用到最近一個已結束的自然月。\n• 主題分類統一限定在 9 個關注領域內。\n• 改善四語言文案、導覽列、頁面留白與 Pro 內容一致性。\n• 更新協助與隱私權連結。"
+    }
+  }
+}
