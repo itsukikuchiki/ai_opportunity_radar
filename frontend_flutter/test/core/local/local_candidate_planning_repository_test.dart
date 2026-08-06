@@ -10,10 +10,12 @@ import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dart';
+import 'package:ai_opportunity_radar/core/i18n/app_locale_text.dart';
 import 'package:ai_opportunity_radar/core/models/advanced_energy_boundary_models.dart';
 import 'package:ai_opportunity_radar/core/models/candidate_models.dart';
 import 'package:ai_opportunity_radar/core/models/energy_budget_models.dart';
 import 'package:ai_opportunity_radar/core/models/experiment_evaluation_models.dart';
+import 'package:ai_opportunity_radar/core/models/experiment_creation_source.dart';
 import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 import 'package:ai_opportunity_radar/core/state/app_data_refresh_coordinator.dart';
 
@@ -116,7 +118,7 @@ void main() {
     );
     expect(
       ready.candidates
-          .every((item) => item.energyAdaptationExplanation.contains('小实验')),
+          .every((item) => item.energyAdaptationExplanation.contains('简单尝试')),
       isTrue,
     );
 
@@ -129,7 +131,8 @@ void main() {
     );
   });
 
-  test('adopted small experiments keep every real attempt without a 7-day end',
+  test(
+      'adopted small experiments keep every real attempt when their weekly lifecycle closes',
       () async {
     await _insertSignals(
       captureRepository,
@@ -227,13 +230,15 @@ void main() {
       progress.cells.map((cell) => cell.latestEventId),
       ['feedback-first', 'feedback-last', 'feedback-day-two'],
     );
+    expect(progress.recordedEntries, 3);
     expect(progress.completedAttempts, 2);
+    expect(progress.notAttemptedEntries, 1);
 
     final active = await repository.listActiveMicroActionsForDate(now);
     expect(active, hasLength(2));
     expect(
       await repository.listActiveMicroActionsForDate(DateTime(2026, 7, 20)),
-      hasLength(2),
+      isEmpty,
     );
 
     final adoptedRow = (await db.query(
@@ -279,6 +284,58 @@ void main() {
     expect(
       await repository.listAdoptedPlanContentDateKeys(),
       {'2026-07-08', '2026-07-09'},
+    );
+  });
+
+  test(
+      'legacy small-experiment feedback counts real attempts without evaluations and preserves same-day entries',
+      () async {
+    final feedbackWriter = LocalPhase3PlusRepository(
+      localDatabase,
+      localUserId: 'local',
+    );
+    const actionId = 'legacy-attempt-count-action';
+    await feedbackWriter.upsertMicroAction(
+      MicroActionModel(
+        id: actionId,
+        judgementId: 'legacy-attempt-count-judgement',
+        title: '切换前停两分钟',
+        reason: '旧版反馈没有效果和负担评价。',
+        status: 'active',
+        localUserId: 'local',
+        adoptedAt: now,
+        progressStartDate: '2026-07-08',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    for (final entry in const [
+      ('legacy-completed', 'completed', 1),
+      ('legacy-tried', 'tried', 2),
+      ('legacy-not-tried', 'not_completed', 3),
+    ]) {
+      await feedbackWriter.insertMicroActionFeedback(
+        MicroActionFeedbackModel(
+          id: entry.$1,
+          microActionId: actionId,
+          localDate: '2026-07-08',
+          happened: entry.$2,
+          createdAt: DateTime.utc(2026, 7, 8, 9, entry.$3),
+        ),
+      );
+    }
+
+    final progress = await repository.microActionProgress(actionId);
+
+    expect(progress.recordedEntries, 3);
+    expect(progress.completedAttempts, 2);
+    expect(progress.notAttemptedEntries, 1);
+    expect(progress.cells.map((cell) => cell.localDate).toSet(), {
+      '2026-07-08',
+    });
+    expect(
+      progress.cells.map((cell) => cell.latestEventId),
+      ['legacy-completed', 'legacy-tried', 'legacy-not-tried'],
     );
   });
 
@@ -414,6 +471,7 @@ void main() {
       suggestedAction: '午后离开屏幕十分钟。',
       linkedSignalCardIds: const ['signal-current-1'],
       status: 'active',
+      creationSource: ExperimentCreationSource.userCreated,
       adoptedAt: now,
       progressStartDate: '2026-07-06',
       progressEndDate: '2026-07-12',
@@ -441,6 +499,7 @@ void main() {
         hasLength(1));
     final continued = concurrent.first.single;
     expect(continued.parentExperimentId, current.id);
+    expect(continued.creationSource, ExperimentCreationSource.userCreated);
     expect(continued.sourceWeekStart, '2026-07-13');
     expect(continued.sourceWeekEnd, '2026-07-19');
     expect(continued.progressStartDate, '2026-07-13');
@@ -471,6 +530,16 @@ void main() {
       DateTime(2026, 7, 13),
     );
     expect(nextWeek.map((item) => item.experiment.id), [continued.id]);
+    expect(
+      (await lifeExperimentRepository.getById(current.id))?.status,
+      'completed',
+      reason: 'the previous weekly projection closes at the week boundary',
+    );
+    final logicalArchive = await lifeExperimentRepository.listAdoptedGoals(
+      localUserId: 'local',
+    );
+    expect(logicalArchive.map((item) => item.id), [continued.id]);
+    expect(logicalArchive.single.status, isNot('completed'));
 
     final db = await localDatabase.database;
     final continuations = await db.query(
@@ -495,6 +564,97 @@ void main() {
       ],
     );
     expect(trace, hasLength(1));
+  });
+
+  test(
+      'continuing a small experiment creates one next-week child and closes the parent on Monday',
+      () async {
+    await _insertSignals(
+      captureRepository,
+      localDatabase,
+      date: '2026-07-08',
+      count: 3,
+    );
+    final daily = await repository.refreshDailyWithGroundedSuggestions(
+      day: now,
+    );
+    final current = (await repository.adoptMicroActionCandidates(
+      [daily.candidates.first.id],
+    ))
+        .single;
+    final db = await localDatabase.database;
+    await db.insert('micro_action_feedback', {
+      'id': 'small-continuation-feedback',
+      'micro_action_id': current.id,
+      'local_date': '2026-07-08',
+      'happened': 'completed',
+      'created_at': '2026-07-08T01:00:00Z',
+      'updated_at': '2026-07-08T01:00:00Z',
+      'is_valid': 1,
+    });
+
+    final continuable =
+        await repository.listContinuableMicroActionsForNextWeek(now);
+    expect(continuable.map((item) => item.action.id), [current.id]);
+
+    final concurrent = await Future.wait([
+      repository.continueMicroActionsForNextWeek(
+        microActionIds: [current.id],
+        day: now,
+      ),
+      repository.continueMicroActionsForNextWeek(
+        microActionIds: [current.id],
+        day: now,
+      ),
+    ]);
+    expect(
+      concurrent.expand((items) => items).map((item) => item.id).toSet(),
+      hasLength(1),
+    );
+    final continued = concurrent.first.single;
+    expect(continued.parentMicroActionId, current.id);
+    expect(
+      continued.creationSource,
+      ExperimentCreationSource.candidateAdoption,
+    );
+    expect(continued.progressStartDate, '2026-07-13');
+    expect(continued.status, 'planned');
+    expect(
+      await db.query(
+        'micro_action_feedback',
+        where: 'micro_action_id = ?',
+        whereArgs: [continued.id],
+      ),
+      isEmpty,
+    );
+
+    final nextWeek = await repository.listActiveMicroActionsForDate(
+      DateTime(2026, 7, 13),
+    );
+    expect(nextWeek.map((item) => item.action.id), [continued.id]);
+    final parentRow = (await db.query(
+      'micro_actions',
+      where: 'id = ?',
+      whereArgs: [current.id],
+      limit: 1,
+    ))
+        .single;
+    expect(parentRow['status'], 'completed');
+    expect(parentRow['progress_end_date'], '2026-07-12');
+    expect(
+      await db.query(
+        'micro_action_feedback',
+        where: 'micro_action_id = ?',
+        whereArgs: [current.id],
+      ),
+      hasLength(1),
+      reason: 'weekly completion cannot synthesize a feedback row',
+    );
+    expect(await db.query('reflection_results'), isEmpty);
+    expect(await db.query('observations'), isEmpty);
+    final logicalArchive = await repository.listAdoptedSmallTries();
+    expect(logicalArchive.map((item) => item.action.id), [continued.id]);
+    expect(logicalArchive.single.action.status, isNot('completed'));
   });
 
   test('life experiment UI feedback statuses map to the real seven-day grid',
@@ -847,7 +1007,7 @@ void main() {
     );
   });
 
-  test('explicitly completing a small try does not synthesize daily feedback',
+  test('an uncontinued small experiment completes at the week boundary only',
       () async {
     await _insertSignals(
       captureRepository,
@@ -873,8 +1033,28 @@ void main() {
       'is_valid': 1,
     });
 
-    final completed = await repository.completeMicroAction(action.id);
-    expect(completed?.status, 'completed');
+    final mondayRepository = LocalCandidatePlanningRepository(
+      localDatabase: localDatabase,
+      localCaptureRepository: captureRepository,
+      localLifeExperimentRepository: lifeExperimentRepository,
+      localUserId: 'local',
+      nowLoader: () => DateTime(2026, 7, 13, 9),
+      focusDomainIdsLoader: () async => const [],
+      externalEnergySummaryLoader: () async => null,
+    );
+    addTearDown(mondayRepository.dispose);
+    final logicalArchive = await mondayRepository.listAdoptedSmallTries();
+    expect(logicalArchive.map((item) => item.action.id), [action.id]);
+    expect(logicalArchive.single.action.status, 'completed');
+    final completed = (await db.query(
+      'micro_actions',
+      where: 'id = ?',
+      whereArgs: [action.id],
+      limit: 1,
+    ))
+        .single;
+    expect(completed['status'], 'completed');
+    expect(completed['progress_end_date'], '2026-07-12');
     expect(
       await db.query(
         'micro_action_feedback',
@@ -882,21 +1062,218 @@ void main() {
         whereArgs: [action.id],
       ),
       hasLength(1),
-      reason: 'lifecycle completion must not create a progress cell',
+      reason: 'week-boundary completion must not create a progress cell',
     );
+    await repository.listActiveMicroActionsForDate(DateTime(2026, 7, 14));
     expect(
-        (await repository.completeMicroAction(action.id))?.status, 'completed',
-        reason: 'completion is idempotent');
+      await db.query(
+        'micro_action_feedback',
+        where: 'micro_action_id = ?',
+        whereArgs: [action.id],
+      ),
+      hasLength(1),
+      reason: 'week-boundary completion is idempotent',
+    );
+  });
 
-    final nextWeek =
-        await repository.refreshNextWeekPlanWithGroundedSuggestions(day: now);
-    final planned = (await repository.adoptMicroActionCandidates(
-      [nextWeek.smallTryCandidates.first.id],
+  test('Sunday keeps current small experiments and goals in progress',
+      () async {
+    await _insertSignals(
+      captureRepository,
+      localDatabase,
+      date: '2026-07-08',
+      count: 3,
+    );
+    final daily = await repository.refreshDailyWithGroundedSuggestions(
+      day: now,
+    );
+    final smallExperiment = (await repository.adoptMicroActionCandidates(
+      [daily.candidates.first.id],
     ))
         .single;
-    expect(planned.status, 'planned');
-    expect(await repository.completeMicroAction(planned.id), isNull,
-        reason: 'a future plan has not started and cannot be completed');
+    final goal = await lifeExperimentRepository.ensureSuggested(
+      localUserId: 'local',
+      weekStart: '2026-07-06',
+      weekEnd: '2026-07-12',
+      title: '观察午后恢复节奏',
+      hypothesis: '连续观察后可能看见变化。',
+      suggestedAction: '每天记录一次午后体感。',
+      linkedSignalCardIds: const ['signal-goal-sunday'],
+      status: 'active',
+      adoptedAt: now,
+      progressStartDate: '2026-07-06',
+      progressEndDate: '2026-07-12',
+    );
+
+    final sunday = DateTime(2026, 7, 12, 18);
+    expect(
+      (await repository.listActiveMicroActionsForDate(sunday))
+          .map((item) => item.action.id),
+      contains(smallExperiment.id),
+    );
+    expect(
+      (await repository.listActiveExperimentsForDate(sunday))
+          .map((item) => item.experiment.id),
+      contains(goal.id),
+    );
+
+    final db = await localDatabase.database;
+    expect(
+      (await db.query(
+        'micro_actions',
+        where: 'id = ?',
+        whereArgs: [smallExperiment.id],
+      ))
+          .single['status'],
+      isNot('completed'),
+    );
+    expect(
+      (await lifeExperimentRepository.getById(goal.id))?.status,
+      'active',
+    );
+    expect(
+      await db.query(
+        'life_experiment_lifecycle_events',
+        where: 'experiment_id = ? AND event_type = ?',
+        whereArgs: [goal.id, 'completed_at_week_boundary'],
+      ),
+      isEmpty,
+    );
+  });
+
+  test(
+      'an uncontinued goal completes on Monday without synthetic feedback or Signal',
+      () async {
+    final goal = await lifeExperimentRepository.ensureSuggested(
+      localUserId: 'local',
+      weekStart: '2026-07-06',
+      weekEnd: '2026-07-12',
+      title: '观察一周恢复节奏',
+      hypothesis: '连续观察后可能看见变化。',
+      suggestedAction: '每天记录一次恢复体感。',
+      linkedSignalCardIds: const [],
+      status: 'active',
+      adoptedAt: now,
+      progressStartDate: '2026-07-06',
+      progressEndDate: '2026-07-12',
+    );
+    await lifeExperimentRepository.recordFeedback(
+      experimentId: goal.id,
+      completionStatus: 'completed',
+      feedbackDate: DateTime(2026, 7, 8, 20),
+    );
+
+    final monday = DateTime(2026, 7, 13, 9);
+    final mondayRepository = LocalCandidatePlanningRepository(
+      localDatabase: localDatabase,
+      localCaptureRepository: captureRepository,
+      localLifeExperimentRepository: lifeExperimentRepository,
+      localUserId: 'local',
+      nowLoader: () => monday,
+      focusDomainIdsLoader: () async => const [],
+      externalEnergySummaryLoader: () async => null,
+    );
+    addTearDown(mondayRepository.dispose);
+    expect(await mondayRepository.listAdoptedSmallTries(), isEmpty);
+    final completed = await lifeExperimentRepository.getById(goal.id);
+    expect(completed?.status, 'completed');
+    expect(completed?.progressEndDate, '2026-07-12');
+    final logicalArchive = await lifeExperimentRepository.listAdoptedGoals(
+      localUserId: 'local',
+    );
+    expect(logicalArchive.map((item) => item.id), [goal.id]);
+    expect(logicalArchive.single.status, 'completed');
+
+    final db = await localDatabase.database;
+    expect(
+      await db.query(
+        'life_experiment_feedback',
+        where: 'experiment_id = ?',
+        whereArgs: [goal.id],
+      ),
+      hasLength(1),
+      reason: 'week-boundary completion cannot synthesize feedback',
+    );
+    expect(
+      await db.query(
+        'life_experiment_lifecycle_events',
+        where: 'experiment_id = ? AND event_type = ?',
+        whereArgs: [goal.id, 'completed_at_week_boundary'],
+      ),
+      hasLength(1),
+    );
+    expect(await db.query('signal_cards'), isEmpty);
+    expect(await db.query('reflection_results'), isEmpty);
+    expect(await db.query('observations'), isEmpty);
+  });
+
+  test(
+      'first read after several offline weeks activates and closes overdue plans in one pass',
+      () async {
+    final db = await localDatabase.database;
+    final createdAt = DateTime(2026, 7, 8, 12);
+    final plannedSmallExperiment = MicroActionModel(
+      id: 'micro-overdue-planned',
+      judgementId: '',
+      title: '切换前停两分钟',
+      reason: '离线期间尚未开始的计划。',
+      actionType: 'today_try',
+      difficulty: 'very_light',
+      plannedDurationMinutes: 2,
+      plannedDate: '2026-07-13',
+      status: 'planned',
+      feedbackStatus: 'none',
+      localUserId: 'local',
+      adoptedAt: createdAt,
+      progressStartDate: '2026-07-13',
+      createdAt: createdAt,
+      updatedAt: createdAt,
+    );
+    await db.insert(
+      'micro_actions',
+      plannedSmallExperiment.toDb(),
+    );
+    final plannedGoal = await lifeExperimentRepository.ensureSuggested(
+      localUserId: 'local',
+      weekStart: '2026-07-13',
+      weekEnd: '2026-07-19',
+      title: '连续观察午后疲惫',
+      hypothesis: '一周记录后可能看见变化。',
+      suggestedAction: '每天记录一次午后体感。',
+      linkedSignalCardIds: const [],
+      status: 'planned',
+      adoptedAt: createdAt,
+      progressStartDate: '2026-07-13',
+      progressEndDate: '2026-07-19',
+    );
+
+    final firstRead = DateTime(2026, 7, 27, 9);
+    expect(
+      await repository.listActiveMicroActionsForDate(firstRead),
+      isEmpty,
+    );
+    expect(
+      await repository.listActiveExperimentsForDate(firstRead),
+      isEmpty,
+    );
+    expect(
+      (await db.query(
+        'micro_actions',
+        where: 'id = ?',
+        whereArgs: [plannedSmallExperiment.id],
+      ))
+          .single['status'],
+      'completed',
+    );
+    expect(
+      (await lifeExperimentRepository.getById(plannedGoal.id))?.status,
+      'completed',
+    );
+    expect(await db.query('micro_action_feedback'), isEmpty);
+    expect(await db.query('life_experiment_feedback'), isEmpty);
+    expect(await db.query('signal_cards'), isEmpty);
+    expect(await db.query('reflection_results'), isEmpty);
+    expect(await db.query('observations'), isEmpty);
   });
 
   test('small-experiment attempts and goal daily progress stay independent',
@@ -1885,6 +2262,108 @@ void main() {
     expect(active.map((item) => item.action.id), contains(adopted.single.id));
   });
 
+  test('撤销下周小实验与延续目标只移除未来计划并保留本周历史', () async {
+    final historicalSignalIds = await _insertSignals(
+      captureRepository,
+      localDatabase,
+      date: '2026-07-08',
+      count: 3,
+    );
+    final nextWeek =
+        await repository.refreshNextWeekPlanWithGroundedSuggestions(day: now);
+    final sourceCandidate = nextWeek.smallTryCandidates.first;
+    final plannedAction = (await repository.adoptMicroActionCandidates(
+      [sourceCandidate.id],
+    ))
+        .single;
+
+    final currentGoal = await lifeExperimentRepository.ensureSuggested(
+      localUserId: 'local',
+      weekStart: '2026-07-06',
+      weekEnd: '2026-07-12',
+      title: '本周午后恢复',
+      hypothesis: '午后留白可能降低负担。',
+      suggestedAction: '午后离开屏幕十分钟。',
+      linkedSignalCardIds: const [],
+      status: 'active',
+      adoptedAt: now.subtract(const Duration(days: 2)),
+      progressStartDate: '2026-07-06',
+      progressEndDate: '2026-07-12',
+    );
+    final historicalFeedback = await lifeExperimentRepository.recordFeedback(
+      experimentId: currentGoal.id,
+      completionStatus: 'completed',
+      feedbackText: '本周午后恢复有效。',
+      feedbackDate: now.subtract(const Duration(days: 1)),
+    );
+    expect(historicalFeedback, isNotNull);
+    final plannedGoal = (await repository.continueExperimentsForNextWeek(
+      experimentIds: [currentGoal.id],
+      day: now,
+    ))
+        .single;
+
+    expect(
+      (await repository.listPlannedMicroActionsForNextWeek(now))
+          .map((item) => item.id),
+      contains(plannedAction.id),
+    );
+    expect(
+      (await repository.listPlannedExperimentsForNextWeek(now))
+          .map((item) => item.id),
+      contains(plannedGoal.id),
+    );
+
+    expect(
+      await repository.withdrawPlannedMicroActionForNextWeek(
+        microActionId: plannedAction.id,
+        day: now,
+      ),
+      isTrue,
+    );
+    expect(
+      await repository.withdrawPlannedExperimentForNextWeek(
+        experimentId: plannedGoal.id,
+        day: now,
+      ),
+      isTrue,
+    );
+
+    expect(await repository.listPlannedMicroActionsForNextWeek(now), isEmpty);
+    expect(await repository.listPlannedExperimentsForNextWeek(now), isEmpty);
+    expect(await lifeExperimentRepository.getById(plannedGoal.id), isNull);
+    expect(
+      (await lifeExperimentRepository.getById(currentGoal.id))?.title,
+      '本周午后恢复',
+    );
+    expect(
+      (await repository.listActiveExperimentsForDate(now))
+          .map((item) => item.experiment.id),
+      contains(currentGoal.id),
+    );
+    expect(
+      (await captureRepository.listSignalCardsByIds(historicalSignalIds))
+          .map((item) => item.id ?? item.signalCardId)
+          .toSet(),
+      historicalSignalIds.toSet(),
+    );
+    expect(
+      (await lifeExperimentRepository.listFeedbacks(
+        experimentId: currentGoal.id,
+      ))
+          .map((item) => item.id),
+      contains(historicalFeedback!.id),
+    );
+    final selectableAgain = await repository.nextWeekPlanCandidateSnapshot(now);
+    expect(
+      selectableAgain.smallTryCandidates
+          .where((item) => item.id == sourceCandidate.id)
+          .single
+          .isAdopted,
+      isFalse,
+    );
+  });
+
   test('深度分析是下周候选的可选参考，不会成为生成门槛', () async {
     await repository.dispose();
     await _insertSignals(
@@ -1921,6 +2400,127 @@ void main() {
         .metadata['deep_planning_reference'] as Map<String, dynamic>?;
     expect(reference?['id'], 'weekly:2026-07-06');
     expect(reference?['observation_plan_id'], 'observation-plan-1');
+  });
+
+  test(
+      'English candidates fail closed when a historical deep reference is Chinese',
+      () async {
+    await repository.dispose();
+    await _insertSignals(
+      captureRepository,
+      localDatabase,
+      date: '2026-07-08',
+      count: 3,
+      contentForIndex: (index) =>
+          'Signal $index records one concrete task-switching scene.',
+    );
+    repository = LocalCandidatePlanningRepository(
+      localDatabase: localDatabase,
+      localCaptureRepository: captureRepository,
+      localLifeExperimentRepository: lifeExperimentRepository,
+      localUserId: 'local',
+      nowLoader: () => now,
+      focusDomainIdsLoader: () async => const ['growth_plan'],
+      externalEnergySummaryLoader: () async => null,
+      deepPlanningReferenceLoader: (_) async => const DeepPlanningReference(
+        id: 'weekly:2026-07-06',
+        sourceHash: 'historical-zh-deep-source',
+        summary: '任务切换后需要留一点缓冲',
+        observationPlanId: 'observation-plan-1',
+      ),
+    );
+
+    final snapshot =
+        await repository.refreshNextWeekPlanWithGroundedSuggestions(
+      day: now,
+      language: AppLanguage.english,
+    );
+    final visibleCopy = <String>[
+      for (final candidate in snapshot.smallTryCandidates) ...[
+        candidate.title,
+        candidate.reason,
+        candidate.energyAdaptationExplanation,
+      ],
+      for (final candidate in snapshot.goalCandidates) ...[
+        candidate.title,
+        candidate.hypothesis,
+        candidate.suggestedAction,
+        candidate.energyAdaptationExplanation,
+      ],
+    ].join(' ');
+
+    expect(snapshot.smallTryCandidates, isNotEmpty);
+    expect(snapshot.goalCandidates, isNotEmpty);
+    expect(
+        RegExp(r'[\u3400-\u9fff\u3040-\u30ff]').hasMatch(visibleCopy), isFalse);
+    expect(visibleCopy, isNot(contains('任务切换')));
+    expect(
+      snapshot.goalCandidates.every(
+        (candidate) =>
+            !candidate.metadata.containsKey('deep_planning_reference'),
+      ),
+      isTrue,
+    );
+  });
+
+  test(
+      'Japanese candidates fail closed when a historical deep reference is Chinese',
+      () async {
+    await repository.dispose();
+    await _insertSignals(
+      captureRepository,
+      localDatabase,
+      date: '2026-07-08',
+      count: 3,
+      contentForIndex: (index) => 'シグナル $index は切り替え場面の記録です。',
+    );
+    repository = LocalCandidatePlanningRepository(
+      localDatabase: localDatabase,
+      localCaptureRepository: captureRepository,
+      localLifeExperimentRepository: lifeExperimentRepository,
+      localUserId: 'local',
+      nowLoader: () => now,
+      focusDomainIdsLoader: () async => const ['growth_plan'],
+      externalEnergySummaryLoader: () async => null,
+      deepPlanningReferenceLoader: (_) async => const DeepPlanningReference(
+        id: 'weekly:2026-07-06',
+        sourceHash: 'historical-zh-deep-source',
+        summary: '任务切换后需要留一点缓冲',
+        observationPlanId: 'observation-plan-1',
+      ),
+    );
+
+    final snapshot =
+        await repository.refreshNextWeekPlanWithGroundedSuggestions(
+      day: now,
+      language: AppLanguage.japanese,
+    );
+    final visibleCopy = <String>[
+      for (final candidate in snapshot.smallTryCandidates) ...[
+        candidate.title,
+        candidate.reason,
+        candidate.energyAdaptationExplanation,
+      ],
+      for (final candidate in snapshot.goalCandidates) ...[
+        candidate.title,
+        candidate.hypothesis,
+        candidate.suggestedAction,
+        candidate.energyAdaptationExplanation,
+      ],
+    ].join(' ');
+
+    expect(snapshot.smallTryCandidates, isNotEmpty);
+    expect(snapshot.goalCandidates, isNotEmpty);
+    expect(visibleCopy, matches(RegExp(r'[\u3040-\u30ff]')));
+    expect(visibleCopy, isNot(contains('任务切换')));
+    expect(visibleCopy, isNot(contains('需要留一点缓冲')));
+    expect(
+      snapshot.goalCandidates.every(
+        (candidate) =>
+            !candidate.metadata.containsKey('deep_planning_reference'),
+      ),
+      isTrue,
+    );
   });
 
   test('普通 Weekly 快照不能被当作深度分析候选参考', () async {
@@ -1965,6 +2565,7 @@ Future<List<String>> _insertSignals(
   required String date,
   required int count,
   int offset = 0,
+  String Function(int index)? contentForIndex,
 }) async {
   final ids = <String>[];
   final db = await localDatabase.database;
@@ -1973,7 +2574,7 @@ Future<List<String>> _insertSignals(
     final id = 'signal-$date-$number';
     await repository.insertConfirmedSignalCard(
       signalCardId: id,
-      content: '第 $number 条生活信号，记录一个真实场景',
+      content: contentForIndex?.call(number) ?? '第 $number 条生活信号，记录一个真实场景',
       sourceType: 'text',
       userConfirmation: 'confirmed',
     );

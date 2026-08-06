@@ -113,6 +113,53 @@ def test_submit_capture_persists_capture_and_raw_memory():
         tmpdir.cleanup()
 
 
+def test_submit_capture_localizes_generated_reply_but_preserves_original_text():
+    tmpdir, SessionLocal = _prepare_test_db()
+    try:
+        _patch_demo_user()
+
+        capture_repo_module = import_module("app.repositories.capture_repository")
+        classification_module = import_module("app.services.classification_service")
+        capture_service_module = import_module("app.services.capture_service")
+
+        reload(capture_repo_module)
+        reload(classification_module)
+        reload(capture_service_module)
+
+        from app.models.signal_card import SignalCard
+        from app.repositories.capture_repository import CaptureRepository
+        from app.services.capture_service import CaptureService
+        from app.services.classification_service import ClassificationService
+
+        db = SessionLocal()
+        try:
+            service = CaptureService(
+                CaptureRepository(db),
+                ClassificationService(),
+            )
+            original = "token cost is expensive, and I still prefer rap"
+
+            result = service.submit_capture(
+                user_id="test-localization-boundary",
+                content=original,
+                input_mode="quick_capture",
+                language="zh-Hant",
+            )
+
+            card = db.execute(select(SignalCard)).scalar_one()
+            assert card.raw_text == original
+            assert "模型用量" in result.acknowledgement
+            assert not any(
+                "a" <= char.lower() <= "z"
+                for char in result.acknowledgement
+            )
+        finally:
+            db.close()
+    finally:
+        os.environ.pop("DATABASE_URL", None)
+        tmpdir.cleanup()
+
+
 def test_recent_signal_query_reads_back_saved_capture_with_acknowledgement():
     tmpdir, SessionLocal = _prepare_test_db()
     try:

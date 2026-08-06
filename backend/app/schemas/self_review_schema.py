@@ -27,6 +27,7 @@ class SelfReviewRequest(BaseModel):
     entries: list[SelfReviewEntrySchema] = Field(default_factory=list)
     top_tokens: list[str] = Field(default_factory=list)
     total_days: int = 0
+    language: Optional[str] = None
     focus_area: Optional[str] = None
 
 

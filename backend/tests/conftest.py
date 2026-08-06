@@ -36,6 +36,11 @@ def client() -> Generator[TestClient, None, None]:
         # 3) 重新导入 models，让所有 ORM 模型绑定到当前这套新的 Base
         import_module("app.models")
 
+        # 重新加载持有 ORM 类引用的核心仓库，避免跨测试保留旧 Base
+        # 或其他测试临时替换的 ensure_demo_user。
+        core_repository = import_module("app.repositories.core_repository")
+        reload(core_repository)
+
         # 4) 用当前 Base / engine 显式建表
         from app.core.db import Base, engine
         Base.metadata.create_all(bind=engine)

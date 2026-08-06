@@ -32,24 +32,47 @@ class ClassificationService:
             phrase in normalized for phrase in self.immediate_risk_phrases
         )
 
-    def immediate_safety_acknowledgement(self) -> str:
-        return (
-            "我很在意你刚才这句话。若你现在可能马上伤害自己或他人，"
-            "请先离开危险物品并联系当地紧急服务，或立刻联系一个能到你身边的可信任的人。"
-            "如果可以，只回复我：你现在是否处于立即危险中？"
-        )
+    def immediate_safety_acknowledgement(
+        self,
+        language: str | None = None,
+    ) -> str:
+        normalized = self.normalize_language(language)
+        return {
+            "zh-Hans": (
+                "我很在意你刚才这句话。若你现在可能马上伤害自己或他人，"
+                "请先离开危险物品并联系当地紧急服务，或立刻联系一个能到你身边的可信任的人。"
+                "如果可以，只回复我：你现在是否处于立即危险中？"
+            ),
+            "zh-Hant": (
+                "我很在意你剛才這句話。若你現在可能馬上傷害自己或他人，"
+                "請先離開危險物品並聯絡當地緊急服務，或立刻聯絡一個能到你身邊的可信任的人。"
+                "如果可以，只回覆我：你現在是否處於立即危險中？"
+            ),
+            "ja": (
+                "今の言葉をとても心配しています。今すぐ自分や誰かを傷つける可能性があるなら、"
+                "危険な物から離れ、地域の緊急窓口か、すぐそばに来られる信頼できる人へ連絡してください。"
+                "可能なら、今すぐ危険な状態にあるかどうかだけ教えてください。"
+            ),
+            "en": (
+                "I am very concerned about what you just said. If you might hurt yourself "
+                "or someone else right now, move away from anything dangerous and contact "
+                "local emergency services or a trusted person who can be with you now. "
+                "If you can, tell me only whether you are in immediate danger right now."
+            ),
+        }[normalized]
 
     def generate_acknowledgement(
         self,
         content: str,
         classified_signal: dict | None = None,
         recent_assistant_texts: list[str] | None = None,
+        language: str | None = None,
     ) -> str:
         text = (content or "").strip()
         recent_assistant_texts = recent_assistant_texts or []
         recent_tail = [x.strip() for x in recent_assistant_texts if x and x.strip()][-2:]
 
-        lang = self._detect_language(text)
+        lang = self.normalize_language(language, content=text)
         mood = self._detect_mood(text)
         axis = self._detect_axis(text)
 
@@ -78,11 +101,14 @@ class ClassificationService:
             return self._specific_reply_ja(topic=topic, mood=mood, axis=axis)
         if lang == "en":
             return self._specific_reply_en(topic=topic, mood=mood, axis=axis)
-        return self._specific_reply_zh(topic=topic, mood=mood, axis=axis)
+        reply = self._specific_reply_zh(topic=topic, mood=mood, axis=axis)
+        if lang == "zh-Hant":
+            return self._to_traditional_chinese(reply)
+        return reply
 
     def _specific_reply_zh(self, *, topic: str, mood: str, axis: str) -> str:
         if topic == "cost":
-            return "你写下了 token 成本很高，这份在意先留在这里。"
+            return "你写下了模型用量成本很高，这份在意先留在这里。"
         if topic == "horse_expectation":
             return "你提到了骑马和期待，这个片刻先留在这里。"
         if topic == "tomorrow_uncertainty":
@@ -99,7 +125,7 @@ class ClassificationService:
 
     def _specific_reply_ja(self, *, topic: str, mood: str, axis: str) -> str:
         if topic == "cost":
-            return "token のコストが高いと感じたことを、そのままここに残します。"
+            return "モデル利用量のコストが高いと感じたことを、そのままここに残します。"
         if topic == "horse_expectation":
             return "乗馬を楽しみにしている気持ちを、ここに残します。"
         if topic == "tomorrow_uncertainty":
@@ -165,7 +191,10 @@ class ClassificationService:
             return self._reply_pool_ja(mood=mood, axis=axis)
         if lang == "en":
             return self._reply_pool_en(mood=mood, axis=axis)
-        return self._reply_pool_zh(mood=mood, axis=axis)
+        pool = self._reply_pool_zh(mood=mood, axis=axis)
+        if lang == "zh-Hant":
+            return [self._to_traditional_chinese(item) for item in pool]
+        return pool
 
     def _reply_pool_zh(self, *, mood: str, axis: str) -> list[str]:
         if axis == "unfairness":
@@ -190,28 +219,38 @@ class ClassificationService:
             ]
         if axis == "overload":
             return [
-                "你写下了事情太多、太杂，这种状态先留在这里。",
-                "这些同时出现的事情，已经被你记下来了。",
+                "一下子有这么多事压过来，确实很容易让人喘不过气。",
+                "事情一件件叠在一起，光是承受这些就已经很累了。",
+            ]
+        if axis == "no_break":
+            return [
+                "一整段时间都没能停下来，听起来连喘口气的余地都没有。",
+                "一直没有停下来的空隙，这样撑着确实很耗人。",
+            ]
+        if axis == "fatigue":
+            return [
+                "听起来你现在真的很累，这份疲惫值得被好好看见。",
+                "已经累到这个程度了，光是撑着就很不容易。",
             ]
         if axis == "confusion":
             return [
-                "你写下了现在还不知道怎么办，这份不确定先留在这里。",
-                "此刻方向还不清楚，这个感受已经被记下来了。",
+                "现在不知道从哪里开始，这种卡住的感觉确实不好受。",
+                "眼前还找不到方向，难免会让人有些无措。",
             ]
         if axis == "pleasant_moment":
             return [
-                "你写下了这个开心或轻松的片刻。",
-                "这个让你感觉不错的瞬间，已经被记下来了。",
+                "听得出来，今天这份开心很真切，也值得好好留住。",
+                "这一刻让你感觉轻松或开心，真好。",
             ]
         if mood == "positive":
             return [
-                "我听见你说这一刻感觉不错，先把它留在这里。",
-                "你写下了一个开心的片刻，这一条已经记下来了。",
+                "听得出来，这一刻的感觉很好，也值得好好留住。",
+                "能有这样一个让你开心的片刻，真好。",
             ]
         if mood == "negative":
             return [
-                "我听见你说这一刻很难受，这份感受先留在这里。",
-                "你写下了现在的不舒服，这一条已经记下来了。",
+                "听起来这一刻真的不好受，这份感受值得被认真对待。",
+                "这一刻已经很难熬了，我不想轻轻带过你的感受。",
             ]
         if mood == "mixed":
             return [
@@ -219,8 +258,8 @@ class ClassificationService:
                 "此刻的感受有些复杂，这一条已经记下来了。",
             ]
         return [
-            "你写下的这件事已经留在这里了。",
-            "这一条已经按你写下的内容记下来了。",
+            "我听见你刚才说的这件事了，先不替你的感受下结论。",
+            "这件事对你有分量，我会按你说的样子认真接住。",
         ]
 
     def _reply_pool_ja(self, *, mood: str, axis: str) -> list[str]:
@@ -246,18 +285,28 @@ class ClassificationService:
             ]
         if axis == "overload":
             return [
-                "やることが多く、いろいろ重なっていると書いてくれましたね。",
-                "今いくつも重なっている状態を、ここに残します。",
+                "いろいろなことが一度に重なると、息をつく余裕もなくなるほど苦しくなりますよね。",
+                "やることが次々に重なり、それだけでかなり疲れてしまいますよね。",
+            ]
+        if axis == "no_break":
+            return [
+                "ずっと立ち止まる余裕がなかったのですね。息をつく間もないのは本当に消耗しますよね。",
+                "休む隙間もなく動き続けていたこと自体が、かなりしんどかったのですね。",
+            ]
+        if axis == "fatigue":
+            return [
+                "今、本当に疲れているのですね。その疲れはきちんと受け止めたいです。",
+                "ここまで疲れている中で耐えているだけでも大変ですよね。",
             ]
         if axis == "confusion":
             return [
-                "今はどうしたらよいかわからない、と書いてくれましたね。",
-                "方向がまだ見えない感覚を、ここに残します。",
+                "今はどこから手をつければよいかわからず、立ち止まってしまう感覚なのですね。",
+                "進む方向がまだ見えないと、途方に暮れてしまいますよね。",
             ]
         if axis == "pleasant_moment":
             return [
-                "嬉しい、楽しいと感じたこの瞬間を、ここに残します。",
-                "気分がよかったこの瞬間を記録しました。",
+                "今日の嬉しさがまっすぐ伝わってきます。大切に残しておきたい瞬間ですね。",
+                "少しでも心が軽くなるような瞬間があったのですね。よかったです。",
             ]
         if mood == "positive":
             return [
@@ -266,8 +315,8 @@ class ClassificationService:
             ]
         if mood == "negative":
             return [
-                "今つらい、しんどいと感じていることを、ここに残します。",
-                "この不快な感覚を、そのまま記録しました。",
+                "今この瞬間が本当につらいのですね。その気持ちを軽く扱わずに受け止めます。",
+                "今のしんどさを、ただの記録として流さずに受け止めたいです。",
             ]
         if mood == "mixed":
             return [
@@ -275,8 +324,8 @@ class ClassificationService:
                 "今の複雑な感覚を記録しました。",
             ]
         return [
-            "書いてくれたことを、そのままここに残します。",
-            "この出来事を記録しました。",
+            "今話してくれたことを聞いています。こちらで意味を決めつけずに受け止めます。",
+            "あなたが今伝えてくれたことを、そのまま大切に受け止めます。",
         ]
 
     def _reply_pool_en(self, *, mood: str, axis: str) -> list[str]:
@@ -302,8 +351,18 @@ class ClassificationService:
             ]
         if axis == "overload":
             return [
-                "You wrote that there are too many things at once, and I am keeping that state here.",
-                "These overlapping things have been recorded.",
+                "Having so many things land at once can feel genuinely overwhelming.",
+                "When one thing piles onto another, simply carrying it all can be exhausting.",
+            ]
+        if axis == "no_break":
+            return [
+                "Going that long without a chance to stop can leave no room even to catch your breath.",
+                "Having no real break for that long sounds exhausting in itself.",
+            ]
+        if axis == "fatigue":
+            return [
+                "You sound genuinely tired, and that exhaustion deserves to be noticed.",
+                "Being this tired while still holding things together is hard in itself.",
             ]
         if axis == "confusion":
             return [
@@ -312,8 +371,8 @@ class ClassificationService:
             ]
         if axis == "pleasant_moment":
             return [
-                "You wrote that this moment felt happy or light, and I am keeping it here.",
-                "This good-feeling moment has been recorded.",
+                "The happiness in this moment comes through clearly, and it is worth holding onto.",
+                "It is good that this moment brought you some real lightness.",
             ]
         if mood == "positive":
             return [
@@ -322,8 +381,8 @@ class ClassificationService:
             ]
         if mood == "negative":
             return [
-                "I hear that this moment felt hard, and I am keeping that feeling here.",
-                "You wrote down this discomfort, and it has been recorded.",
+                "This moment sounds genuinely hard, and I do not want to brush that feeling aside.",
+                "What you are feeling sounds difficult, and it deserves more than a procedural reply.",
             ]
         if mood == "mixed":
             return [
@@ -331,8 +390,8 @@ class ClassificationService:
                 "This complex feeling has been recorded.",
             ]
         return [
-            "I am keeping what you wrote here as it is.",
-            "This event has been recorded.",
+            "I hear what you just said without deciding what it means for you.",
+            "What you shared matters, and I am taking it seriously as you described it.",
         ]
 
     def _detect_mood(self, text: str) -> str:
@@ -376,6 +435,35 @@ class ClassificationService:
         if interrupt:
             return "interruption"
 
+        no_break = self._contains_any(text, [
+            "没停下来", "没有停下来", "一直没停", "一直没有停", "没歇", "没休息",
+            "沒停下來", "沒有停下來", "一直沒停", "沒休息",
+            "止まれなかった", "休めなかった", "休む暇がない",
+            "never stopped", "no break", "without a break", "got a break",
+            "get a break", "didn't stop", "did not stop",
+        ])
+        if no_break:
+            return "no_break"
+
+        fatigue = self._contains_any(text, [
+            "好累", "很累", "累了", "疲惫", "精疲力尽", "撑不住",
+            "疲憊", "精疲力盡", "撐不住",
+            "疲れた", "しんどい", "へとへと",
+            "tired", "exhausted", "worn out",
+        ])
+        if fatigue:
+            return "fatigue"
+
+        overload = self._contains_any(text, [
+            "项目太多", "事情太多", "工作太杂", "一堆事", "太多了",
+            "忙不过来", "忙不完", "压得喘不过气",
+            "項目太多", "工作太雜", "忙不過來",
+            "多すぎる", "仕事が多い", "雑多",
+            "too much", "too many things", "messy", "overloaded", "overwhelmed"
+        ])
+        if overload:
+            return "overload"
+
         confirmation = self._contains_any(text, [
             "确认", "顺序", "对齐", "协调", "沟通",
             "確認", "順序", "對齊", "協調", "溝通",
@@ -393,15 +481,6 @@ class ClassificationService:
         ])
         if repetition:
             return "repetition"
-
-        overload = self._contains_any(text, [
-            "项目太多", "事情太多", "工作太杂", "一堆事", "太多了",
-            "項目太多", "工作太雜",
-            "多すぎる", "仕事が多い", "雑多",
-            "too much", "too many things", "messy", "overloaded"
-        ])
-        if overload:
-            return "overload"
 
         confusion = self._contains_any(text, [
             "不知道怎么办", "不知道该怎么办", "不知道怎么做", "没办法", "不知道",
@@ -443,4 +522,49 @@ class ClassificationService:
         if has_ascii:
             return "en"
         return "zh"
+
+    def normalize_language(
+        self,
+        language: str | None,
+        *,
+        content: str = "",
+    ) -> str:
+        """Resolve display language without rewriting user-authored content."""
+        normalized = (language or "").strip().lower().replace("_", "-")
+        if normalized.startswith("ja"):
+            return "ja"
+        if normalized.startswith("en"):
+            return "en"
+        if normalized in {"zh-hant", "zh-tw", "zh-hk", "zh-mo"}:
+            return "zh-Hant"
+        if normalized.startswith("zh"):
+            return "zh-Hans"
+
+        detected = self._detect_language(content)
+        return {"ja": "ja", "en": "en"}.get(detected, "zh-Hans")
+
+    def _to_traditional_chinese(self, text: str) -> str:
+        # Only the bounded generated acknowledgement catalog reaches this
+        # converter. Raw user content is persisted and returned unchanged.
+        return text.translate(str.maketrans({
+            "这": "這", "里": "裡", "让": "讓", "难": "難",
+            "责": "責", "担": "擔", "务": "務", "压": "壓",
+            "烦": "煩", "错": "錯", "变": "變", "实": "實",
+            "节": "節", "总": "總", "断": "斷", "稳": "穩",
+            "个": "個", "复": "復", "觉": "覺", "来": "來",
+            "会": "會", "认": "認", "顺": "順", "对": "對",
+            "协": "協", "轻": "輕", "说": "說", "够": "夠",
+            "现": "現", "观": "觀", "发": "發", "过": "過",
+            "种": "種", "为": "為", "应": "應", "并": "並",
+            "没": "沒", "开": "開", "带": "帶", "与": "與",
+            "写": "寫", "该": "該", "条": "條", "记": "記",
+            "录": "錄", "经": "經", "气": "氣", "听": "聽",
+            "叠": "疊", "处": "處", "样": "樣", "几": "幾",
+            "杂": "雜", "决": "決", "结": "結", "义": "義",
+            "当": "當", "么": "麼", "脸": "臉", "别": "別",
+            "确": "確", "换": "換", "齐": "齊", "连": "連",
+            "撑": "撐", "惫": "憊", "见": "見", "沟": "溝",
+            "还": "還", "论": "論", "骑": "騎", "无": "無",
+            "测": "測", "点": "點", "钱": "錢", "预": "預",
+        }))
     

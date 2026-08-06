@@ -23,8 +23,8 @@ class LlmService:
             'best_action': '这周先把最常重复的一类资料固定到一个入口，减少启动前的整理成本。',
             'opportunity_snapshot': {
                 'id': opp.get('id', 'opp_demo'),
-                'name': opp.get('name', '资料预整理 Copilot'),
-                'summary': opp.get('description', '这类重复准备工作已经具备 Copilot 化的条件。'),
+                'name': opp.get('name', '资料预整理助手'),
+                'summary': opp.get('description', '这类重复准备工作已经具备由智能助手协助的条件。'),
                 'maturity': opp.get('maturity', 'emerging'),
             } if opp else None,
         }
@@ -37,9 +37,9 @@ class LlmService:
                 '主要摩擦集中在信息分散与启动困难',
                 '你也表达过希望把这一步省掉',
             ],
-            'solution_fit_explanation': '这类问题已经有比较清楚的输入和输出，适合先做 Copilot，而不是直接交给全自动 Agent。',
+            'solution_fit_explanation': '这类问题已经有比较清楚的输入和输出，适合先由智能助手协助，而不是直接交给全自动执行系统。',
             'next_step': '先试一个最小版本：输入任务主题后，自动聚合相关资料并输出起步草稿。',
-            'user_facing_summary': '这不是一个要你彻底改变习惯的问题，而是一个适合让 AI 先接管前置整理的机会。',
+            'user_facing_summary': '这不是一个要你彻底改变习惯的问题，而是一个适合让智能助手先接管前置整理的机会。',
         }
 
     def generate_followup_question(self, payload: dict) -> dict:

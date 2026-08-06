@@ -92,4 +92,123 @@ void main() {
     expect(result?.effect, isNull);
     expect(result?.difficulty, isNull);
   });
+
+  testWidgets(
+      'small experiment sheet remains scrollable above shell navigation at 1.3x',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(390, 844),
+            textScaler: TextScaler.linear(1.3),
+          ),
+          child: Scaffold(
+            bottomNavigationBar: const SizedBox(
+              key: ValueKey('test-shell-navigation'),
+              height: 96,
+            ),
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showSmallTryAttemptFeedbackSheet(
+                  context,
+                  title: '任务切换前留两分钟缓冲',
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('small-try-completed-choice')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('small-try-effect-helpful')));
+    await tester.tap(find.byKey(const ValueKey('small-try-difficulty-easy')));
+    await tester.pumpAndSettle();
+
+    final save = find.byKey(const ValueKey('small-try-feedback-save'));
+    await tester.ensureVisible(save);
+    await tester.pumpAndSettle();
+
+    expect(tester.getBottomRight(save).dy, lessThanOrEqualTo(844));
+    expect(
+      find.byKey(const ValueKey('small-try-feedback-scroll')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'goal sheet matches Today fields and keeps the save action reachable',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    GoalCompletionFeedbackDraft? result;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(390, 844),
+            textScaler: TextScaler.linear(1.3),
+          ),
+          child: Scaffold(
+            bottomNavigationBar: const SizedBox(
+              key: ValueKey('test-shell-navigation'),
+              height: 96,
+            ),
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async {
+                  result = await showGoalCompletionFeedbackSheet(
+                    context,
+                    title: '午后十分钟离屏恢复',
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    final save = find.byKey(const ValueKey('goal-feedback-save'));
+    expect(tester.widget<FilledButton>(save).onPressed, isNull);
+    expect(find.text('Did you complete it today?'), findsOneWidget);
+    expect(find.byKey(const ValueKey('goal-feedback-note')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('goal-completed-choice')));
+    await tester.enterText(
+      find.byKey(const ValueKey('goal-feedback-note')),
+      '下午更容易重新开始。',
+    );
+    await tester.ensureVisible(save);
+    await tester.pumpAndSettle();
+
+    expect(tester.getBottomRight(save).dy, lessThanOrEqualTo(844));
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(result?.completionStatus, 'completed');
+    expect(result?.note, '下午更容易重新开始。');
+  });
 }

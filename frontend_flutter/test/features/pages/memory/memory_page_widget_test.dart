@@ -15,7 +15,7 @@ import '../../../helpers/widget_test_helpers.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Journey 历史月份切换会按所选月份重新取数且禁止未来月', (tester) async {
+  testWidgets('Journey 免费页固定显示当前月且不提供历史月份切换', (tester) async {
     final now = DateTime.now();
     final currentMonth = DateTime(now.year, now.month);
     final previousMonth = DateTime(now.year, now.month - 1);
@@ -68,24 +68,48 @@ void main() {
 
     expect(repo.requestedMonths, [currentMonth]);
     expect(find.text('这个月没有留下记录。'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('journey-previous-month')));
-    await tester.pumpAndSettle();
-    expect(repo.requestedMonths.last, previousMonth);
     expect(
-      find.text('${previousMonth.year}年${previousMonth.month}月 · 你的生活轨迹'),
-      findsOneWidget,
+      find.byKey(const ValueKey('journey-previous-month')),
+      findsNothing,
     );
-    expect(find.text('上个月的一个轨迹点'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('journey-next-month')));
-    await tester.pumpAndSettle();
-    expect(repo.requestedMonths.last, currentMonth);
+    expect(
+      find.byKey(const ValueKey('journey-next-month')),
+      findsNothing,
+    );
     expect(find.text('上个月的一个轨迹点'), findsNothing);
-    expect(find.text('这个月没有留下记录。'), findsOneWidget);
-    final requestCount = repo.requestedMonths.length;
-    await tester.tap(find.byKey(const ValueKey('journey-next-month')));
-    await tester.pump();
-    expect(repo.requestedMonths.length, requestCount);
+    expect(repo.requestedMonths, [currentMonth]);
+  });
+
+  testWidgets('Journey QA 固定時鐘選擇資料包月份', (tester) async {
+    final qaMonth = DateTime(2026, 7);
+    final repo = _MonthAwareMemoryRepository(
+      currentMonth: qaMonth,
+      currentResult: const MemoryFetchResult(
+        isFirstDayGate: false,
+        summary: null,
+      ),
+      previousResult: const MemoryFetchResult(
+        isFirstDayGate: false,
+        summary: null,
+      ),
+    );
+
+    await tester.pumpWidget(
+      buildTestApp(
+        child: const MemoryPage(),
+        providers: [
+          ChangeNotifierProvider<MemoryViewModel>(
+            create: (_) => MemoryViewModel(
+              repo,
+              nowLoader: () => DateTime(2026, 7, 31, 13, 30),
+            ),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repo.requestedMonths, [qaMonth]);
   });
 
   testWidgets('Journey 页面能加载并触发一次数据获取', (tester) async {
@@ -330,22 +354,13 @@ void main() {
         .descendant(of: scrollView, matching: find.byType(Scrollable))
         .first;
 
-    final monthlyPath = find.byKey(const ValueKey('journey-monthly-path'));
-    expect(monthlyPath, findsOneWidget);
     expect(
-      find.descendant(of: monthlyPath, matching: find.text('Meeting recovery')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: monthlyPath,
-        matching:
-            find.text('Weekly behavior pattern must not enter monthly path'),
-      ),
+      find.byKey(const ValueKey('journey-monthly-path')),
       findsNothing,
     );
+    expect(find.text('Meeting recovery'), findsNothing);
     expect(
-      find.descendant(of: monthlyPath, matching: find.text('Two-minute reset')),
+      find.text('Weekly behavior pattern must not enter monthly path'),
       findsNothing,
     );
     expect(
@@ -365,26 +380,48 @@ void main() {
     expect(find.text('2'), findsWidgets);
 
     await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('journey-experiment-goal-trajectory')),
+      find.text('Monthly view'),
       280,
       scrollable: journeyScrollable,
     );
-    expect(find.text('Two-minute reset'), findsOneWidget);
-    expect(find.text('1 real attempt'), findsOneWidget);
-    expect(find.textContaining('1 round review'), findsOneWidget);
-    expect(find.text('Protect evening recovery'), findsOneWidget);
-    expect(find.text('2 progress records'), findsOneWidget);
+    expect(find.text('Monthly view'), findsOneWidget);
+    final calendarGrid = find.byKey(const ValueKey('journey-calendar-grid'));
+    final calendarLegend =
+        find.byKey(const ValueKey('journey-calendar-legend'));
+    expect(calendarGrid, findsOneWidget);
+    expect(calendarLegend, findsOneWidget);
+    expect(tester.widget<GridView>(calendarGrid).padding, EdgeInsets.zero);
+    expect(
+      tester.getTopLeft(calendarLegend).dy -
+          tester.getBottomLeft(calendarGrid).dy,
+      closeTo(8, 0.01),
+    );
 
     await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('journey-state-rhythm')),
+      find.byKey(const ValueKey('journey-theme-timeline')),
       280,
       scrollable: journeyScrollable,
     );
-    expect(find.text('Effortful 1'), findsOneWidget);
-    expect(find.text('Steady 2'), findsOneWidget);
-    expect(find.text('Room to spare 1'), findsOneWidget);
-    expect(find.text('Recovery 2'), findsOneWidget);
-    expect(find.text('Boundaries and space 1'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('journey-theme-timeline')),
+      findsOneWidget,
+    );
+    expect(find.text('1 Spot Try feedback'), findsOneWidget);
+    expect(find.text('2 goal updates'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('journey-experiment-goal-trajectory')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('journey-state-rhythm')),
+      findsNothing,
+    );
+    await tester.scrollUntilVisible(
+      find.text('Gentle review'),
+      280,
+      scrollable: journeyScrollable,
+    );
+    expect(find.text('Gentle review'), findsOneWidget);
     expect(repo.evidenceCallCount, 0);
   });
 
@@ -531,36 +568,34 @@ void main() {
     final journeyScrollable = find
         .descendant(of: scrollView, matching: find.byType(Scrollable))
         .first;
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('journey-monthly-path')),
-      220,
-      scrollable: journeyScrollable,
-    );
     expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('journey-monthly-path')),
-        matching: find.text('A real timeline signal'),
-      ),
-      findsOneWidget,
+      find.byKey(const ValueKey('journey-monthly-path')),
+      findsNothing,
     );
-    expect(find.text('A real timeline signal'), findsOneWidget);
+    expect(find.text('A real timeline signal'), findsNothing);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('journey-monthly-facts')),
       220,
       scrollable: journeyScrollable,
     );
-    expect(find.text('Facts this month'), findsOneWidget);
+    expect(find.text('Journey overview · This month'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('journey-state-rhythm')),
+      find.byKey(const ValueKey('journey-theme-timeline')),
       220,
       scrollable: journeyScrollable,
     );
     expect(
-      find.byKey(const ValueKey('journey-state-rhythm')),
+      find.byKey(const ValueKey('journey-theme-timeline')),
       findsOneWidget,
     );
-    expect(find.text('Steady 1'), findsOneWidget);
-    expect(find.text('Recovery 0'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('journey-state-rhythm')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('journey-experiment-goal-trajectory')),
+      findsNothing,
+    );
     expect(
       find.byKey(const ValueKey('journey-report-threshold-notice')),
       findsOneWidget,
@@ -694,9 +729,19 @@ void main() {
 
     expect(find.text('目前最清楚的是“工作”。'), findsWidgets);
     expect(find.textContaining('18 条有效信号'), findsOneWidget);
-    expect(find.text('情绪'), findsWidgets);
-    expect(find.text('日常摩擦'), findsOneWidget);
-    expect(find.text('自我怀疑'), findsOneWidget);
+    final journeyScrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('journey-scroll-view')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-theme-timeline')),
+      280,
+      scrollable: journeyScrollable,
+    );
+    expect(find.text('生活'), findsWidgets);
+    expect(find.text('摩擦'), findsWidgets);
     expect(find.text('emotional'), findsNothing);
     expect(find.text('daily_friction'), findsNothing);
     expect(find.text('self_doubt'), findsNothing);

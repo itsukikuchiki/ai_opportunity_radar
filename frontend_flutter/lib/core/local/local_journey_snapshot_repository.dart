@@ -142,8 +142,10 @@ class LocalJourneySnapshotRepository {
     List<Map<String, dynamic>> experimentHistory = const [],
     List<Map<String, dynamic>> traceEntries = const [],
     List<Map<String, dynamic>> observationEntries = const [],
+    String language = '',
   }) {
     final buffer = StringBuffer();
+    buffer.write('language:$language||');
 
     for (final entry in entries) {
       buffer.write(entry['id'] ?? '');
@@ -179,6 +181,14 @@ class LocalJourneySnapshotRepository {
       buffer.write(trace['local_date'] ?? '');
       buffer.write('|');
       buffer.write(trace['summary'] ?? '');
+      buffer.write('|');
+      buffer.write(trace['cluster'] ?? '');
+      buffer.write('|');
+      buffer.write(trace['intensity'] ?? '');
+      buffer.write('|');
+      buffer.write(trace['signal_level'] ?? '');
+      buffer.write('|');
+      buffer.write(jsonEncode(trace['metadata'] ?? const {}));
       buffer.write('||');
     }
 

@@ -7,8 +7,10 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_router.dart';
+import '../../../core/config/build_environment.dart';
 import '../../../core/di/app_dependencies.dart';
-import '../../../core/eligibility/signal_eligibility_service.dart';
+import '../../../core/eligibility/today_signal_scope.dart';
+import '../../../core/energy/today_status_overview.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/i18n/energy_budget_text.dart';
 import '../../../core/models/phase3_plus_models.dart';
@@ -16,6 +18,7 @@ import '../../../core/models/today_models.dart';
 import '../../../core/preferences/focus_domains.dart';
 import '../../../core/purchases/purchase_controller.dart';
 import '../../../core/state/app_data_refresh_coordinator.dart';
+import '../../../shared/utils/l1_attunement_fallback.dart';
 import '../../../shared/utils/user_visible_text_sanitizer.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../../../shared/widgets/editable_timeline_decision_dialog.dart';
@@ -251,7 +254,7 @@ class _TodayPageState extends State<TodayPage> {
                         context,
                         AppLocaleText.tr(
                           context,
-                          en: 'Your small experiment completion is saved.',
+                          en: 'Your Spot Try completion is saved.',
                           zhHans: '今日小实验完成情况已保存。',
                           zhHant: '今日小實驗完成情況已保存。',
                           ja: '今日の小実験の完了状況を保存しました。',
@@ -400,7 +403,16 @@ class _TodayPageState extends State<TodayPage> {
       return;
     }
 
-    showPremiumPaywall(context, source: '今天记录');
+    showPremiumPaywall(
+      context,
+      source: AppLocaleText.tr(
+        context,
+        en: 'Today record',
+        zhHans: '今天记录',
+        zhHant: '今天記錄',
+        ja: '今日の記録',
+      ),
+    );
   }
 
   Future<void> _openVoiceTranscriptDraft(
@@ -473,13 +485,14 @@ class _TodayPageState extends State<TodayPage> {
   }
 
   List<RecentSignalModel> _todayOnlySignals(List<RecentSignalModel> all) {
-    final now = DateTime.now();
+    final now = BuildEnvironment.effectiveNow;
     final todayKey =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     return all
         .where(
           (signal) =>
               signal.localDateKey() == todayKey &&
+              !TodaySignalScope.isQaShowcase(signal) &&
               !signal.sourceType.toLowerCase().contains('schedule'),
         )
         .toList()
@@ -593,8 +606,17 @@ class _TodayPageState extends State<TodayPage> {
         ja: '終了時刻は開始時刻より後にしてください。',
       );
     }
+    if (errorMessage == 'invalid_focus_domain') {
+      return AppLocaleText.tr(
+        context,
+        en: 'Choose one focus area first.',
+        zhHans: '请先选择一个关注领域。',
+        zhHant: '請先選擇一個關注領域。',
+        ja: '先に関心領域を一つ選んでください。',
+      );
+    }
 
-    return errorMessage;
+    return localizeUserVisibleErrorText(context, errorMessage);
   }
 }
 
@@ -653,9 +675,9 @@ class _AiJudgementPanel extends StatelessWidget {
                   AppLocaleText.tr(
                     context,
                     en: 'AI prediction',
-                    zhHans: 'AI预判',
-                    zhHant: 'AI預判',
-                    ja: 'AI予測',
+                    zhHans: '智能预判',
+                    zhHant: '智慧預判',
+                    ja: '人工知能による予測',
                   ),
                   style: theme.textTheme.titleMedium?.copyWith(
                     color: AuroraColors.ink,
@@ -672,9 +694,9 @@ class _AiJudgementPanel extends StatelessWidget {
               AppLocaleText.tr(
                 context,
                 en: 'After you leave real signals, AI can offer one small prediction here.',
-                zhHans: '留下真实信号后，AI 会在这里给出一条可确认的预判。',
-                zhHant: '留下真實信號後，AI 會在這裡給出一條可確認的預判。',
-                ja: '実際のシグナルを残すと、AI がここに確認できる予測を一つ表示します。',
+                zhHans: '留下真实信号后，智能助手会在这里给出一条可确认的预判。',
+                zhHant: '留下真實信號後，智慧助手會在這裡給出一條可確認的預判。',
+                ja: '実際のシグナルを残すと、人工知能がここに確認できる予測を一つ表示します。',
               ),
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: AuroraColors.ink.withValues(alpha: 0.70),
@@ -849,7 +871,7 @@ class _AiJudgementContent extends StatelessWidget {
               en: 'This judgement will not be used in Weekly or Journey.',
               zhHans: '这条判断不会进入每周复盘或旅程分析。',
               zhHant: '這條判斷不會進入本週或旅程分析。',
-              ja: 'この判断はWeeklyやJourneyの分析には使いません。',
+              ja: 'この判断は週間レビューや旅程の分析には使いません。',
             ),
           )
         else
@@ -859,7 +881,7 @@ class _AiJudgementContent extends StatelessWidget {
               en: 'Confirmed as a signal. It can inform Weekly and Journey without becoming a task.',
               zhHans: '已确认成一条信号，会进入每周复盘和旅程分析，不会自动变成任务。',
               zhHant: '已確認成一條信號，會進入後續分析，不會自動變成任務。',
-              ja: 'シグナルとして確認しました。タスクにはせず、WeeklyやJourneyの材料にします。',
+              ja: 'シグナルとして確認しました。課題にはせず、週間レビューや旅程の材料にします。',
             ),
           ),
         if (microAction != null) ...[
@@ -1593,218 +1615,6 @@ class _ComposerModeButton extends StatelessWidget {
   }
 }
 
-enum _TodayHeroEnergyState {
-  waiting,
-  steady,
-  enough,
-  draining,
-  restoring,
-  mixed,
-}
-
-enum _TodayHeroFrictionState {
-  waiting,
-  low,
-  medium,
-  high,
-  attention,
-}
-
-enum _TodayHeroRecoveryState {
-  waiting,
-  low,
-  average,
-  good,
-}
-
-class _TodayOverviewData {
-  final int eligibleSignalCount;
-  final int drainingCount;
-  final int restoringCount;
-  final int mixedCount;
-  final int neutralCount;
-  final int frictionClueCount;
-  final int recoveryClueCount;
-  final int? latestExplicitEnergyLevel;
-
-  const _TodayOverviewData({
-    required this.eligibleSignalCount,
-    required this.drainingCount,
-    required this.restoringCount,
-    required this.mixedCount,
-    required this.neutralCount,
-    required this.frictionClueCount,
-    required this.recoveryClueCount,
-    required this.latestExplicitEnergyLevel,
-  });
-
-  factory _TodayOverviewData.fromSignals(List<RecentSignalModel> signals) {
-    final eligibleSignals = const SignalEligibilityService().filter(
-      signals,
-      SignalEligibilityStage.daily,
-    );
-    var draining = 0;
-    var restoring = 0;
-    var mixed = 0;
-    var neutral = 0;
-    var frictionClues = 0;
-    var recoveryClues = 0;
-    int? latestEnergyLevel;
-
-    final newestFirst = [...eligibleSignals]..sort((a, b) {
-        final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return bTime.compareTo(aTime);
-      });
-
-    int? explicitEnergyLevel(RecentSignalModel signal) {
-      final rawLevel = signal.rawPayloadJson['energy_level'];
-      final parsedLevel = rawLevel is num
-          ? rawLevel.toInt()
-          : int.tryParse(rawLevel?.toString() ?? '');
-      if (parsedLevel == null || parsedLevel < 0 || parsedLevel > 2) {
-        return null;
-      }
-      return parsedLevel;
-    }
-
-    // A current-state check-in is the clearest reading of "right now" and
-    // therefore wins even when a completed time-use entry was recorded later.
-    for (final signal in newestFirst) {
-      if (signal.sourceType != 'one_tap') continue;
-      latestEnergyLevel = explicitEnergyLevel(signal);
-      if (latestEnergyLevel != null) break;
-    }
-    // A completed time entry can provide explicit context when no current
-    // state exists. Planned entries never describe energy that was felt.
-    if (latestEnergyLevel == null) {
-      for (final signal in newestFirst) {
-        if (signal.sourceType != 'time_use' ||
-            signal.rawPayloadJson['record_status'] == 'planned') {
-          continue;
-        }
-        latestEnergyLevel = explicitEnergyLevel(signal);
-        if (latestEnergyLevel != null) break;
-      }
-    }
-
-    for (final signal in eligibleSignals) {
-      final rawEnergy = signal.rawPayloadJson['energy_effect']
-          ?.toString()
-          .trim()
-          .toLowerCase();
-      final energy =
-          rawEnergy != null && rawEnergy.isNotEmpty && rawEnergy != 'unknown'
-              ? rawEnergy
-              : (signal.energyLoad ?? '').trim().toLowerCase();
-      switch (energy) {
-        case 'draining':
-        case 'high_draining':
-          draining += 1;
-        case 'restoring':
-        case 'restorative':
-        case 'recovering':
-          restoring += 1;
-        case 'mixed':
-          mixed += 1;
-        case 'neutral':
-          neutral += 1;
-      }
-
-      final friction = (signal.friction ?? '').trim().toLowerCase();
-      final hasExplicitFriction = friction.isNotEmpty &&
-          !const {'unknown', 'none', 'neutral'}.contains(friction);
-      if (hasExplicitFriction ||
-          energy == 'draining' ||
-          energy == 'high_draining' ||
-          energy == 'mixed') {
-        frictionClues += 1;
-      }
-
-      final structuredTags = [
-        ...signal.linkedLifeChainStages,
-        ...signal.sceneTags,
-        ...signal.intentTags,
-      ].map((value) => value.trim().toLowerCase());
-      if (const {'restoring', 'restorative', 'recovering'}.contains(energy) ||
-          structuredTags.any((value) => value == 'recovery')) {
-        recoveryClues += 1;
-      }
-    }
-
-    return _TodayOverviewData(
-      eligibleSignalCount: eligibleSignals.length,
-      drainingCount: draining,
-      restoringCount: restoring,
-      mixedCount: mixed,
-      neutralCount: neutral,
-      frictionClueCount: frictionClues,
-      recoveryClueCount: recoveryClues,
-      latestExplicitEnergyLevel: latestEnergyLevel,
-    );
-  }
-
-  int get energyEvidenceCount =>
-      drainingCount + restoringCount + mixedCount + neutralCount;
-
-  bool get hasEvidence =>
-      latestExplicitEnergyLevel != null ||
-      energyEvidenceCount > 0 ||
-      frictionClueCount > 0 ||
-      recoveryClueCount > 0;
-
-  _TodayHeroEnergyState get energyState {
-    final explicit = latestExplicitEnergyLevel;
-    if (explicit != null) {
-      return switch (explicit) {
-        0 => _TodayHeroEnergyState.draining,
-        1 => _TodayHeroEnergyState.steady,
-        _ => _TodayHeroEnergyState.enough,
-      };
-    }
-    if (energyEvidenceCount == 0) return _TodayHeroEnergyState.waiting;
-    if (restoringCount > drainingCount && restoringCount >= mixedCount) {
-      return _TodayHeroEnergyState.restoring;
-    }
-    if (drainingCount > restoringCount + neutralCount &&
-        drainingCount >= mixedCount) {
-      return _TodayHeroEnergyState.draining;
-    }
-    if (mixedCount > 0) return _TodayHeroEnergyState.mixed;
-    return _TodayHeroEnergyState.steady;
-  }
-
-  _TodayHeroFrictionState get frictionState {
-    if (eligibleSignalCount == 0 ||
-        (energyEvidenceCount == 0 && frictionClueCount == 0)) {
-      return _TodayHeroFrictionState.waiting;
-    }
-    if (frictionClueCount == 0) return _TodayHeroFrictionState.low;
-    if (frictionClueCount * 3 <= eligibleSignalCount) {
-      return _TodayHeroFrictionState.medium;
-    }
-    if (frictionClueCount >= 3 &&
-        frictionClueCount * 3 > eligibleSignalCount * 2) {
-      return _TodayHeroFrictionState.attention;
-    }
-    return _TodayHeroFrictionState.high;
-  }
-
-  _TodayHeroRecoveryState get recoveryState {
-    if (eligibleSignalCount == 0 || !hasEvidence) {
-      return _TodayHeroRecoveryState.waiting;
-    }
-    if (restoringCount >= 2 && restoringCount > drainingCount) {
-      return _TodayHeroRecoveryState.good;
-    }
-    if (recoveryClueCount > 0 || restoringCount > 0) {
-      return _TodayHeroRecoveryState.average;
-    }
-    if (drainingCount > 0) return _TodayHeroRecoveryState.low;
-    return _TodayHeroRecoveryState.waiting;
-  }
-}
-
 class _TodayHeroHeader extends StatelessWidget {
   final String insightText;
   final List<RecentSignalModel> signals;
@@ -1816,9 +1626,9 @@ class _TodayHeroHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
+    final now = BuildEnvironment.effectiveNow;
     final compact = MediaQuery.sizeOf(context).width < 360;
-    final overview = _TodayOverviewData.fromSignals(signals);
+    final overview = TodayStatusOverview.fromSignals(signals, now: now);
     final weekday = AppLocaleText.tr(
       context,
       en: _englishWeekday(now.weekday),
@@ -1913,8 +1723,7 @@ class _TodayHeroHeader extends StatelessWidget {
                       padding: EdgeInsets.only(right: compact ? 90 : 106),
                       child: Text(
                         _withoutSummaryPrefix(insightText),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        key: const ValueKey('today-hero-observation-text'),
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: AuroraColors.ink.withValues(alpha: 0.79),
                               height: 1.34,
@@ -1934,31 +1743,27 @@ class _TodayHeroHeader extends StatelessWidget {
                               label: AppLocaleText.tr(
                                 context,
                                 en: 'Energy',
-                                zhHans: '能量',
-                                zhHant: '能量',
+                                zhHans: '精力',
+                                zhHant: '精力',
                                 ja: 'エネルギー',
                               ),
-                              value:
-                                  _energyValue(context, overview.energyState),
+                              value: _energyValue(context, overview.energy),
                               color: AuroraColors.purple,
                             ),
                           ),
                           const SizedBox(width: 7),
                           Expanded(
                             child: _TodayHeroMetricChip(
-                              key: const ValueKey('today-hero-friction'),
-                              icon: Icons.monitor_heart_outlined,
+                              key: const ValueKey('today-hero-load'),
+                              icon: Icons.fitness_center_rounded,
                               label: AppLocaleText.tr(
                                 context,
-                                en: 'Friction',
-                                zhHans: '摩擦',
-                                zhHant: '摩擦',
-                                ja: '摩擦',
+                                en: 'Load',
+                                zhHans: '负担',
+                                zhHant: '負擔',
+                                ja: '負担',
                               ),
-                              value: _frictionValue(
-                                context,
-                                overview.frictionState,
-                              ),
+                              value: _loadValue(context, overview.load),
                               color: AuroraColors.orange,
                             ),
                           ),
@@ -1976,7 +1781,7 @@ class _TodayHeroHeader extends StatelessWidget {
                               ),
                               value: _recoveryValue(
                                 context,
-                                overview.recoveryState,
+                                overview.recovery,
                               ),
                               color: AuroraColors.mint,
                             ),
@@ -2015,76 +1820,69 @@ class _TodayHeroHeader extends StatelessWidget {
 
   String _energyValue(
     BuildContext context,
-    _TodayHeroEnergyState state,
+    TodayEnergyStatus state,
   ) {
     return switch (state) {
-      _TodayHeroEnergyState.steady => AppLocaleText.tr(
+      TodayEnergyStatus.steady => AppLocaleText.tr(
           context,
           en: 'Steady',
           zhHans: '平稳',
           zhHant: '平穩',
           ja: '安定',
         ),
-      _TodayHeroEnergyState.enough => AppLocaleText.tr(
+      TodayEnergyStatus.capacity => AppLocaleText.tr(
           context,
-          en: 'Enough',
-          zhHans: '较足',
-          zhHant: '較足',
-          ja: '十分',
+          en: 'Some capacity',
+          zhHans: '有余力',
+          zhHant: '有餘力',
+          ja: '余力あり',
         ),
-      _TodayHeroEnergyState.draining => AppLocaleText.tr(
+      TodayEnergyStatus.low => AppLocaleText.tr(
           context,
           en: 'Low',
           zhHans: '偏低',
           zhHant: '偏低',
           ja: '低め',
         ),
-      _TodayHeroEnergyState.restoring => AppLocaleText.tr(
-          context,
-          en: 'Restoring',
-          zhHans: '在回升',
-          zhHant: '在回升',
-          ja: '回復中',
-        ),
-      _TodayHeroEnergyState.mixed => AppLocaleText.tr(
+      TodayEnergyStatus.mixed => AppLocaleText.tr(
           context,
           en: 'Mixed',
           zhHans: '有波动',
           zhHant: '有波動',
-          ja: '揺れあり',
+          ja: '変動あり',
         ),
-      _TodayHeroEnergyState.waiting => _waitingValue(context),
+      TodayEnergyStatus.waiting => _waitingValue(context),
     };
   }
 
-  String _frictionValue(
+  String _loadValue(
     BuildContext context,
-    _TodayHeroFrictionState state,
+    TodayLoadStatus state,
   ) {
     return switch (state) {
-      _TodayHeroFrictionState.waiting => _waitingValue(context),
-      _TodayHeroFrictionState.low => AppLocaleText.tr(
+      TodayLoadStatus.waiting => _waitingValue(context),
+      TodayLoadStatus.light => AppLocaleText.tr(
           context,
-          en: 'Low',
-          zhHans: '较低',
-          zhHant: '較低',
-          ja: '低め',
+          en: 'Light',
+          zhHans: '较轻',
+          zhHant: '較輕',
+          ja: '軽め',
         ),
-      _TodayHeroFrictionState.medium => AppLocaleText.tr(
+      TodayLoadStatus.moderate => AppLocaleText.tr(
           context,
-          en: 'Medium',
-          zhHans: '中等',
-          zhHant: '中等',
+          en: 'Moderate',
+          zhHans: '适中',
+          zhHant: '適中',
           ja: '中程度',
         ),
-      _TodayHeroFrictionState.high => AppLocaleText.tr(
+      TodayLoadStatus.heavy => AppLocaleText.tr(
           context,
-          en: 'High',
-          zhHans: '偏高',
-          zhHant: '偏高',
-          ja: '高め',
+          en: 'Heavy',
+          zhHans: '偏重',
+          zhHant: '偏重',
+          ja: '重め',
         ),
-      _TodayHeroFrictionState.attention => AppLocaleText.tr(
+      TodayLoadStatus.attention => AppLocaleText.tr(
           context,
           en: 'Watch',
           zhHans: '需留意',
@@ -2096,30 +1894,30 @@ class _TodayHeroHeader extends StatelessWidget {
 
   String _recoveryValue(
     BuildContext context,
-    _TodayHeroRecoveryState state,
+    TodayRecoveryStatus state,
   ) {
     return switch (state) {
-      _TodayHeroRecoveryState.waiting => _waitingValue(context),
-      _TodayHeroRecoveryState.low => AppLocaleText.tr(
+      TodayRecoveryStatus.waiting => _waitingValue(context),
+      TodayRecoveryStatus.notSeen => AppLocaleText.tr(
           context,
-          en: 'Low',
-          zhHans: '偏少',
-          zhHant: '偏少',
-          ja: '少なめ',
+          en: 'Not seen yet',
+          zhHans: '尚未出现',
+          zhHant: '尚未出現',
+          ja: 'まだ見られない',
         ),
-      _TodayHeroRecoveryState.average => AppLocaleText.tr(
+      TodayRecoveryStatus.appearing => AppLocaleText.tr(
           context,
-          en: 'Moderate',
-          zhHans: '一般',
-          zhHant: '一般',
-          ja: '普通',
+          en: 'Appearing',
+          zhHans: '已出现',
+          zhHant: '已出現',
+          ja: '見られる',
         ),
-      _TodayHeroRecoveryState.good => AppLocaleText.tr(
+      TodayRecoveryStatus.clear => AppLocaleText.tr(
           context,
-          en: 'Good',
-          zhHans: '较好',
-          zhHant: '較好',
-          ja: '良好',
+          en: 'Clear',
+          zhHans: '较明显',
+          zhHant: '較明顯',
+          ja: 'はっきり',
         ),
     };
   }
@@ -2527,6 +2325,7 @@ class _TimeUseSignalSheetState extends State<_TimeUseSignalSheet> {
     final selected = await showTimePicker(
       context: context,
       initialTime: isStart ? _startTime : _endTime,
+      initialEntryMode: TimePickerEntryMode.inputOnly,
       helpText: AppLocaleText.tr(
         context,
         en: isStart ? 'Start time' : 'End time',
@@ -3425,10 +3224,10 @@ class _StatusSignalSheetState extends State<_StatusSignalSheet> {
                                       child: Text(
                                         AppLocaleText.tr(
                                           context,
-                                          en: 'AI hint: the more specific the state, the closer later small experiments can be.',
-                                          zhHans: 'AI 提示：状态越具体，后面的小实验会更贴近你。',
-                                          zhHant: 'AI 提示：狀態越具體，後面的小實驗會更貼近你。',
-                                          ja: 'AIヒント：状態が具体的なほど、後の小実験が合いやすくなります。',
+                                          en: 'AI hint: The more specific the state, the more closely future Spot Tries can match it.',
+                                          zhHans: '智能提示：状态越具体，后面的小实验会更贴近你。',
+                                          zhHant: '智慧提示：狀態越具體，後面的小實驗會更貼近你。',
+                                          ja: '人工知能からのヒント：状態が具体的なほど、後の小実験が合いやすくなります。',
                                         ),
                                         style: Theme.of(context)
                                             .textTheme
@@ -4005,6 +3804,7 @@ class _DiaryTimelineItem {
   final String userText;
   final String aiText;
   final List<_DiaryTag> tags;
+  final _TimeUseTimelineData? timeUse;
   final VoidCallback? onMore;
 
   const _DiaryTimelineItem({
@@ -4013,6 +3813,7 @@ class _DiaryTimelineItem {
     required this.userText,
     required this.aiText,
     required this.tags,
+    this.timeUse,
     this.onMore,
   });
 
@@ -4041,12 +3842,16 @@ class _DiaryTimelineItem {
             ja: 'シグナルライブラリから：${signal.libraryPatternTitle ?? '共有シグナル'}',
           )
         : signal.content;
+    final timeUse = signal.sourceType == 'time_use'
+        ? _TimeUseTimelineData.tryFromSignal(context, signal)
+        : null;
     return _DiaryTimelineItem(
       sortKey: displayTime?.millisecondsSinceEpoch ?? 0,
       time: time,
       userText: userText,
       aiText: _timelineAiTextForSignal(context, signal),
       tags: _tagsForSignal(context, signal),
+      timeUse: timeUse,
       onMore: signal.id == null ? null : onOpenDialog,
     );
   }
@@ -4058,54 +3863,15 @@ class _DiaryTimelineItem {
     final acknowledgement = _usableAiReply(signal.acknowledgement);
     if (acknowledgement != null) return acknowledgement;
 
-    if (signal.isLibrarySaved) {
-      return AppLocaleText.tr(
-        context,
-        en: 'You confirmed and saved this signal.',
-        zhHans: '你确认并保存了这条信号。',
-        zhHant: '你確認並保存了這條信號。',
-        ja: 'このシグナルを確認して保存しました。',
-      );
-    }
-
-    final content = signal.content.trim();
-    if (content.contains('累') ||
-        content.contains('疲') ||
-        content.contains('耗')) {
-      return AppLocaleText.tr(
-        context,
-        en: 'You wrote that the moment felt tiring, and I am keeping that feeling here.',
-        zhHans: '你写下了那一刻很累，这份感受先留在这里。',
-        zhHant: '你寫下了那一刻很累，這份感受先留在這裡。',
-        ja: 'そのとき疲れたと書いてくれましたね。その気持ちをここに残します。',
-      );
-    }
-    if (content.contains('睡') || content.contains('休息')) {
-      return AppLocaleText.tr(
-        context,
-        en: 'You wrote that you wanted sleep or rest, and I am keeping that here.',
-        zhHans: '你写下了当时想睡或休息，这一条先留在这里。',
-        zhHant: '你寫下了當時想睡或休息，這一條先留在這裡。',
-        ja: '眠りたい、休みたいと書いてくれましたね。そのままここに残します。',
-      );
-    }
-    if (content.contains('上班') ||
-        content.contains('工作') ||
-        content.contains('会议')) {
-      return AppLocaleText.tr(
-        context,
-        en: 'You recorded this part of your workday, and I am keeping it here.',
-        zhHans: '你记录了这段和工作有关的经历，我先把它留在这里。',
-        zhHant: '你記錄了這段和工作有關的經歷，我先把它留在這裡。',
-        ja: '仕事に関するこの出来事を書いてくれましたね。そのままここに残します。',
-      );
-    }
-    return AppLocaleText.tr(
-      context,
-      en: 'I hear this small but real part of your day.',
-      zhHans: '今天这个很小但很真实的片段，我接住了。',
-      zhHant: '今天這個很小但很真實的片段，我接住了。',
-      ja: '今日の小さくても本当にあったこの瞬間、ちゃんと受け取りました。',
+    final language = switch (AppLocaleText.resolve(context)) {
+      AppLanguage.simplifiedChinese => 'zh-Hans',
+      AppLanguage.traditionalChinese => 'zh-Hant',
+      AppLanguage.japanese => 'ja',
+      AppLanguage.english => 'en',
+    };
+    return l1AttunedAcknowledgement(
+      content: signal.content,
+      language: language,
     );
   }
 
@@ -4183,9 +3949,9 @@ class _DiaryTimelineItem {
           AppLocaleText.tr(
             context,
             en: 'From Library',
-            zhHans: '来自 Library',
-            zhHant: '來自 Library',
-            ja: 'Library から保存',
+            zhHans: '来自信号库',
+            zhHant: '來自信號庫',
+            ja: 'ライブラリから保存',
           )
         else
           AppLocaleText.tr(context,
@@ -4257,9 +4023,9 @@ class _DiaryTimelineItem {
         return AppLocaleText.tr(
           context,
           en: 'From Library',
-          zhHans: '来自 Library',
-          zhHant: '來自 Library',
-          ja: 'Library から保存',
+          zhHans: '来自信号库',
+          zhHant: '來自信號庫',
+          ja: 'ライブラリから保存',
         );
       case 'adapted':
         return AppLocaleText.tr(
@@ -4293,6 +4059,73 @@ class _DiaryTimelineItem {
         }
         return normalized.replaceAll('_', ' ');
     }
+  }
+}
+
+class _TimeUseTimelineData {
+  final String startTime;
+  final String endTime;
+  final String title;
+  final String categoryLabel;
+  final String statusLabel;
+  final bool isPlanned;
+
+  const _TimeUseTimelineData({
+    required this.startTime,
+    required this.endTime,
+    required this.title,
+    required this.categoryLabel,
+    required this.statusLabel,
+    required this.isPlanned,
+  });
+
+  static _TimeUseTimelineData? tryFromSignal(
+    BuildContext context,
+    RecentSignalModel signal,
+  ) {
+    final payload = signal.rawPayloadJson;
+    final startAt =
+        DateTime.tryParse(payload['start_at']?.toString() ?? '')?.toLocal();
+    final endAt =
+        DateTime.tryParse(payload['end_at']?.toString() ?? '')?.toLocal();
+    if (startAt == null || endAt == null || !endAt.isAfter(startAt)) {
+      return null;
+    }
+    final rawCategory = payload['focus_domain_id']?.toString() ??
+        payload['category']?.toString() ??
+        '';
+    final categoryLabel = FocusDomains.optionFor(rawCategory) == null
+        ? _DiaryTimelineItem._diaryLabelTag(context, rawCategory)
+        : FocusDomains.labelFor(context, rawCategory);
+    final planned = payload['record_status']?.toString() == 'planned';
+    final structuredTitle = payload['title']?.toString().trim() ?? '';
+    return _TimeUseTimelineData(
+      startTime: _clock(startAt),
+      endTime: _clock(endAt),
+      title: structuredTitle.isEmpty ? signal.content.trim() : structuredTitle,
+      categoryLabel: categoryLabel,
+      statusLabel: planned
+          ? AppLocaleText.tr(
+              context,
+              en: 'Coming up',
+              zhHans: '接下来安排',
+              zhHant: '接下來安排',
+              ja: 'これからの予定',
+            )
+          : AppLocaleText.tr(
+              context,
+              en: 'Completed',
+              zhHans: '已经发生',
+              zhHant: '已經發生',
+              ja: '完了',
+            ),
+      isPlanned: planned,
+    );
+  }
+
+  static String _clock(DateTime value) {
+    return '${value.hour.toString().padLeft(2, '0')}:'
+        '${value.minute.toString().padLeft(2, '0')}';
   }
 }
 
@@ -4365,6 +4198,9 @@ class _DiarySignalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final visibleTags = item.timeUse == null
+        ? item.tags.take(2).toList(growable: false)
+        : item.tags.skip(2).take(1).toList(growable: false);
     return Container(
       padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
       decoration: BoxDecoration(
@@ -4374,35 +4210,56 @@ class _DiarySignalCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  item.userText,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AuroraColors.ink.withValues(alpha: 0.82),
-                        fontSize: 13,
-                        height: 1.28,
-                        fontWeight: FontWeight.w600,
-                      ),
+          if (item.timeUse != null)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _TodayTimeUseBlock(data: item.timeUse!),
                 ),
-              ),
-              const SizedBox(width: 8),
-              _TimelineMiniButton(
-                label: AppLocaleText.tr(
-                  context,
-                  en: 'AI chat',
-                  zhHans: '和AI聊聊',
-                  zhHant: '和AI聊聊',
-                  ja: 'AI相談',
+                const SizedBox(width: 8),
+                _TimelineMiniButton(
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'AI chat',
+                    zhHans: '和智能助手聊聊',
+                    zhHant: '和智慧助手聊聊',
+                    ja: '人工知能に相談',
+                  ),
+                  onTap: item.onMore,
                 ),
-                onTap: item.onMore,
-              ),
-            ],
-          ),
+              ],
+            )
+          else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    item.userText,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AuroraColors.ink.withValues(alpha: 0.82),
+                          fontSize: 13,
+                          height: 1.28,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _TimelineMiniButton(
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'AI chat',
+                    zhHans: '和智能助手聊聊',
+                    zhHant: '和智慧助手聊聊',
+                    ja: '人工知能に相談',
+                  ),
+                  onTap: item.onMore,
+                ),
+              ],
+            ),
           const SizedBox(height: 6),
           Container(
             width: double.infinity,
@@ -4435,17 +4292,109 @@ class _DiarySignalCard extends StatelessWidget {
               ],
             ),
           ),
-          if (item.tags.isNotEmpty) ...[
+          if (visibleTags.isNotEmpty) ...[
             const SizedBox(height: 6),
             Wrap(
               spacing: 6,
               runSpacing: 6,
-              children: item.tags
-                  .take(2)
+              children: visibleTags
                   .map((tag) => AuroraChip(label: tag.label, color: tag.color))
                   .toList(),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TodayTimeUseBlock extends StatelessWidget {
+  final _TimeUseTimelineData data;
+
+  const _TodayTimeUseBlock({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = data.isPlanned ? AuroraColors.blue : const Color(0xFF45C9C3);
+    return Container(
+      key: const ValueKey('today-time-use-period-block'),
+      padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            accent.withValues(alpha: 0.14),
+            Colors.white.withValues(alpha: 0.50),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: accent.withValues(alpha: 0.26)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 54,
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.74),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  data.startTime,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                Container(
+                  width: 1,
+                  height: 8,
+                  margin: const EdgeInsets.symmetric(vertical: 2),
+                  color: accent.withValues(alpha: 0.55),
+                ),
+                Text(
+                  data.endTime,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: AuroraColors.muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AuroraColors.ink,
+                        fontSize: 13,
+                        height: 1.25,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  [data.categoryLabel, data.statusLabel]
+                      .where((value) => value.trim().isNotEmpty)
+                      .join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: accent,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -4553,25 +4502,14 @@ class _VoiceTranscriptResult {
 class _VoiceTranscriptService {
   static const MethodChannel _channel = MethodChannel('signalpath/speech');
 
-  Future<void> start({required AppLanguage language}) async {
+  Future<void> start() async {
     try {
-      await _channel.invokeMethod<void>('startVoiceRecognition', {
-        'localeIdentifier': _speechLocaleIdentifier(language),
-      });
+      await _channel.invokeMethod<void>('startVoiceRecognition');
     } on MissingPluginException {
       // Widget tests and non-iOS previews keep using the local draft UI.
     } on PlatformException {
       rethrow;
     }
-  }
-
-  String _speechLocaleIdentifier(AppLanguage language) {
-    return switch (language) {
-      AppLanguage.simplifiedChinese => 'zh-CN',
-      AppLanguage.traditionalChinese => 'zh-TW',
-      AppLanguage.japanese => 'ja-JP',
-      AppLanguage.english => 'en-US',
-    };
   }
 
   Future<String> stop() async {
@@ -4613,10 +4551,12 @@ class _VoiceTranscriptSheetState extends State<_VoiceTranscriptSheet> {
   Timer? _timer;
   int _elapsedSeconds = 0;
   String? _errorText;
+  bool _manualEntryEnabled = false;
 
   bool get _isRecording => _stage == _VoiceDraftStage.listening;
   bool get _isPaused => _stage == _VoiceDraftStage.paused;
-  bool get _isEditing => _stage == _VoiceDraftStage.editing;
+  bool get _isEditing =>
+      _stage == _VoiceDraftStage.editing || _manualEntryEnabled;
 
   @override
   void dispose() {
@@ -4641,22 +4581,35 @@ class _VoiceTranscriptSheetState extends State<_VoiceTranscriptSheet> {
       _stage = _VoiceDraftStage.listening;
       _errorText = null;
       _elapsedSeconds = 0;
+      _manualEntryEnabled = false;
     });
     _startTimer();
     try {
-      await _speech.start(language: AppLocaleText.resolve(context));
-    } on PlatformException {
+      await _speech.start();
+    } on PlatformException catch (error) {
       if (!mounted) return;
       _timer?.cancel();
       setState(() {
         _stage = _VoiceDraftStage.ready;
-        _errorText = AppLocaleText.tr(
-          context,
-          en: 'Voice recognition is unavailable. You can still type the transcript after stopping.',
-          zhHans: '当前无法启动语音识别，停止后仍可以手动补转写内容。',
-          zhHant: '目前無法啟動語音識別，停止後仍可以手動補轉寫內容。',
-          ja: '音声認識を開始できません。停止後に文字起こしを手入力できます。',
-        );
+        _manualEntryEnabled = true;
+        _errorText = error.code == 'speech_locale_unavailable'
+            ? AppLocaleText.tr(
+                context,
+                en: 'On-device recognition is unavailable for the device’s current dictation language. Enable dictation for it in Settings, or type the transcript.',
+                zhHans: '设备当前听写语言的端侧识别不可用，请在系统设置中启用该语言的听写，或手动输入。',
+                zhHant: '裝置目前聽寫語言的端側識別不可用，請在系統設定中啟用該語言的聽寫，或手動輸入。',
+                ja: '端末の現在の音声入力言語ではオンデバイス認識を利用できません。設定で音声入力を有効にするか、手入力してください。',
+              )
+            : AppLocaleText.tr(
+                context,
+                en: 'Voice recognition is unavailable. You can type the transcript instead.',
+                zhHans: '当前无法启动语音识别，可以直接手动输入。',
+                zhHant: '目前無法啟動語音識別，可以直接手動輸入。',
+                ja: '音声認識を開始できません。文字起こしを手入力できます。',
+              );
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focusNode.requestFocus();
       });
     }
   }
@@ -4780,16 +4733,16 @@ class _VoiceTranscriptSheetState extends State<_VoiceTranscriptSheet> {
       _VoiceDraftStage.ready => AppLocaleText.tr(
           context,
           en: 'Say what is on your mind. AI will organize it into today’s signal.',
-          zhHans: '说下此刻的想法，AI 会帮你整理成今天的信号。',
-          zhHant: '說下此刻的想法，AI 會幫你整理成今天的信號。',
-          ja: '今の考えを話すと、AI が今日のシグナルに整えます。',
+          zhHans: '说下此刻的想法，智能助手会帮你整理成今天的信号。',
+          zhHant: '說下此刻的想法，智慧助手會幫你整理成今天的信號。',
+          ja: '今の考えを話すと、人工知能が今日のシグナルに整えます。',
         ),
       _VoiceDraftStage.listening => AppLocaleText.tr(
           context,
           en: 'Say what is on your mind. AI will organize it into today’s signal.',
-          zhHans: '说下此刻的想法，AI 会帮你整理成今天的信号。',
-          zhHant: '說下此刻的想法，AI 會幫你整理成今天的信號。',
-          ja: '今の考えを話すと、AI が今日のシグナルに整えます。',
+          zhHans: '说下此刻的想法，智能助手会帮你整理成今天的信号。',
+          zhHant: '說下此刻的想法，智慧助手會幫你整理成今天的信號。',
+          ja: '今の考えを話すと、人工知能が今日のシグナルに整えます。',
         ),
       _VoiceDraftStage.paused => AppLocaleText.tr(
           context,
@@ -5354,9 +5307,9 @@ class _VoiceExtractionPanel extends StatelessWidget {
                 AppLocaleText.tr(
                   context,
                   en: 'AI extraction',
-                  zhHans: 'AI 提炼',
-                  zhHant: 'AI 提煉',
-                  ja: 'AI 抽出',
+                  zhHans: '智能提炼',
+                  zhHant: '智慧提煉',
+                  ja: '人工知能による抽出',
                 ),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       color: AuroraColors.purple,

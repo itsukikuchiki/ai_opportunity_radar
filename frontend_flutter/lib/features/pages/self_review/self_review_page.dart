@@ -7,6 +7,7 @@ import '../../../core/models/self_review_models.dart';
 import '../../../core/navigation/app_back_navigation.dart';
 import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/states/load_state.dart';
+import '../../../shared/utils/user_visible_text_sanitizer.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../me/me_view_model.dart';
 import 'self_review_view_model.dart';
@@ -176,7 +177,7 @@ class SelfReviewPage extends StatelessWidget {
                 zhHans: '专题梳理加载失败',
                 zhHant: '專題梳理載入失敗',
                 ja: 'セルフレビューの読み込みに失敗しました'),
-            subtitle: vm.errorMessage,
+            subtitle: localizeUserVisibleErrorText(context, vm.errorMessage),
           ),
         ];
       case LoadState.empty:
@@ -240,12 +241,12 @@ class SelfReviewPage extends StatelessWidget {
           _ReviewSection(
             number: '03',
             title: AppLocaleText.tr(context,
-                en: 'Next small experiment',
+                en: 'Next Spot Try',
                 zhHans: '下一步小实验',
                 zhHant: '下一步小實驗',
                 ja: '次の小実験'),
             subtitle: AppLocaleText.tr(context,
-                en: 'Life Experiment · Small experiment',
+                en: 'Life Experiment · Spot Try',
                 zhHans: '生活小实验 · 小实验',
                 zhHant: '生活小實驗 · 小實驗',
                 ja: '生活実験 · 小実験'),
@@ -521,9 +522,9 @@ class _SelfReviewActionLoopCard extends StatelessWidget {
             label: AppLocaleText.tr(
               context,
               en: 'AI prediction',
-              zhHans: 'AI 预判',
-              zhHant: 'AI 預判',
-              ja: 'AI 予測',
+              zhHans: '智能预判',
+              zhHant: '智能預判',
+              ja: 'アシスタントの予測',
             ),
             body: judgement,
           ),
@@ -533,7 +534,7 @@ class _SelfReviewActionLoopCard extends StatelessWidget {
             color: AuroraColors.mint,
             label: AppLocaleText.tr(
               context,
-              en: 'Small experiment',
+              en: 'Spot Try',
               zhHans: '小实验',
               zhHant: '小實驗',
               ja: '小実験',
@@ -590,8 +591,8 @@ class _SelfReviewActionLoopCard extends StatelessWidget {
               context,
               en: 'Next Weekly can use this as a Review & Adjust entry.',
               zhHans: '下一次每周复盘可以把它作为回看与调整的入口。',
-              zhHant: '下一次 Weekly 可以把它作為 Review & Adjust 的入口。',
-              ja: '次の Weekly で Review & Adjust の入口として使えます。',
+              zhHant: '下一次每週復盤可以把它作為回看與調整的入口。',
+              ja: '次の週次振り返りで、振り返りと調整の入口として使えます。',
             ),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AuroraColors.muted,

@@ -14,6 +14,7 @@ import '../models/energy_budget_models.dart';
 import '../models/experiment_evaluation_models.dart';
 import '../models/feedback_event_models.dart';
 import '../models/phase3_plus_models.dart';
+import '../models/experiment_creation_source.dart';
 import '../models/today_models.dart';
 import '../models/weekly_models.dart';
 import '../policies/planning_content_edit_policy.dart';
@@ -57,6 +58,9 @@ class _PlanProjectionMissing implements Exception {
 /// its generator, and receive an idempotent replacement read model. Adopted
 /// objects are never overwritten by source regeneration.
 class LocalCandidatePlanningRepository {
+  static const _generatedCopyLanguageGuardVersion =
+      'candidate_language_guard_v2';
+
   static const requiredSignalCount = 3;
   static const maxCandidatesPerGroup = 3;
   static const _nextWeekSmallTryKind = 'next_week_small_try';
@@ -303,9 +307,10 @@ class LocalCandidatePlanningRepository {
     required DateTime day,
     required List<MicroActionCandidateDraft> drafts,
     String? expectedSourceHash,
+    CandidatePlanningContext? planningContext,
   }) async {
     final gate = await weeklyGate(day);
-    final context = await _planningContextForGate(gate);
+    final context = planningContext ?? await _planningContextForGate(gate);
     if (!gate.isOpen ||
         (expectedSourceHash != null &&
             context.sourceHash != expectedSourceHash)) {
@@ -801,75 +806,6 @@ class LocalCandidatePlanningRepository {
     return updated;
   }
 
-  /// Explicitly closes an adopted small experiment. This is deliberately separate
-  /// from daily `completed` feedback: all feedback rows stay append-only and
-  /// no synthetic day cell is created by finishing the lifecycle.
-  Future<MicroActionModel?> completeMicroAction(String id) async {
-    final normalizedId = id.trim();
-    if (normalizedId.isEmpty) return null;
-    final db = await localDatabase.database;
-    final rows = await db.query(
-      'micro_actions',
-      where: 'id = ? AND local_user_id = ?',
-      whereArgs: [normalizedId, localUserId],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    final before = MicroActionModel.fromDb(rows.first);
-    final status = before.status.trim().toLowerCase();
-    if (status == 'completed') return before;
-    const completableStatuses = {
-      'accepted',
-      'active',
-      'adjusted',
-      'paused',
-      'done',
-    };
-    final hasAdoptionEvidence = before.adoptedAt != null ||
-        (before.originCandidateId?.trim().isNotEmpty ?? false);
-    if (!hasAdoptionEvidence || !completableStatuses.contains(status)) {
-      return null;
-    }
-    final completionDate = _dateKey(nowLoader().toLocal());
-    final now = nowLoader().toUtc().toIso8601String();
-    final affected = await db.update(
-      'micro_actions',
-      {
-        'status': 'completed',
-        'progress_end_date': completionDate,
-        'updated_at': now,
-      },
-      where: '''
-        id = ? AND local_user_id = ?
-        AND status IN (?, ?, ?, ?, ?)
-      ''',
-      whereArgs: [
-        normalizedId,
-        localUserId,
-        'accepted',
-        'active',
-        'adjusted',
-        'paused',
-        'done',
-      ],
-    );
-    if (affected == 0) return null;
-    final updatedRows = await db.query(
-      'micro_actions',
-      where: 'id = ?',
-      whereArgs: [normalizedId],
-      limit: 1,
-    );
-    if (updatedRows.isEmpty) return null;
-    final completed = MicroActionModel.fromDb(updatedRows.first);
-    await LocalCacheInvalidationRepository(localDatabase)
-        .markMicroActionChanged(
-      localDate: completed.progressStartDate ?? completed.plannedDate ?? '',
-      reason: 'micro_action_lifecycle_completed',
-    );
-    return completed;
-  }
-
   Future<CandidateSnapshot<MicroActionCandidateModel>>
       refreshDailyIfSourceChanged({
     required DateTime day,
@@ -887,10 +823,13 @@ class LocalCandidatePlanningRepository {
     required DateTime day,
     AppLanguage language = AppLanguage.simplifiedChinese,
     Duration debounce = Duration.zero,
-  }) {
-    return refreshDailyIfSourceChanged(
-      day: day,
+  }) async {
+    final gate = await dailyGate(day);
+    return _refreshDaily(
+      gate: gate,
       debounce: debounce,
+      transformContext: (context) =>
+          _planningContextForLanguage(context, language),
       generate: (gate) async => _groundedDailyDrafts(gate, language),
     );
   }
@@ -910,10 +849,13 @@ class LocalCandidatePlanningRepository {
     required DateTime day,
     AppLanguage language = AppLanguage.simplifiedChinese,
     Duration debounce = Duration.zero,
-  }) {
-    return refreshWeeklyIfSourceChanged(
-      day: day,
+  }) async {
+    final gate = await weeklyGate(day);
+    return _refreshWeekly(
+      gate: gate,
       debounce: debounce,
+      transformContext: (context) =>
+          _planningContextForLanguage(context, language),
       generate: (gate) async => _groundedWeeklyDrafts(gate, language),
     );
   }
@@ -930,7 +872,10 @@ class LocalCandidatePlanningRepository {
   }) async {
     final gate = await weeklyGate(day);
     if (!gate.isOpen) return nextWeekPlanCandidateSnapshot(day);
-    final context = await _planningContextForGate(gate);
+    final context = _planningContextForLanguage(
+      await _planningContextForGate(gate),
+      language,
+    );
     final allSmallTries = await _groundedDailyDrafts(context, language);
     final allGoals = await _groundedWeeklyDrafts(context, language);
     final prefersLowerLoad =
@@ -942,6 +887,7 @@ class LocalCandidatePlanningRepository {
       day: day,
       drafts: allSmallTries.take(smallTryCount).toList(growable: false),
       expectedSourceHash: context.sourceHash,
+      planningContext: context,
     );
     await replaceWeeklyCandidates(
       day: day,
@@ -956,9 +902,13 @@ class LocalCandidatePlanningRepository {
     required CandidateGateState gate,
     required DailyCandidateGenerator generate,
     required Duration debounce,
+    CandidatePlanningContext Function(CandidatePlanningContext)?
+        transformContext,
     int sourceChangeRetry = 0,
   }) async {
-    final planningContext = await _planningContextForGate(gate);
+    final rawPlanningContext = await _planningContextForGate(gate);
+    final planningContext =
+        transformContext?.call(rawPlanningContext) ?? rawPlanningContext;
     final sourceHash = planningContext.sourceHash;
     if (!gate.isOpen) {
       await _setGated(gate, sourceHash: sourceHash);
@@ -986,7 +936,11 @@ class LocalCandidatePlanningRepository {
     try {
       final drafts = await generate(planningContext);
       final latestGate = await dailyGate(DateTime.parse(gate.periodStart));
-      final latestPlanningContext = await _planningContextForGate(latestGate);
+      final rawLatestPlanningContext =
+          await _planningContextForGate(latestGate);
+      final latestPlanningContext =
+          transformContext?.call(rawLatestPlanningContext) ??
+              rawLatestPlanningContext;
       final latestSourceHash = latestPlanningContext.sourceHash;
       if (latestSourceHash != sourceHash) {
         if (sourceChangeRetry < 2) {
@@ -994,6 +948,7 @@ class LocalCandidatePlanningRepository {
             gate: latestGate,
             generate: generate,
             debounce: debounce,
+            transformContext: transformContext,
             sourceChangeRetry: sourceChangeRetry + 1,
           );
         }
@@ -1026,9 +981,13 @@ class LocalCandidatePlanningRepository {
     required CandidateGateState gate,
     required WeeklyCandidateGenerator generate,
     required Duration debounce,
+    CandidatePlanningContext Function(CandidatePlanningContext)?
+        transformContext,
     int sourceChangeRetry = 0,
   }) async {
-    final planningContext = await _planningContextForGate(gate);
+    final rawPlanningContext = await _planningContextForGate(gate);
+    final planningContext =
+        transformContext?.call(rawPlanningContext) ?? rawPlanningContext;
     final sourceHash = planningContext.sourceHash;
     if (!gate.isOpen) {
       await _setGated(gate, sourceHash: sourceHash);
@@ -1056,7 +1015,11 @@ class LocalCandidatePlanningRepository {
     try {
       final drafts = await generate(planningContext);
       final latestGate = await weeklyGate(DateTime.parse(gate.periodStart));
-      final latestPlanningContext = await _planningContextForGate(latestGate);
+      final rawLatestPlanningContext =
+          await _planningContextForGate(latestGate);
+      final latestPlanningContext =
+          transformContext?.call(rawLatestPlanningContext) ??
+              rawLatestPlanningContext;
       final latestSourceHash = latestPlanningContext.sourceHash;
       if (latestSourceHash != sourceHash) {
         if (sourceChangeRetry < 2) {
@@ -1064,6 +1027,7 @@ class LocalCandidatePlanningRepository {
             gate: latestGate,
             generate: generate,
             debounce: debounce,
+            transformContext: transformContext,
             sourceChangeRetry: sourceChangeRetry + 1,
           );
         }
@@ -1367,6 +1331,7 @@ class LocalCandidatePlanningRepository {
             status: isFuture ? 'planned' : 'accepted',
             feedbackStatus: 'none',
             localUserId: localUserId,
+            creationSource: ExperimentCreationSource.candidateAdoption,
             originCandidateId: candidate.id,
             adoptedAt: now,
             progressStartDate: _dateKey(start),
@@ -1501,6 +1466,7 @@ class LocalCandidatePlanningRepository {
             linkedSignalCardIds: candidate.linkedSignalCardIds,
             status: isFuture ? 'planned' : 'saved',
             plannedTotalDays: plannedTotalDays,
+            creationSource: ExperimentCreationSource.candidateAdoption,
             originCandidateId: candidate.id,
             adoptedAt: now,
             progressStartDate: _dateKey(activeStart),
@@ -1567,6 +1533,444 @@ class LocalCandidatePlanningRepository {
       );
     }
     return adopted;
+  }
+
+  /// Read-only projection of small experiments already selected for the next
+  /// local Monday-to-Sunday period.
+  ///
+  /// This intentionally does not call [_activatePlansDueOn]: previewing a
+  /// future plan must never make it active early.
+  Future<List<MicroActionModel>> listPlannedMicroActionsForNextWeek(
+    DateTime day,
+  ) async {
+    final start = _startOfWeek(day.toLocal()).add(const Duration(days: 7));
+    final end = start.add(const Duration(days: 6));
+    final startKey = _dateKey(start);
+    final endKey = _dateKey(end);
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'micro_actions',
+      where: '''
+        local_user_id = ? AND status = ?
+        AND COALESCE(progress_start_date, planned_date) >= ?
+        AND COALESCE(progress_start_date, planned_date) <= ?
+      ''',
+      whereArgs: [localUserId, 'planned', startKey, endKey],
+      orderBy: 'adopted_at DESC, updated_at DESC',
+    );
+    final result = <MicroActionModel>[];
+    for (final row in rows) {
+      result.add(await _microActionForDate(row, startKey));
+    }
+    return result;
+  }
+
+  /// Current-week small experiments that the user can choose to continue into
+  /// the next local Monday-to-Sunday period.
+  Future<List<AdoptedMicroActionProgress>>
+      listContinuableMicroActionsForNextWeek(DateTime day) async {
+    final active = await listActiveMicroActionsForDate(day);
+    if (active.isEmpty) return const [];
+
+    final nextWeekStart = _startOfWeek(day.toLocal()).add(
+      const Duration(days: 7),
+    );
+    final nextWeekStartKey = _dateKey(nextWeekStart);
+    final db = await localDatabase.database;
+    final result = <AdoptedMicroActionProgress>[];
+    for (final item in active) {
+      final status = item.action.status.trim().toLowerCase();
+      if (!const {
+        'accepted',
+        'active',
+        'adjusted',
+        'paused',
+        'done',
+      }.contains(status)) {
+        continue;
+      }
+      final existing = await db.query(
+        'micro_actions',
+        columns: const ['id'],
+        where: '''
+          local_user_id = ?
+          AND parent_micro_action_id = ?
+          AND progress_start_date = ?
+        ''',
+        whereArgs: [localUserId, item.action.id, nextWeekStartKey],
+        limit: 1,
+      );
+      if (existing.isEmpty) result.add(item);
+    }
+    return result;
+  }
+
+  /// Continues selected small experiments into next week. A continuation is a
+  /// new weekly projection linked to the immutable current-week object.
+  Future<List<MicroActionModel>> continueMicroActionsForNextWeek({
+    required Iterable<String> microActionIds,
+    required DateTime day,
+  }) async {
+    final ids = _normalizedIds(microActionIds);
+    if (ids.isEmpty) return const [];
+    final continuable = await listContinuableMicroActionsForNextWeek(day);
+    final byId = {
+      for (final item in continuable) item.action.id: item.action,
+    };
+    final result = <MicroActionModel>[];
+    for (final id in ids) {
+      final action = byId[id];
+      if (action == null) continue;
+      result.add(await _reuseMicroActionForNextWeek(action, day));
+    }
+    return result;
+  }
+
+  Future<MicroActionModel> _reuseMicroActionForNextWeek(
+    MicroActionModel action,
+    DateTime day,
+  ) async {
+    final start = _startOfWeek(day.toLocal()).add(const Duration(days: 7));
+    final startKey = _dateKey(start);
+    final now = nowLoader();
+    final rootCreationSource = await _microActionRootCreationSource(action);
+    final proposed = MicroActionModel(
+      id: 'ma_${_uuid.v4().replaceAll('-', '').substring(0, 12)}',
+      judgementId: action.judgementId,
+      title: action.title,
+      reason: action.reason,
+      actionType: action.actionType,
+      difficulty: action.difficulty,
+      plannedDurationMinutes: action.plannedDurationMinutes,
+      plannedDate: startKey,
+      plannedTime: action.plannedTime,
+      linkedScheduleSignalId: action.linkedScheduleSignalId,
+      linkedGoalId: action.linkedGoalId,
+      linkedLifeExperimentId: action.linkedLifeExperimentId,
+      parentMicroActionId: action.id,
+      status: 'planned',
+      feedbackStatus: 'none',
+      localUserId: action.localUserId,
+      creationSource: rootCreationSource,
+      adoptedAt: now,
+      progressStartDate: startKey,
+      progressEndDate: null,
+      linkedSignalCardIds: action.linkedSignalCardIds,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final db = await localDatabase.database;
+    final persisted = await db.transaction<(MicroActionModel, bool)>(
+      (txn) async {
+        final existingRows = await txn.query(
+          'micro_actions',
+          where: '''
+            local_user_id = ?
+            AND parent_micro_action_id = ?
+            AND progress_start_date = ?
+          ''',
+          whereArgs: [localUserId, action.id, startKey],
+          orderBy: 'updated_at DESC',
+          limit: 1,
+        );
+        if (existingRows.isNotEmpty) {
+          return (MicroActionModel.fromDb(existingRows.first), false);
+        }
+        await txn.insert(
+          'micro_actions',
+          proposed.toDb(),
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        final insertedRows = await txn.query(
+          'micro_actions',
+          where: '''
+            local_user_id = ?
+            AND parent_micro_action_id = ?
+            AND progress_start_date = ?
+          ''',
+          whereArgs: [localUserId, action.id, startKey],
+          orderBy: 'updated_at DESC',
+          limit: 1,
+        );
+        if (insertedRows.isEmpty) {
+          throw StateError('micro_action_continuation_failed:${action.id}');
+        }
+        return (MicroActionModel.fromDb(insertedRows.first), true);
+      },
+    );
+    final child = persisted.$1;
+
+    await planContentVersionRepository.ensureInitial(
+      localUserId: child.localUserId,
+      objectKind: PlanContentObjectKind.quickTry,
+      objectId: child.id,
+      effectiveFromLocalDate: startKey,
+      content: _microActionContent(child),
+      createdAt: child.createdAt,
+    );
+    final traceRepository = LocalTraceLinkRepository(localDatabase);
+    await traceRepository.replaceForSource(
+      sourceType: 'micro_action',
+      sourceId: child.id,
+      links: [
+        TraceLinkInput(
+          sourceType: 'micro_action',
+          sourceId: child.id,
+          targetType: 'micro_action',
+          targetId: action.id,
+          relationType: 'continued_from',
+          localUserId: localUserId,
+        ),
+        for (final signalId in child.linkedSignalCardIds)
+          TraceLinkInput(
+            sourceType: 'micro_action',
+            sourceId: child.id,
+            targetType: 'signal_card',
+            targetId: signalId,
+            relationType: 'evidence_signal',
+            localUserId: localUserId,
+          ),
+      ],
+    );
+    await traceRepository.upsert(
+      TraceLinkInput(
+        sourceType: 'micro_action',
+        sourceId: action.id,
+        targetType: 'micro_action',
+        targetId: child.id,
+        relationType: 'continued_as',
+        localUserId: localUserId,
+      ),
+    );
+    await LocalCacheInvalidationRepository(localDatabase)
+        .markMicroActionChanged(
+      localDate: startKey,
+      reason: persisted.$2
+          ? 'micro_action_continued_next_week'
+          : 'micro_action_continuation_refreshed',
+    );
+    return child;
+  }
+
+  Future<ExperimentCreationSource> _microActionRootCreationSource(
+    MicroActionModel action,
+  ) async {
+    final db = await localDatabase.database;
+    final visited = <String>{};
+    var current = action;
+    while (visited.add(current.id)) {
+      if (current.originCandidateId?.trim().isNotEmpty == true) {
+        return ExperimentCreationSource.candidateAdoption;
+      }
+      if (current.creationSource != ExperimentCreationSource.continuation &&
+          current.creationSource != ExperimentCreationSource.legacyUnknown) {
+        return current.creationSource;
+      }
+      final parentId = current.parentMicroActionId?.trim();
+      if (parentId == null || parentId.isEmpty) {
+        return current.creationSource == ExperimentCreationSource.continuation
+            ? ExperimentCreationSource.legacyUnknown
+            : current.creationSource;
+      }
+      final rows = await db.query(
+        'micro_actions',
+        where: 'id = ?',
+        whereArgs: [parentId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return ExperimentCreationSource.legacyUnknown;
+      current = MicroActionModel.fromDb(rows.first);
+    }
+    return ExperimentCreationSource.legacyUnknown;
+  }
+
+  /// Read-only projection of goals already selected for next week.
+  Future<List<LifeExperimentModel>> listPlannedExperimentsForNextWeek(
+    DateTime day,
+  ) async {
+    final start = _startOfWeek(day.toLocal()).add(const Duration(days: 7));
+    final end = start.add(const Duration(days: 6));
+    final startKey = _dateKey(start);
+    final endKey = _dateKey(end);
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'life_experiments',
+      where: '''
+        local_user_id = ? AND status IN (?, ?)
+        AND COALESCE(progress_start_date, source_week_start) >= ?
+        AND COALESCE(progress_start_date, source_week_start) <= ?
+      ''',
+      // Newly adopted goal candidates use `planned`; an explicitly continued
+      // current goal uses the existing migration-safe `saved` status. Both are
+      // still future-only plans until their next-week start date.
+      whereArgs: [localUserId, 'planned', 'saved', startKey, endKey],
+      orderBy: 'adopted_at DESC, updated_at DESC',
+    );
+    final result = <LifeExperimentModel>[];
+    for (final row in rows) {
+      result.add(await _lifeExperimentForDate(row, startKey));
+    }
+    return result;
+  }
+
+  /// Withdraws one not-yet-started small experiment from next week's plan.
+  ///
+  /// Only the future planned object and its planning artifacts are removed.
+  /// Signal history, this week's attempts and every already-started object are
+  /// left untouched. Resetting the source candidate makes the choice
+  /// reversible from the same picker.
+  Future<bool> withdrawPlannedMicroActionForNextWeek({
+    required String microActionId,
+    required DateTime day,
+  }) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'micro_actions',
+      where: 'id = ? AND local_user_id = ? AND status = ?',
+      whereArgs: [microActionId, localUserId, 'planned'],
+      limit: 1,
+    );
+    if (rows.isEmpty) return false;
+    final action = MicroActionModel.fromDb(rows.first);
+    if (!_belongsToNextWeek(
+      action.progressStartDate ?? action.plannedDate,
+      day,
+    )) {
+      return false;
+    }
+    final feedbackCount = Sqflite.firstIntValue(await db.rawQuery(
+          '''
+          SELECT COUNT(*) FROM micro_action_feedback
+          WHERE micro_action_id = ?
+          ''',
+          [microActionId],
+        )) ??
+        0;
+    if (feedbackCount > 0) return false;
+
+    await LocalTraceLinkRepository(localDatabase).markInactiveForSource(
+      sourceType: 'micro_action',
+      sourceId: microActionId,
+    );
+    await db.transaction((txn) async {
+      await txn.update(
+        'micro_action_candidates',
+        {
+          'status': 'generated',
+          'decision_status': CandidateDecisionStatus.undecided.name,
+          'adopted_micro_action_id': null,
+          'updated_at': nowLoader().toUtc().toIso8601String(),
+        },
+        where: 'adopted_micro_action_id = ?',
+        whereArgs: [microActionId],
+      );
+      await txn.delete(
+        'plan_content_versions',
+        where: 'local_user_id = ? AND object_kind = ? AND object_id = ?',
+        whereArgs: [
+          action.localUserId,
+          PlanContentObjectKind.quickTry.storageValue,
+          microActionId,
+        ],
+      );
+      await txn.delete(
+        'micro_actions',
+        where: 'id = ? AND local_user_id = ? AND status = ?',
+        whereArgs: [microActionId, localUserId, 'planned'],
+      );
+    });
+    await LocalCacheInvalidationRepository(localDatabase)
+        .markMicroActionChanged(
+      localDate: action.progressStartDate ?? action.plannedDate ?? '',
+      reason: 'next_week_micro_action_withdrawn',
+    );
+    return true;
+  }
+
+  /// Withdraws one not-yet-started goal from next week's plan without touching
+  /// its current-week parent or any historical goal/feedback.
+  Future<bool> withdrawPlannedExperimentForNextWeek({
+    required String experimentId,
+    required DateTime day,
+  }) async {
+    final db = await localDatabase.database;
+    final rows = await db.query(
+      'life_experiments',
+      where: 'id = ? AND local_user_id = ? AND status IN (?, ?)',
+      whereArgs: [experimentId, localUserId, 'planned', 'saved'],
+      limit: 1,
+    );
+    if (rows.isEmpty) return false;
+    final experiment = localLifeExperimentRepository.fromStorageRow(
+      rows.first,
+    );
+    if (!_belongsToNextWeek(
+      experiment.progressStartDate ?? experiment.sourceWeekStart,
+      day,
+    )) {
+      return false;
+    }
+    final feedbackCount = Sqflite.firstIntValue(await db.rawQuery(
+          '''
+          SELECT COUNT(*) FROM life_experiment_feedback
+          WHERE experiment_id = ?
+          ''',
+          [experimentId],
+        )) ??
+        0;
+    if (feedbackCount > 0) return false;
+
+    await LocalTraceLinkRepository(localDatabase).markInactiveForSource(
+      sourceType: 'life_experiment',
+      sourceId: experimentId,
+    );
+    await LocalTraceLinkRepository(localDatabase).markInactiveForTarget(
+      targetType: 'life_experiment',
+      targetId: experimentId,
+    );
+    await db.transaction((txn) async {
+      await txn.update(
+        'experiment_candidates',
+        {
+          'status': 'generated',
+          'decision_status': CandidateDecisionStatus.undecided.name,
+          'adopted_experiment_id': null,
+          'updated_at': nowLoader().toUtc().toIso8601String(),
+        },
+        where: 'adopted_experiment_id = ?',
+        whereArgs: [experimentId],
+      );
+      await txn.delete(
+        'life_experiment_lifecycle_events',
+        where: 'experiment_id = ?',
+        whereArgs: [experimentId],
+      );
+      await txn.delete(
+        'plan_content_versions',
+        where: 'local_user_id = ? AND object_kind = ? AND object_id = ?',
+        whereArgs: [
+          experiment.localUserId,
+          PlanContentObjectKind.goal.storageValue,
+          experimentId,
+        ],
+      );
+      await txn.delete(
+        'life_experiment_rollups',
+        where: 'experiment_id = ?',
+        whereArgs: [experimentId],
+      );
+      await txn.delete(
+        'life_experiments',
+        where: 'id = ? AND local_user_id = ? AND status IN (?, ?)',
+        whereArgs: [experimentId, localUserId, 'planned', 'saved'],
+      );
+    });
+    await LocalCacheInvalidationRepository(localDatabase).markExperimentChanged(
+      weekStart: experiment.sourceWeekStart,
+      eventDate: DateTime.tryParse(experiment.sourceWeekStart) ?? day.toLocal(),
+      reason: 'next_week_experiment_withdrawn',
+    );
+    return true;
   }
 
   Future<List<AdoptedMicroActionProgress>> listActiveMicroActionsForDate(
@@ -1674,18 +2078,144 @@ class LocalCandidatePlanningRepository {
         );
       }
     });
+    // Activate first, then reconcile. If the app was not opened for several
+    // weeks, an overdue planned projection must not survive the first catch-up
+    // read as "in progress"; it is activated and closed in the same pass.
+    await _reconcileFinishedWeeks(day);
   }
 
-  /// All adopted small tries shown inside the Life Experiment archive.
+  /// At the first read on or after a new local Monday, close every adopted
+  /// weekly projection from an earlier week. A selected continuation is a new
+  /// child projection and will be activated below; an unselected item simply
+  /// remains completed. No feedback, summary, effectiveness judgement,
+  /// Observation, or Signal is synthesized here.
+  Future<void> _reconcileFinishedWeeks(DateTime day) async {
+    final currentWeekStart = _startOfWeek(day.toLocal());
+    final currentWeekStartKey = _dateKey(currentWeekStart);
+    final db = await localDatabase.database;
+
+    final microRows = await db.query(
+      'micro_actions',
+      where: '''
+        local_user_id = ?
+        AND status IN (?, ?, ?, ?, ?)
+        AND COALESCE(progress_start_date, planned_date) < ?
+      ''',
+      whereArgs: [
+        localUserId,
+        'accepted',
+        'active',
+        'adjusted',
+        'paused',
+        'done',
+        currentWeekStartKey,
+      ],
+    );
+    for (final row in microRows) {
+      final action = MicroActionModel.fromDb(row);
+      final rawStart = action.progressStartDate ?? action.plannedDate;
+      final start = DateTime.tryParse(rawStart ?? '');
+      if (start == null) continue;
+      final weekEnd = _startOfWeek(start.toLocal()).add(
+        const Duration(days: 6),
+      );
+      await _completeMicroActionAtWeekBoundary(action, weekEnd);
+    }
+
+    final experimentRows = await db.query(
+      'life_experiments',
+      columns: const ['id', 'progress_start_date', 'source_week_start'],
+      where: '''
+        local_user_id = ?
+        AND status IN (?, ?, ?, ?, ?, ?)
+        AND COALESCE(progress_start_date, source_week_start) < ?
+      ''',
+      whereArgs: [
+        localUserId,
+        'saved',
+        'active',
+        'accepted',
+        'adjusted',
+        'paused',
+        'done',
+        currentWeekStartKey,
+      ],
+    );
+    for (final row in experimentRows) {
+      final rawStart = row['progress_start_date'] as String? ??
+          row['source_week_start'] as String?;
+      final start = DateTime.tryParse(rawStart ?? '');
+      if (start == null) continue;
+      final weekEnd = _startOfWeek(start.toLocal()).add(
+        const Duration(days: 6),
+      );
+      await localLifeExperimentRepository.completeAtWeekBoundary(
+        experimentId: row['id'] as String,
+        weekEnd: weekEnd,
+        asOfDate: day,
+      );
+    }
+  }
+
+  Future<MicroActionModel?> _completeMicroActionAtWeekBoundary(
+    MicroActionModel action,
+    DateTime weekEnd,
+  ) async {
+    final db = await localDatabase.database;
+    final now = nowLoader().toUtc().toIso8601String();
+    final affected = await db.update(
+      'micro_actions',
+      {
+        'status': 'completed',
+        'progress_end_date': _dateKey(weekEnd),
+        'updated_at': now,
+      },
+      where: '''
+        id = ? AND local_user_id = ?
+        AND status IN (?, ?, ?, ?, ?)
+      ''',
+      whereArgs: [
+        action.id,
+        localUserId,
+        'accepted',
+        'active',
+        'adjusted',
+        'paused',
+        'done',
+      ],
+    );
+    if (affected == 0) return null;
+    final rows = await db.query(
+      'micro_actions',
+      where: 'id = ? AND local_user_id = ?',
+      whereArgs: [action.id, localUserId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final completed = MicroActionModel.fromDb(rows.first);
+    await LocalCacheInvalidationRepository(localDatabase)
+        .markMicroActionChanged(
+      localDate: completed.progressStartDate ?? completed.plannedDate ?? '',
+      reason: 'micro_action_completed_at_week_boundary',
+    );
+    return completed;
+  }
+
+  /// All logical adopted small experiments shown inside Life Experiment.
   ///
   /// The existing `micro_actions` table remains canonical. A row needs real
   /// adoption evidence (`adopted_at` or a non-empty candidate origin); status
   /// alone is not enough. Older accepted/completed rows are covered by the
-  /// candidate-planning adoption backfill.
+  /// candidate-planning adoption backfill. Continued weekly projections are
+  /// collapsed to their newest leaf so one logical experiment is shown once.
   Future<List<AdoptedMicroActionProgress>> listAdoptedSmallTries({
     int limit = 500,
     int offset = 0,
   }) async {
+    // Life Experiment can be the first page opened after a week boundary.
+    // Reconcile before projecting the archive so continued children appear as
+    // ongoing and uncontinued weekly rows appear as completed immediately.
+    await _activatePlansDueOn(nowLoader());
     final db = await localDatabase.database;
     final rows = await db.query(
       'micro_actions',
@@ -1697,6 +2227,12 @@ class LocalCandidatePlanningRepository {
             origin_candidate_id IS NOT NULL
             AND TRIM(origin_candidate_id) != ''
           )
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM micro_actions continuation
+          WHERE continuation.local_user_id = micro_actions.local_user_id
+            AND continuation.parent_micro_action_id = micro_actions.id
         )
       ''',
       whereArgs: [localUserId],
@@ -2373,6 +2909,83 @@ class LocalCandidatePlanningRepository {
     );
   }
 
+  /// Grounded candidate wording is persisted, so the display language is part
+  /// of its source identity. Changing locale must regenerate unadopted rows
+  /// even when the underlying Signals and feedback have not changed.
+  CandidatePlanningContext _planningContextForLanguage(
+    CandidatePlanningContext context,
+    AppLanguage language,
+  ) {
+    final languageCode = switch (language) {
+      AppLanguage.english => 'en',
+      AppLanguage.simplifiedChinese => 'zh-Hans',
+      AppLanguage.traditionalChinese => 'zh-Hant',
+      AppLanguage.japanese => 'ja',
+    };
+    final deepReference = _deepReferenceForLanguage(
+      context.deepReference,
+      language,
+    );
+    final languageIdentity =
+        'language:$languageCode|$_generatedCopyLanguageGuardVersion';
+    final fingerprint = CandidatePlanningFingerprint.tryParse(
+      context.sourceHash,
+    );
+    final localizedSourceHash = fingerprint == null
+        ? '${context.sourceHash}:$languageIdentity'
+        : CandidatePlanningFingerprint(
+            combinedHash: _fnv1a(
+              '${fingerprint.combinedHash}|$languageIdentity',
+            ),
+            signalHash: fingerprint.signalHash,
+            energySnapshotHash: fingerprint.energySnapshotHash,
+            capacityBand: fingerprint.capacityBand,
+            focusHash: fingerprint.focusHash,
+            feedbackHash: fingerprint.feedbackHash,
+          ).encode();
+    return CandidatePlanningContext(
+      gate: context.gate,
+      energySnapshot: context.energySnapshot,
+      weeklyEnergySnapshot: context.weeklyEnergySnapshot,
+      focusDomainIds: context.focusDomainIds,
+      feedback: context.feedback,
+      sourceHash: localizedSourceHash,
+      deepReference: deepReference,
+    );
+  }
+
+  /// Deep-analysis copy is generated text, not user-authored Signal content.
+  /// Historical rows can outlive a locale switch or an older backend rollout,
+  /// so an incompatible reference must not be quoted inside fresh candidates.
+  /// Adopted or user-edited plans are outside this generation context and are
+  /// deliberately left untouched.
+  DeepPlanningReference? _deepReferenceForLanguage(
+    DeepPlanningReference? reference,
+    AppLanguage language,
+  ) {
+    if (reference == null) return null;
+    final summary = reference.summary.trim();
+    if (summary.isEmpty) return reference;
+    if (language == AppLanguage.simplifiedChinese ||
+        language == AppLanguage.traditionalChinese) {
+      return reference;
+    }
+
+    final hasHan = RegExp(r'[\u3400-\u9fff]').hasMatch(summary);
+    final hasKana = RegExp(r'[\u3040-\u30ff]').hasMatch(summary);
+    if (language == AppLanguage.english) {
+      return !hasHan && !hasKana && RegExp(r'[A-Za-z]').hasMatch(summary)
+          ? reference
+          : null;
+    }
+
+    final hasChineseOnlyForms = RegExp(
+      r'[这们么还没为个录复续觉验条让里边务换缓关过与于'
+      r'這們麼還沒為個錄續覺驗條讓裡邊緩關過與於]',
+    ).hasMatch(summary);
+    return hasKana && !hasChineseOnlyForms ? reference : null;
+  }
+
   /// Reads an optional *persisted L3* reference. A standard Weekly snapshot is
   /// intentionally not enough: only `weekly_deep_analysis` plus an explicitly
   /// adopted observation plan can affect candidate ranking. Missing deep data
@@ -2924,43 +3537,43 @@ class LocalCandidatePlanningRepository {
     }
     return switch (language) {
       AppLanguage.simplifiedChinese => switch (band) {
-          EnergyCapacityBand.veryLow => '能量适配：最近的明确状态偏低，所以小实验保持在 1 分钟、可暂停。',
-          EnergyCapacityBand.low => '能量适配：当前消耗线索较多，所以小实验控制在 2 分钟，并减少切换。',
-          EnergyCapacityBand.medium => '能量适配：当前 Signal 支持 5 分钟以内、单一步骤的小实验。',
-          EnergyCapacityBand.high => '能量适配：当前状态较稳定，小实验仍控制在 10 分钟以内，避免变成任务。',
+          EnergyCapacityBand.veryLow => '能量适配：最近的明确状态偏低，所以简单尝试保持在 1 分钟、可暂停。',
+          EnergyCapacityBand.low => '能量适配：当前消耗线索较多，所以简单尝试控制在 2 分钟，并减少切换。',
+          EnergyCapacityBand.medium => '能量适配：当前 Signal 支持 5 分钟以内、单一步骤的简单尝试。',
+          EnergyCapacityBand.high => '能量适配：当前状态较稳定，简单尝试仍控制在 10 分钟以内，避免变成任务。',
           EnergyCapacityBand.unknown =>
-            '能量适配：当前能量 Signal 还不明确，因此小实验保持在 2 分钟、可逆、无完成压力。',
+            '能量适配：当前能量 Signal 还不明确，因此简单尝试保持在 2 分钟、可逆、无完成压力。',
         },
       AppLanguage.traditionalChinese => switch (band) {
-          EnergyCapacityBand.veryLow => '能量適配：最近的明確狀態偏低，所以小實驗保持在 1 分鐘、可暫停。',
-          EnergyCapacityBand.low => '能量適配：目前消耗線索較多，所以小實驗控制在 2 分鐘，並減少切換。',
-          EnergyCapacityBand.medium => '能量適配：目前 Signal 支持 5 分鐘以內、單一步驟的小實驗。',
-          EnergyCapacityBand.high => '能量適配：目前狀態較穩定，小實驗仍控制在 10 分鐘以內，避免變成任務。',
+          EnergyCapacityBand.veryLow => '能量適配：最近的明確狀態偏低，所以簡單嘗試保持在 1 分鐘、可暫停。',
+          EnergyCapacityBand.low => '能量適配：目前消耗線索較多，所以簡單嘗試控制在 2 分鐘，並減少切換。',
+          EnergyCapacityBand.medium => '能量適配：目前 Signal 支持 5 分鐘以內、單一步驟的簡單嘗試。',
+          EnergyCapacityBand.high => '能量適配：目前狀態較穩定，簡單嘗試仍控制在 10 分鐘以內，避免變成任務。',
           EnergyCapacityBand.unknown =>
-            '能量適配：目前能量 Signal 還不明確，因此小實驗保持在 2 分鐘、可逆、沒有完成壓力。',
+            '能量適配：目前能量 Signal 還不明確，因此簡單嘗試保持在 2 分鐘、可逆、沒有完成壓力。',
         },
       AppLanguage.japanese => switch (band) {
           EnergyCapacityBand.veryLow =>
-            'エネルギー調整：明確な状態が低めなので、1分で中断できる短い実験にしています。',
+            'エネルギー調整：明確な状態が低めなので、1分で中断できるスポットトライにしています。',
           EnergyCapacityBand.low =>
-            'エネルギー調整：負荷の手がかりが多いため、2分で切り替えの少ない短い実験にしています。',
-          EnergyCapacityBand.medium => 'エネルギー調整：5分以内で一つの手順だけ試せる案です。',
+            'エネルギー調整：負荷の手がかりが多いため、2分で切り替えの少ないスポットトライにしています。',
+          EnergyCapacityBand.medium => 'エネルギー調整：5分以内で一つの手順だけのスポットトライです。',
           EnergyCapacityBand.high =>
-            'エネルギー調整：状態が比較的安定していても、タスクにならないよう10分以内にしています。',
+            'エネルギー調整：状態が比較的安定していても、スポットトライはタスクにならないよう10分以内にしています。',
           EnergyCapacityBand.unknown =>
-            'エネルギー調整：手がかりがまだ十分でないため、2分で戻せて達成圧のない案にしています。',
+            'エネルギー調整：手がかりがまだ十分でないため、スポットトライは2分で戻せて達成圧のない形にしています。',
         },
       AppLanguage.english => switch (band) {
           EnergyCapacityBand.veryLow =>
-            'Energy fit: your latest explicit state is low, so this quick experiment stays within 1 minute and can be paused.',
+            'Energy fit: your latest explicit state is low, so this Spot try stays within 1 minute and can be paused.',
           EnergyCapacityBand.low =>
-            'Energy fit: current load signals are higher, so this quick experiment stays within 2 minutes with fewer switches.',
+            'Energy fit: current load signals are higher, so this Spot try stays within 2 minutes with fewer switches.',
           EnergyCapacityBand.medium =>
-            'Energy fit: the current Signals support one clear quick experiment within 5 minutes.',
+            'Energy fit: the current Signals support one clear Spot try within 5 minutes.',
           EnergyCapacityBand.high =>
-            'Energy fit: even with steadier capacity, this stays within 10 minutes so it does not become a task.',
+            'Energy fit: even with steadier capacity, this Spot try stays within 10 minutes so it does not become a task.',
           EnergyCapacityBand.unknown =>
-            'Energy fit: current capacity is not clear yet, so this stays within 2 minutes, reversible, and pressure-free.',
+            'Energy fit: current capacity is not clear yet, so this Spot try stays within 2 minutes, reversible, and pressure-free.',
         },
     };
   }
@@ -3098,7 +3711,7 @@ class LocalCandidatePlanningRepository {
             ),
           _FeedbackPlanningMode.redirect => (
               '换个方向：${base.$1}',
-              '最近一次没有完成，因此不重复原做法，改用另一种 1 分钟轻尝试。${base.$2}',
+              '最近一次没有完成，因此不重复原做法，改用另一种 1 分钟简单尝试。${base.$2}',
             ),
           _FeedbackPlanningMode.neutral => base,
         },
@@ -3113,7 +3726,7 @@ class LocalCandidatePlanningRepository {
             ),
           _FeedbackPlanningMode.redirect => (
               '換個方向：${base.$1}',
-              '最近一次沒有完成，因此不重複原做法，改用另一種 1 分鐘輕嘗試。${base.$2}',
+              '最近一次沒有完成，因此不重複原做法，改用另一種 1 分鐘簡單嘗試。${base.$2}',
             ),
           _FeedbackPlanningMode.neutral => base,
         },
@@ -3128,7 +3741,7 @@ class LocalCandidatePlanningRepository {
             ),
           _FeedbackPlanningMode.redirect => (
               '別の方向を試す：${base.$1}',
-              '最近は完了しなかったため、同じ方法を繰り返さず、別の1分の短い実験に変えます。${base.$2}',
+              '最近は完了しなかったため、同じ方法を繰り返さず、別の1分のスポットトライに変えます。${base.$2}',
             ),
           _FeedbackPlanningMode.neutral => base,
         },
@@ -3143,7 +3756,7 @@ class LocalCandidatePlanningRepository {
             ),
           _FeedbackPlanningMode.redirect => (
               'Try a different direction: ${base.$1}',
-              'The latest attempt was not completed, so this changes direction instead of repeating it and stays within 1 minute. ${base.$2}',
+              'The latest attempt was not completed, so this changes to another 1-minute Spot try instead of repeating it. ${base.$2}',
             ),
           _FeedbackPlanningMode.neutral => base,
         },
@@ -3269,7 +3882,7 @@ class LocalCandidatePlanningRepository {
           1 => ('现在留 $minutes 分钟不切换的缓冲', '今天的信号提示这个时刻值得先放轻一点：“$snippet”'),
           _ => (
               '现在做一个 $minutes 分钟的低要求恢复',
-              '用一个可以立即开始、随时暂停的轻行为回应今天的信号：“$snippet”'
+              '用一个可以立即开始、随时暂停的简单尝试回应今天的信号：“$snippet”'
             ),
         };
       case AppLanguage.traditionalChinese:
@@ -3278,7 +3891,7 @@ class LocalCandidatePlanningRepository {
           1 => ('現在留 $minutes 分鐘不切換的緩衝', '今天的信號提示這個時刻值得先放輕一點：「$snippet」'),
           _ => (
               '現在做一個 $minutes 分鐘的低要求恢復',
-              '用一個可以立即開始、隨時暫停的輕行為回應今天的信號：「$snippet」'
+              '用一個可以立即開始、隨時暫停的簡單嘗試回應今天的信號：「$snippet」'
             ),
         };
       case AppLanguage.japanese:
@@ -3290,7 +3903,7 @@ class LocalCandidatePlanningRepository {
             ),
           _ => (
               '今、$minutes分の負担が少ない回復をする',
-              'すぐ始められて、いつでも止められる軽い行動です：「$snippet」'
+              'すぐ始められて、いつでも止められるスポットトライです：「$snippet」'
             ),
         };
       case AppLanguage.english:
@@ -3305,7 +3918,7 @@ class LocalCandidatePlanningRepository {
             ),
           _ => (
               'Take a $minutes-minute low-demand recovery now',
-              'An immediate, pausable quick experiment grounded in today’s signal: “$snippet”'
+              'An immediate, pausable Spot try grounded in today’s signal: “$snippet”'
             ),
         };
     }
@@ -3648,8 +4261,15 @@ class LocalCandidatePlanningRepository {
 
   ProgressCellState? _microProgressState(Object? raw) {
     final value = _normalized(raw);
-    if (const {'yes', 'happened', 'occurred', 'done', 'completed', 'true'}
-        .contains(value)) {
+    if (const {
+      'yes',
+      'happened',
+      'occurred',
+      'done',
+      'completed',
+      'true',
+      'tried',
+    }.contains(value)) {
       return ProgressCellState.completed;
     }
     if (const {
@@ -3940,6 +4560,15 @@ class LocalCandidatePlanningRepository {
   DateTime _startOfWeek(DateTime date) {
     final local = _dateOnly(date);
     return local.subtract(Duration(days: local.weekday - DateTime.monday));
+  }
+
+  bool _belongsToNextWeek(String? rawDate, DateTime day) {
+    final value = DateTime.tryParse(rawDate?.trim() ?? '');
+    if (value == null) return false;
+    final date = _dateOnly(value.toLocal());
+    final start = _startOfWeek(day.toLocal()).add(const Duration(days: 7));
+    final end = start.add(const Duration(days: 6));
+    return !date.isBefore(start) && !date.isAfter(end);
   }
 
   DateTime _dateOnly(DateTime date) =>

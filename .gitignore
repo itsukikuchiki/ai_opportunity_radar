@@ -6,6 +6,8 @@ backend/.venv/
 backend/__pycache__/
 backend/**/*.pyc
 backend/ai_radar.db
+**/__pycache__/
+**/*.pyc
 
 # Flutter / Dart
 frontend_flutter/.dart_tool/

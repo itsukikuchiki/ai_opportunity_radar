@@ -9,6 +9,7 @@ import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/local/local_cache_invalidation_repository.dart';
 import '../../../core/local/local_candidate_planning_repository.dart';
 import '../../../core/models/candidate_models.dart';
+import '../../../core/models/experiment_evaluation_models.dart';
 import '../../../core/models/phase3_plus_models.dart';
 import '../../../core/models/today_models.dart';
 import '../../../core/models/weekly_models.dart';
@@ -19,10 +20,11 @@ import '../../../shared/widgets/experiment_feedback_sheets.dart';
 ///
 /// Existing MicroAction and LifeExperiment storage remains intact. In the
 /// user-facing model they are presented as "small experiments" and "goals". The
-/// The Life Experiment page owns the complete adopted list; the candidate hubs
+/// Life Experiment page owns the complete adopted list; the candidate hubs
 /// are only selection surfaces. Today shows at most three adopted objects per
-/// track. Small experiments show attempt count; goals show recent daily progress
-/// without implying that a long-running goal ends after seven days.
+/// track. Small experiments show recent real attempt events; goals show recent
+/// daily progress without implying that a long-running goal ends after seven
+/// days.
 class TodayAdoptedPlansSection extends StatefulWidget {
   final List<RecentSignalModel> signals;
   final MicroActionModel? compatibilityAction;
@@ -348,7 +350,7 @@ class _TodayPlanGroup extends StatelessWidget {
                   icon: Icons.spa_rounded,
                   label: AppLocaleText.tr(
                     context,
-                    en: 'Small experiments',
+                    en: 'Spot Tries',
                     zhHans: '小实验',
                     zhHant: '小實驗',
                     ja: '小実験',
@@ -371,7 +373,7 @@ class _TodayPlanGroup extends StatelessWidget {
                           onActionFeedback(actionItems[index], feedback),
                     ),
                     if (index != actionItems.length - 1)
-                      const Divider(height: 22),
+                      const Divider(height: 22, color: AuroraColors.line),
                   ],
                 if (hiddenActionCount > 0) ...[
                   const SizedBox(height: 8),
@@ -380,7 +382,7 @@ class _TodayPlanGroup extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(height: 24),
+          const Divider(height: 24, color: AuroraColors.line),
           KeyedSubtree(
             key: const ValueKey('today-adopted-experiments'),
             child: Column(
@@ -417,7 +419,7 @@ class _TodayPlanGroup extends StatelessWidget {
                       ),
                     ),
                     if (index != experimentItems.length - 1)
-                      const Divider(height: 22),
+                      const Divider(height: 22, color: AuroraColors.line),
                   ],
                 if (hiddenExperimentCount > 0) ...[
                   const SizedBox(height: 8),
@@ -564,7 +566,7 @@ class _TodayGateSummary extends StatelessWidget {
               AppLocaleText.tr(
                 context,
                 en: kind == CandidateKind.microAction
-                    ? 'Choose small experiments'
+                    ? 'Choose Spot Tries'
                     : 'Choose goals',
                 zhHans: kind == CandidateKind.microAction ? '选择小实验' : '选择目标',
                 zhHant: kind == CandidateKind.microAction ? '選擇小實驗' : '選擇目標',
@@ -578,10 +580,10 @@ class _TodayGateSummary extends StatelessWidget {
   }
 }
 
-class _TodayActionProgressRow extends StatelessWidget {
+class _TodayActionProgressRow extends StatefulWidget {
   final AdoptedMicroActionProgress item;
   final bool isBusy;
-  final ValueChanged<SmallTryAttemptFeedbackDraft> onFeedback;
+  final Future<void> Function(SmallTryAttemptFeedbackDraft feedback) onFeedback;
 
   const _TodayActionProgressRow({
     required this.item,
@@ -590,7 +592,31 @@ class _TodayActionProgressRow extends StatelessWidget {
   });
 
   @override
+  State<_TodayActionProgressRow> createState() =>
+      _TodayActionProgressRowState();
+}
+
+class _TodayActionProgressRowState extends State<_TodayActionProgressRow> {
+  final TextEditingController _noteController = TextEditingController();
+  String? _effect;
+  String? _difficulty;
+  bool _showCompletedDetails = false;
+
+  bool get _canSaveCompleted =>
+      SmallTryEffect.values.contains(_effect) &&
+      SmallTryDifficulty.values.contains(_difficulty);
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final recordedEntries = widget.item.progress.recordedEntries;
+    final completedAttempts = widget.item.progress.completedAttempts;
+    final notAttemptedEntries = widget.item.progress.notAttemptedEntries;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -598,7 +624,7 @@ class _TodayActionProgressRow extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                item.action.title,
+                widget.item.action.title,
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       color: AuroraColors.ink,
                       fontWeight: FontWeight.w900,
@@ -608,10 +634,10 @@ class _TodayActionProgressRow extends StatelessWidget {
             Text(
               AppLocaleText.tr(
                 context,
-                en: '${item.progress.completedDays} attempts',
-                zhHans: '尝试 ${item.progress.completedDays} 次',
-                zhHant: '嘗試 ${item.progress.completedDays} 次',
-                ja: '${item.progress.completedDays} 回試した',
+                en: '$completedAttempts tried · $notAttemptedEntries not tried',
+                zhHans: '尝试 $completedAttempts 次 · 未尝试 $notAttemptedEntries 次',
+                zhHant: '嘗試 $completedAttempts 次 · 未嘗試 $notAttemptedEntries 次',
+                ja: '$completedAttempts 回試行 · $notAttemptedEntries 回未試行',
               ),
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: AuroraColors.mint,
@@ -620,7 +646,7 @@ class _TodayActionProgressRow extends StatelessWidget {
             ),
           ],
         ),
-        if (item.action.sourceChanged) ...[
+        if (widget.item.action.sourceChanged) ...[
           const SizedBox(height: 5),
           const _SourceChangedLabel(),
         ],
@@ -628,10 +654,10 @@ class _TodayActionProgressRow extends StatelessWidget {
         Text(
           AppLocaleText.tr(
             context,
-            en: 'A short action you can finish within 10 minutes.',
-            zhHans: '10 分钟以内即可完成的一次轻尝试。',
-            zhHant: '10 分鐘以內即可完成的一次輕嘗試。',
-            ja: '10分以内で終えられる軽い試みです。',
+            en: 'A Spot Try you can start right away.',
+            zhHans: '现在就能开始的一次简单尝试。',
+            zhHant: '現在就能開始的一次簡單嘗試。',
+            ja: '今すぐ始められるスポットトライです。',
           ),
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: AuroraColors.muted,
@@ -639,27 +665,442 @@ class _TodayActionProgressRow extends StatelessWidget {
               ),
         ),
         const SizedBox(height: 8),
-        _TodayFeedbackButton(
-          icon: Icons.add_task_rounded,
-          label: AppLocaleText.tr(
-            context,
-            en: 'Record an attempt',
-            zhHans: '登记一次',
-            zhHant: '登記一次',
-            ja: '1回記録',
+        if (recordedEntries == 0)
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'No attempts recorded yet.',
+              zhHans: '还没有登记尝试。',
+              zhHant: '還沒有登記嘗試。',
+              ja: 'まだ試行の記録はありません。',
+            ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AuroraColors.muted,
+                  fontWeight: FontWeight.w600,
+                ),
+          )
+        else ...[
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: recordedEntries > 7
+                  ? 'Latest 7 recorded attempts'
+                  : 'Recorded attempts',
+              zhHans: recordedEntries > 7 ? '最近 7 次登记' : '尝试记录',
+              zhHant: recordedEntries > 7 ? '最近 7 次登記' : '嘗試記錄',
+              ja: recordedEntries > 7 ? '直近 7 回の記録' : '試行記録',
+            ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AuroraColors.muted,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
-          color: AuroraColors.mint,
-          onPressed: isBusy
-              ? null
-              : () async {
-                  final draft = await showSmallTryAttemptFeedbackSheet(
-                    context,
-                    title: item.action.title,
-                  );
-                  if (draft != null) onFeedback(draft);
-                },
+          const SizedBox(height: 6),
+          _CompactAttemptProgressCells(progress: widget.item.progress),
+        ],
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            _TodayFeedbackButton(
+              key: ValueKey(
+                'today-small-experiment-completed-${widget.item.action.id}',
+              ),
+              icon: Icons.check_rounded,
+              label: AppLocaleText.tr(
+                context,
+                en: 'Completed',
+                zhHans: '已完成',
+                zhHant: '已完成',
+                ja: '完了',
+              ),
+              color: AuroraColors.mint,
+              onPressed: widget.isBusy
+                  ? null
+                  : () {
+                      setState(() {
+                        _showCompletedDetails = true;
+                      });
+                    },
+            ),
+            _TodayFeedbackButton(
+              key: ValueKey(
+                'today-small-experiment-not-completed-${widget.item.action.id}',
+              ),
+              icon: Icons.close_rounded,
+              label: AppLocaleText.tr(
+                context,
+                en: 'Not completed',
+                zhHans: '未完成',
+                zhHant: '未完成',
+                ja: '未完了',
+              ),
+              color: AuroraColors.orange,
+              onPressed: widget.isBusy
+                  ? null
+                  : () async {
+                      await widget.onFeedback(
+                        const SmallTryAttemptFeedbackDraft(
+                          completionStatus: 'not_completed',
+                        ),
+                      );
+                      _resetCompletedDetails();
+                    },
+            ),
+          ],
         ),
+        if (_showCompletedDetails) ...[
+          const SizedBox(height: 10),
+          _InlineCompletedSmallTryFeedback(
+            effect: _effect,
+            difficulty: _difficulty,
+            noteController: _noteController,
+            isBusy: widget.isBusy,
+            canSave: _canSaveCompleted,
+            onEffectChanged: (value) => setState(() => _effect = value),
+            onDifficultyChanged: (value) => setState(() => _difficulty = value),
+            onCancel: _resetCompletedDetails,
+            onSave: _saveCompleted,
+          ),
+        ],
       ],
+    );
+  }
+
+  Future<void> _saveCompleted() async {
+    if (!_canSaveCompleted || widget.isBusy) return;
+    final note = _noteController.text.trim();
+    await widget.onFeedback(
+      SmallTryAttemptFeedbackDraft(
+        completionStatus: 'completed',
+        effect: _effect,
+        difficulty: _difficulty,
+        note: note.isEmpty ? null : note,
+      ),
+    );
+    _resetCompletedDetails();
+  }
+
+  void _resetCompletedDetails() {
+    if (!mounted) return;
+    setState(() {
+      _showCompletedDetails = false;
+      _effect = null;
+      _difficulty = null;
+      _noteController.clear();
+    });
+  }
+}
+
+class _CompactAttemptProgressCells extends StatelessWidget {
+  final SevenDayProgressModel progress;
+
+  const _CompactAttemptProgressCells({required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    final allCells = progress.cells;
+    final cells =
+        allCells.length > 7 ? allCells.sublist(allCells.length - 7) : allCells;
+    final firstAttemptIndex = allCells.length - cells.length + 1;
+    return Wrap(
+      spacing: 5,
+      runSpacing: 5,
+      children: [
+        for (var index = 0; index < cells.length; index++)
+          SizedBox.square(
+            dimension: 42,
+            child: _CompactCell(
+              key: ValueKey(
+                'today-small-experiment-attempt-'
+                '${cells[index].latestEventId ?? firstAttemptIndex + index}',
+              ),
+              cell: cells[index],
+              semanticPrefix: AppLocaleText.tr(
+                context,
+                en: 'Attempt ${firstAttemptIndex + index}',
+                zhHans: '第 ${firstAttemptIndex + index} 次尝试',
+                zhHant: '第 ${firstAttemptIndex + index} 次嘗試',
+                ja: '${firstAttemptIndex + index} 回目',
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _InlineCompletedSmallTryFeedback extends StatelessWidget {
+  final String? effect;
+  final String? difficulty;
+  final TextEditingController noteController;
+  final bool isBusy;
+  final bool canSave;
+  final ValueChanged<String> onEffectChanged;
+  final ValueChanged<String> onDifficultyChanged;
+  final VoidCallback onCancel;
+  final Future<void> Function() onSave;
+
+  const _InlineCompletedSmallTryFeedback({
+    required this.effect,
+    required this.difficulty,
+    required this.noteController,
+    required this.isBusy,
+    required this.canSave,
+    required this.onEffectChanged,
+    required this.onDifficultyChanged,
+    required this.onCancel,
+    required this.onSave,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('today-small-experiment-completed-details'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AuroraColors.mint.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AuroraColors.mint.withValues(alpha: 0.22),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'How was this attempt?',
+              zhHans: '这次尝试怎么样？',
+              zhHant: '這次嘗試怎麼樣？',
+              ja: '今回の試行はどうでしたか？',
+            ),
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 10),
+          _InlineFeedbackLabel(
+            text: AppLocaleText.tr(
+              context,
+              en: 'Did it help right away?',
+              zhHans: '当下有帮助吗？',
+              zhHant: '當下有幫助嗎？',
+              ja: 'すぐに役立ちましたか？',
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _InlineFeedbackChoice(
+                key: const ValueKey('today-small-experiment-effect-helpful'),
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Helpful',
+                  zhHans: '有帮助',
+                  zhHant: '有幫助',
+                  ja: '役立った',
+                ),
+                selected: effect == SmallTryEffect.helpful,
+                onPressed: () => onEffectChanged(SmallTryEffect.helpful),
+              ),
+              _InlineFeedbackChoice(
+                key: const ValueKey('today-small-experiment-effect-somewhat'),
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'A little',
+                  zhHans: '有一点',
+                  zhHant: '有一點',
+                  ja: '少し',
+                ),
+                selected: effect == SmallTryEffect.somewhatHelpful,
+                onPressed: () =>
+                    onEffectChanged(SmallTryEffect.somewhatHelpful),
+              ),
+              _InlineFeedbackChoice(
+                key: const ValueKey('today-small-experiment-effect-none'),
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'No difference',
+                  zhHans: '没感觉',
+                  zhHant: '沒感覺',
+                  ja: '変化なし',
+                ),
+                selected: effect == SmallTryEffect.noEffect,
+                onPressed: () => onEffectChanged(SmallTryEffect.noEffect),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _InlineFeedbackLabel(
+            text: AppLocaleText.tr(
+              context,
+              en: 'How much effort did it take?',
+              zhHans: '做起来费力吗？',
+              zhHant: '做起來費力嗎？',
+              ja: '負担はどのくらいでしたか？',
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _InlineFeedbackChoice(
+                key: const ValueKey('today-small-experiment-difficulty-easy'),
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Easy',
+                  zhHans: '轻松',
+                  zhHant: '輕鬆',
+                  ja: '軽い',
+                ),
+                selected: difficulty == SmallTryDifficulty.easy,
+                onPressed: () => onDifficultyChanged(SmallTryDifficulty.easy),
+              ),
+              _InlineFeedbackChoice(
+                key: const ValueKey('today-small-experiment-difficulty-okay'),
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Okay',
+                  zhHans: '还好',
+                  zhHant: '還好',
+                  ja: '普通',
+                ),
+                selected: difficulty == SmallTryDifficulty.okay,
+                onPressed: () => onDifficultyChanged(SmallTryDifficulty.okay),
+              ),
+              _InlineFeedbackChoice(
+                key: const ValueKey('today-small-experiment-difficulty-hard'),
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Took effort',
+                  zhHans: '偏费力',
+                  zhHant: '偏費力',
+                  ja: 'やや重い',
+                ),
+                selected: difficulty == SmallTryDifficulty.difficult,
+                onPressed: () =>
+                    onDifficultyChanged(SmallTryDifficulty.difficult),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            key: const ValueKey('today-small-experiment-note'),
+            controller: noteController,
+            minLines: 1,
+            maxLines: 2,
+            maxLength: 160,
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: AppLocaleText.tr(
+                context,
+                en: 'Add a note (optional)',
+                zhHans: '补一句（可选）',
+                zhHant: '補一句（可選）',
+                ja: 'ひとこと追加（任意）',
+              ),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.78),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AuroraColors.line),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AuroraColors.line),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              TextButton(
+                onPressed: isBusy ? null : onCancel,
+                child: Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Cancel',
+                    zhHans: '取消',
+                    zhHant: '取消',
+                    ja: 'キャンセル',
+                  ),
+                ),
+              ),
+              const Spacer(),
+              FilledButton.icon(
+                key: const ValueKey('today-small-experiment-save-completed'),
+                onPressed: !isBusy && canSave ? () => onSave() : null,
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Save',
+                    zhHans: '保存',
+                    zhHant: '儲存',
+                    ja: '保存',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InlineFeedbackLabel extends StatelessWidget {
+  final String text;
+
+  const _InlineFeedbackLabel({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: AuroraColors.ink,
+            fontWeight: FontWeight.w800,
+          ),
+    );
+  }
+}
+
+class _InlineFeedbackChoice extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  const _InlineFeedbackChoice({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      selected: selected,
+      showCheckmark: true,
+      label: Text(label),
+      onSelected: (_) => onPressed(),
+      side: BorderSide(
+        color: selected ? AuroraColors.purple : AuroraColors.line,
+      ),
+      selectedColor: AuroraColors.purple.withValues(alpha: 0.12),
+      backgroundColor: Colors.white.withValues(alpha: 0.76),
+      labelStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: selected ? AuroraColors.purple : AuroraColors.ink,
+            fontWeight: FontWeight.w700,
+          ),
     );
   }
 }
@@ -738,6 +1179,9 @@ class _TodayExperimentProgressRow extends StatelessWidget {
           runSpacing: 6,
           children: [
             _TodayFeedbackButton(
+              key: ValueKey(
+                'today-goal-completed-${item.experiment.id}',
+              ),
               icon: Icons.check_rounded,
               label: AppLocaleText.tr(
                 context,
@@ -750,6 +1194,9 @@ class _TodayExperimentProgressRow extends StatelessWidget {
               onPressed: isBusy ? null : () => onFeedback('completed'),
             ),
             _TodayFeedbackButton(
+              key: ValueKey(
+                'today-goal-not-completed-${item.experiment.id}',
+              ),
               icon: Icons.close_rounded,
               label: AppLocaleText.tr(
                 context,
@@ -789,8 +1236,13 @@ class _CompactProgressCells extends StatelessWidget {
 
 class _CompactCell extends StatelessWidget {
   final SevenDayProgressCell cell;
+  final String? semanticPrefix;
 
-  const _CompactCell({required this.cell});
+  const _CompactCell({
+    super.key,
+    required this.cell,
+    this.semanticPrefix,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -812,7 +1264,7 @@ class _CompactCell extends StatelessWidget {
         ),
     };
     return Semantics(
-      label: '${cell.localDate}, $label',
+      label: '${semanticPrefix ?? cell.localDate}, $label',
       child: AspectRatio(
         aspectRatio: 1,
         child: Container(
@@ -846,7 +1298,7 @@ class _SourceChangedLabel extends StatelessWidget {
             en: 'Source changed · adopted item is kept',
             zhHans: '来源已变化 · 已采纳内容继续保留',
             zhHant: '來源已變化 · 已採納內容繼續保留',
-            ja: 'Signal ソースが変更 · 採用済み内容は保持',
+            ja: 'Signal の参照元が変更・採用済み内容は保持',
           ),
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: AuroraColors.orange,
@@ -865,6 +1317,7 @@ class _TodayFeedbackButton extends StatelessWidget {
   final VoidCallback? onPressed;
 
   const _TodayFeedbackButton({
+    super.key,
     required this.icon,
     required this.label,
     required this.color,

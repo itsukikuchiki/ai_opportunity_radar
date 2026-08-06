@@ -19,6 +19,7 @@ import '../../../core/preferences/focus_domains.dart';
 import '../../../core/state/app_data_refresh_coordinator.dart';
 import '../../../shared/utils/user_visible_text_sanitizer.dart';
 import '../../../shared/widgets/aurora_ui.dart';
+import '../../shell/main_tab_bottom_navigation.dart';
 import 'today_view_model.dart';
 
 enum _TimelineFilter { all, record, action, experiment }
@@ -201,7 +202,6 @@ class _TodayDiaryPageState extends State<TodayDiaryPage> {
         initialDate: _selectedDate.isAfter(today) ? today : _selectedDate,
         firstDate: firstDate,
         lastDate: today,
-        contentDateKeys: _contentDateKeys,
       ),
     );
     if (selected != null && mounted) _selectDate(selected);
@@ -276,10 +276,10 @@ class _TodayDiaryPageState extends State<TodayDiaryPage> {
                             ),
                             subtitle: AppLocaleText.tr(
                               context,
-                              en: 'Turn the pages by date to revisit signals, quick tries, and goals.',
-                              zhHans: '按日期翻阅信号、小实验和目标。',
-                              zhHant: '按日期翻閱信號、小實驗和目標。',
-                              ja: '日付ごとにシグナル、小実験、目標を振り返ります。',
+                              en: 'Turn the pages by date to revisit signals, Spot Tries, and goals.',
+                              zhHans: '按日期翻阅信号、简单尝试和目标。',
+                              zhHant: '按日期翻閱信號、簡單嘗試和目標。',
+                              ja: '日付ごとにシグナル、スポットトライ、目標を振り返ります。',
                             ),
                           ),
                         ],
@@ -291,11 +291,6 @@ class _TodayDiaryPageState extends State<TodayDiaryPage> {
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                       child: _DiaryDateNavigator(
                         selectedDate: _selectedDate,
-                        datesWithContent: _contentDateKeys
-                            .map(DateTime.tryParse)
-                            .whereType<DateTime>()
-                            .map(_dateOnly)
-                            .toSet(),
                         onSelected: _selectDate,
                         onOpenCalendar: _openDatePicker,
                       ),
@@ -349,7 +344,7 @@ class _TodayDiaryPageState extends State<TodayDiaryPage> {
           const AuroraSafeTopMask(extraHeight: 6),
         ],
       ),
-      bottomNavigationBar: const _DiaryBottomNavigation(),
+      bottomNavigationBar: const MainTabBottomNavigation(selectedIndex: 0),
     );
   }
 
@@ -512,13 +507,11 @@ class _TimelineHero extends StatelessWidget {
 
 class _DiaryDateNavigator extends StatelessWidget {
   final DateTime selectedDate;
-  final Set<DateTime> datesWithContent;
   final ValueChanged<DateTime> onSelected;
   final VoidCallback onOpenCalendar;
 
   const _DiaryDateNavigator({
     required this.selectedDate,
-    required this.datesWithContent,
     required this.onSelected,
     required this.onOpenCalendar,
   });
@@ -533,7 +526,6 @@ class _DiaryDateNavigator extends StatelessWidget {
       DateTime.daysPerWeek,
       (index) => weekStart.add(Duration(days: index)),
     );
-    final hasContent = datesWithContent.map(_dateKey).toSet();
 
     return Container(
       key: const ValueKey('today-diary-date-navigator'),
@@ -649,7 +641,6 @@ class _DiaryDateNavigator extends StatelessWidget {
                     date: day,
                     selected: _sameDay(day, selected),
                     enabled: !day.isAfter(today),
-                    hasContent: hasContent.contains(_dateKey(day)),
                     onTap: () => onSelected(day),
                   ),
                 ),
@@ -687,11 +678,6 @@ class _DiaryDateNavigator extends StatelessWidget {
       left.year == right.year &&
       left.month == right.month &&
       left.day == right.day;
-
-  static String _dateKey(DateTime value) =>
-      '${value.year.toString().padLeft(4, '0')}-'
-      '${value.month.toString().padLeft(2, '0')}-'
-      '${value.day.toString().padLeft(2, '0')}';
 
   static String _monthTitle(BuildContext context, DateTime value) {
     final weekday = _longWeekday(context, value.weekday);
@@ -758,14 +744,12 @@ class _DiaryDayTab extends StatelessWidget {
   final DateTime date;
   final bool selected;
   final bool enabled;
-  final bool hasContent;
   final VoidCallback onTap;
 
   const _DiaryDayTab({
     required this.date,
     required this.selected,
     required this.enabled,
-    required this.hasContent,
     required this.onTap,
   });
 
@@ -823,17 +807,6 @@ class _DiaryDayTab extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     ),
               ),
-              const SizedBox(height: 3),
-              Container(
-                width: 5,
-                height: 5,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: hasContent
-                      ? (selected ? Colors.white : AuroraColors.mint)
-                      : Colors.transparent,
-                ),
-              ),
             ],
           ),
         ),
@@ -856,13 +829,11 @@ class _DiaryMonthPicker extends StatefulWidget {
   final DateTime initialDate;
   final DateTime firstDate;
   final DateTime lastDate;
-  final Set<String> contentDateKeys;
 
   const _DiaryMonthPicker({
     required this.initialDate,
     required this.firstDate,
     required this.lastDate,
-    required this.contentDateKeys,
   });
 
   @override
@@ -1045,37 +1016,9 @@ class _DiaryMonthPickerState extends State<_DiaryMonthPicker> {
                   selected: _sameDay(date, widget.initialDate),
                   enabled: !date.isBefore(widget.firstDate) &&
                       !date.isAfter(widget.lastDate),
-                  hasContent: widget.contentDateKeys.contains(_dateKey(date)),
                   onTap: () => Navigator.of(context).pop(date),
                 );
               },
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: const BoxDecoration(
-                    color: AuroraColors.mint,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 7),
-                Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Days with diary content',
-                    zhHans: '有手帐内容的日期',
-                    zhHant: '有手帳內容的日期',
-                    ja: '手帳の内容がある日',
-                  ),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AuroraColors.muted,
-                  ),
-                ),
-              ],
             ),
           ],
         ),
@@ -1087,11 +1030,6 @@ class _DiaryMonthPickerState extends State<_DiaryMonthPicker> {
       left.year == right.year &&
       left.month == right.month &&
       left.day == right.day;
-
-  static String _dateKey(DateTime value) =>
-      '${value.year.toString().padLeft(4, '0')}-'
-      '${value.month.toString().padLeft(2, '0')}-'
-      '${value.day.toString().padLeft(2, '0')}';
 
   static List<String> _weekdayLabels(BuildContext context) {
     return switch (Localizations.localeOf(context).languageCode) {
@@ -1106,14 +1044,12 @@ class _DiaryMonthDay extends StatelessWidget {
   final DateTime date;
   final bool selected;
   final bool enabled;
-  final bool hasContent;
   final VoidCallback onTap;
 
   const _DiaryMonthDay({
     required this.date,
     required this.selected,
     required this.enabled,
-    required this.hasContent,
     required this.onTap,
   });
 
@@ -1154,20 +1090,6 @@ class _DiaryMonthDay extends StatelessWidget {
                               : AuroraColors.ink,
                       fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                     ),
-              ),
-              const SizedBox(height: 2),
-              Container(
-                key: hasContent
-                    ? ValueKey('today-diary-calendar-content-$key')
-                    : null,
-                width: 5,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: hasContent
-                      ? (selected ? Colors.white : AuroraColors.mint)
-                      : Colors.transparent,
-                  shape: BoxShape.circle,
-                ),
               ),
             ],
           ),
@@ -1216,10 +1138,10 @@ class _TimelineFilterBar extends StatelessWidget {
         icon: Icons.spa_rounded,
         label: AppLocaleText.tr(
           context,
-          en: 'Quick tries',
-          zhHans: '小实验',
-          zhHant: '小實驗',
-          ja: '小実験',
+          en: 'Spot Tries',
+          zhHans: '简单尝试',
+          zhHant: '簡單嘗試',
+          ja: 'スポットトライ',
         ),
       ),
       _TimelineFilterItem(
@@ -1471,8 +1393,7 @@ class _TimelineEntryCard extends StatelessWidget {
               children: [
                 Text(
                   entry.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  key: const ValueKey('today-diary-entry-title'),
                   style: theme.textTheme.labelLarge?.copyWith(
                     color: entry.color,
                     fontWeight: FontWeight.w700,
@@ -1480,18 +1401,20 @@ class _TimelineEntryCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  entry.body,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF454C62),
-                    fontWeight: FontWeight.w500,
-                    fontSize: 13,
-                    height: 1.3,
+                if (entry.timeUse != null)
+                  _DiaryTimeUsePeriodBlock(data: entry.timeUse!)
+                else
+                  Text(
+                    entry.body,
+                    key: const ValueKey('today-diary-entry-body'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF454C62),
+                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
+                      height: 1.3,
+                    ),
                   ),
-                ),
-                if (entry.tagLabel != null) ...[
+                if (entry.timeUse == null && entry.tagLabel != null) ...[
                   const SizedBox(height: 6),
                   AuroraChip(label: entry.tagLabel!, color: entry.color),
                 ],
@@ -1537,7 +1460,13 @@ class _TimelineEntryCard extends StatelessWidget {
             Column(
               children: [
                 _MiniActionButton(
-                  label: 'AI',
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Chat',
+                    zhHans: '聊聊',
+                    zhHant: '聊聊',
+                    ja: '話す',
+                  ),
                   onTap: () => _openAiDialog(context, entry),
                 ),
               ],
@@ -1557,9 +1486,9 @@ class _TimelineEntryCard extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'This record cannot open AI chat yet.',
-              zhHans: '这条记录暂时还不能打开 AI 聊聊。',
-              zhHant: '這條記錄暫時還不能打開 AI 聊聊。',
-              ja: 'この記録はまだ AI チャットを開けません。',
+              zhHans: '这条记录暂时还不能打开智能助手聊天。',
+              zhHant: '這條記錄暫時還不能開啟智慧助手對話。',
+              ja: 'この記録では、まだ人工知能との対話を開けません。',
             ),
           ),
         ),
@@ -1567,6 +1496,96 @@ class _TimelineEntryCard extends StatelessWidget {
       return;
     }
     context.push('${AppRoutes.todayDialog}/$captureId');
+  }
+}
+
+class _DiaryTimeUsePeriodBlock extends StatelessWidget {
+  final _DiaryTimeUseData data;
+
+  const _DiaryTimeUsePeriodBlock({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = data.isPlanned ? AuroraColors.blue : const Color(0xFF45C9C3);
+    return Container(
+      key: const ValueKey('today-diary-time-use-period-block'),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(9, 8, 9, 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            accent.withValues(alpha: 0.14),
+            Colors.white.withValues(alpha: 0.52),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.78),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  data.startTime,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                Container(
+                  width: 1,
+                  height: 7,
+                  margin: const EdgeInsets.symmetric(vertical: 1),
+                  color: accent.withValues(alpha: 0.52),
+                ),
+                Text(
+                  data.endTime,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AuroraColors.muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF454C62),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        height: 1.25,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${data.categoryLabel} · ${data.statusLabel}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: accent,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1703,10 +1722,10 @@ class _EmptyDiaryState extends StatelessWidget {
             Text(
               AppLocaleText.tr(
                 context,
-                en: 'This diary day will collect its signals, quick tries, and goals in time order.',
-                zhHans: '这一天的信号、小实验和目标，会按时间留在手帐里。',
-                zhHant: '這一天的信號、小實驗和目標，會按時間留在手帳裡。',
-                ja: 'この日のシグナル、小実験、目標が時間順に並びます。',
+                en: 'This diary day will collect its signals, Spot Tries, and goals in time order.',
+                zhHans: '这一天的信号、简单尝试和目标，会按时间留在手帐里。',
+                zhHant: '這一天的信號、簡單嘗試和目標，會按時間留在手帳裡。',
+                ja: 'この日のシグナル、スポットトライ、目標が時間順に並びます。',
               ),
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -1733,10 +1752,10 @@ class _EmptyDiaryState extends StatelessWidget {
       case _TimelineFilter.action:
         return AppLocaleText.tr(
           context,
-          en: 'No quick tries on this day',
-          zhHans: '这一天还没有小实验',
-          zhHant: '這一天還沒有小實驗',
-          ja: 'この日の小実験はまだありません',
+          en: 'No Spot Tries on this day',
+          zhHans: '这一天还没有简单尝试',
+          zhHant: '這一天還沒有簡單嘗試',
+          ja: 'この日のスポットトライはまだありません',
         );
       case _TimelineFilter.experiment:
         return AppLocaleText.tr(
@@ -1758,165 +1777,6 @@ class _EmptyDiaryState extends StatelessWidget {
   }
 }
 
-class _DiaryBottomNavigation extends StatelessWidget {
-  const _DiaryBottomNavigation();
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      _DiaryNavItem(
-        label: AppLocaleText.tr(
-          context,
-          en: 'Today',
-          zhHans: '今天',
-          zhHant: '今天',
-          ja: '今日',
-        ),
-        icon: Icons.wb_sunny_outlined,
-        selectedIcon: Icons.wb_sunny_rounded,
-        route: AppRoutes.today,
-        selected: true,
-      ),
-      _DiaryNavItem(
-        label: AppLocaleText.tr(
-          context,
-          en: 'Weekly',
-          zhHans: '每周复盘',
-          zhHant: '每週',
-          ja: 'Weekly',
-        ),
-        icon: Icons.bar_chart_rounded,
-        selectedIcon: Icons.bar_chart_rounded,
-        route: AppRoutes.weekly,
-      ),
-      _DiaryNavItem(
-        label: AppLocaleText.tr(
-          context,
-          en: 'Life Experiment',
-          zhHans: '生活小实验',
-          zhHant: '生活小實驗',
-          ja: '生活実験',
-        ),
-        icon: Icons.science_outlined,
-        selectedIcon: Icons.science_rounded,
-        route: AppRoutes.experiment,
-      ),
-      _DiaryNavItem(
-        label: AppLocaleText.tr(
-          context,
-          en: 'Journey',
-          zhHans: '旅程',
-          zhHant: '旅程',
-          ja: 'Journey',
-        ),
-        icon: Icons.explore_outlined,
-        selectedIcon: Icons.explore_rounded,
-        route: AppRoutes.memory,
-      ),
-      _DiaryNavItem(
-        label: AppLocaleText.tr(
-          context,
-          en: 'Me',
-          zhHans: '我的',
-          zhHant: '我的',
-          ja: 'マイ',
-        ),
-        icon: Icons.person_outline_rounded,
-        selectedIcon: Icons.person_rounded,
-        route: AppRoutes.me,
-      ),
-    ];
-
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
-        child: Container(
-          height: 74,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.84),
-            borderRadius: BorderRadius.circular(31),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.95)),
-            boxShadow: [
-              BoxShadow(
-                color: AuroraColors.purple.withValues(alpha: 0.14),
-                blurRadius: 32,
-                offset: const Offset(0, 14),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              for (final item in items)
-                Expanded(child: _DiaryNavPill(item: item)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DiaryNavPill extends StatelessWidget {
-  final _DiaryNavItem item;
-
-  const _DiaryNavPill({required this.item});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(22),
-      onTap: () => item.selected ? null : context.go(item.route),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 38,
-            height: 34,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: item.selected
-                  ? const RadialGradient(
-                      colors: [Color(0xFFB59AFF), Color(0xFF8063F4)],
-                    )
-                  : null,
-              boxShadow: item.selected
-                  ? [
-                      BoxShadow(
-                        color: AuroraColors.purple.withValues(alpha: 0.34),
-                        blurRadius: 18,
-                        offset: const Offset(0, 7),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Icon(
-              item.selected ? item.selectedIcon : item.icon,
-              color: item.selected ? Colors.white : const Color(0xFF9498AE),
-              size: 23,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            item.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: item.selected
-                      ? AuroraColors.purple
-                      : const Color(0xFF747989),
-                  fontWeight: item.selected ? FontWeight.w700 : FontWeight.w600,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _TimelineEntry {
   final String? captureId;
   final DateTime createdAt;
@@ -1931,6 +1791,7 @@ class _TimelineEntry {
   final IconData icon;
   final Color color;
   final _TimelineFilter filter;
+  final _DiaryTimeUseData? timeUse;
 
   const _TimelineEntry({
     required this.captureId,
@@ -1946,6 +1807,7 @@ class _TimelineEntry {
     required this.icon,
     required this.color,
     required this.filter,
+    this.timeUse,
   });
 
   factory _TimelineEntry.fromSignal(
@@ -1961,9 +1823,13 @@ class _TimelineEntry {
     final displayTime = timeUseStart ?? createdAt;
     final localDate = _parseLocalDate(signal.localDate) ??
         DateTime(displayTime.year, displayTime.month, displayTime.day);
-    final kind = _kindForSignal(signal);
-    final feedback = _feedbackLabel(signal);
-    final progress = _progress(signal);
+    final kind = _kindForSignal(context, signal);
+    final feedback = _feedbackLabel(context, signal);
+    final progress = _progress(context, signal);
+    final timeUse = signal.sourceType == 'time_use' ||
+            signal.rawPayloadJson['timeline_type'] == 'time_use'
+        ? _DiaryTimeUseData.tryFromSignal(context, signal)
+        : null;
     return _TimelineEntry(
       captureId: signal.signalCardId ?? signal.id,
       createdAt: displayTime,
@@ -1971,7 +1837,7 @@ class _TimelineEntry {
       timeLabel:
           '${displayTime.hour.toString().padLeft(2, '0')}:${displayTime.minute.toString().padLeft(2, '0')}',
       title: kind.title,
-      body: _body(signal),
+      body: _body(context, signal),
       tagLabel: kind.tagLabel(context, signal),
       feedbackLabel: feedback,
       progressText: progress?.$1,
@@ -1979,6 +1845,7 @@ class _TimelineEntry {
       icon: kind.icon,
       color: kind.color,
       filter: kind.filter,
+      timeUse: timeUse,
     );
   }
 
@@ -2003,10 +1870,10 @@ class _TimelineEntry {
       timeLabel: _timeLabel(displayTime),
       title: AppLocaleText.tr(
         context,
-        en: 'Quick try',
-        zhHans: '小实验',
-        zhHant: '小實驗',
-        ja: '小実験',
+        en: 'Spot Try',
+        zhHans: '简单尝试',
+        zhHant: '簡單嘗試',
+        ja: 'スポットトライ',
       ),
       body: item.action.title.trim().isEmpty
           ? item.action.reason.trim()
@@ -2169,14 +2036,23 @@ class _TimelineEntry {
     return DateTime(parsed.year, parsed.month, parsed.day);
   }
 
-  static _TimelineEntryKind _kindForSignal(RecentSignalModel signal) {
+  static _TimelineEntryKind _kindForSignal(
+    BuildContext context,
+    RecentSignalModel signal,
+  ) {
     final source = signal.sourceType;
     final payloadKind = signal.rawPayloadJson['timeline_type']?.toString() ??
         signal.rawPayloadJson['kind']?.toString() ??
         '';
     if (source == 'time_use' || payloadKind == 'time_use') {
-      return const _TimelineEntryKind(
-        title: '安排',
+      return _TimelineEntryKind(
+        title: AppLocaleText.tr(
+          context,
+          en: 'Schedule',
+          zhHans: '安排',
+          zhHant: '安排',
+          ja: '予定',
+        ),
         icon: Icons.event_note_rounded,
         color: AuroraColors.blue,
         filter: _TimelineFilter.record,
@@ -2185,64 +2061,106 @@ class _TimelineEntry {
     if (source == 'micro_action' ||
         source == 'daily_action' ||
         payloadKind == 'micro_action') {
-      return const _TimelineEntryKind(
-        title: '小实验',
+      return _TimelineEntryKind(
+        title: AppLocaleText.tr(
+          context,
+          en: 'Spot Try',
+          zhHans: '小实验',
+          zhHant: '小實驗',
+          ja: '小実験',
+        ),
         icon: Icons.spa_rounded,
-        color: Color(0xFF45C9C3),
+        color: const Color(0xFF45C9C3),
         filter: _TimelineFilter.action,
       );
     }
     if (source == 'feedback' || payloadKind == 'feedback') {
-      return const _TimelineEntryKind(
-        title: '小实验记录',
+      return _TimelineEntryKind(
+        title: AppLocaleText.tr(
+          context,
+          en: 'Spot Try record',
+          zhHans: '小实验记录',
+          zhHant: '小實驗記錄',
+          ja: '小実験の記録',
+        ),
         icon: Icons.favorite_rounded,
-        color: Color(0xFFFF70B1),
+        color: const Color(0xFFFF70B1),
         filter: _TimelineFilter.action,
       );
     }
     if (source == 'weekly_experiment' ||
         source == 'experiment' ||
         payloadKind == 'experiment') {
-      return const _TimelineEntryKind(
-        title: '目标',
+      return _TimelineEntryKind(
+        title: AppLocaleText.tr(
+          context,
+          en: 'Goal',
+          zhHans: '目标',
+          zhHant: '目標',
+          ja: '目標',
+        ),
         icon: Icons.science_rounded,
         color: AuroraColors.purple,
         filter: _TimelineFilter.experiment,
       );
     }
     if (source == 'one_tap' || source == 'status') {
-      return const _TimelineEntryKind(
-        title: '状态',
+      return _TimelineEntryKind(
+        title: AppLocaleText.tr(
+          context,
+          en: 'State',
+          zhHans: '状态',
+          zhHant: '狀態',
+          ja: '状態',
+        ),
         icon: Icons.mood_rounded,
         color: AuroraColors.orange,
         filter: _TimelineFilter.record,
       );
     }
     if (source == 'ai_predicted') {
-      return const _TimelineEntryKind(
-        title: 'AI',
+      return _TimelineEntryKind(
+        title: AppLocaleText.tr(
+          context,
+          en: 'Prediction',
+          zhHans: '智能预判',
+          zhHant: '智慧預判',
+          ja: '人工知能による予測',
+        ),
         icon: Icons.text_fields_rounded,
         color: AuroraColors.blue,
         filter: _TimelineFilter.record,
       );
     }
     if (source == 'voice') {
-      return const _TimelineEntryKind(
-        title: '语音记录',
+      return _TimelineEntryKind(
+        title: AppLocaleText.tr(
+          context,
+          en: 'Voice record',
+          zhHans: '语音记录',
+          zhHant: '語音記錄',
+          ja: '音声記録',
+        ),
         icon: Icons.mic_rounded,
         color: AuroraColors.purple,
         filter: _TimelineFilter.record,
       );
     }
-    return const _TimelineEntryKind(
-      title: '文字记录',
+    return _TimelineEntryKind(
+      title: AppLocaleText.tr(
+        context,
+        en: 'Text record',
+        zhHans: '文字记录',
+        zhHant: '文字記錄',
+        ja: '文字記録',
+      ),
       icon: Icons.notes_rounded,
       color: AuroraColors.purple,
       filter: _TimelineFilter.record,
     );
   }
 
-  static String _body(RecentSignalModel signal) {
+  static String _body(BuildContext context, RecentSignalModel signal) {
     final candidates = [
       signal.content,
       signal.observation,
@@ -2255,28 +2173,66 @@ class _TimelineEntry {
       final text = value?.trim() ?? '';
       if (text.isNotEmpty) return text;
     }
-    return _fallbackReplyFromContent(signal.content);
+    return _fallbackReplyFromContent(context, signal.content);
   }
 
   static String? _usableAiText(String? value) {
     return sanitizeTimelineAcknowledgement(value);
   }
 
-  static String _fallbackReplyFromContent(String content) {
+  static String _fallbackReplyFromContent(
+    BuildContext context,
+    String content,
+  ) {
     final text = content.trim();
     if (text.contains('累') || text.contains('疲') || text.contains('耗')) {
-      return '这条记录更像是在提醒你：今天的能量需要被看见。';
+      return AppLocaleText.tr(
+        context,
+        en: 'This record may be a reminder to notice your energy today.',
+        zhHans: '这条记录更像是在提醒你：今天的能量需要被看见。',
+        zhHant: '這條記錄更像是在提醒你：今天的能量需要被看見。',
+        ja: 'この記録は、今日のエネルギーに目を向ける合図かもしれません。',
+      );
     }
     if (text.contains('睡') || text.contains('休息')) {
-      return '这条记录和恢复有关，之后可以看看它是否反复出现。';
+      return AppLocaleText.tr(
+        context,
+        en: 'This record relates to recovery. You can notice whether it recurs.',
+        zhHans: '这条记录和恢复有关，之后可以看看它是否反复出现。',
+        zhHant: '這條記錄和恢復有關，之後可以看看它是否反覆出現。',
+        ja: 'この記録は回復に関係しています。繰り返すかを後で見てみましょう。',
+      );
     }
     if (text.contains('上班') || text.contains('工作') || text.contains('会议')) {
-      return '这条记录可能和工作节奏有关，可以先轻轻放进今天的线索里。';
+      return AppLocaleText.tr(
+        context,
+        en: 'This record may relate to your work rhythm. Keep it as one of today’s clues.',
+        zhHans: '这条记录可能和工作节奏有关，可以先轻轻放进今天的线索里。',
+        zhHant: '這條記錄可能和工作節奏有關，可以先輕輕放進今天的線索裡。',
+        ja: 'この記録は仕事のリズムに関係しているかもしれません。今日の手がかりとして残しておきましょう。',
+      );
     }
-    return text.isEmpty ? '这是一条今天的生活信号。' : '这条记录已经成为今天的一条生活信号。';
+    return text.isEmpty
+        ? AppLocaleText.tr(
+            context,
+            en: 'This is one of today’s life signals.',
+            zhHans: '这是一条今天的生活信号。',
+            zhHant: '這是一條今天的生活信號。',
+            ja: 'これは今日の暮らしのシグナルです。',
+          )
+        : AppLocaleText.tr(
+            context,
+            en: 'This record is now one of today’s life signals.',
+            zhHans: '这条记录已经成为今天的一条生活信号。',
+            zhHant: '這條記錄已經成為今天的一條生活信號。',
+            ja: 'この記録は今日の暮らしのシグナルになりました。',
+          );
   }
 
-  static String? _feedbackLabel(RecentSignalModel signal) {
+  static String? _feedbackLabel(
+    BuildContext context,
+    RecentSignalModel signal,
+  ) {
     final feedback = signal.rawPayloadJson['feedback']?.toString() ??
         signal.rawPayloadJson['micro_action_feedback']?.toString() ??
         signal.userCorrectionJson['feedback']?.toString();
@@ -2285,29 +2241,66 @@ class _TimelineEntry {
       case 'occurred':
       case 'done':
       case 'happened':
-        return '已完成';
+        return AppLocaleText.tr(
+          context,
+          en: 'Completed',
+          zhHans: '已完成',
+          zhHant: '已完成',
+          ja: '完了',
+        );
       case 'not_completed':
       case 'not_occurred':
       case 'not_done':
       case 'not_happened':
-        return '未完成';
+        return AppLocaleText.tr(
+          context,
+          en: 'Not completed',
+          zhHans: '未完成',
+          zhHant: '未完成',
+          ja: '未完了',
+        );
       case 'not_suitable_today':
       case 'skip':
-        return '未完成';
+        return AppLocaleText.tr(
+          context,
+          en: 'Not completed',
+          zhHans: '未完成',
+          zhHant: '未完成',
+          ja: '未完了',
+        );
       case 'helpful':
-        return '有帮助';
+        return AppLocaleText.tr(
+          context,
+          en: 'Helpful',
+          zhHans: '有帮助',
+          zhHant: '有幫助',
+          ja: '役に立った',
+        );
       default:
-        return feedback?.trim().isEmpty ?? true ? null : feedback;
+        if (feedback?.trim().isEmpty ?? true) return null;
+        return EnergyBudgetText.localizeCopy(context, feedback!.trim());
     }
   }
 
-  static (String, double)? _progress(RecentSignalModel signal) {
+  static (String, double)? _progress(
+    BuildContext context,
+    RecentSignalModel signal,
+  ) {
     final done = _asInt(signal.rawPayloadJson['completed_days'] ??
         signal.rawPayloadJson['done_days']);
     final total = _asInt(signal.rawPayloadJson['total_days']) ?? 7;
     if (done == null) return null;
     final safeTotal = total <= 0 ? 7 : total;
-    return ('进度 $done/$safeTotal', (done / safeTotal).clamp(0, 1));
+    return (
+      AppLocaleText.tr(
+        context,
+        en: 'Progress $done/$safeTotal',
+        zhHans: '进度 $done/$safeTotal',
+        zhHant: '進度 $done/$safeTotal',
+        ja: '進捗 $done/$safeTotal',
+      ),
+      (done / safeTotal).clamp(0, 1),
+    );
   }
 
   static int? _asInt(dynamic raw) {
@@ -2315,6 +2308,78 @@ class _TimelineEntry {
     if (raw is num) return raw.toInt();
     if (raw is String) return int.tryParse(raw);
     return null;
+  }
+}
+
+class _DiaryTimeUseData {
+  final String startTime;
+  final String endTime;
+  final String title;
+  final String categoryLabel;
+  final String statusLabel;
+  final bool isPlanned;
+
+  const _DiaryTimeUseData({
+    required this.startTime,
+    required this.endTime,
+    required this.title,
+    required this.categoryLabel,
+    required this.statusLabel,
+    required this.isPlanned,
+  });
+
+  static _DiaryTimeUseData? tryFromSignal(
+    BuildContext context,
+    RecentSignalModel signal,
+  ) {
+    final payload = signal.rawPayloadJson;
+    final startAt =
+        DateTime.tryParse(payload['start_at']?.toString() ?? '')?.toLocal();
+    final endAt =
+        DateTime.tryParse(payload['end_at']?.toString() ?? '')?.toLocal();
+    if (startAt == null || endAt == null || !endAt.isAfter(startAt)) {
+      return null;
+    }
+    final rawCategory = payload['focus_domain_id']?.toString() ??
+        payload['category']?.toString() ??
+        '';
+    final planned = payload['record_status']?.toString() == 'planned';
+    final structuredTitle = payload['title']?.toString().trim() ?? '';
+    return _DiaryTimeUseData(
+      startTime: _clock(startAt),
+      endTime: _clock(endAt),
+      title: structuredTitle.isEmpty ? signal.content.trim() : structuredTitle,
+      categoryLabel:
+          _TimelineEntryKind._timeUseDomainLabel(context, rawCategory) ??
+              AppLocaleText.tr(
+                context,
+                en: 'Other',
+                zhHans: '其他',
+                zhHant: '其他',
+                ja: 'その他',
+              ),
+      statusLabel: planned
+          ? AppLocaleText.tr(
+              context,
+              en: 'Coming up',
+              zhHans: '接下来安排',
+              zhHant: '接下來安排',
+              ja: 'これからの予定',
+            )
+          : AppLocaleText.tr(
+              context,
+              en: 'Completed',
+              zhHans: '已经发生',
+              zhHant: '已經發生',
+              ja: '完了',
+            ),
+      isPlanned: planned,
+    );
+  }
+
+  static String _clock(DateTime value) {
+    return '${value.hour.toString().padLeft(2, '0')}:'
+        '${value.minute.toString().padLeft(2, '0')}';
   }
 }
 
@@ -2353,7 +2418,15 @@ class _TimelineEntryKind {
     if (energyLabel != null) return energyLabel;
     final emotionLabel = _signalStateLabel(context, signal.emotion);
     if (emotionLabel != null) return emotionLabel;
-    if (signal.isLibrarySaved) return '信号库';
+    if (signal.isLibrarySaved) {
+      return AppLocaleText.tr(
+        context,
+        en: 'Signal Library',
+        zhHans: '信号库',
+        zhHant: '信號庫',
+        ja: 'Signal ライブラリ',
+      );
+    }
     return null;
   }
 
@@ -2538,22 +2611,6 @@ class _TimelineFilterItem {
     required this.filter,
     required this.icon,
     required this.label,
-  });
-}
-
-class _DiaryNavItem {
-  final String label;
-  final IconData icon;
-  final IconData selectedIcon;
-  final String route;
-  final bool selected;
-
-  const _DiaryNavItem({
-    required this.label,
-    required this.icon,
-    required this.selectedIcon,
-    required this.route,
-    this.selected = false,
   });
 }
 

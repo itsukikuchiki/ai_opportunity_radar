@@ -35,6 +35,8 @@ or restore made with `Runner-LocalStoreKit` as a TestFlight restore result.
 | `SIGNALPATH_ENABLE_DEBUG_TOOLS` | `true` / `false` | Controls Trace Debug visibility outside normal debug mode. |
 | `SIGNALPATH_ENABLE_PIPELINE_LOGS` | `true` / `false` | Reserved switch for internal pipeline log surfaces. |
 | `SIGNALPATH_QA_SHOWCASE_DATA` | `true` / `false` | TestFlight review fixture. Seeds isolated local demo evidence for Weekly/Journey/Pro and unlocks an in-memory Pro preview. Never use for a production App Store archive. |
+| `SIGNALPATH_QA_SHOWCASE_LANGUAGE` | `zh-Hans` / `zh-Hant` | Optional QA-fixture language. Use `zh-Hant` for the Traditional Chinese simulator package. |
+| `SIGNALPATH_QA_SHOWCASE_NOW` | ISO-8601 local date-time | Optional deterministic QA-fixture clock. It keeps record dates and report windows stable for screenshot verification. |
 | `API_BASE_URL` | URL | Overrides the default production backend. |
 
 ## TestFlight Showcase Build
@@ -45,6 +47,23 @@ fixture rows without replacing user rows, marks onboarding complete, and makes
 the current Weekly, Journey, deep-analysis, 小实验, and 目标
 states inspectable immediately. The fixture is idempotent for the same local
 day and owns only rows whose identifiers use the `qa_demo_` namespace.
+
+The Traditional Chinese simulator fixture used for visual QA is built with a
+fixed clock so its 18 Signal rows, 14 record days, two Spot Try feedback rows,
+and three goal-feedback rows remain aligned with the approved reference screens:
+
+```sh
+flutter build ios --simulator --debug \
+  --dart-define=SIGNALPATH_QA_SHOWCASE_DATA=true \
+  --dart-define=SIGNALPATH_QA_SHOWCASE_LANGUAGE=zh-Hant \
+  --dart-define=SIGNALPATH_QA_SHOWCASE_NOW=2026-07-31T13:30:00 \
+  --dart-define=SIGNALPATH_BUILD_PROFILE=staging \
+  --dart-define=SIGNALPATH_ENABLE_DEBUG_TOOLS=false \
+  --dart-define=SIGNALPATH_ENABLE_PIPELINE_LOGS=false
+```
+
+These language and clock overrides are QA-only. Production archives must omit
+all three showcase defines.
 
 The QA Pro preview is memory-only: it does not write a StoreKit entitlement or
 modify restore-purchase state. StoreKit purchase and restore acceptance must

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../backup/cloud_backup_sync_service.dart';
 import '../../eligibility/signal_eligibility_service.dart';
+import '../../eligibility/today_signal_scope.dart';
 import '../../local/local_capture_repository.dart';
 import '../../local/local_daily_snapshot_repository.dart';
 import '../../local/local_life_experiment_repository.dart';
@@ -15,7 +16,9 @@ import '../../models/experiment_evaluation_models.dart';
 import '../../models/phase3_plus_models.dart';
 import '../../models/today_models.dart';
 import '../../i18n/app_locale_text.dart';
+import '../../i18n/runtime_locale_text.dart';
 import '../../preferences/focus_domains.dart';
+import '../../../shared/utils/l1_attunement_fallback.dart';
 import '../api_client.dart';
 import 'analytics_repository.dart';
 import 'ai_repository.dart';
@@ -23,6 +26,16 @@ import 'ai_repository.dart';
 typedef FocusAreaLoader = Future<String?> Function();
 typedef ResponseStyleLoader = Future<String?> Function();
 typedef TodayNowLoader = DateTime Function();
+
+enum _AiJudgementCue {
+  interest,
+  switching,
+  boundary,
+  load,
+  recovery,
+  energy,
+  positive,
+}
 
 class TodayRepository {
   final LocalCaptureRepository localCaptureRepository;
@@ -71,30 +84,36 @@ class TodayRepository {
     final allSignals = apiClient == null
         ? await localCaptureRepository.listRecentSignals(limit: 200)
         : await localCaptureRepository.listSignalCards(limit: 200);
+    final liveAllSignals =
+        TodaySignalScope.liveOnly(allSignals).toList(growable: false);
     final todayKey = _dateKey(now);
-    final todaySignals = allSignals
+    final todaySignals = liveAllSignals
         .where((signal) => signal.localDateKey() == todayKey)
         .toList();
     final snapshot = await localDailySnapshotRepository.getByDate(now);
 
-    final sourceHash =
-        localDailySnapshotRepository.buildSourceHash(todaySignals);
+    final sourceHash = localDailySnapshotRepository.buildSourceHash(
+      todaySignals,
+      language: aiRepository.languageLoader(),
+    );
 
-    if (todaySignals.isNotEmpty &&
+    if ((todaySignals.isNotEmpty || snapshot != null) &&
         (snapshot == null || snapshot.sourceHash != sourceHash)) {
       await _regenerateTodaySummary(todaySignals);
     }
 
     final latestSnapshot = await localDailySnapshotRepository.getByDate(now);
-    final latestSignals = apiClient == null
+    final latestSignalsUnfiltered = apiClient == null
         ? allSignals
         : await localCaptureRepository.listSignalCards(limit: 200);
+    final latestSignals = TodaySignalScope.liveOnly(latestSignalsUnfiltered)
+        .toList(growable: false);
     var aiJudgement =
         await localPhase3PlusRepository?.getAiJudgementForDate(todayKey);
     final shouldRefreshAiJudgement = aiJudgement == null ||
         _aiJudgementSourcesChanged(
           aiJudgement,
-          allSignals: allSignals,
+          allSignals: liveAllSignals,
           todayKey: todayKey,
         );
     if (shouldRefreshAiJudgement) {
@@ -165,29 +184,33 @@ class TodayRepository {
 
     final todayKey = _dateKey(nowLoader?.call() ?? DateTime.now());
     final allSignals = await localCaptureRepository.listSignalCards(limit: 200);
-    final eligibleSignals = allSignals
+    final eligibleSignals = TodaySignalScope.liveOnly(allSignals)
         .where((signal) => _isEligibleForAiJudgement(signal, todayKey))
         .toList();
     if (eligibleSignals.isEmpty) {
       return null;
     }
 
+    final anchorSignal = _latestAiJudgementAnchor(eligibleSignals);
+    final anchorSignalId =
+        (anchorSignal.signalCardId ?? anchorSignal.id ?? '').trim();
+    if (anchorSignalId.isEmpty) {
+      return null;
+    }
+
     final latestForDate = await repo.getAiJudgementForDate(todayKey);
-    final sourceSignalCardIds = eligibleSignals
-        .map((signal) => signal.signalCardId ?? signal.id ?? '')
-        .where((id) => id.isNotEmpty)
-        .take(5)
-        .toList();
+    final sourceSignalCardIds = <String>[anchorSignalId];
     final sourceVersionId = _stableAiJudgementId(
       repo.localUserId,
       todayKey,
       sourceSignalCardIds,
+      sourceVersionFingerprint: _aiJudgementAnchorFingerprint(anchorSignal),
     );
     AiJudgementModel? matchingExisting;
-    if (latestForDate != null &&
+    if (latestForDate?.id == sourceVersionId &&
         _sameIds(
           sourceSignalCardIds.toSet(),
-          latestForDate.sourceSignalCardIds,
+          latestForDate!.sourceSignalCardIds,
         ) &&
         latestForDate.sourceScheduleSignalIds.isEmpty &&
         latestForDate.sourceGoalTaskInstanceIds.isEmpty) {
@@ -203,10 +226,13 @@ class TodayRepository {
       }
     }
     final generated = _buildAiJudgementCopy(
-      eligibleSignals,
+      anchorSignal,
       language,
       variationIndex: variationIndex,
     );
+    if (generated == null) {
+      return null;
+    }
     final now = nowLoader?.call() ?? DateTime.now();
     final judgement = AiJudgementModel(
       id: matchingExisting?.id ?? sourceVersionId,
@@ -220,7 +246,7 @@ class TodayRepository {
       predictedSignalText: generated[0],
       suggestedPattern: generated[2],
       suggestedLifeChainStage: generated[3],
-      confidenceLevel: eligibleSignals.length >= 3 ? 'medium' : 'low',
+      confidenceLevel: 'low',
       status: matchingExisting?.status ?? 'pending',
       userAdjustmentText: matchingExisting?.userAdjustmentText,
       confirmationNote: matchingExisting?.confirmationNote,
@@ -236,7 +262,8 @@ class TodayRepository {
       unawaited(analyticsRepository?.track(
         'ai_judgement_generated',
         properties: {
-          'signal_count': eligibleSignals.length,
+          'daily_signal_count': eligibleSignals.length,
+          'supporting_signal_count': 1,
           'confidence_level': judgement.confidenceLevel,
           'variation_index': variationIndex,
         },
@@ -295,6 +322,28 @@ class TodayRepository {
       language,
       addedToTimeline: true,
     );
+    final confirmedContent = (userAdjustmentText?.trim().isNotEmpty ?? false)
+        ? userAdjustmentText!.trim()
+        : judgement.predictedSignalText.trim();
+    var acknowledgement = _defaultAcknowledgement(
+      confirmedContent,
+      language: language,
+    );
+    try {
+      final aiReply = await aiRepository.generateCaptureReply(
+        content: confirmedContent,
+        recentAssistantTexts:
+            await localCaptureRepository.listRecentAcknowledgements(limit: 10),
+        language: _languageCode(language),
+        focusArea: await _readFocusArea(),
+        responseStyle: await _readResponseStyle(),
+      );
+      if (aiReply.acknowledgement.trim().isNotEmpty) {
+        acknowledgement = aiReply.acknowledgement.trim();
+      }
+    } catch (_) {
+      // Saving the confirmed SignalCard must never depend on AI availability.
+    }
     unawaited(analyticsRepository?.track(
       'ai_judgement_responded',
       properties: {
@@ -306,12 +355,10 @@ class TodayRepository {
     ));
     await localCaptureRepository.insertConfirmedSignalCard(
       signalCardId: 'ai_prediction_${judgement.id}',
-      content: (userAdjustmentText?.trim().isNotEmpty ?? false)
-          ? userAdjustmentText!.trim()
-          : judgement.predictedSignalText.trim(),
+      content: confirmedContent,
       sourceType: 'ai_predicted',
       language: _languageCode(language),
-      acknowledgement: confirmationNote,
+      acknowledgement: acknowledgement,
       observation: judgement.evidenceText.trim().isEmpty
           ? null
           : judgement.evidenceText.trim(),
@@ -325,6 +372,7 @@ class TodayRepository {
         'ai_judgement_id': judgement.id,
         'confirmation_status': normalizedStatus,
         'added_to_timeline': true,
+        'confirmation_note': confirmationNote,
         if (userAdjustmentText?.trim().isNotEmpty ?? false)
           'user_adjustment_text': userAdjustmentText!.trim(),
       },
@@ -548,194 +596,399 @@ class TodayRepository {
     );
   }
 
-  List<String> _buildAiJudgementCopy(
+  RecentSignalModel _latestAiJudgementAnchor(
     List<RecentSignalModel> signals,
+  ) {
+    var latest = signals.first;
+    for (final signal in signals.skip(1)) {
+      final candidateTime = signal.createdAt;
+      final latestTime = latest.createdAt;
+      if (candidateTime != null &&
+          (latestTime == null || candidateTime.isAfter(latestTime))) {
+        latest = signal;
+      }
+    }
+    return latest;
+  }
+
+  String _aiJudgementAnchorFingerprint(RecentSignalModel signal) {
+    String rawPayload;
+    try {
+      rawPayload = jsonEncode(_canonicalJsonValue(signal.rawPayloadJson));
+    } catch (_) {
+      rawPayload = signal.rawPayloadJson.toString();
+    }
+    final sceneTags = signal.sceneTags.toList()..sort();
+    final intentTags = signal.intentTags.toList()..sort();
+    return [
+      signal.sourceType,
+      signal.content.trim(),
+      signal.scene?.trim() ?? '',
+      signal.friction?.trim() ?? '',
+      signal.positiveSignal?.trim() ?? '',
+      signal.energyLoad?.trim() ?? '',
+      signal.energyState?.trim() ?? '',
+      sceneTags.join('\u241f'),
+      intentTags.join('\u241f'),
+      rawPayload,
+    ].join('\u241e');
+  }
+
+  dynamic _canonicalJsonValue(dynamic value) {
+    if (value is Map) {
+      final keys = value.keys.map((key) => key.toString()).toList()..sort();
+      return <String, dynamic>{
+        for (final key in keys) key: _canonicalJsonValue(value[key]),
+      };
+    }
+    if (value is Iterable) {
+      return value.map(_canonicalJsonValue).toList(growable: false);
+    }
+    return value;
+  }
+
+  List<String>? _buildAiJudgementCopy(
+    RecentSignalModel anchorSignal,
     AppLanguage language, {
     int variationIndex = 0,
   }) {
-    final haystack = signals
-        .map((signal) => [
-              signal.content,
-              signal.scene,
-              signal.friction,
-              signal.energyLoad,
-              signal.positiveSignal,
-              ...signal.sceneTags,
-              ...signal.intentTags,
-            ].whereType<String>().join(' '))
-        .join(' ')
-        .toLowerCase();
-    final hasSwitching = haystack.contains('切换') ||
-        haystack.contains('消息') ||
-        haystack.contains('switch') ||
-        haystack.contains('interrupt');
-    final hasRecovery = haystack.contains('累') ||
-        haystack.contains('睡') ||
-        haystack.contains('恢复') ||
-        haystack.contains('tired') ||
-        haystack.contains('recovery');
-    final hasBoundary = haystack.contains('边界') ||
-        haystack.contains('关系') ||
-        haystack.contains('拒绝') ||
-        haystack.contains('boundary') ||
-        haystack.contains('relationship');
+    if (variationIndex < 0 || variationIndex > 3) return null;
+    final cue = _detectAiJudgementCue(anchorSignal);
+    if (cue == null) return null;
 
-    final sample = signals.isEmpty ? '' : signals.first.content.trim();
-    if (variationIndex > 0) {
-      return _buildAlternativeAiJudgementCopy(
-        sample: sample,
-        language: language,
-        variationIndex: variationIndex,
-      );
-    }
-    switch (language) {
-      case AppLanguage.simplifiedChinese:
-        if (hasSwitching) {
-          return [
-            '今天更值得确认的，可能不是事情多，而是切换之后没有留下恢复空隙。',
-            sample.isEmpty ? '线索来自今天已记录的信号。' : '线索来自「$sample」。',
-            '高切换后的恢复空隙',
-            'attention_switching',
-          ];
-        }
-        if (hasBoundary) {
-          return [
-            '今天可以确认一下：消耗可能来自边界被反复拉扯，而不只是某件事本身。',
-            sample.isEmpty ? '线索来自今天的关系或边界相关记录。' : '线索来自「$sample」这类边界感记录。',
-            '边界被拉扯后的能量消耗',
-            'boundary_load',
-          ];
-        }
-        if (hasRecovery) {
-          return [
-            '今天可以先看一个恢复线索：身体或注意力可能在提醒你留一点缓冲。',
-            sample.isEmpty ? '线索来自今天的恢复和能量记录。' : '线索来自「$sample」这类恢复信号。',
-            '恢复信号偏弱',
-            'recovery_gap',
-          ];
-        }
-        return [
-          '今天可以先确认一个小结构：几条信号可能正在指向同一个生活节奏。',
-          sample.isNotEmpty ? '线索来自「$sample」。' : '线索来自今天已记录的信号。',
-          '正在形成的生活节奏',
-          'daily_pattern',
-        ];
-      case AppLanguage.traditionalChinese:
-        return [
-          '今天可以先確認一個小結構：幾條信號可能正在指向同一個生活節奏。',
-          sample.isNotEmpty ? '線索來自「$sample」。' : '線索來自今天已記錄的信號。',
-          '正在形成的生活節奏',
-          'daily_pattern',
-        ];
-      case AppLanguage.japanese:
-        return [
-          '今日はまず、小さな構造を一つ確認してもよさそうです。いくつかのシグナルが同じ生活リズムを指しているかもしれません。',
-          sample.isNotEmpty
-              ? '「$sample」から見える小さな手がかりです。'
-              : '今日記録したシグナルから見える手がかりです。',
-          '形成されつつある生活リズム',
-          'daily_pattern',
-        ];
-      case AppLanguage.english:
-        return [
-          'A small structure may be worth checking today: a few signals may be pointing to the same life rhythm.',
-          sample.isNotEmpty
-              ? 'This comes from “$sample”.'
-              : 'This comes from the signals recorded today.',
-          'emerging life rhythm',
-          'daily_pattern',
-        ];
-    }
+    final sample = _compactAiJudgementSample(anchorSignal.content);
+    if (sample.isEmpty) return null;
+    final cueLabel = _aiJudgementCueLabel(cue, language);
+    final pattern = _aiJudgementPatternLabel(
+      cueLabel,
+      language,
+      variationIndex,
+    );
+    final evidence = switch (language) {
+      AppLanguage.simplifiedChinese => '这条预判只依据「$sample」。',
+      AppLanguage.traditionalChinese => '這條預判只依據「$sample」。',
+      AppLanguage.japanese => 'この予測は「$sample」だけを根拠にしています。',
+      AppLanguage.english => 'This prediction is based only on “$sample”.',
+    };
+    final prediction = switch ((language, variationIndex)) {
+      (AppLanguage.simplifiedChinese, 0) =>
+        '从「$sample」看，今天值得确认的是：$cueLabel是否正在变得更明显。',
+      (AppLanguage.simplifiedChinese, 1) =>
+        '换个角度看「$sample」：这条 Signal 也许记录的是$cueLabel，可以继续留意。',
+      (AppLanguage.simplifiedChinese, 2) =>
+        '还可以确认：在「$sample」发生前后，$cueLabel有没有变化。',
+      (AppLanguage.simplifiedChinese, _) =>
+        '最后一个角度：如果「$sample」再次出现，可以看看$cueLabel是否也一起出现。',
+      (AppLanguage.traditionalChinese, 0) =>
+        '從「$sample」看，今天值得確認的是：$cueLabel是否正在變得更明顯。',
+      (AppLanguage.traditionalChinese, 1) =>
+        '換個角度看「$sample」：這條 Signal 也許記錄的是$cueLabel，可以繼續留意。',
+      (AppLanguage.traditionalChinese, 2) =>
+        '還可以確認：在「$sample」發生前後，$cueLabel有沒有變化。',
+      (AppLanguage.traditionalChinese, _) =>
+        '最後一個角度：如果「$sample」再次出現，可以看看$cueLabel是否也一起出現。',
+      (AppLanguage.japanese, 0) =>
+        '「$sample」から、今日は$cueLabelがはっきりしてきているかを確かめられそうです。',
+      (AppLanguage.japanese, 1) =>
+        '別の角度では、「$sample」は$cueLabelを記録したシグナルかもしれません。',
+      (AppLanguage.japanese, 2) => '「$sample」の前後で、$cueLabelがどう変わったかも確かめられます。',
+      (AppLanguage.japanese, _) =>
+        '最後の角度として、「$sample」がまた起きたときに$cueLabelも一緒に現れるかを見られます。',
+      (AppLanguage.english, 0) =>
+        'From “$sample”, it may be worth checking whether $cueLabel is becoming more noticeable.',
+      (AppLanguage.english, 1) =>
+        'Another angle on “$sample” is that it may be a signal of $cueLabel.',
+      (AppLanguage.english, 2) =>
+        'You could also check how $cueLabel changed before and after “$sample”.',
+      (AppLanguage.english, _) =>
+        'One last angle: if “$sample” happens again, notice whether $cueLabel appears with it.',
+    };
+
+    return [
+      prediction,
+      evidence,
+      pattern,
+      'today_anchor_${cue.name}',
+    ];
   }
 
-  List<String> _buildAlternativeAiJudgementCopy({
-    required String sample,
-    required AppLanguage language,
-    required int variationIndex,
-  }) {
-    final variant = ((variationIndex - 1) % 3) + 1;
-    return switch ((language, variant)) {
-      (AppLanguage.simplifiedChinese, 1) => [
-          '换一个角度：今天更值得确认的，可能是某个具体场景后你的能量变化。',
-          sample.isEmpty ? '线索来自今天已记录的信号。' : '可以先对照「$sample」发生前后的状态。',
-          '场景后的能量变化',
-          'energy_shift',
-        ],
-      (AppLanguage.simplifiedChinese, 2) => [
-          '再看另一条：今天的几条信号里，也许有一个相似的卡点在重复出现。',
-          sample.isEmpty ? '线索来自今天已记录的信号。' : '这个判断也参考了「$sample」。',
-          '重复出现的卡点',
-          'repeated_friction',
-        ],
-      (AppLanguage.simplifiedChinese, _) => [
-          '还可以确认一点：今天是否有什么瞬间，让你的节奏稍微恢复了一些。',
-          sample.isEmpty ? '线索来自今天已记录的信号。' : '这是从「$sample」周边重新看到的角度。',
-          '微小的恢复瞬间',
-          'recovery_cue',
-        ],
-      (AppLanguage.traditionalChinese, 1) => [
-          '換一個角度：今天更值得確認的，可能是某個具體場景後你的能量變化。',
-          sample.isEmpty ? '線索來自今天已記錄的信號。' : '可以先對照「$sample」發生前後的狀態。',
-          '場景後的能量變化',
-          'energy_shift',
-        ],
-      (AppLanguage.traditionalChinese, 2) => [
-          '再看另一條：今天的幾條信號裡，也許有一個相似的卡點在重複出現。',
-          sample.isEmpty ? '線索來自今天已記錄的信號。' : '這個判斷也參考了「$sample」。',
-          '重複出現的卡點',
-          'repeated_friction',
-        ],
-      (AppLanguage.traditionalChinese, _) => [
-          '還可以確認一點：今天是否有什麼瞬間，讓你的節奏稍微恢復了一些。',
-          sample.isEmpty ? '線索來自今天已記錄的信號。' : '這是從「$sample」周邊重新看到的角度。',
-          '微小的恢復瞬間',
-          'recovery_cue',
-        ],
-      (AppLanguage.japanese, 1) => [
-          '別の角度では、今日の具体的な場面の後でエネルギーがどう変わったかを確かめてもよさそうです。',
-          sample.isEmpty
-              ? '今日記録したシグナルからの手がかりです。'
-              : '「$sample」の前後の状態を手がかりにしています。',
-          '場面の後のエネルギー変化',
-          'energy_shift',
-        ],
-      (AppLanguage.japanese, 2) => [
-          'もう一つ、今日のシグナルに同じ引っかかりが繰り返し出ていないか確かめられます。',
-          sample.isEmpty ? '今日記録したシグナルからの手がかりです。' : 'この見方も「$sample」を参考にしています。',
-          '繰り返す引っかかり',
-          'repeated_friction',
-        ],
-      (AppLanguage.japanese, _) => [
-          '別の手がかりとして、今日のリズムが少し戻った瞬間があったかも確かめられます。',
-          sample.isEmpty ? '今日記録したシグナルからの手がかりです。' : '「$sample」の周りを見直した角度です。',
-          '小さな回復の瞬間',
-          'recovery_cue',
-        ],
-      (AppLanguage.english, 1) => [
-          'Another angle to check is how your energy changed after one specific situation today.',
-          sample.isEmpty
-              ? 'This comes from today’s recorded signals.'
-              : 'This uses the state around “$sample” as a clue.',
-          'energy shift after a situation',
-          'energy_shift',
-        ],
-      (AppLanguage.english, 2) => [
-          'Another possible signal is that a similar point of friction may have repeated across today’s entries.',
-          sample.isEmpty
-              ? 'This comes from today’s recorded signals.'
-              : 'This angle also refers to “$sample”.',
-          'repeated point of friction',
-          'repeated_friction',
-        ],
-      (AppLanguage.english, _) => [
-          'One more thing to check is whether any small moment helped your rhythm recover today.',
-          sample.isEmpty
-              ? 'This comes from today’s recorded signals.'
-              : 'This is another angle around “$sample”.',
-          'small recovery moment',
-          'recovery_cue',
-        ],
+  _AiJudgementCue? _detectAiJudgementCue(RecentSignalModel signal) {
+    final focusDomain = (signal.rawPayloadJson['focus_domain_id'] ??
+            signal.rawPayloadJson['category'])
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    final text = [
+      signal.content,
+      signal.scene,
+      signal.friction,
+      signal.positiveSignal,
+      signal.energyLoad,
+      signal.energyState,
+      ...signal.sceneTags,
+      ...signal.intentTags,
+    ].whereType<String>().join(' ').toLowerCase();
+
+    final negatedInterest = _containsAny(text, const [
+      '不喜欢',
+      '不喜歡',
+      '討厭',
+      '讨厌',
+      '嫌い',
+      'dislike',
+      "don't like",
+      'do not like',
+    ]);
+    if (!negatedInterest &&
+        (focusDomain == 'interests_hobbies' ||
+            _containsAny(text, const [
+              '喜欢',
+              '喜歡',
+              '兴趣',
+              '興趣',
+              '爱好',
+              '愛好',
+              '好奇',
+              '音乐',
+              '音樂',
+              'rap',
+              'hip hop',
+              'hip-hop',
+              '好き',
+              '興味',
+              '趣味',
+              '音楽',
+              'like ',
+              'likes ',
+              'enjoy',
+              'interest',
+              'curious',
+              'hobby',
+              'music',
+            ]))) {
+      return _AiJudgementCue.interest;
+    }
+    if (_containsAny(text, const [
+      '切换',
+      '切換',
+      '中断',
+      '中斷',
+      '打断',
+      '打斷',
+      '来回换',
+      '來回換',
+      'switch',
+      'interrupt',
+      'context switching',
+      '切り替',
+      '中断',
+      '割り込',
+    ])) {
+      return _AiJudgementCue.switching;
+    }
+    if (_containsAny(text, const [
+      '边界',
+      '邊界',
+      '拒绝',
+      '拒絕',
+      '不敢说不',
+      '不敢說不',
+      '勉强答应',
+      '勉強答應',
+      'boundary',
+      'say no',
+      'people pleasing',
+      '境界',
+      '断れ',
+      '無理に引き受け',
+    ])) {
+      return _AiJudgementCue.boundary;
+    }
+    if (_containsAny(text, const [
+      '累',
+      '疲惫',
+      '疲憊',
+      '疲劳',
+      '疲勞',
+      '忙不过来',
+      '忙不過來',
+      '压力',
+      '壓力',
+      '焦虑',
+      '焦慮',
+      '紧张',
+      '緊張',
+      '耗力',
+      '耗能',
+      '事情太多',
+      '负担',
+      '負擔',
+      'tired',
+      'exhausted',
+      'fatigue',
+      'busy',
+      'stress',
+      'overwhelm',
+      'burden',
+      'しんど',
+      '疲れ',
+      '忙し',
+      'ストレス',
+      'つら',
+      '負担',
+    ])) {
+      return _AiJudgementCue.load;
+    }
+    if (_containsAny(text, const [
+      '恢复',
+      '恢復',
+      '休息',
+      '放松',
+      '放鬆',
+      '散步',
+      '晒太阳',
+      '曬太陽',
+      '睡得好',
+      '睡了一觉',
+      '睡了一覺',
+      'recovery',
+      'recover',
+      'rest',
+      'relax',
+      'walk',
+      'nature',
+      '回復',
+      '休め',
+      '休ん',
+      '散歩',
+      'リラックス',
+    ])) {
+      return _AiJudgementCue.recovery;
+    }
+    final hasStructuredEnergy = signal.sourceType == 'one_tap' ||
+        signal.rawPayloadJson['energy_level'] != null ||
+        (signal.energyState?.trim().isNotEmpty ?? false) ||
+        (signal.energyLoad?.trim().isNotEmpty ?? false);
+    if (hasStructuredEnergy ||
+        _containsAny(text, const [
+          '精力',
+          '能量',
+          '活力',
+          '体力',
+          '體力',
+          'energy',
+          'vitality',
+          '元気',
+          '活力',
+          '体力',
+        ])) {
+      return _AiJudgementCue.energy;
+    }
+    if ((signal.positiveSignal?.trim().isNotEmpty ?? false) ||
+        _containsAny(text, const [
+          '开心',
+          '開心',
+          '高兴',
+          '高興',
+          '不错',
+          '不錯',
+          '顺利',
+          '順利',
+          '舒服',
+          '平静',
+          '平靜',
+          '满足',
+          '滿足',
+          '快乐',
+          '快樂',
+          '轻松',
+          '輕鬆',
+          'happy',
+          'good',
+          'comfortable',
+          'calm',
+          'relieved',
+          '嬉しい',
+          '楽しい',
+          '落ち着',
+          '心地よ',
+        ])) {
+      return _AiJudgementCue.positive;
+    }
+    return null;
+  }
+
+  bool _containsAny(String text, List<String> needles) {
+    return needles.any(text.contains);
+  }
+
+  String _aiJudgementCueLabel(
+    _AiJudgementCue cue,
+    AppLanguage language,
+  ) {
+    return switch ((language, cue)) {
+      (AppLanguage.simplifiedChinese, _AiJudgementCue.interest) => '新出现的兴趣',
+      (AppLanguage.simplifiedChinese, _AiJudgementCue.switching) =>
+        '切换带来的注意力变化',
+      (AppLanguage.simplifiedChinese, _AiJudgementCue.boundary) => '边界被触碰时的感受',
+      (AppLanguage.simplifiedChinese, _AiJudgementCue.load) => '负担感',
+      (AppLanguage.simplifiedChinese, _AiJudgementCue.recovery) => '恢复线索',
+      (AppLanguage.simplifiedChinese, _AiJudgementCue.energy) => '精力变化',
+      (AppLanguage.simplifiedChinese, _AiJudgementCue.positive) => '让状态变好的因素',
+      (AppLanguage.traditionalChinese, _AiJudgementCue.interest) => '新出現的興趣',
+      (AppLanguage.traditionalChinese, _AiJudgementCue.switching) =>
+        '切換帶來的注意力變化',
+      (AppLanguage.traditionalChinese, _AiJudgementCue.boundary) => '邊界被觸碰時的感受',
+      (AppLanguage.traditionalChinese, _AiJudgementCue.load) => '負擔感',
+      (AppLanguage.traditionalChinese, _AiJudgementCue.recovery) => '恢復線索',
+      (AppLanguage.traditionalChinese, _AiJudgementCue.energy) => '精力變化',
+      (AppLanguage.traditionalChinese, _AiJudgementCue.positive) => '讓狀態變好的因素',
+      (AppLanguage.japanese, _AiJudgementCue.interest) => '芽生えた興味',
+      (AppLanguage.japanese, _AiJudgementCue.switching) => '切り替えによる注意の変化',
+      (AppLanguage.japanese, _AiJudgementCue.boundary) => '境界に触れられたときの感覚',
+      (AppLanguage.japanese, _AiJudgementCue.load) => '負担感',
+      (AppLanguage.japanese, _AiJudgementCue.recovery) => '回復の手がかり',
+      (AppLanguage.japanese, _AiJudgementCue.energy) => 'エネルギーの変化',
+      (AppLanguage.japanese, _AiJudgementCue.positive) => '状態をよくした要因',
+      (AppLanguage.english, _AiJudgementCue.interest) => 'an emerging interest',
+      (AppLanguage.english, _AiJudgementCue.switching) =>
+        'the attention shift caused by switching',
+      (AppLanguage.english, _AiJudgementCue.boundary) =>
+        'how it felt when a boundary was touched',
+      (AppLanguage.english, _AiJudgementCue.load) => 'the sense of load',
+      (AppLanguage.english, _AiJudgementCue.recovery) => 'a recovery cue',
+      (AppLanguage.english, _AiJudgementCue.energy) => 'the change in energy',
+      (AppLanguage.english, _AiJudgementCue.positive) =>
+        'what helped the moment feel better',
     };
+  }
+
+  String _aiJudgementPatternLabel(
+    String cueLabel,
+    AppLanguage language,
+    int variationIndex,
+  ) {
+    if (variationIndex == 0) return cueLabel;
+    return switch ((language, variationIndex)) {
+      (AppLanguage.simplifiedChinese, 1) => '$cueLabel · 换个角度',
+      (AppLanguage.simplifiedChinese, 2) => '$cueLabel · 前后变化',
+      (AppLanguage.simplifiedChinese, _) => '$cueLabel · 再次出现',
+      (AppLanguage.traditionalChinese, 1) => '$cueLabel · 換個角度',
+      (AppLanguage.traditionalChinese, 2) => '$cueLabel · 前後變化',
+      (AppLanguage.traditionalChinese, _) => '$cueLabel · 再次出現',
+      (AppLanguage.japanese, 1) => '$cueLabel・別の角度',
+      (AppLanguage.japanese, 2) => '$cueLabel・前後の変化',
+      (AppLanguage.japanese, _) => '$cueLabel・再び現れるとき',
+      (AppLanguage.english, 1) => '$cueLabel · another angle',
+      (AppLanguage.english, 2) => '$cueLabel · before and after',
+      (AppLanguage.english, _) => '$cueLabel · when it appears again',
+    };
+  }
+
+  String _compactAiJudgementSample(String content) {
+    final normalized = content.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.runes.length <= 72) return normalized;
+    return '${String.fromCharCodes(normalized.runes.take(71))}…';
   }
 
   MicroActionModel _copyMicroAction(
@@ -761,6 +1014,7 @@ class TodayRepository {
       linkedLifeExperimentId: action.linkedLifeExperimentId,
       status: status ?? action.status,
       feedbackStatus: feedbackStatus ?? action.feedbackStatus,
+      creationSource: action.creationSource,
       createdAt: action.createdAt,
       updatedAt: DateTime.now(),
     );
@@ -781,17 +1035,17 @@ class TodayRepository {
   }) {
     if (addedToTimeline) {
       return switch (language) {
-        AppLanguage.simplifiedChinese => '这条内容已从 AI 预判确认并加入时间线。',
-        AppLanguage.traditionalChinese => '這條內容已從 AI 預判確認並加入時間線。',
-        AppLanguage.japanese => 'AI予測から確認し、タイムラインに追加しました。',
+        AppLanguage.simplifiedChinese => '这条内容已从智能预判确认并加入时间线。',
+        AppLanguage.traditionalChinese => '這條內容已從智能預判確認並加入時間線。',
+        AppLanguage.japanese => '人工知能による予測から確認し、タイムラインに追加しました。',
         AppLanguage.english =>
           'Confirmed from an AI prediction and added to your timeline.',
       };
     }
     return switch (language) {
-      AppLanguage.simplifiedChinese => '已确认这条 AI 预判，未加入时间线。',
-      AppLanguage.traditionalChinese => '已確認這條 AI 預判，未加入時間線。',
-      AppLanguage.japanese => 'AI予測を確認しました。タイムラインには追加していません。',
+      AppLanguage.simplifiedChinese => '已确认这条智能预判，未加入时间线。',
+      AppLanguage.traditionalChinese => '已確認這條智能預判，未加入時間線。',
+      AppLanguage.japanese => '人工知能による予測を確認しました。タイムラインには追加していません。',
       AppLanguage.english =>
         'Confirmed this AI prediction without adding it to the timeline.',
     };
@@ -802,13 +1056,26 @@ class TodayRepository {
     required List<RecentSignalModel> allSignals,
     required String todayKey,
   }) {
-    final signalIds = allSignals
+    final eligibleSignals = allSignals
         .where((signal) => _isEligibleForAiJudgement(signal, todayKey))
-        .map((signal) => signal.signalCardId ?? signal.id ?? '')
-        .where((id) => id.isNotEmpty)
-        .take(5)
-        .toSet();
-    return !_sameIds(signalIds, judgement.sourceSignalCardIds) ||
+        .toList(growable: false);
+    if (eligibleSignals.isEmpty) {
+      return judgement.sourceSignalCardIds.isNotEmpty ||
+          judgement.sourceScheduleSignalIds.isNotEmpty ||
+          judgement.sourceGoalTaskInstanceIds.isNotEmpty;
+    }
+    final anchor = _latestAiJudgementAnchor(eligibleSignals);
+    final anchorId = (anchor.signalCardId ?? anchor.id ?? '').trim();
+    final signalIds = anchorId.isEmpty ? <String>{} : <String>{anchorId};
+    final expectedId = _stableAiJudgementId(
+      localPhase3PlusRepository?.localUserId ?? localUserId,
+      todayKey,
+      signalIds,
+      sourceVersionFingerprint: _aiJudgementAnchorFingerprint(anchor),
+    );
+    return judgement.id != expectedId ||
+        !judgement.suggestedLifeChainStage.startsWith('today_anchor_') ||
+        !_sameIds(signalIds, judgement.sourceSignalCardIds) ||
         judgement.sourceScheduleSignalIds.isNotEmpty ||
         judgement.sourceGoalTaskInstanceIds.isNotEmpty;
   }
@@ -821,8 +1088,9 @@ class TodayRepository {
   String _stableAiJudgementId(
     String localUserId,
     String localDate,
-    Iterable<String> sourceSignalCardIds,
-  ) {
+    Iterable<String> sourceSignalCardIds, {
+    required String sourceVersionFingerprint,
+  }) {
     final user = localUserId.replaceAll(RegExp(r'[^A-Za-z0-9_]'), '_');
     final date = localDate.replaceAll('-', '');
     final sources = sourceSignalCardIds
@@ -830,7 +1098,9 @@ class TodayRepository {
         .map((id) => id.trim())
         .toList(growable: false)
       ..sort();
-    final fingerprint = _stableFnv64(sources.join('\u241f'));
+    final fingerprint = _stableFnv64(
+      '${sources.join('\u241f')}\u241e$sourceVersionFingerprint',
+    );
     return 'aj_${user}_${date}_$fingerprint';
   }
 
@@ -913,6 +1183,7 @@ class TodayRepository {
       aiReply = await aiRepository.generateCaptureReply(
         content: content,
         recentAssistantTexts: recentAssistantTexts,
+        language: _languageCode(),
         focusArea: focusArea,
         responseStyle: responseStyle,
       );
@@ -989,6 +1260,7 @@ class TodayRepository {
       aiReply = await aiRepository.generateCaptureReply(
         content: content,
         recentAssistantTexts: recentAssistantTexts,
+        language: _languageCode(),
         focusArea: focusArea,
         responseStyle: responseStyle,
       );
@@ -1340,14 +1612,19 @@ class TodayRepository {
       List<RecentSignalModel> todaySignals) async {
     final focusArea = await _readFocusArea();
     final responseStyle = await _readResponseStyle();
-    final summarySignals = _summaryEligibleSignals(todaySignals);
+    final liveTodaySignals =
+        TodaySignalScope.liveOnly(todaySignals).toList(growable: false);
+    final summarySignals = _summaryEligibleSignals(liveTodaySignals);
 
     String observationText;
     String suggestionText;
 
-    if (summarySignals.isEmpty && todaySignals.isNotEmpty) {
-      observationText = _deferredSummaryObservation(todaySignals);
-      suggestionText = _deferredSummarySuggestion(todaySignals);
+    if (liveTodaySignals.isEmpty) {
+      observationText = _defaultObservation(const []);
+      suggestionText = _defaultSuggestion(const []);
+    } else if (summarySignals.isEmpty) {
+      observationText = _deferredSummaryObservation(liveTodaySignals);
+      suggestionText = _deferredSummarySuggestion(liveTodaySignals);
     } else {
       try {
         final result = await aiRepository.generateTodaySummary(
@@ -1363,7 +1640,10 @@ class TodayRepository {
           pipelineType: 'assist_generation',
           sourceType: 'daily_snapshot',
           sourceId: _dateKey(DateTime.now()),
-          inputHash: localDailySnapshotRepository.buildSourceHash(todaySignals),
+          inputHash: localDailySnapshotRepository.buildSourceHash(
+            liveTodaySignals,
+            language: aiRepository.languageLoader(),
+          ),
           error: error,
         );
         observationText = _defaultObservation(summarySignals);
@@ -1371,12 +1651,14 @@ class TodayRepository {
       }
     }
 
-    final sourceHash =
-        localDailySnapshotRepository.buildSourceHash(todaySignals);
+    final sourceHash = localDailySnapshotRepository.buildSourceHash(
+      liveTodaySignals,
+      language: aiRepository.languageLoader(),
+    );
 
     await localDailySnapshotRepository.upsert(
       date: DateTime.now(),
-      entryCount: todaySignals.length,
+      entryCount: liveTodaySignals.length,
       observationText: observationText,
       suggestionText: suggestionText,
       sourceHash: sourceHash,
@@ -1497,11 +1779,15 @@ class TodayRepository {
     return '${local.year}-$month-$day';
   }
 
-  String _defaultAcknowledgement(String content) {
+  String _defaultAcknowledgement(
+    String content, {
+    AppLanguage? language,
+  }) {
     final trimmed = content.trim();
-    final language = _languageCode();
+    final languageCode =
+        language == null ? _languageCode() : _languageCode(language);
     if (_isImmediateSafetyRisk(content)) {
-      return switch (language) {
+      return switch (languageCode) {
         'ja' =>
           '今の言葉をとても心配しています。今すぐ自分や誰かを傷つける可能性があるなら、危険な物から離れ、地域の緊急窓口か、すぐそばに来られる信頼できる人へ連絡してください。',
         'en' =>
@@ -1512,7 +1798,7 @@ class TodayRepository {
       };
     }
     if (trimmed.isEmpty) {
-      return switch (language) {
+      return switch (languageCode) {
         'ja' => '書いてくれたことを、そのままここに残します。',
         'en' => 'I am keeping what you wrote here as it is.',
         'zh-Hant' => '你寫下的這件事已經留在這裡了。',
@@ -1520,28 +1806,10 @@ class TodayRepository {
       };
     }
 
-    final emotion = _defaultEmotion(content);
-    return switch ((language, emotion)) {
-      ('ja', 'mixed') => 'いくつかの気持ちが混ざっていることを、そのまま残します。',
-      ('ja', 'positive') => '今いい気分だと書いてくれましたね。そのまま残します。',
-      ('ja', 'negative') => '今つらい、しんどいと感じていることを、ここに残します。',
-      ('ja', _) => '書いてくれたことを、そのままここに残します。',
-      ('en', 'mixed') =>
-        'You wrote down several mixed feelings, and I am keeping them as they are.',
-      ('en', 'positive') =>
-        'I hear that this moment felt good, and I am keeping it here.',
-      ('en', 'negative') =>
-        'I hear that this moment felt hard, and I am keeping that feeling here.',
-      ('en', _) => 'I am keeping what you wrote here as it is.',
-      ('zh-Hant', 'mixed') => '你寫下了幾種交在一起的感受，先原樣留在這裡。',
-      ('zh-Hant', 'positive') => '我聽見你說這一刻感覺不錯，先把它留在這裡。',
-      ('zh-Hant', 'negative') => '我聽見你說這一刻很難受，這份感受先留在這裡。',
-      ('zh-Hant', _) => '這一條已經按你寫下的內容記下來了。',
-      (_, 'mixed') => '你写下了几种交在一起的感受，先原样留在这里。',
-      (_, 'positive') => '我听见你说这一刻感觉不错，先把它留在这里。',
-      (_, 'negative') => '我听见你说这一刻很难受，这份感受先留在这里。',
-      _ => '这一条已经按你写下的内容记下来了。',
-    };
+    return l1AttunedAcknowledgement(
+      content: content,
+      language: languageCode,
+    );
   }
 
   bool _isImmediateSafetyRisk(String content) {
@@ -1568,20 +1836,50 @@ class TodayRepository {
 
     if (emotion == 'positive') {
       if (sceneTags.contains('achievement')) {
-        return '今天比较值得记住的，是你会被“确实有推进”的感觉明显提起来。';
+        return _copy(
+          en: 'What stands out today is how a real sense of progress lifted you.',
+          zhHans: '今天比较值得记住的，是你会被“确实有推进”的感觉明显提起来。',
+          zhHant: '今天比較值得記住的，是「確實有推進」的感覺明顯讓你振作起來。',
+          ja: '今日印象に残るのは、「確かに進んだ」という感覚が気持ちを持ち上げたことです。',
+        );
       }
-      return '今天更清楚的线索是：一些具体的小好事，确实能给你补回状态。';
+      return _copy(
+        en: 'A clearer Signal today is that small, concrete good moments can restore you.',
+        zhHans: '今天更清楚的 Signal 是：一些具体的小好事，确实能给你补回状态。',
+        zhHant: '今天更清楚的 Signal 是：一些具體的小好事，確實能讓你恢復一些狀態。',
+        ja: '今日よりはっきりした Signal は、具体的な小さな良い出来事が回復につながることです。',
+      );
     }
     if (emotion == 'mixed') {
-      return '这条里最值得记的是那种拉扯感：你会被消耗，也会被一些具体的东西重新接住。';
+      return _copy(
+        en: 'The tension matters here: something drained you, while something concrete also held you.',
+        zhHans: '这条里最值得记的是那种拉扯感：你会被消耗，也会被一些具体的东西重新接住。',
+        zhHant: '這裡最值得記下的是那種拉扯感：你會被消耗，也會被一些具體的事物重新接住。',
+        ja: 'ここで残しておきたいのは揺れです。消耗する一方で、具体的な何かにも支えられています。',
+      );
     }
     if (emotion == 'negative') {
       if (sceneTags.contains('work')) {
-        return '今天更明显的不是情绪本身，而是工作里的打断、改动或失控感在反复磨你。';
+        return _copy(
+          en: 'What stands out is not the emotion alone, but repeated interruptions, changes, or loss of control at work.',
+          zhHans: '今天更明显的不是情绪本身，而是工作里的打断、改动或失控感在反复磨你。',
+          zhHant: '今天更明顯的不是情緒本身，而是工作中的打斷、變動或失控感反覆消耗著你。',
+          ja: '目立つのは感情そのものより、仕事での中断や変更、思いどおりにならない感覚の積み重なりです。',
+        );
       }
-      return '今天更明显的不是一句“烦”，而是某个具体场景正在稳定地消耗你。';
+      return _copy(
+        en: 'What stands out is not just feeling upset, but a specific situation repeatedly draining you.',
+        zhHans: '今天更明显的不是一句“烦”，而是某个具体场景正在稳定地消耗你。',
+        zhHant: '今天更明顯的不只是一句「煩」，而是某個具體情境正持續消耗著你。',
+        ja: '目立つのは単なる「つらさ」ではなく、特定の場面が継続して消耗につながっていることです。',
+      );
     }
-    return '你今天更像是在留下一条状态线索，而不是在表达一股很强的情绪。';
+    return _copy(
+      en: 'This reads more like a Signal about your current state than a strong emotion.',
+      zhHans: '这更像是你留下的一条状态 Signal，而不是一股很强的情绪。',
+      zhHant: '這更像是你留下的一條狀態 Signal，而不是一股很強烈的情緒。',
+      ja: 'これは強い感情というより、今の状態を示す Signal に見えます。',
+    );
   }
 
   String _defaultSingleTryNext(String content) {
@@ -1590,28 +1888,60 @@ class TodayRepository {
 
     if (emotion == 'positive') {
       if (sceneTags.contains('achievement')) {
-        return '先记住这一下具体是因为什么推进感出现的，之后很容易复用。';
+        return _copy(
+            en: 'Note what created that sense of progress; it may be reusable.',
+            zhHans: '先记住这一下具体是因为什么推进感出现的，之后很容易复用。',
+            zhHant: '先記下是什麼帶來了這份推進感，之後會比較容易再次運用。',
+            ja: '何が前進感につながったのかだけ残しておくと、また活かしやすくなります。');
       }
-      return '先把让你感觉不错的那个具体点记下来，不用写多。';
+      return _copy(
+          en: 'Just note the specific thing that felt good; it can be brief.',
+          zhHans: '先把让你感觉不错的那个具体点记下来，不用写多。',
+          zhHant: '先把讓你感覺不錯的具體一點記下來，不用寫很多。',
+          ja: '良い感じにつながった具体的な一点だけ、短く残しておきましょう。');
     }
     if (emotion == 'mixed') {
-      return '今天先别急着总结整天，只记住是什么让你后面稍微缓回来一点。';
+      return _copy(
+          en: 'No need to sum up the whole day; just note what helped you recover a little.',
+          zhHans: '今天先别急着总结整天，只记住是什么让你后面稍微缓回来一点。',
+          zhHant: '今天先不用急著總結整天，只要記下後來是什麼讓你稍微緩回來一點。',
+          ja: '一日全体をまとめなくて大丈夫です。少し戻れたきっかけだけ残しておきましょう。');
     }
     if (emotion == 'negative') {
       if (sceneTags.contains('work')) {
-        return '下次再出现时，只补一句它发生在什么工作场景里，就已经很有用了。';
+        return _copy(
+            en: 'If it happens again, one line about the work setting will already be useful.',
+            zhHans: '下次再出现时，只补一句它发生在什么工作场景里，就已经很有用了。',
+            zhHant: '下次再出現時，只要補一句它發生在哪個工作情境，就已經很有幫助。',
+            ja: '次に起きたら、どんな仕事の場面だったかを一言足すだけでも十分役立ちます。');
       }
-      return '先把最卡你的那个瞬间记下来，其他先不用整理。';
+      return _copy(
+          en: 'For now, note the moment that felt most stuck; the rest can wait.',
+          zhHans: '先把最卡你的那个瞬间记下来，其他先不用整理。',
+          zhHant: '先把最卡住你的那個瞬間記下來，其他暫時不用整理。',
+          ja: 'まず一番引っかかった瞬間だけ残し、ほかはまだ整理しなくて大丈夫です。');
     }
-    return '先把这一条放着，看看之后它会不会再回来。';
+    return _copy(
+        en: 'Leave this Signal here for now and see whether it returns.',
+        zhHans: '先把这条 Signal 放着，看看之后它会不会再回来。',
+        zhHant: '先把這條 Signal 留在這裡，看看之後是否會再次出現。',
+        ja: 'この Signal はいったんここに置いて、また現れるか見てみましょう。');
   }
 
   String _defaultObservation(List<RecentSignalModel> entries) {
     if (entries.isEmpty) {
-      return '今天还没有记录，先留下一件真实发生的小事就好。';
+      return _copy(
+          en: 'Nothing recorded yet today. Start with one small thing that really happened.',
+          zhHans: '今天还没有记录，先留下一件真实发生的小事就好。',
+          zhHant: '今天還沒有記錄，先留下一件真實發生的小事就好。',
+          ja: '今日はまだ記録がありません。実際にあった小さなことを一つ残すだけで十分です。');
     }
     if (entries.length == 1) {
-      return entries.first.observation ?? '今天记录了 1 条。你已经开始把今天里真实发生的事留了下来。';
+      return _copy(
+          en: 'You recorded 1 Signal today and began keeping what actually happened.',
+          zhHans: '今天记录了 1 条 Signal。你已经开始把真实发生的事留了下来。',
+          zhHant: '今天記錄了 1 條 Signal。你已經開始把真實發生的事留下來。',
+          ja: '今日は Signal を1件記録し、実際に起きたことを残し始めました。');
     }
 
     final mixedCount = entries.where((e) => e.emotion == 'mixed').length;
@@ -1619,53 +1949,123 @@ class TodayRepository {
     final positiveCount = entries.where((e) => e.emotion == 'positive').length;
 
     if (mixedCount > 0) {
-      return '今天记录了 ${entries.length} 条，几条线索不是单向变化，而是在来回拉扯。';
+      return _copy(
+          en: 'You recorded ${entries.length} Signals today; they show movement in more than one direction.',
+          zhHans: '今天记录了 ${entries.length} 条 Signal，几条线索不是单向变化，而是在来回拉扯。',
+          zhHant: '今天記錄了 ${entries.length} 條 Signal，幾條線索不是單向變化，而是在來回拉扯。',
+          ja: '今日は Signal を${entries.length}件記録しました。変化は一方向ではなく、揺れが見えています。');
     }
     if (negativeCount >= positiveCount && negativeCount > 0) {
-      return '今天记录了 ${entries.length} 条，更明显的是某些场景在反复消耗你。';
+      return _copy(
+          en: 'You recorded ${entries.length} Signals today; some situations repeatedly drained you.',
+          zhHans: '今天记录了 ${entries.length} 条 Signal，更明显的是某些场景在反复消耗你。',
+          zhHant: '今天記錄了 ${entries.length} 條 Signal，更明顯的是某些情境反覆消耗著你。',
+          ja: '今日は Signal を${entries.length}件記録しました。いくつかの場面で消耗が繰り返されています。');
     }
     if (positiveCount > 0) {
-      return '今天记录了 ${entries.length} 条，里面已经开始出现一些能把你拉回来的具体片段。';
+      return _copy(
+          en: 'You recorded ${entries.length} Signals today; some concrete restorative moments are emerging.',
+          zhHans: '今天记录了 ${entries.length} 条 Signal，里面已经开始出现一些能把你拉回来的具体片段。',
+          zhHant: '今天記錄了 ${entries.length} 條 Signal，其中已開始出現一些能讓你恢復的具體片段。',
+          ja: '今日は Signal を${entries.length}件記録しました。回復につながる具体的な場面も見え始めています。');
     }
-    return '今天记录了 ${entries.length} 条。今天的线索已经开始慢慢聚起来了。';
+    return _copy(
+        en: 'You recorded ${entries.length} Signals today. The day is starting to take shape.',
+        zhHans: '今天记录了 ${entries.length} 条 Signal。今天的线索已经开始慢慢聚起来了。',
+        zhHant: '今天記錄了 ${entries.length} 條 Signal。今天的線索已經開始慢慢聚集。',
+        ja: '今日は Signal を${entries.length}件記録しました。今日の輪郭が少しずつ見え始めています。');
   }
 
   String _defaultSuggestion(List<RecentSignalModel> entries) {
     if (entries.isEmpty) {
-      return '今天先记下一件让你停顿了一下的小事就好。';
+      return _copy(
+          en: 'Start by recording one small thing that made you pause today.',
+          zhHans: '今天先记下一件让你停顿了一下的小事就好。',
+          zhHant: '今天先記下一件讓你停頓了一下的小事就好。',
+          ja: '今日は、少し立ち止まった出来事を一つ記録するだけで十分です。');
     }
     if (entries.length == 1) {
-      return entries.first.tryNext ?? '如果同类事情今天再出现一次，再补记一条就可以。';
+      return _copy(
+          en: 'If something similar happens again today, add one more Signal.',
+          zhHans: '如果同类事情今天再出现一次，再补记一条 Signal 就可以。',
+          zhHant: '如果同類事情今天再次出現，再補記一條 Signal 就可以。',
+          ja: '今日また似たことが起きたら、Signal をもう1件追加するだけで十分です。');
     }
 
     final workHeavy = entries.where((e) => e.sceneTags.contains('work')).length;
     final mixedCount = entries.where((e) => e.emotion == 'mixed').length;
 
     if (mixedCount > 0) {
-      return '今天先留意：哪些场景会把你拉低，哪些小事又会把你拉回来。';
+      return _copy(
+          en: 'Notice which situations lower your energy and which small things bring you back.',
+          zhHans: '今天先留意：哪些场景会把你拉低，哪些小事又会把你拉回来。',
+          zhHant: '今天先留意：哪些情境會讓你往下掉，哪些小事又會讓你恢復。',
+          ja: '今日は、どんな場面で消耗し、どんな小さなことで戻れるかを見てみましょう。');
     }
     if (workHeavy > 0) {
-      return '今天可以先试试：下次再出现同类工作场景时，用一句话补记它发生在什么地方。';
+      return _copy(
+          en: 'When a similar work situation returns, add one line about where it happened.',
+          zhHans: '下次再出现同类工作场景时，用一句话补记它发生在什么地方。',
+          zhHant: '下次再出現同類工作情境時，用一句話補記它發生在哪裡。',
+          ja: '同じような仕事の場面がまた起きたら、どこで起きたかを一言残してみましょう。');
     }
-    return '接下来先留意：今天有没有哪类事情已经不是第一次这样发生。';
+    return _copy(
+        en: 'Notice whether anything today has happened in this way before.',
+        zhHans: '接下来先留意：今天有没有哪类事情已经不是第一次这样发生。',
+        zhHant: '接下來先留意：今天是否有哪類事情已經不是第一次這樣發生。',
+        ja: '今日の出来事の中に、同じ形で以前にも起きたものがないか見てみましょう。');
   }
 
   String _deferredSummaryObservation(List<RecentSignalModel> entries) {
     if (entries.any((signal) => signal.isLocalDraft || signal.syncFailed)) {
-      return '今天可以先这样看：原文已经保存，等同步完成后再整理也来得及。';
+      return _copy(
+          en: 'Your original entry is saved. It can be organized after syncing finishes.',
+          zhHans: '原文已经保存，等同步完成后再整理也来得及。',
+          zhHant: '原文已經儲存，等同步完成後再整理也來得及。',
+          ja: '元の記録は保存されています。同期が完了してから整理しても間に合います。');
     }
     if (entries.any((signal) => signal.isLegacy)) {
-      return '今天可以先这样看：旧记录已经放回时间线，这里先不急着重新判断它。';
+      return _copy(
+          en: 'The earlier entry is back on the timeline; there is no need to reassess it now.',
+          zhHans: '旧记录已经放回时间线，这里先不急着重新判断它。',
+          zhHant: '舊記錄已經放回時間線，現在不用急著重新判斷。',
+          ja: '以前の記録はタイムラインに戻りました。今すぐ判断し直す必要はありません。');
     }
-    return '今天可以先这样看：记录已经留下，等线索更稳一点再整理。';
+    return _copy(
+        en: 'The entry is saved. Organize it when the Signals become clearer.',
+        zhHans: '记录已经留下，等 Signal 更清楚一点再整理。',
+        zhHant: '記錄已經留下，等 Signal 更清楚一點再整理。',
+        ja: '記録は残っています。Signal がもう少し明確になってから整理しましょう。');
   }
 
   String _deferredSummarySuggestion(List<RecentSignalModel> entries) {
     if (entries.any((signal) => signal.isLocalDraft || signal.syncFailed)) {
-      return '先不用重复输入，这条记录可以先放在今天。';
+      return _copy(
+          en: 'No need to enter it again; this record can stay with today.',
+          zhHans: '先不用重复输入，这条记录可以先放在今天。',
+          zhHant: '不用重複輸入，這條記錄可以先留在今天。',
+          ja: '入力し直す必要はありません。この記録は今日のままで大丈夫です。');
     }
-    return '先让这条记录待在这里，不需要马上给它下结论。';
+    return _copy(
+        en: 'Let this record stay here; it does not need an immediate conclusion.',
+        zhHans: '先让这条记录待在这里，不需要马上给它下结论。',
+        zhHant: '先讓這條記錄留在這裡，不需要立刻下結論。',
+        ja: 'この記録はいったんここに置き、すぐに結論を出さなくて大丈夫です。');
   }
+
+  String _copy({
+    required String en,
+    required String zhHans,
+    required String zhHant,
+    required String ja,
+  }) =>
+      RuntimeLocaleText.tr(
+        language: aiRepository.languageLoader(),
+        en: en,
+        zhHans: zhHans,
+        zhHant: zhHant,
+        ja: ja,
+      );
 
   String _defaultEmotion(String content) {
     final text = content.toLowerCase();

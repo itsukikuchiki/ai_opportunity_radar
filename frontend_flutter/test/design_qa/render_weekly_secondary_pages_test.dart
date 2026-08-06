@@ -18,6 +18,7 @@ import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
 import 'package:ai_opportunity_radar/core/models/candidate_models.dart';
 import 'package:ai_opportunity_radar/core/models/energy_budget_models.dart';
+import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
 import 'package:ai_opportunity_radar/features/pages/candidates/candidate_hub_page.dart';
 import 'package:ai_opportunity_radar/features/pages/weekly/deep_weekly_page.dart';
@@ -65,7 +66,7 @@ void main() {
         recoveryClue: '离开屏幕十分钟是较清楚的恢复 Signal。',
         bufferLocation: '两项任务之间适合保留一点余地。',
         switchingAdjustment: '下周负荷建议：维持。',
-        experimentConnection: '优先排序低切换、可暂停的轻量尝试。',
+        experimentConnection: '优先排序低切换、可暂停的简单尝试。',
         energyStateCounts: {
           'draining': 3,
           'steady': 3,
@@ -109,7 +110,7 @@ void main() {
     await _capture(
       tester,
       captureKey,
-      'design_qa/weekly-deep-analysis-2026-07-17.png',
+      'design_qa/spacing-2026-08-01/weekly-deep-final.png',
     );
   });
 
@@ -139,7 +140,7 @@ void main() {
       find.byKey(const ValueKey('candidate-hub-review-pattern')),
       findsOneWidget,
     );
-    expect(find.text('进行中的目标'), findsOneWidget);
+    expect(find.text('进行中的小实验与目标'), findsOneWidget);
     expect(find.text('午后十分钟离屏恢复'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await _capture(
@@ -603,6 +604,26 @@ class _DesignCandidatePlanningRepository
   Future<List<AdoptedLifeExperimentProgress>>
       listContinuableExperimentsForNextWeek(DateTime day) async {
     return const [_continuing];
+  }
+
+  @override
+  Future<List<AdoptedMicroActionProgress>>
+      listContinuableMicroActionsForNextWeek(DateTime day) async {
+    return const [];
+  }
+
+  @override
+  Future<List<MicroActionModel>> listPlannedMicroActionsForNextWeek(
+    DateTime day,
+  ) async {
+    return const [];
+  }
+
+  @override
+  Future<List<LifeExperimentModel>> listPlannedExperimentsForNextWeek(
+    DateTime day,
+  ) async {
+    return const [];
   }
 }
 

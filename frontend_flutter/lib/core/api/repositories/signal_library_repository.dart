@@ -42,7 +42,6 @@ class SignalLibraryRepository {
     final editedText = userText?.trim();
     final effectiveText =
         editedText?.isNotEmpty == true ? editedText! : referenceText;
-    final canonicalPatternId = _canonicalPatternId(pattern.id);
     final shouldAdd = normalizedStatus != 'inaccurate' &&
         addToTimeline &&
         effectiveText.isNotEmpty;
@@ -73,7 +72,6 @@ class SignalLibraryRepository {
       userCorrectionJson: correction,
       rawPayloadJson: {
         ...pattern.toPayloadJson(),
-        'canonical_pattern_id': canonicalPatternId,
         'reference_type': 'curated_signal_card',
         'generation_rule_version': 'signal_library_reference_v1',
         'match_status': normalizedStatus,

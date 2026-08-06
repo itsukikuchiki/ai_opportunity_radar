@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'experiment_creation_source.dart';
+
 import '../debug/legacy_fallback_monitor.dart';
 import '../readiness/report_readiness.dart';
 
@@ -293,6 +295,7 @@ class LifeExperimentModel {
   final int? plannedDurationMinutes;
   final int? plannedTotalDays;
   final int minimumObservationDays;
+  final ExperimentCreationSource creationSource;
   final String? originCandidateId;
   final DateTime? adoptedAt;
   final String? progressStartDate;
@@ -322,6 +325,7 @@ class LifeExperimentModel {
     this.plannedDurationMinutes,
     this.plannedTotalDays,
     this.minimumObservationDays = 3,
+    this.creationSource = ExperimentCreationSource.legacyUnknown,
     this.originCandidateId,
     this.adoptedAt,
     this.progressStartDate,
@@ -384,6 +388,9 @@ class LifeExperimentModel {
               3)
           .clamp(1, 36500)
           .toInt(),
+      creationSource: ExperimentCreationSource.fromStorage(
+        json['creation_source'] ?? json['creationSource'],
+      ),
       originCandidateId: _nullableString(
         json,
         const ['origin_candidate_id', 'originCandidateId'],
@@ -429,6 +436,7 @@ class LifeExperimentModel {
       'planned_duration_minutes': plannedDurationMinutes,
       'planned_total_days': plannedTotalDays,
       'minimum_observation_days': minimumObservationDays,
+      'creation_source': creationSource.storageValue,
       'origin_candidate_id': originCandidateId,
       'adopted_at': adoptedAt?.toUtc().toIso8601String(),
       'progress_start_date': progressStartDate,
@@ -455,6 +463,7 @@ class LifeExperimentModel {
     int? plannedDurationMinutes,
     int? plannedTotalDays,
     int? minimumObservationDays,
+    ExperimentCreationSource? creationSource,
     String? originCandidateId,
     DateTime? adoptedAt,
     String? progressStartDate,
@@ -485,6 +494,7 @@ class LifeExperimentModel {
       plannedTotalDays: plannedTotalDays ?? this.plannedTotalDays,
       minimumObservationDays:
           minimumObservationDays ?? this.minimumObservationDays,
+      creationSource: creationSource ?? this.creationSource,
       originCandidateId: originCandidateId ?? this.originCandidateId,
       adoptedAt: adoptedAt ?? this.adoptedAt,
       progressStartDate: progressStartDate ?? this.progressStartDate,
@@ -781,6 +791,112 @@ class WeeklyActionReviewModel {
   }
 }
 
+/// A fact-only Weekly projection for one adopted small experiment or goal.
+///
+/// The projection deliberately keeps completion, effect and effort separate:
+/// completing an attempt never implies that it was helpful.
+class WeeklyAttemptFeedbackSummaryModel {
+  final String subjectType;
+  final String subjectId;
+  final int recordedCount;
+  final int recordedDayCount;
+  final int completedCount;
+  final int notCompletedCount;
+  final int helpfulCount;
+  final int somewhatHelpfulCount;
+  final int noEffectCount;
+  final int easyCount;
+  final int okayCount;
+  final int difficultCount;
+  final String? latestRoundResult;
+  final String? latestRoundEffort;
+  final String? latestWeeklyOutcome;
+  final String? latestWeeklyBurden;
+  final int? completedDaysAtWeeklyReview;
+  final int? minimumObservationDays;
+
+  const WeeklyAttemptFeedbackSummaryModel({
+    required this.subjectType,
+    required this.subjectId,
+    this.recordedCount = 0,
+    this.recordedDayCount = 0,
+    this.completedCount = 0,
+    this.notCompletedCount = 0,
+    this.helpfulCount = 0,
+    this.somewhatHelpfulCount = 0,
+    this.noEffectCount = 0,
+    this.easyCount = 0,
+    this.okayCount = 0,
+    this.difficultCount = 0,
+    this.latestRoundResult,
+    this.latestRoundEffort,
+    this.latestWeeklyOutcome,
+    this.latestWeeklyBurden,
+    this.completedDaysAtWeeklyReview,
+    this.minimumObservationDays,
+  });
+
+  factory WeeklyAttemptFeedbackSummaryModel.fromMap(
+    Map<String, dynamic> map,
+  ) {
+    int readCount(String key) => (map[key] as num?)?.toInt() ?? 0;
+    int? readOptionalCount(String key) => (map[key] as num?)?.toInt();
+    String? readOptionalString(String key) {
+      final value = map[key]?.toString().trim() ?? '';
+      return value.isEmpty ? null : value;
+    }
+
+    return WeeklyAttemptFeedbackSummaryModel(
+      subjectType: map['subject_type']?.toString() ?? '',
+      subjectId: map['subject_id']?.toString() ?? '',
+      recordedCount: readCount('recorded_count'),
+      recordedDayCount: readCount('recorded_day_count'),
+      completedCount: readCount('completed_count'),
+      notCompletedCount: readCount('not_completed_count'),
+      helpfulCount: readCount('helpful_count'),
+      somewhatHelpfulCount: readCount('somewhat_helpful_count'),
+      noEffectCount: readCount('no_effect_count'),
+      easyCount: readCount('easy_count'),
+      okayCount: readCount('okay_count'),
+      difficultCount: readCount('difficult_count'),
+      latestRoundResult: readOptionalString('latest_round_result'),
+      latestRoundEffort: readOptionalString('latest_round_effort'),
+      latestWeeklyOutcome: readOptionalString('latest_weekly_outcome'),
+      latestWeeklyBurden: readOptionalString('latest_weekly_burden'),
+      completedDaysAtWeeklyReview:
+          readOptionalCount('completed_days_at_weekly_review'),
+      minimumObservationDays: readOptionalCount('minimum_observation_days'),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'subject_type': subjectType,
+      'subject_id': subjectId,
+      'recorded_count': recordedCount,
+      'recorded_day_count': recordedDayCount,
+      'completed_count': completedCount,
+      'not_completed_count': notCompletedCount,
+      'helpful_count': helpfulCount,
+      'somewhat_helpful_count': somewhatHelpfulCount,
+      'no_effect_count': noEffectCount,
+      'easy_count': easyCount,
+      'okay_count': okayCount,
+      'difficult_count': difficultCount,
+      if (latestRoundResult != null) 'latest_round_result': latestRoundResult,
+      if (latestRoundEffort != null) 'latest_round_effort': latestRoundEffort,
+      if (latestWeeklyOutcome != null)
+        'latest_weekly_outcome': latestWeeklyOutcome,
+      if (latestWeeklyBurden != null)
+        'latest_weekly_burden': latestWeeklyBurden,
+      if (completedDaysAtWeeklyReview != null)
+        'completed_days_at_weekly_review': completedDaysAtWeeklyReview,
+      if (minimumObservationDays != null)
+        'minimum_observation_days': minimumObservationDays,
+    };
+  }
+}
+
 class WeeklyInsightModel {
   final String weekStart;
   final String weekEnd;
@@ -994,6 +1110,24 @@ class WeeklyInsightModel {
       );
     }
     return const WeeklyActionReviewModel();
+  }
+
+  List<WeeklyAttemptFeedbackSummaryModel> get attemptFeedbackSummaries {
+    final raw = opportunitySnapshot?['_weekly_attempt_feedback_summaries'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) => WeeklyAttemptFeedbackSummaryModel.fromMap(
+            item.map((key, value) => MapEntry('$key', value)),
+          ),
+        )
+        .where(
+          (item) =>
+              item.subjectType.trim().isNotEmpty &&
+              item.subjectId.trim().isNotEmpty,
+        )
+        .toList(growable: false);
   }
 
   WeeklyV3CStructureModel deriveV3CStructure() {

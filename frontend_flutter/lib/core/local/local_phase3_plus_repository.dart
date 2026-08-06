@@ -2,10 +2,12 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/phase3_plus_models.dart';
+import '../models/experiment_creation_source.dart';
 import '../models/experiment_evaluation_models.dart';
 import 'local_cache_invalidation_repository.dart';
 import 'local_database.dart';
 import 'local_observation_repository.dart';
+import 'local_plan_content_version_repository.dart';
 import 'local_trace_link_repository.dart';
 
 class LocalPhase3PlusRepository {
@@ -147,16 +149,117 @@ class LocalPhase3PlusRepository {
     );
   }
 
+  /// Creates a user-defined small experiment without synthesizing a Signal,
+  /// candidate, AI judgement, or feedback event.
+  ///
+  /// Small experiments are immediate behaviours, so the persisted duration is
+  /// enforced at 1-10 minutes. They have no fixed seven-day expiry; weekly
+  /// continuation decides whether they remain active in the following week.
+  Future<MicroActionModel> createUserSmallExperiment({
+    required String title,
+    required String description,
+    required int durationMinutes,
+    required DateTime startDate,
+  }) async {
+    final normalizedTitle = title.trim();
+    if (normalizedTitle.isEmpty) {
+      throw ArgumentError.value(title, 'title', 'small_experiment_title_empty');
+    }
+    final normalizedDescription = description.trim();
+    _validateSmallTryDuration(
+      durationMinutes,
+      argumentName: 'durationMinutes',
+    );
+
+    final now = DateTime.now();
+    final localStart = DateTime(
+      startDate.toLocal().year,
+      startDate.toLocal().month,
+      startDate.toLocal().day,
+    );
+    final localToday = DateTime(now.year, now.month, now.day);
+    final startKey = _dateKey(localStart);
+    final model = MicroActionModel(
+      id: createId('ma'),
+      judgementId: '',
+      title: normalizedTitle,
+      reason: normalizedDescription,
+      plannedDurationMinutes: durationMinutes,
+      plannedDate: startKey,
+      status: localStart.isAfter(localToday) ? 'planned' : 'accepted',
+      feedbackStatus: 'none',
+      localUserId: localUserId,
+      creationSource: ExperimentCreationSource.userCreated,
+      adoptedAt: now,
+      progressStartDate: startKey,
+      progressEndDate: null,
+      linkedSignalCardIds: const [],
+      createdAt: now,
+      updatedAt: now,
+    );
+    final db = await localDatabase.database;
+    await db.transaction((txn) async {
+      await txn.insert(
+        'micro_actions',
+        model.toDb(),
+        conflictAlgorithm: ConflictAlgorithm.abort,
+      );
+      await LocalPlanContentVersionRepository(localDatabase)
+          .ensureInitialWithExecutor(
+        txn,
+        localUserId: localUserId,
+        objectKind: PlanContentObjectKind.quickTry,
+        objectId: model.id,
+        effectiveFromLocalDate: startKey,
+        content: {
+          'title': model.title,
+          'reason': model.reason,
+          'action_type': model.actionType,
+          'difficulty': model.difficulty,
+          'planned_duration_minutes': model.plannedDurationMinutes,
+          'planned_date': model.plannedDate,
+          'planned_time': null,
+        },
+        createdAt: model.createdAt,
+      );
+    });
+    await LocalCacheInvalidationRepository(localDatabase)
+        .markMicroActionChanged(
+      localDate: startKey,
+      reason: 'user_small_experiment_created',
+    );
+    return model;
+  }
+
   Future<void> updateMicroActionStatus({
     required String id,
     required String status,
     String? feedbackStatus,
   }) async {
+    final normalizedStatus = status.trim().toLowerCase();
+    const terminalStatuses = {
+      'completed',
+      'done',
+      'finished',
+      'stopped',
+      'archived',
+      'skipped',
+      'effective',
+      'not_effective',
+    };
     final db = await localDatabase.database;
     final values = <String, Object?>{
-      'status': status,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
+    if (!terminalStatuses.contains(normalizedStatus)) {
+      values['status'] = status;
+    } else if (feedbackStatus == null) {
+      // A quick experiment can close only during weekly boundary
+      // reconciliation. Daily feedback and generic repository calls must not
+      // rewrite its lifecycle. A feedback update may still be preserved for
+      // legacy rows whose current status already uses an old terminal label.
+      return;
+    }
     if (feedbackStatus != null) {
       values['feedback_status'] = feedbackStatus;
     }

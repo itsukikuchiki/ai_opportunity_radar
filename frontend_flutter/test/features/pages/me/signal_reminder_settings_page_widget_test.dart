@@ -38,8 +38,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Signal 记录提醒'), findsOneWidget);
-    expect(find.textContaining('不会创建 Signal Card'), findsOneWidget);
-    expect(find.text('2 条保存在本机'), findsOneWidget);
+    expect(find.textContaining('不会创建信号卡'), findsOneWidget);
+    expect(find.text('2 条提醒规则'), findsOneWidget);
     expect(find.byKey(const ValueKey('signal-reminder.rule-a')), findsNothing);
     expect(
       find.byKey(
@@ -139,7 +139,7 @@ void main() {
     );
   });
 
-  testWidgets('deleting removes only the selected local reminder rule',
+  testWidgets('deleting removes only the selected reminder rule',
       (tester) async {
     final rules = [
       _weeklyRule(id: 'signal-reminder.rule-keep', enabled: false),
@@ -176,7 +176,7 @@ void main() {
 
     final persisted = await repository.loadRules();
     expect(persisted.map((rule) => rule.id), ['signal-reminder.rule-keep']);
-    expect(find.text('1 saved locally'), findsOneWidget);
+    expect(find.text('1 reminder rule'), findsOneWidget);
   });
 }
 

@@ -67,6 +67,9 @@ class AppBootstrapState extends ChangeNotifier {
   Future<void> prepareLaunch() async {
     final prefs = await SharedPreferences.getInstance();
     _preferences = prefs;
+    if (!BuildEnvironment.qaShowcaseData) {
+      await QaShowcaseSeeder.purgeOwnedPreferences(prefs);
+    }
     _readOnboardingCompletion(prefs);
     if (BuildEnvironment.qaShowcaseData) {
       await prefs.setBool('onboarding_completed', true);
@@ -88,8 +91,14 @@ class AppBootstrapState extends ChangeNotifier {
         await QaShowcaseSeeder.seed(
           dependencies: dependencies,
           preferences: prefs,
+          now: BuildEnvironment.qaShowcaseNow,
+          language: BuildEnvironment.qaShowcaseLanguage,
         );
         _onboardingCompleted = true;
+      } else {
+        await QaShowcaseSeeder.purgeOwnedData(
+          dependencies: dependencies,
+        );
       }
       _dependencies = dependencies;
       await _clearLegacyScheduleNotificationsOnce(prefs);

@@ -3,6 +3,34 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('main-page scroll padding reserves the floating nav once',
+      (tester) async {
+    double? scaffoldInjectedBottom;
+    EdgeInsets? scrollPadding;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          extendBody: true,
+          bottomNavigationBar: const SizedBox(height: 80),
+          body: Builder(
+            builder: (context) {
+              scaffoldInjectedBottom = MediaQuery.paddingOf(context).bottom;
+              scrollPadding = AuroraMainPageSpec.scrollPadding(context);
+              return const SizedBox.expand();
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(scaffoldInjectedBottom, 80);
+    expect(
+      scrollPadding,
+      const EdgeInsets.fromLTRB(18, 14, 18, 96),
+    );
+  });
+
   testWidgets(
     'four hero patterns share accessible premium decorative rendering',
     (tester) async {

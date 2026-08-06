@@ -191,6 +191,34 @@ void main() {
     });
   }
 
+  testWidgets(
+      'primary pages avoid layout overflow on compact phones at 1.3 text scale',
+      (tester) async {
+    await _setViewport(tester, compactPhone);
+    const locale = Locale.fromSubtags(
+      languageCode: 'zh',
+      scriptCode: 'Hans',
+    );
+
+    await _pumpToday(tester, locale: locale, textScale: 1.3);
+    _expectNoRenderFailure(tester);
+
+    await _pumpWeekly(tester, locale: locale, textScale: 1.3);
+    _expectNoRenderFailure(tester);
+
+    await _pumpExperiment(tester, locale: locale, textScale: 1.3);
+    _expectNoRenderFailure(tester);
+
+    await _pumpJourney(tester, locale: locale, textScale: 1.3);
+    _expectNoRenderFailure(tester);
+
+    await _pumpMe(tester, locale: locale, textScale: 1.3);
+    _expectNoRenderFailure(tester);
+
+    await _pumpLibrary(tester, locale: locale, textScale: 1.3);
+    _expectNoRenderFailure(tester);
+  });
+
   testWidgets('bottom navigation keeps all labels tappable on compact phones',
       (tester) async {
     await _setViewport(tester, compactPhone);
@@ -217,13 +245,7 @@ void main() {
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
     await tester.pumpAndSettle();
 
-    for (final label in [
-      'Today',
-      'Weekly',
-      'Life Experiment',
-      'Journey',
-      'Me'
-    ]) {
+    for (final label in ['Today', 'Weekly', 'Experiments', 'Journey', 'Me']) {
       final finder = find.text(label);
       expect(finder, findsOneWidget);
       _expectInViewport(tester, finder);

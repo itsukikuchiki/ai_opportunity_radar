@@ -6,11 +6,11 @@ import 'package:provider/provider.dart';
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/models/signal_library_models.dart';
+import '../../../core/models/signal_library_illustration_catalog.dart';
 import '../../../core/navigation/app_back_navigation.dart';
 import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../../../shared/widgets/editable_timeline_decision_dialog.dart';
-import '../../../shared/widgets/signal_illustration_kit.dart';
 import 'signal_library_view_model.dart';
 
 class SignalLibraryPage extends StatefulWidget {
@@ -21,9 +21,13 @@ class SignalLibraryPage extends StatefulWidget {
 }
 
 class _SignalLibraryPageState extends State<SignalLibraryPage> {
+  static const int _maxSessionReplacements = 3;
+
   String? _loadedLanguage;
   String _query = '';
   final Set<String> _submittingPatternIds = <String>{};
+  final Set<String> _sessionRejectedCanonicalIds = <String>{};
+  int _sessionReplacementCount = 0;
 
   @override
   void didChangeDependencies() {
@@ -93,9 +97,9 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
                         AppLocaleText.tr(
                           context,
                           en: 'Browse common Signal Card references and decide whether one matches your recent life.',
-                          zhHans: '浏览常见的 Signal Card 参考，判断它是否像你最近的情况。',
-                          zhHant: '瀏覽常見的 Signal Card 參考，判斷它是否像你最近的情況。',
-                          ja: 'よくある Signal Card の参考から、最近の自分に近いものか判断できます。',
+                          zhHans: '浏览常见的信号卡参考，判断它是否像你最近的情况。',
+                          zhHant: '瀏覽常見的信號卡參考，判斷它是否像你最近的情況。',
+                          ja: 'よくあるシグナルカードの参考から、最近の自分に近いものか判断できます。',
                         ),
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: AuroraColors.ink.withValues(alpha: 0.74),
@@ -158,7 +162,7 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
     List<LibraryPatternModel> patterns,
   ) {
     final query = _query.trim().toLowerCase();
-    final filtered = query.isEmpty
+    final queryMatches = query.isEmpty
         ? patterns
         : patterns.where((pattern) {
             final text = [
@@ -169,6 +173,12 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
             ].join(' ').toLowerCase();
             return text.contains(query);
           }).toList(growable: false);
+    final filtered = queryMatches
+        .where(
+          (pattern) =>
+              !_sessionRejectedCanonicalIds.contains(pattern.canonicalId),
+        )
+        .toList(growable: false);
     final domainOrder = {
       for (var index = 0; index < FocusDomains.options.length; index++)
         FocusDomains.options[index].id: index,
@@ -206,18 +216,73 @@ class _SignalLibraryPageState extends State<SignalLibraryPage> {
     final messenger = ScaffoldMessenger.of(context);
 
     if (status == 'inaccurate') {
+      if (_sessionReplacementCount >= _maxSessionReplacements) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'You have switched 3 references this visit.',
+                  zhHans: '本次已切换 3 条参考。',
+                  zhHant: '本次已切換 3 條參考。',
+                  ja: '今回は3件の参考を切り替えました。',
+                ),
+              ),
+            ),
+          );
+        return;
+      }
+
+      final visibleMatches = _filterPatterns(viewModel.visiblePatterns);
+      final hasReplacement = visibleMatches.any(
+        (candidate) => candidate.canonicalId != pattern.canonicalId,
+      );
+      if (!hasReplacement) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'There are no more references in the current filter.',
+                  zhHans: '当前筛选下暂时没有更多参考。',
+                  zhHant: '目前篩選下暫時沒有更多參考。',
+                  ja: '現在の絞り込みには、ほかの参考がありません。',
+                ),
+              ),
+            ),
+          );
+        return;
+      }
+
+      setState(() {
+        _sessionRejectedCanonicalIds.add(pattern.canonicalId);
+        _sessionReplacementCount += 1;
+      });
+      final exhausted = _sessionReplacementCount >= _maxSessionReplacements;
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
             content: Text(
-              AppLocaleText.tr(
-                context,
-                en: 'Nothing was added to your timeline.',
-                zhHans: '没有加入时间线，也没有保存反馈。',
-                zhHant: '沒有加入時間線，也沒有儲存回饋。',
-                ja: 'タイムラインには追加せず、フィードバックも保存していません。',
-              ),
+              exhausted
+                  ? AppLocaleText.tr(
+                      context,
+                      en: 'Showing another reference. You have used all 3 switches for this visit.',
+                      zhHans: '已切换另一条参考；本次 3 次切换已用完。',
+                      zhHant: '已切換另一條參考；本次 3 次切換已用完。',
+                      ja: '別の参考に切り替えました。今回の3回分を使い切りました。',
+                    )
+                  : AppLocaleText.tr(
+                      context,
+                      en: 'Showing another reference.',
+                      zhHans: '已切换另一条参考。',
+                      zhHant: '已切換另一條參考。',
+                      ja: '別の参考に切り替えました。',
+                    ),
             ),
           ),
         );
@@ -419,9 +484,9 @@ class _LibraryFooterHint extends StatelessWidget {
               AppLocaleText.tr(
                 context,
                 en: 'Library items are references only. You decide whether one becomes your Signal Card.',
-                zhHans: '信号库内容只是参考；是否成为你自己的 Signal Card，由你决定。',
-                zhHant: '信號庫內容只是參考；是否成為你自己的 Signal Card，由你決定。',
-                ja: 'ライブラリは参考です。自分の Signal Card にするかは自分で選べます。',
+                zhHans: '信号库内容只是参考；是否成为你自己的信号卡，由你决定。',
+                zhHant: '信號庫內容只是參考；是否成為你自己的信號卡，由你決定。',
+                ja: 'ライブラリは参考です。自分のシグナルカードにするかは自分で選べます。',
               ),
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: AuroraColors.ink.withValues(alpha: 0.72),
@@ -727,6 +792,8 @@ class _PatternCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final domain = _LibraryDomainStyle.resolve(context, pattern);
+    final illustration =
+        SignalLibraryIllustrationCatalog.forPatternId(pattern.id);
 
     return AuroraCard(
       padding: AuroraMainPageSpec.comfortableCardPadding,
@@ -754,6 +821,8 @@ class _PatternCard extends StatelessWidget {
                     icon: domain.icon,
                     color: domain.color,
                     patternId: pattern.id,
+                    assetPath: illustration?.asset,
+                    semanticsLabel: pattern.title,
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -878,42 +947,59 @@ class _LibrarySignalIcon extends StatelessWidget {
   final IconData icon;
   final Color color;
   final String patternId;
+  final String? assetPath;
+  final String semanticsLabel;
 
   const _LibrarySignalIcon({
     required this.icon,
     required this.color,
     required this.patternId,
+    required this.assetPath,
+    required this.semanticsLabel,
   });
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 68,
-      height: 68,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.62),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.14),
-                  blurRadius: 22,
-                  offset: const Offset(0, 12),
-                ),
-              ],
+    final fallback = DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          colors: [
+            Colors.white.withValues(alpha: 0.98),
+            color.withValues(alpha: 0.34),
+          ],
+        ),
+      ),
+      child: Center(child: Icon(icon, color: color, size: 34)),
+    );
+
+    return Semantics(
+      image: true,
+      label: semanticsLabel,
+      child: Container(
+        key: ValueKey('library-pattern-illustration-$patternId'),
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.9)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.16),
+              blurRadius: 22,
+              offset: const Offset(0, 12),
             ),
-            child: const SizedBox.expand(),
-          ),
-          SizedBox(
-            width: 46,
-            height: 46,
-            child: PatternIllustration(patternId: patternId),
-          ),
-          Icon(icon, color: Colors.white.withValues(alpha: 0.08), size: 46),
-        ],
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: assetPath == null
+            ? fallback
+            : Image.asset(
+                assetPath!,
+                key: ValueKey('library-pattern-asset-$patternId'),
+                fit: BoxFit.cover,
+                cacheWidth: 180,
+                errorBuilder: (_, __, ___) => fallback,
+              ),
       ),
     );
   }

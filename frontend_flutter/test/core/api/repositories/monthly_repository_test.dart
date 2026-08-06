@@ -10,6 +10,7 @@ import 'package:ai_opportunity_radar/core/api/repositories/monthly_repository.da
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_monthly_snapshot_repository.dart';
+import 'package:ai_opportunity_radar/core/i18n/app_locale_text.dart';
 import 'package:ai_opportunity_radar/core/models/monthly_models.dart';
 
 void main() {
@@ -113,6 +114,80 @@ void main() {
 
       await harness.close();
     });
+
+    test('5) fallback 会跟随四种界面语言，并保留原始内容', () async {
+      final expectations = <AppLanguage, String>{
+        AppLanguage.english: 'kept returning this month',
+        AppLanguage.simplifiedChinese: '这个月反复回来',
+        AppLanguage.traditionalChinese: '這個月反覆出現',
+        AppLanguage.japanese: '繰り返し現れ',
+      };
+
+      for (final entry in expectations.entries) {
+        final harness = await _createHarness(
+          dbPath: p.join(tempDir.path, 'monthly_${entry.key.name}.db'),
+          aiRepository: FailingMonthlyAiRepository(),
+          installationDate: DateTime.now().subtract(const Duration(days: 35)),
+          language: entry.key,
+        );
+
+        await harness.seedSignalCard(content: 'rap');
+        final monthly = await harness.repository.fetchCurrentMonthly();
+
+        expect(monthly.monthlySummary, contains('rap'));
+        expect(monthly.monthlySummary, contains(entry.value));
+        expect(monthly.repeatedThemes, isNotEmpty);
+
+        await harness.close();
+      }
+    });
+
+    test('6) AI 返回错误语言时改用当前语言 fallback', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeMonthlyAiRepository(),
+        installationDate: DateTime.now().subtract(const Duration(days: 35)),
+        language: AppLanguage.japanese,
+      );
+
+      await harness.seedSignalCard(content: '今日は会議が多かった');
+      final monthly = await harness.repository.fetchCurrentMonthly();
+
+      expect(monthly.monthlySummary, contains('繰り返し現れ'));
+      expect(monthly.monthlySummary, isNot(contains('kept returning')));
+
+      await harness.close();
+    });
+
+    test('7) 切换界面语言后不会复用旧语言缓存', () async {
+      final countingAi = CountingMonthlyAiRepository();
+      final installationDate =
+          DateTime.now().subtract(const Duration(days: 35));
+
+      final englishHarness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: countingAi,
+        installationDate: installationDate,
+        language: AppLanguage.english,
+      );
+      await englishHarness.seedSignalCard(content: 'rap');
+      final english = await englishHarness.repository.fetchCurrentMonthly();
+      expect(english.monthlySummary, contains('keeps circling'));
+      expect(countingAi.callCount, 1);
+      await englishHarness.close();
+
+      final japaneseHarness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: countingAi,
+        installationDate: installationDate,
+        language: AppLanguage.japanese,
+      );
+      final japanese = await japaneseHarness.repository.fetchCurrentMonthly();
+
+      expect(japanese.monthlySummary, contains('繰り返し現れ'));
+      expect(countingAi.callCount, 2);
+      await japaneseHarness.close();
+    });
   });
 }
 
@@ -142,6 +217,7 @@ Future<_Harness> _createHarness({
   required String dbPath,
   required AiRepository aiRepository,
   required DateTime installationDate,
+  AppLanguage language = AppLanguage.english,
 }) async {
   final localDatabase = LocalDatabase(
     dbPathOverride: dbPath,
@@ -156,6 +232,7 @@ Future<_Harness> _createHarness({
     aiRepository: aiRepository,
     focusAreaLoader: () async => null,
     installationDateLoader: () async => installationDate,
+    languageLoader: () => language,
   );
 
   return _Harness(

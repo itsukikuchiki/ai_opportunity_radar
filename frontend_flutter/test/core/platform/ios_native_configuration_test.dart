@@ -45,33 +45,39 @@ void main() {
 
       const requiredCopy = <String, List<String>>{
         'en_US': [
-          'This Week Deep Read',
-          'Journey L3',
-          'SignalCard',
+          'weekly deep analysis',
+          'action-preference insights',
+          'complete Journey timeline since first use',
           'structured self-review',
           'AI',
         ],
         'zh_CN': [
-          '本周深读',
-          'Journey L3',
-          'SignalCard',
+          '本周深度分析',
+          '行动偏好',
+          '首次使用至今的旅程完整时间轴',
           '结构化自我复盘',
-          'AI',
+          '智能功能',
         ],
         'zh_TW': [
-          '本週深讀',
-          'Journey L3',
-          'SignalCard',
+          '本週深度分析',
+          '行動偏好',
+          '首次使用至今的旅程完整時間軸',
           '結構化自我複盤',
-          'AI',
+          '智慧功能',
         ],
         'ja_JP': [
-          '今週のディープリード',
-          'Journey L3',
-          'SignalCard',
+          '今週の深い分析',
+          '行動傾向',
+          '初回利用から現在までの旅程の全期間タイムライン',
           '構造化された自己振り返り',
-          'AI',
+          '知能機能',
         ],
+      };
+      const displayNamePrefixes = <String, String>{
+        'en_US': 'Signal Path Pro',
+        'zh_CN': 'Signal Path 专业版',
+        'zh_TW': 'Signal Path 專業版',
+        'ja_JP': 'Signal Path プロ版',
       };
 
       for (final product in products) {
@@ -92,7 +98,7 @@ void main() {
           final description = localization['description']! as String;
           expect(
             localization['displayName'],
-            startsWith('Signal Path Pro'),
+            startsWith(displayNamePrefixes[entry.key]!),
           );
           for (final phrase in entry.value) {
             expect(
@@ -187,6 +193,27 @@ void main() {
         appDelegate,
         isNot(contains('request.requiresOnDeviceRecognition = false')),
       );
+    });
+
+    test(
+        'speech recognition follows device dictation language instead of app display locale',
+        () {
+      final appDelegate = _read('ios/Runner/AppDelegate.swift');
+      final speechBridgeStart = appDelegate.indexOf(
+        'private static func startRecognitionSession() throws',
+      );
+      final speechBridgeEnd = appDelegate.indexOf(
+        'private static func finishAudioInput()',
+      );
+      final speechBridge = appDelegate.substring(
+        speechBridgeStart,
+        speechBridgeEnd,
+      );
+
+      expect(speechBridge, contains('SFSpeechRecognizer()'));
+      expect(speechBridge, isNot(contains('SFSpeechRecognizer(locale:')));
+      expect(speechBridge, isNot(contains('englishFallbackLocale')));
+      expect(appDelegate, isNot(contains('localeIdentifier')));
     });
 
     test('Calendar retains read support without requesting native permission',

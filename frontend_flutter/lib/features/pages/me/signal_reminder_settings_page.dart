@@ -256,10 +256,10 @@ class _SignalReminderSettingsPageState
         content: Text(
           AppLocaleText.tr(
             dialogContext,
-            en: 'This removes only the local reminder rule. Your Signals and reports will not change.',
-            zhHans: '只会删除本机提醒规则，不会更改你的 Signal 或报告。',
-            zhHant: '只會刪除本機提醒規則，不會更改你的 Signal 或報告。',
-            ja: '端末内のリマインダー設定だけを削除します。Signal やレポートは変わりません。',
+            en: 'This removes only this reminder rule. Your Signals and reports will not change.',
+            zhHans: '只会删除这条提醒规则，不会更改你的 Signal 或报告。',
+            zhHant: '只會刪除這條提醒規則，不會更改你的 Signal 或報告。',
+            ja: 'このリマインダー設定だけを削除します。Signal やレポートは変わりません。',
           ),
           style: Theme.of(dialogContext).textTheme.bodyMedium?.copyWith(
                 color: AuroraColors.muted,
@@ -493,10 +493,12 @@ class _HeaderCard extends StatelessWidget {
                     Text(
                       AppLocaleText.tr(
                         context,
-                        en: '$ruleCount saved locally',
-                        zhHans: '$ruleCount 条保存在本机',
-                        zhHant: '$ruleCount 則儲存在本機',
-                        ja: '端末内に $ruleCount 件保存',
+                        en: ruleCount == 1
+                            ? '1 reminder rule'
+                            : '$ruleCount reminder rules',
+                        zhHans: '$ruleCount 条提醒规则',
+                        zhHant: '$ruleCount 則提醒規則',
+                        ja: 'リマインダー $ruleCount 件',
                       ),
                       style: theme.textTheme.labelMedium?.copyWith(
                         color: AuroraColors.purple,
@@ -513,9 +515,9 @@ class _HeaderCard extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'Manage reminders you already accepted. A reminder only opens Today; it never records or creates a Signal Card for you.',
-              zhHans: '管理你已经确认的提醒。提醒只会打开今天页面，不会替你记录，也不会创建 Signal Card。',
-              zhHant: '管理你已經確認的提醒。提醒只會打開今天頁面，不會替你記錄，也不會建立 Signal Card。',
-              ja: '確認済みのリマインダーを管理します。通知は「今日」を開くだけで、記録や Signal Card の作成は行いません。',
+              zhHans: '管理你已经确认的提醒。提醒只会打开今天页面，不会替你记录，也不会创建信号卡。',
+              zhHant: '管理你已經確認的提醒。提醒只會打開今天頁面，不會替你記錄，也不會建立信號卡。',
+              ja: '確認済みのリマインダーを管理します。通知は「今日」を開くだけで、記録やシグナルカードの作成は行いません。',
             ),
             style: theme.textTheme.bodyMedium?.copyWith(
               color: AuroraColors.muted,

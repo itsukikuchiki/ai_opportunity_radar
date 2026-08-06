@@ -208,24 +208,28 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('today-hero-energy')),
-        matching: find.text('在回升'),
+        matching: find.text('待观察'),
       ),
       findsOneWidget,
     );
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('today-hero-friction')),
-        matching: find.text('偏高'),
+        of: find.byKey(const ValueKey('today-hero-load')),
+        matching: find.text('待观察'),
       ),
       findsOneWidget,
     );
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('today-hero-recovery')),
-        matching: find.text('一般'),
+        matching: find.text('已出现'),
       ),
       findsOneWidget,
     );
+    expect(find.text('精力'), findsOneWidget);
+    expect(find.text('负担'), findsOneWidget);
+    expect(find.text('能量'), findsNothing);
+    expect(find.text('摩擦'), findsNothing);
     expect(
       tester.getBottomLeft(hero).dy,
       lessThan(tester.getTopLeft(find.text('今天过得怎么样？')).dy),
@@ -233,7 +237,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Today 顶部优先使用用户明确登记的精力状态', (tester) async {
+  testWidgets('Today 顶部综合明确状态与已发生安排', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -295,14 +299,14 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('today-hero-energy')),
-        matching: find.text('较足'),
+        matching: find.text('有波动'),
       ),
       findsOneWidget,
     );
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('today-hero-recovery')),
-        matching: find.text('待观察'),
+        matching: find.text('尚未出现'),
       ),
       findsOneWidget,
     );
@@ -310,7 +314,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Today 恢复状态优先采用明确的能量影响证据', (tester) async {
+  testWidgets('Today 单条恢复 Signal 只显示恢复已出现', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -352,21 +356,21 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('today-hero-energy')),
-        matching: find.text('在回升'),
+        matching: find.text('待观察'),
       ),
       findsOneWidget,
     );
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('today-hero-recovery')),
-        matching: find.text('一般'),
+        matching: find.text('已出现'),
       ),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Today 摩擦状态按当日有效信号比例判定', (tester) async {
+  testWidgets('Today 负担按当日真实 Signal 比例判定', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -409,8 +413,8 @@ void main() {
 
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('today-hero-friction')),
-        matching: find.text('中等'),
+        of: find.byKey(const ValueKey('today-hero-load')),
+        matching: find.text('适中'),
       ),
       findsOneWidget,
     );
@@ -455,7 +459,7 @@ void main() {
     expect(find.text('偏高'), findsNothing);
     expect(find.text('不足'), findsNothing);
     expect(find.byKey(const ValueKey('today-hero-energy')), findsNothing);
-    expect(find.byKey(const ValueKey('today-hero-friction')), findsNothing);
+    expect(find.byKey(const ValueKey('today-hero-load')), findsNothing);
     expect(find.byKey(const ValueKey('today-hero-recovery')), findsNothing);
     expect(
       tester.getSize(find.byKey(const ValueKey('today-hero-header'))).height,
@@ -508,7 +512,7 @@ void main() {
 
     expect(find.text('原文已经保存，等同步完成后再整理也来得及。'), findsOneWidget);
     expect(find.byKey(const ValueKey('today-hero-energy')), findsNothing);
-    expect(find.byKey(const ValueKey('today-hero-friction')), findsNothing);
+    expect(find.byKey(const ValueKey('today-hero-load')), findsNothing);
     expect(find.byKey(const ValueKey('today-hero-recovery')), findsNothing);
     expect(find.text('偏低'), findsNothing);
     expect(find.text('偏高'), findsNothing);
@@ -781,7 +785,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('你写下了那一刻很累，这份感受先留在这里。'), findsOneWidget);
+    expect(
+      find.text('听起来你现在真的很累，这份疲惫值得被好好看见。'),
+      findsOneWidget,
+    );
     expect(find.textContaining('把动作放轻'), findsNothing);
     expect(find.textContaining('可以留意'), findsNothing);
     expect(find.textContaining('真正'), findsNothing);
@@ -1232,6 +1239,85 @@ void main() {
     );
   });
 
+  testWidgets('Today 将安排显示为结构化时间段方块而不是拼接句子', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 1800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final now = DateTime.now();
+    final startAt = DateTime(now.year, now.month, now.day, 15);
+    final endAt = startAt.add(const Duration(minutes: 30));
+    const composite = '15:00–15:30 · 成长计划 · 测试（接下来安排）';
+    final repo = StubTodayRepository(
+      fetchTodayResult: {
+        'insight': TodayInsightModel(text: '今天先看真实时间去向。'),
+        'pendingQuestion': null,
+        'bestAction': DailyBestActionModel(text: '先留一点余地。'),
+        'recentSignals': <RecentSignalModel>[
+          RecentSignalModel(
+            id: 'today-time-use-block',
+            signalCardId: 'today-time-use-block',
+            sourceType: 'time_use',
+            content: composite,
+            acknowledgement: '这段时间已经记下来了。',
+            createdAt: now,
+            localDate: _dateKey(now),
+            rawPayloadJson: {
+              'timeline_type': 'time_use',
+              'title': '测试',
+              'record_status': 'planned',
+              'focus_domain_id': 'growth_plan',
+              'category': 'growth_plan',
+              'start_at': startAt.toIso8601String(),
+              'end_at': endAt.toIso8601String(),
+              'duration_minutes': 30,
+            },
+          ),
+        ],
+      },
+    );
+    final meVm = await buildMeViewModel();
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const TodayPage(),
+        providers: [
+          ChangeNotifierProvider<TodayViewModel>(
+            create: (_) => TodayViewModel(repo),
+          ),
+          ChangeNotifierProvider<MeViewModel>.value(value: meVm),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final block = find.byKey(const ValueKey('today-time-use-period-block'));
+    expect(block, findsOneWidget);
+    expect(
+      find.descendant(of: block, matching: find.text('15:00')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: block, matching: find.text('15:30')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: block, matching: find.text('测试')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: block,
+        matching: find.text('成长计划 · 接下来安排'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text(composite), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('手帐时间线信号筛选只显示信号类记录', (tester) async {
     final now = DateTime.now();
     final today = _dateKey(now);
@@ -1549,7 +1635,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('没找到这条记录。'), findsNothing);
-    expect(find.text('和 AI 聊聊'), findsOneWidget);
+    expect(find.text('和智能助手聊聊'), findsOneWidget);
     expect(find.text('这条记录'), findsOneWidget);
     expect(find.text('今天不想回消息。'), findsWidgets);
     expect(find.text('再说一点'), findsNothing);
@@ -1650,7 +1736,7 @@ void main() {
           return null;
         }
         if (call.method == 'stopVoiceRecognition') {
-          return '今天骑马很开心，想把这种轻松留下来。';
+          return '今日は少しゆっくりできて、気持ちが軽くなった。';
         }
         if (call.method == 'cancelVoiceRecognition') return null;
         return null;
@@ -1698,10 +1784,7 @@ void main() {
         .tap(find.byKey(const ValueKey('voice-start-recording-action')));
     await tester.pumpAndSettle();
 
-    expect(
-      startSpeechArguments.single,
-      containsPair('localeIdentifier', 'zh-CN'),
-    );
+    expect(startSpeechArguments.single, isNull);
     expect(find.text('正在录音'), findsOneWidget);
     expect(find.text('完成录音'), findsOneWidget);
 
@@ -1724,7 +1807,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.submittedCaptures, hasLength(1));
-    expect(repo.submittedCaptures.single['content'], '今天骑马很开心，想把这种轻松留下来。');
+    expect(
+      repo.submittedCaptures.single['content'],
+      '今日は少しゆっくりできて、気持ちが軽くなった。',
+    );
     expect(repo.submittedCaptures.single['sourceType'], 'voice');
     expect(
       repo.submittedCaptures.single['rawPayloadJson'],
@@ -1748,6 +1834,77 @@ void main() {
     expect(find.text('语音记录'), findsNothing);
     expect(repo.submittedCaptures, hasLength(1));
     expect(repo.savedDraftCaptures, isEmpty);
+  });
+
+  testWidgets('设备听写不可用时允许直接手输日语转写', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final repo = StubTodayRepository(
+      fetchTodayResult: {
+        'insight': TodayInsightModel(text: '今天可以先这样看。'),
+        'pendingQuestion': null,
+        'bestAction': DailyBestActionModel(text: '先留下一点余地。'),
+        'recentSignals': <RecentSignalModel>[],
+      },
+    );
+    final meVm = await buildMeViewModel();
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('signalpath/speech'),
+      (call) async {
+        if (call.method == 'startVoiceRecognition') {
+          throw PlatformException(code: 'speech_locale_unavailable');
+        }
+        return null;
+      },
+    );
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('signalpath/speech'),
+        null,
+      );
+    });
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const TodayPage(),
+        providers: [
+          ChangeNotifierProvider<TodayViewModel>(
+            create: (_) => TodayViewModel(repo),
+          ),
+          ChangeNotifierProvider<MeViewModel>.value(value: meVm),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('语音'));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('voice-start-recording-action')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('设备当前听写语言的端侧识别不可用'),
+      findsOneWidget,
+    );
+    final transcriptField = find.byType(TextField).last;
+    expect(tester.widget<TextField>(transcriptField).enabled, isTrue);
+    await tester.enterText(transcriptField, '今日は日本語で記録します。');
+    await tester.tap(
+      find.byKey(const ValueKey('voice-save-transcript-action')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repo.submittedCaptures, hasLength(1));
+    expect(repo.submittedCaptures.single['content'], '今日は日本語で記録します。');
   });
 
   testWidgets('Today 展示时间安排入口，但仍隐藏 legacy Schedule 数据', (tester) async {
@@ -1868,6 +2025,19 @@ void main() {
     ]) {
       expect(find.text(label), findsOneWidget);
     }
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('time-use-start-time')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('time-use-start-time')),
+    );
+    await tester.pumpAndSettle();
+    final timePicker = tester.widget<TimePickerDialog>(
+      find.byType(TimePickerDialog),
+    );
+    expect(timePicker.initialEntryMode, TimePickerEntryMode.inputOnly);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('time-use-title-field')),
       '团队会议',

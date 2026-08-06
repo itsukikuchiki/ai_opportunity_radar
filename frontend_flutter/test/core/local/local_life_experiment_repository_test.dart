@@ -8,6 +8,7 @@ import 'package:ai_opportunity_radar/core/local/local_feedback_event_repository.
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_experiment_candidate_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository.dart';
+import 'package:ai_opportunity_radar/core/models/experiment_creation_source.dart';
 import 'package:ai_opportunity_radar/core/models/experiment_evaluation_models.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
 
@@ -417,6 +418,7 @@ void main() {
       suggestedAction: '下午出门走 8 分钟',
       linkedSignalCardIds: const ['sig-1'],
       status: 'saved',
+      creationSource: ExperimentCreationSource.userCreated,
     );
 
     final clone = await repository.appendToCurrentWeek(
@@ -427,6 +429,7 @@ void main() {
     expect(clone.id, isNot(original.id));
     expect(clone.parentExperimentId, original.id);
     expect(clone.sourceWeekStart, '2026-06-15');
+    expect(clone.creationSource, ExperimentCreationSource.userCreated);
 
     final all = await repository.listRecent(localUserId: 'local');
     expect(all.map((item) => item.id), contains(original.id));
@@ -481,6 +484,7 @@ void main() {
       suggestedAction: '每天记录一次恢复体感',
       linkedSignalCardIds: const ['sig-open'],
       status: 'active',
+      creationSource: ExperimentCreationSource.candidateAdoption,
     );
     final continuedOpen = await repository.reuseForNextWeek(
       experiment: openGoal,
@@ -491,6 +495,10 @@ void main() {
     expect(continuedOpen.progressStartDate, '2026-07-13');
     expect(continuedOpen.plannedTotalDays, isNull);
     expect(continuedOpen.progressEndDate, isNull);
+    expect(
+      continuedOpen.creationSource,
+      ExperimentCreationSource.candidateAdoption,
+    );
 
     final fixedGoal = await repository.ensureSuggested(
       localUserId: 'fixed-goal-user',
@@ -510,12 +518,11 @@ void main() {
     expect(continuedFixed.sourceWeekStart, '2026-07-13');
     expect(continuedFixed.sourceWeekEnd, '2026-07-19');
     expect(continuedFixed.progressStartDate, '2026-07-13');
-    expect(continuedFixed.plannedTotalDays, 12);
-    expect(continuedFixed.progressEndDate, '2026-07-24');
+    expect(continuedFixed.plannedTotalDays, 5);
+    expect(continuedFixed.progressEndDate, '2026-07-17');
   });
 
-  test(
-      'status changes write lifecycle events for active pause complete archive',
+  test('manual terminal statuses are blocked and only week boundary completes',
       () async {
     final experiment = await repository.ensureSuggested(
       localUserId: 'local',
@@ -528,34 +535,70 @@ void main() {
       status: 'saved',
     );
 
-    for (final status in const ['active', 'paused', 'completed', 'archived']) {
-      await repository.updateStatus(
-        experimentId: experiment.id,
-        status: status,
+    for (final status in const ['active', 'paused']) {
+      expect(
+        await repository.updateStatus(
+          experimentId: experiment.id,
+          status: status,
+        ),
+        isNotNull,
       );
     }
+    for (final status in const [
+      'completed',
+      'done',
+      'stopped',
+      'archived',
+      'skipped',
+      'effective',
+      'not_effective',
+    ]) {
+      expect(
+        await repository.updateStatus(
+          experimentId: experiment.id,
+          status: status,
+        ),
+        isNull,
+      );
+    }
+    final completed = await repository.completeAtWeekBoundary(
+      experimentId: experiment.id,
+      weekEnd: DateTime(2026, 6, 7),
+    );
+    expect(completed?.status, 'completed');
+    expect(
+      await repository.updateStatus(
+        experimentId: experiment.id,
+        status: 'archived',
+      ),
+      isNull,
+    );
 
     final db = await localDatabase.database;
-    final events = await db.query(
+    final statusEvents = await db.query(
       'life_experiment_lifecycle_events',
       where: 'experiment_id = ? AND event_type = ?',
       whereArgs: [experiment.id, 'status_changed'],
       orderBy: 'created_at ASC',
     );
 
-    expect(events, hasLength(4));
-    expect(events.map((row) => row['status_to']), [
+    expect(statusEvents, hasLength(2));
+    expect(statusEvents.map((row) => row['status_to']), [
       'active',
       'paused',
-      'completed',
-      'archived',
     ]);
+    final boundaryEvents = await db.query(
+      'life_experiment_lifecycle_events',
+      where: 'experiment_id = ? AND event_type = ?',
+      whereArgs: [experiment.id, 'completed_at_week_boundary'],
+    );
+    expect(boundaryEvents, hasLength(1));
 
     final rollups = await repository.listRollups(localUserId: 'local');
     final rollup = rollups.singleWhere(
       (row) => row['experiment_id'] == experiment.id,
     );
-    expect(rollup['current_status'], 'archived');
+    expect(rollup['current_status'], 'completed');
   });
 
   test('feedback writes FeedbackEvent and updates rollup', () async {
@@ -1076,32 +1119,6 @@ void main() {
       ),
       throwsA(isA<StateError>()),
     );
-    final explicitEndReview = await repository.recordWholeRoundReview(
-      experimentId: experiment.id,
-      outcomeResult: GoalOutcomeResult.unclear,
-      burden: EvaluationEffort.easy,
-      userConfirmedRoundEnd: true,
-      reviewedAt: DateTime(2026, 7, 23, 12),
-    );
-    expect(explicitEndReview?.reviewType, GoalReviewType.wholeRound);
-    expect(explicitEndReview?.outcomeResult, GoalOutcomeResult.unclear);
-    await expectLater(
-      repository.recordWholeRoundReview(
-        experimentId: experiment.id,
-        outcomeResult: GoalOutcomeResult.improved,
-        burden: EvaluationEffort.easy,
-        userConfirmedRoundEnd: true,
-        reviewedAt: DateTime(2026, 7, 23, 13),
-      ),
-      throwsA(
-        isA<StateError>().having(
-          (error) => error.message,
-          'message',
-          contains('below_minimum_requires_unclear'),
-        ),
-      ),
-    );
-
     for (final day in const [22, 23, 24, 25]) {
       await repository.recordFeedback(
         experimentId: experiment.id,
@@ -1120,15 +1137,13 @@ void main() {
     final reviews = await repository.listOutcomeReviews(
       experimentId: experiment.id,
     );
-    expect(reviews, hasLength(3));
+    expect(reviews, hasLength(2));
     expect(reviews.map((item) => item.outcomeResult), [
-      GoalOutcomeResult.unclear,
       GoalOutcomeResult.unclear,
       GoalOutcomeResult.somewhatImproved,
     ]);
     expect(reviews.map((item) => item.reviewType), [
       GoalReviewType.weekly,
-      GoalReviewType.wholeRound,
       GoalReviewType.wholeRound,
     ]);
     expect(
@@ -1151,12 +1166,11 @@ void main() {
       where: 'experiment_id = ? AND event_type = ?',
       whereArgs: [experiment.id, 'outcome_reviewed'],
     );
-    expect(reviewEvents, hasLength(3));
+    expect(reviewEvents, hasLength(2));
     expect(
       reviewEvents.map((row) => row['review_type']),
       [
         GoalReviewType.weekly,
-        GoalReviewType.wholeRound,
         GoalReviewType.wholeRound,
       ],
     );
@@ -1228,6 +1242,122 @@ void main() {
       'status': 'saved',
     });
     expect(legacy.minimumObservationDays, 3);
+  });
+
+  test('user-created goals allow several starts in one week', () async {
+    final first = await repository.createUserGoal(
+      localUserId: 'local',
+      title: '午后恢复',
+      hypothesis: '连续留白后更容易恢复',
+      suggestedAction: '午后离屏十五分钟',
+      startDate: DateTime(2026, 7, 27),
+      plannedDurationMinutes: 15,
+      plannedTotalDays: 21,
+      minimumObservationDays: 7,
+    );
+    final second = await repository.createUserGoal(
+      localUserId: 'local',
+      title: '晚间收尾',
+      hypothesis: '稳定收尾后睡前更轻松',
+      suggestedAction: '睡前写一句收尾',
+      startDate: DateTime(2026, 7, 28),
+      plannedDurationMinutes: 20,
+      plannedTotalDays: 30,
+      minimumObservationDays: 7,
+    );
+
+    expect(first.id, isNot(second.id));
+    expect(first.sourceWeekStart, second.sourceWeekStart);
+    expect(first.creationSource, ExperimentCreationSource.userCreated);
+    expect(first.originCandidateId, isNull);
+    expect(first.linkedSignalCardIds, isEmpty);
+    expect(first.plannedDurationMinutes, 15);
+    expect(second.plannedDurationMinutes, 20);
+
+    final db = await localDatabase.database;
+    final stored = await db.query(
+      'life_experiments',
+      where: 'source_week_start = ?',
+      whereArgs: [first.sourceWeekStart],
+    );
+    expect(stored, hasLength(2));
+    expect(
+      stored.map((row) => row['creation_source']).toSet(),
+      {'user_created'},
+    );
+    expect(
+      await db.query(
+        'plan_content_versions',
+        where: 'object_kind = ?',
+        whereArgs: ['goal'],
+      ),
+      hasLength(2),
+    );
+    expect(
+      await db.query('life_experiment_feedback'),
+      isEmpty,
+    );
+    final lifecycle = await db.query(
+      'life_experiment_lifecycle_events',
+      where: 'experiment_id IN (?, ?) AND event_type = ?',
+      whereArgs: [first.id, second.id, 'created'],
+    );
+    expect(lifecycle, hasLength(2));
+    expect(
+      lifecycle.map((row) => row['source_type']).toSet(),
+      {'user_created'},
+    );
+  });
+
+  test(
+      'user-created goal rolls back projection and version when lifecycle insert fails',
+      () async {
+    final db = await localDatabase.database;
+    await db.execute('''
+      CREATE TRIGGER reject_user_goal_initial_lifecycle
+      BEFORE INSERT ON life_experiment_lifecycle_events
+      WHEN NEW.source_type = 'user_created' AND NEW.event_type = 'created'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced initial lifecycle failure');
+      END
+    ''');
+
+    await expectLater(
+      repository.createUserGoal(
+        localUserId: 'local',
+        title: '事务中断的目标',
+        hypothesis: '不应留下任何计划半成品',
+        suggestedAction: '连续观察一周',
+        startDate: DateTime(2026, 7, 28),
+        plannedTotalDays: 7,
+      ),
+      throwsA(isA<DatabaseException>()),
+    );
+
+    expect(
+      await db.query(
+        'life_experiments',
+        where: 'title = ?',
+        whereArgs: ['事务中断的目标'],
+      ),
+      isEmpty,
+    );
+    expect(
+      await db.query(
+        'plan_content_versions',
+        where: 'object_kind = ?',
+        whereArgs: ['goal'],
+      ),
+      isEmpty,
+    );
+    expect(
+      await db.query(
+        'life_experiment_lifecycle_events',
+        where: 'source_type = ?',
+        whereArgs: ['user_created'],
+      ),
+      isEmpty,
+    );
   });
 }
 

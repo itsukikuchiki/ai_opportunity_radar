@@ -1,5 +1,318 @@
 # Design QA — primary app pages
 
+## Onboarding first three pages — 2026-07-29
+
+This pass rebuilds the opening product story from the current final feature
+design. It does not reuse the earlier feature-tour copy:
+
+1. Today is introduced as the place to save one real Signal through text,
+   voice, state, schedule, or Signal Library. The preview also makes the
+   boundary explicit: AI prediction appears only after a real Signal is saved.
+2. Weekly Review shows the actual flow from Signal facts to behavior patterns,
+   experiment feedback, and user-selected next-week small experiments or goals.
+3. Journey shows the current-month facts, theme changes, and gentle review,
+   while Pro is limited to the historical-month and long-term view.
+
+### Visual sources and implementation captures
+
+- Product truth:
+  `docs/active/app_design.md` and `docs/active/data_flow.md`.
+- Shared page language:
+  the production Today Signal constellation, Weekly connected-Signal network,
+  and Journey ring/path hero assets.
+- Today onboarding:
+  `design_qa/onboarding_2026-07-29/01-today-390x844.png`.
+- Weekly onboarding:
+  `design_qa/onboarding_2026-07-29/02-weekly-390x844.png`.
+- Journey onboarding:
+  `design_qa/onboarding_2026-07-29/03-journey-390x844.png`.
+
+### Comparison iterations
+
+1. The first Today render wrapped the headline into three visually uneven
+   lines. It was rewritten as the natural two-line phrase
+   `今天，留下 / 一条 Signal`.
+2. The first 1.3× English render overflowed the fixed outer column. The scene
+   now preserves the one-screen composition at standard text sizes and gains a
+   vertical scroll fallback for long translations and accessibility text.
+3. All three previews were rendered again at the same `390 × 844` viewport.
+   Titles, explanatory copy, preview cards, footer statements, and page
+   indicators remain visible without collision or clipped words.
+
+### Automated verification
+
+- First-three-page render test: passed.
+- Onboarding launch and interaction regression: 5 / 5 passed.
+- Checked Simplified Chinese, Traditional Chinese, Japanese, and English.
+- Checked 320 × 640, 390 × 844, and 430 × 932 viewports plus 1.3× text scale.
+- The fourth focus-selection page and onboarding completion flow remain
+  unchanged.
+
+final result: passed
+
+## English localized Simulator pack — 2026-08-01
+
+This pass creates an `en-US` iPhone 16e Simulator package from the supplied
+Chinese screen set while preserving the same Aurora components, information
+hierarchy, seeded state, and five-tab navigation.
+
+### Source and implementation evidence
+
+- Supplied source visual truth:
+  `/Users/yangyang/Desktop/Simulator Screenshot - iPhone 16e - 2026-08-01 at 09.02.47.png`,
+  `/Users/yangyang/Desktop/Simulator Screenshot - iPhone 16e - 2026-08-01 at 09.03.50.png`,
+  `/Users/yangyang/Desktop/Simulator Screenshot - iPhone 16e - 2026-08-01 at 09.14.19.png`,
+  `/Users/yangyang/Desktop/Simulator Screenshot - iPhone 16e - 2026-08-01 at 09.19.30.png`,
+  and `/Users/yangyang/Desktop/截屏2026-08-01 9.30.30.png`.
+- English implementation captures:
+  `design_qa/simulator_en_2026-08-01/SignalPath-en-demo/01_today.png`
+  through `05_me.png`.
+- Same-state normalized comparison evidence:
+  `design_qa/simulator_en_2026-08-01/qa_comparisons/01_today_hant_en.png`
+  through `05_me_hant_en.png`.
+- Direct supplied-source comparisons:
+  `design_qa/simulator_en_2026-08-01/qa_comparisons/01_today_source_en.png`
+  through `04_journey_source_en.png`.
+- Viewport and density: 390 × 844 logical points on iPhone 16e; source and
+  implementation captures are both 1170 × 2532 pixels at 3×. No density or
+  crop normalization was required for the five same-state comparisons.
+- State: iOS 18.5, `en-US`, fixed at July 31, 2026, with the QA showcase data
+  enabled. The comparison device, route, theme, and selected tab match.
+- Focused-region comparisons were not required: the 3× full-view pairs keep
+  all changed English titles, counters, track labels, card copy, icons, and
+  navigation labels readable at inspection size.
+
+### Comparison history and findings
+
+1. The first English capture exposed four P2 localization issues: the
+   `Experiments` bottom label was truncated, `Weekly Review` was elided, the
+   Life Experiment title and metric labels competed with the hero art, and
+   the Journey readiness line compressed its counts.
+2. The fixes use the existing design system: the bottom labels now fit within
+   their fixed slots, the Weekly title uses a locale-aware display size, the
+   Experiment hero reserves less unused English trailing space and compacts
+   metric internals, and Journey gives the readiness counts a dedicated line.
+3. The post-fix same-state comparisons show no remaining P0, P1, or P2 issue.
+   Typography remains in the established system hierarchy without clipping;
+   spacing, card geometry, gradients, colors, and navigation rhythm match the
+   accepted localized reference; all supplied raster art stays sharp and uses
+   the same crop; icons remain from the shared icon set; and the English copy
+   is coherent, complete, and consistently calls the short-form track
+   `Spot Try` / `Spot Tries` against longer-term goals.
+
+### Verification
+
+- The installed Simulator database contains 18 Signals across 14 distinct
+  record days, all with language `en` and zero non-English Signal rows.
+- It contains 2 Spot Try feedback entries and 3 longer-goal feedback entries.
+- 33 targeted localization, seed-data, responsive guardrail, navigation, and
+  Experiment widget tests passed.
+- The final default-route iOS Simulator build succeeded and launches on Today.
+- Simulator screenshots contain the full five-tab navigation without overflow.
+
+final result: passed
+
+## Japanese simulator data pack — 2026-08-01
+
+### Comparison target and normalization
+
+- Source visual truth: the supplied iPhone 16e screenshots under
+  `/Users/yangyang/Desktop/Simulator Screenshot - iPhone 16e - 2026-08-01 at 09.*.png`,
+  with the previously accepted Traditional Chinese simulator package at
+  `design_qa/simulator_zh_hant_2026-08-01/SignalPath-zh-Hant-demo/` used as the
+  same-state structural baseline.
+- Implementation captures:
+  `design_qa/simulator_ja_2026-08-01/SignalPath-ja-demo/01_today.png` through
+  `05_me.png`.
+- Device and state: iPhone 16e, iOS 18.5, light appearance, `ja-JP`, fixed app
+  date 2026-07-31, Today / Weekly Review / Life Experiment / Journey / Me top
+  states.
+- Source and implementation captures are each 1170 × 2532 px, representing a
+  390 × 844 logical viewport at 3× density. No density scaling was used in the
+  same-state comparisons.
+
+### Full-view comparison evidence
+
+- Today: `design_qa/simulator_ja_2026-08-01/qa_comparisons/01_today_hant_ja.png`.
+- Weekly Review:
+  `design_qa/simulator_ja_2026-08-01/qa_comparisons/02_weekly_hant_ja.png`.
+- Life Experiment:
+  `design_qa/simulator_ja_2026-08-01/qa_comparisons/03_life_experiment_hant_ja.png`.
+- Journey:
+  `design_qa/simulator_ja_2026-08-01/qa_comparisons/04_journey_hant_ja.png`.
+- Me: `design_qa/simulator_ja_2026-08-01/qa_comparisons/05_me_hant_ja.png`.
+
+The full-resolution pairs keep all primary typography, controls, illustrations,
+and navigation labels readable. A separate focused crop was only needed for the
+Life Experiment metric row:
+`design_qa/simulator_ja_2026-08-01/qa_comparisons/03_experiment_metric_before_after.png`.
+
+### Findings and comparison history
+
+1. `[P2]` The first Japanese render truncated the third Life Experiment hero
+   metric as `得られた…`. The localized label was shortened to the natural
+   `結論あり`; the focused before/after evidence confirms the complete label in
+   the same card and viewport.
+2. `[P2]` Initial Japanese checks also exposed excessive width in the Weekly
+   Review hero and bottom navigation. Japanese-specific title and navigation
+   sizing now preserves the source hierarchy while keeping `週間レビュー` fully
+   visible.
+3. `[P2]` Journey summary and calendar actions were too long for their source
+   slots. The final Japanese copy uses `月次サマリー完成` and `カレンダー`,
+   both visible without clipping in the post-fix capture.
+4. Post-fix review found no remaining actionable P0, P1, or P2 mismatch.
+
+### Required fidelity surfaces
+
+- Fonts and typography: Apple system Japanese fallback, weight hierarchy, line
+  height, wrapping, and optical scale remain consistent with the accepted
+  baseline; no visible Japanese label is truncated.
+- Spacing and layout rhythm: card bounds, margins, hero proportions, floating
+  navigation clearance, radii, and vertical rhythm remain aligned across all
+  five states. Natural Japanese wrapping does not overlap adjacent controls.
+- Colors and visual tokens: gradients, semantic purple/mint/amber states,
+  borders, and foreground contrast match the accepted baseline.
+- Image quality and asset fidelity: the original Aurora hero art, focus-domain
+  art, icons, avatar, masks, and crops are reused at native screenshot density;
+  no placeholder or code-drawn replacement was introduced.
+- Copy and content: visible app copy is Japanese, `スポットトライ` is used for the
+  short-form experiment track, and seeded Signal content contains Japanese
+  rather than Chinese fallback text.
+
+### Interaction and data verification
+
+- All five bottom-navigation items were tapped in the running simulator and
+  reached the correct selected state.
+- The simulator database contains 18 Japanese Signal records across 14 dates,
+  two spot-try feedback records, and three experiment/goal feedback records.
+- The weekly slice contains focus counts 6 / 2 / 1 and energy counts 1 / 3 / 5.
+- 23 targeted seeder, shell-navigation, release guardrail, compact-phone,
+  VoiceOver, and Japanese 1.3× text-scale tests passed.
+- The final Japanese iOS Simulator build completed successfully.
+
+### Follow-up polish
+
+- `[P3, accepted]` Status-bar clock values differ from the supplied reference
+  captures because they are simulator-owned chrome, not app content.
+
+final result: passed
+
+## Traditional Chinese simulator data package — 2026-08-01
+
+### Source visual truth and implementation captures
+
+- Source Today:
+  `/Users/yangyang/Desktop/Simulator Screenshot - iPhone 16e - 2026-08-01 at 09.02.47.png`.
+- Source Weekly:
+  `/Users/yangyang/Desktop/Simulator Screenshot - iPhone 16e - 2026-08-01 at 09.03.50.png`.
+- Source Life Experiment:
+  `/Users/yangyang/Desktop/Simulator Screenshot - iPhone 16e - 2026-08-01 at 09.14.19.png`.
+- Source Journey:
+  `/Users/yangyang/Desktop/Simulator Screenshot - iPhone 16e - 2026-08-01 at 09.19.30.png`.
+- Source Me:
+  `/Users/yangyang/Desktop/截屏2026-08-01 9.30.30.png`.
+- Traditional Chinese implementation captures:
+  `design_qa/simulator_zh_hant_2026-08-01/SignalPath-zh-Hant-demo/01_today.png`,
+  `02_weekly.png`, `03_life_experiment.png`, `04_journey.png`, and
+  `05_me.png`.
+
+All source and implementation captures use the same iPhone 16e viewport:
+`390 × 844 pt`, `1170 × 2532 px`, `@3x`. The implementation state is
+`zh-Hant-TW`, light appearance, with the showcase clock fixed at
+`2026-07-31 13:30`.
+
+### Required fidelity surfaces
+
+- Fonts and typography: the implementation preserves the source CJK hierarchy,
+  weights, line heights, and wrapping. Traditional glyphs remain legible and no
+  heading, metric, or navigation label is clipped.
+- Spacing and layout rhythm: card widths, radii, internal padding, and section
+  spacing match the supplied page states. All five pages retain the floating
+  five-tab navigation without the previously reported bottom gaps.
+- Colors and visual tokens: the pearl, lavender, ice-blue, mint, apricot, navy,
+  and violet tokens remain unchanged from the references, including selected
+  tab and status treatments.
+- Image quality and asset fidelity: supplied production hero and illustration
+  assets remain sharp at `@3x`; no placeholder, duplicated device chrome, or
+  missing asset is visible.
+- Copy and content: visible text is Traditional Chinese. The short-form track is
+  `簡單嘗試`, Weekly shows `9` Signals over `5` record days, Life Experiment
+  shows `2 / 5 / 0`, and Journey shows `18 / 14 / 2 / 3`.
+
+### Full-view and focused comparison evidence
+
+Each source and implementation pair was opened together at original pixel
+density and reviewed in one comparison input. The views preserve the same
+composition and state; Weekly differs only by intentional scroll position.
+Separate crops were unnecessary because the original `@3x` captures make the
+key copy, metrics, icons, and navigation labels readable at full resolution.
+
+The Journey header retains the reference's compact ellipsis after the record-day
+summary. This is an accepted P3 copy-density detail, not a regression. No
+actionable P0, P1, or P2 mismatch remains.
+
+### Comparison history and verification
+
+1. Earlier passes corrected missing persistent navigation, excessive bottom and
+   hero spacing, the obsolete `10分鐘以內` label, unfinished-month Journey Pro
+   exposure, and non-canonical `其他線索` fallback themes.
+2. The final iPhone 16e captures were taken after those fixes from the packaged
+   simulator build and compared again at the same viewport.
+3. Simulator defaults report `AppleLanguages = (zh-Hant-TW)` and
+   `AppleLocale = zh-Hant_TW`.
+4. The installed showcase database contains `18` Traditional Chinese Signals
+   over `14` days (`2026-07-18` through `2026-07-31`), `2` simple-try feedback
+   events, and `3` long-form experiment feedback events. The active week uses
+   canonical focus domains only: `6` emotional stability, `2` food and sleep,
+   and `1` growth plan.
+5. Static analysis passed with no issues. The focused showcase, Weekly,
+   action-preference, Journey, and Today regression suite passed `91 / 91`, and
+   the Journey nine-domain taxonomy test passed.
+6. The simulator archive integrity check passed, and the package starts from
+   Today without a forced QA route.
+
+final result: passed
+
+## Today handoff and Life Experiment track switch — 2026-07-29
+
+This pass fixes the navigation context when Today opens all experiments and
+replaces the isolated direction arrow with a complete two-track control.
+
+### Source and implementation evidence
+
+- Reported source:
+  `/Users/yangyang/Pictures/照片图库.photoslibrary/resources/renders/3/35D4C552-8916-48AA-B977-6C48860D115A_1_201_a.jpeg`
+  (1290 × 2796 px).
+- Updated Life Experiment switch:
+  `design_qa/experiment-track-switch-390x844-2026-07-29.png`
+  (390 × 844 logical viewport; 780 × 1688 px capture).
+- Same-viewport source versus implementation:
+  `design_qa/comparison-experiment-track-switch-source-vs-implementation-2026-07-29.png`.
+
+### Findings and corrections
+
+1. A Today-originated imperative route previously left the selected bottom tab
+   derived from the root URI. Selection now follows the visible leaf route, so
+   opening all experiments highlights `生活小实验` while retaining the normal
+   back stack.
+2. The one-sided arrow was replaced with a connected two-segment switch.
+   `小实验 / 简单尝试` and `目标 / 中长期` remain visible together, use the
+   established mint and purple type colors, and have a clear selected surface.
+3. Both segments are at least 58 pt high, support direct taps and horizontal
+   swipes, and expose localized selected-state and action hints to VoiceOver.
+4. The same-viewport comparison confirms a stronger grouping, clearer
+   bidirectional affordance, and no remaining floating-arrow imbalance.
+
+### Automated verification
+
+- 28 / 28 shell, Life Experiment, localization, responsive-layout, touch-area,
+  and VoiceOver regression tests passed.
+- The populated 390 × 844 design render passed.
+- Static analysis passed with no issues.
+- No compile, archive, or TestFlight build was performed, as requested.
+
+final result: passed
+
 Date: 2026-07-13
 Device: iPhone 16 Pro Max simulator, iOS 18.5
 Viewport: 440 × 956 pt (@3x; 1320 × 2868 px)
@@ -47,6 +360,100 @@ Locale/state: Simplified Chinese, onboarding complete, fresh local account
 - Simulator comparison: all five primary pages checked against their respective source image and the shared Today visual system.
 
 The source images show populated report states, while the simulator captures use a fresh account to verify the required no-data/readiness states. Populated states are covered by widget fixtures and interaction tests.
+
+final result: passed
+
+## Today small-experiment and goal progress — 2026-07-27
+
+This pass verifies the confirmed Today behavior: a small experiment uses real
+attempt events rather than a fixed seven-day denominator, while a goal keeps
+its daily progress grid. Both use the same visible `已完成／未完成` feedback
+language, and the small-experiment completion path collects its required
+effect and effort feedback inline instead of opening a bottom sheet.
+
+### Source visual truth and implementation evidence
+
+- Source visual truth:
+  `/tmp/codex-remote-attachments/019f496f-3868-7391-9dab-5fd20a5ab663/A97F8245-C7EE-47BC-AE81-7275CC17ABC8/1-照片-1.jpg`
+  (`590 × 1280 px`, device screenshot).
+- Focused implementation, resting state:
+  `design_qa/today-attempts-focused-390x844-2026-07-27.png`
+  (`780 × 1688 px`).
+- Focused implementation, small-experiment completion form expanded:
+  `design_qa/today-small-experiment-feedback-390x844-2026-07-27.png`
+  (`780 × 1688 px`).
+- Same-input full-view comparison:
+  `design_qa/comparison-today-attempts-source-vs-implementation-2026-07-27.png`
+  (`1560 × 1688 px`).
+
+The implementation was rendered at a `390 × 844` logical viewport, widget
+device pixel ratio `1`, and captured at `2×`. For the combined comparison, the
+source screenshot was normalized to `780 × 1688 px` with Lanczos scaling and
+placed beside the implementation. The source includes the preceding timeline,
+success banner, and production navigation, while the implementation capture is
+deliberately focused on the Today-attempt card and uses a deterministic
+navigation fixture. Fidelity judgments therefore use the shared card region;
+the expanded inline form is a new requested state with no earlier source
+capture.
+
+State: Simplified Chinese, light appearance, one small experiment with three
+real attempt events (`2` completed, `1` not completed), one goal with seven
+daily cells (`4` completed), and the small-experiment completion form expanded.
+
+### Required fidelity surfaces
+
+- Fonts and typography: the focused render uses the app's CJK design-review
+  font and production weight/line-height hierarchy. Titles, descriptions,
+  counters, and buttons remain readable without truncation or mid-word wraps.
+- Spacing and layout rhythm: small experiment and goal now share the same
+  title/counter/progress/feedback rhythm. Real small-experiment attempts use
+  three square event cells; the goal retains seven evenly distributed daily
+  cells. The inline form scrolls into view without covering the goal or fixed
+  bottom navigation.
+- Colors and visual tokens: mint communicates completed, apricot communicates
+  not completed, lavender communicates goal status, and empty goal cells remain
+  neutral. The section divider now uses `AuroraColors.line` rather than a harsh
+  dark default.
+- Image quality and asset fidelity: this focused region contains no raster
+  illustration or non-standard image asset. Material icons use the same
+  semantic size and color family as the source.
+- Copy and content: `完成 2 / 登记 3` distinguishes successful attempts from
+  all real attempts; the goal keeps `已完成 4 天`. Both expose `已完成／未完成`.
+  Completed small experiments additionally ask `当下有帮助吗？` and
+  `做起来费力吗？`, preserving the product's evaluation criteria.
+- Accessibility and controls: visible feedback choices and save/cancel actions
+  meet the existing minimum mobile target sizing. Progress cells carry
+  per-attempt or per-date semantics. The focused regression confirms the save
+  action stays above the persistent bottom navigation.
+
+### Comparison history
+
+1. The first focused render confirmed the new information architecture and
+   interaction but exposed one P2 visual mismatch: the divider between small
+   experiment and goal rendered as a dark line, unlike the quiet separator in
+   the supplied screenshot.
+2. The divider was changed to the production Aurora line token and the exact
+   two states were rerendered at the same viewport.
+3. The revised same-input comparison shows the requested shared visual grammar,
+   understandable real-attempt progress, daily goal progress, and no bottom
+   navigation obstruction. No actionable P0, P1, or P2 finding remains.
+
+Focused regions were required because the effect/effort options, progress-cell
+states, counter language, divider treatment, and bottom-navigation clearance
+are not readable enough in the larger Today-page capture.
+
+### Interaction and automated verification
+
+- Expanded `已完成` for the small experiment and verified the inline
+  effect/effort/note/save state.
+- Scrolled to the save action and asserted its bottom edge remains at or above
+  the persistent navigation's top edge.
+- Verified the resting state contains three real small-experiment events and a
+  seven-cell goal projection.
+- `flutter test --no-pub
+  test/design_qa/render_today_attempt_feedback_test.dart`: passed (`1 / 1`).
+- Targeted Flutter analysis of the focused render test: no issues found.
+- No overflow or uncaught widget exception was observed.
 
 final result: passed
 
@@ -489,7 +896,7 @@ uses a 390 × 844 logical viewport and a 2× PNG output (780 × 1688 px).
 
 - Information architecture: the generic tabs, aggregate statistics, and
   fixed seven-day presentation were removed from the active detail flows.
-- Small try: the hero states “within 10 minutes / can try now”; the page shows
+- Small try: the hero states “quick try / start anytime”; the page shows
   per-attempt structured effect and effort, read-only attempt history, one
   recording action, and a separate round review.
 - Goal: the page separates the observation question, sustained action,
@@ -518,5 +925,135 @@ P0, P1, or P2 visual issue was found.
 - Targeted static analysis of 15 implementation and test files passed with no
   issues.
 - No compile, archive, or TestFlight build was performed in this pass.
+
+final result: passed
+
+## Bottom navigation unification — 2026-07-29
+
+This pass makes Today the single five-tab navigation contract and removes the
+separate diary implementation that had drifted from it.
+
+### Source and implementation evidence
+
+- Desired Today source:
+  `/Users/yangyang/Pictures/照片图库.photoslibrary/resources/renders/3/38ECDD2B-7EEE-4A07-B906-13C1E3D1C5E9_1_201_a.jpeg`
+  (1290 × 2796 px).
+- Reported diary source:
+  `/Users/yangyang/Pictures/照片图库.photoslibrary/resources/renders/4/49155E8A-0B22-4AA1-A717-750ADAF0B508_1_201_a.jpeg`
+  (1290 × 2796 px).
+- Fixed diary implementation:
+  `design_qa/today-diary-current-2026-07-17.png`
+  (390 × 844 logical viewport; 780 × 1688 px capture).
+- Desired Today versus fixed diary comparison:
+  `design_qa/comparison-today-nav-vs-diary-nav-2026-07-29.png`.
+- Reported diary versus fixed diary comparison:
+  `design_qa/comparison-bottom-navigation-source-vs-implementation-2026-07-29.png`.
+
+### Findings and corrections
+
+1. The production audit found two complete five-tab implementations. The
+   diary was the only independently maintained duplicate; no third variant
+   remains.
+2. Today and the diary now use one shared component with the same icons,
+   labels, gradient, 26 pt radius, dimensions, spacing, selection treatment,
+   route behavior, safe-area behavior, and accessibility semantics.
+3. The combined same-height comparison confirms that the diary now uses the
+   Today chat-bubble selection instead of the obsolete sun/bar-chart/compass
+   set.
+
+### Automated verification
+
+- 11 / 11 targeted diary and shell navigation tests passed.
+- 12 / 12 release UI guardrails passed across four device sizes, four
+  languages, 1.3× text, minimum touch areas, and VoiceOver semantics.
+- Static analysis passed with no issues.
+- The populated diary design render passed.
+- No compile, archive, or TestFlight build was performed, as requested.
+
+final result: passed
+
+## Reported spacing corrections — 2026-08-01
+
+This pass addresses the eleven circled empty regions reported in the supplied
+390 pt iPhone screenshots. It keeps the existing Aurora artwork, cards,
+typography, floating navigation, and page information architecture intact.
+
+### Same-state visual evidence
+
+- Weekly deep-analysis hero, before and after:
+  `design_qa/spacing-2026-08-01/comparison-weekly-hero.png`.
+- Action-preference hero, before and after:
+  `design_qa/spacing-2026-08-01/comparison-action-hero.png`.
+- Journey Pro hero, before and after:
+  `design_qa/spacing-2026-08-01/comparison-journey-hero.png`.
+- Monthly calendar gap, before and after:
+  `design_qa/spacing-2026-08-01/comparison-calendar-gap.png`.
+- Journey content-to-navigation gap, before and after:
+  `design_qa/spacing-2026-08-01/comparison-bottom-gap.png`.
+
+### Findings and corrections
+
+1. Several secondary-page heroes used fixed minimum heights plus independently
+   positioned back controls. The back control and title now share one row, and
+   the weekly, action-preference, and Journey Pro heroes size to their content.
+2. Main pages used `Scaffold.extendBody` while their shared scroll padding read
+   the Scaffold-injected bottom padding and then added another navigation
+   clearance. The shared calculation now uses physical safe-area insets, so the
+   floating navigation is reserved exactly once on Today, Weekly, Life
+   Experiment, Journey, and Me.
+3. The monthly calendar's nested `GridView` inherited the parent media padding,
+   inserting a navigation-height gap between the final week and its legend. It
+   now has explicit zero padding and remains non-primary.
+4. The Me hero no longer holds a fixed-height lower area. The subscription
+   management action now uses the full available row as a 44 pt accessible
+   control instead of leaving an unexplained empty half-row.
+5. Weekly deep analysis and Journey Pro now keep the shared five-tab bottom
+   navigation around loading, empty, error, and ready states.
+6. Combined reference-and-implementation comparisons were inspected at the
+   supplied mobile state. No remaining P0, P1, or P2 spacing mismatch was found.
+
+### Automated verification
+
+- 70 / 70 targeted widget, spacing, and shell-navigation tests passed.
+- 11 / 11 deterministic design-render tests passed.
+- Static analysis passed for 16 changed implementation, test, and render files
+  with no issues.
+- No compile, archive, or TestFlight build was performed in this pass.
+
+final result: passed
+
+## Spot try terminology and Journey Pro report boundaries — 2026-08-01
+
+### Same-state visual evidence
+
+- Experiment track terminology, before and after:
+  `design_qa/spacing-2026-08-01/comparison-spot-try-label.png`.
+- Journey Pro month boundary and canonical theme legend, before and after:
+  `design_qa/spacing-2026-08-01/comparison-journey-complete-month-domains.png`.
+
+### Findings and corrections
+
+1. The short-form experiment position is now consistently named `Spot try` /
+   `Spot tries`, `简单尝试`, `簡單嘗試`, and `スポットトライ` throughout
+   onboarding, Experiment, Today, Weekly, candidate selection, and offline
+   candidate generation. The long-form track remains `Goal / 中长期`.
+2. Real duration facts remain quantitative: feedback buckets, 1–10 minute
+   creation constraints, concrete 1/2/3–5/10 minute suggestions, and observed
+   “under ten minutes was easier” conclusions were not renamed.
+3. Journey Pro computes its final date as the last day of the previous local
+   calendar month. Current/future route selections cannot reveal the unfinished
+   month, and the first in-progress month produces an honest empty report.
+4. Both focus and theme projections pass through the same nine canonical Focus
+   Domains. Unknown theme evidence falls back to its canonical focus domain;
+   `other` and “其他线索” are not reachable in Journey Pro charts.
+
+### Automated verification
+
+- 100 / 100 terminology and affected-page tests passed, including a source
+  guardrail that rejects legacy visible type labels.
+- 7 / 7 Journey Pro repository boundary/classification tests passed, including
+  current/future selection and an explicit nine-domain cardinality assertion.
+- 6 / 6 final-state design-render tests passed.
+- Static analysis passed for 18 implementation and test files with no issues.
 
 final result: passed

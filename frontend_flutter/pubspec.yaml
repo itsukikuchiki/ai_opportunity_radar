@@ -1,7 +1,7 @@
 name: ai_opportunity_radar
 publish_to: 'none'
 description: MVP scaffold for AI Opportunity Radar
-version: 4.0.0+14
+version: 5.0.0+18
 
 environment:
   sdk: '>=3.5.0 <4.0.0'

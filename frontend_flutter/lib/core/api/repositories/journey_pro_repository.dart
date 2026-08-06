@@ -13,7 +13,7 @@ import 'energy_budget_repository.dart';
 typedef JourneyProNowLoader = DateTime Function();
 typedef JourneyProInstallationDateLoader = Future<DateTime> Function();
 
-/// Builds the Journey Pro three-natural-month factual change projection.
+/// Builds the Journey Pro full-history factual change projection.
 ///
 /// Readiness counts only eligible immutable Signal Cards. Once eligible, the
 /// projection may use privacy-safe feedback and review history as contextual
@@ -42,70 +42,83 @@ class JourneyProRepository {
 
   Future<JourneyProReportModel> fetchThreeMonthChange({
     String? selectedMonthKey,
+  }) {
+    return fetchFullHistoryChange(selectedMonthKey: selectedMonthKey);
+  }
+
+  Future<JourneyProReportModel> fetchFullHistoryChange({
+    String? selectedMonthKey,
   }) async {
     final now = nowLoader().toLocal();
     final today = DateTime(now.year, now.month, now.day);
     final currentMonth = DateTime(today.year, today.month);
-    final requestedMonth = _parseMonthKey(selectedMonthKey);
-    final selectedMonth =
-        requestedMonth == null || requestedMonth.isAfter(currentMonth)
-            ? currentMonth
-            : requestedMonth;
-    final monthStarts = <DateTime>[
-      DateTime(selectedMonth.year, selectedMonth.month - 2),
-      DateTime(selectedMonth.year, selectedMonth.month - 1),
-      selectedMonth,
-    ];
-    final periodStart = monthStarts.first;
-    final selectedMonthNaturalEnd = DateTime(
-      selectedMonth.year,
-      selectedMonth.month + 1,
-    ).subtract(const Duration(days: 1));
-    final periodEnd =
-        selectedMonth == currentMonth ? today : selectedMonthNaturalEnd;
-
-    final aggregation = await _loadAggregation(
-      selectedMonth: selectedMonth,
-      today: today,
+    final periodEnd = DateTime(currentMonth.year, currentMonth.month, 0);
+    final latestCompletedMonth = DateTime(periodEnd.year, periodEnd.month);
+    final installationDate = await _installationDate();
+    final firstAppMonth = DateTime(
+      installationDate.year,
+      installationDate.month,
     );
-    final eligibleSignals = aggregation == null
+    final hasCompletedAppMonth = !firstAppMonth.isAfter(latestCompletedMonth);
+
+    final aggregation = hasCompletedAppMonth
+        ? await _loadAggregation(
+            selectedMonth: latestCompletedMonth,
+            today: periodEnd,
+          )
+        : null;
+    // Journey Pro spans the complete local app history. The monthly
+    // aggregation above stays scoped to the latest completed month, so it
+    // cannot be used as the source of the full-history timeline. Current-month
+    // facts are deliberately excluded everywhere in this report.
+    final eligibleSignals = hasCompletedAppMonth
         ? eligibilityService.filter(
             await localCaptureRepository.listSignalCardsBetween(
-              startDate: _dateKey(periodStart),
+              startDate: _dateKey(installationDate),
               endDate: _dateKey(periodEnd),
             ),
             SignalEligibilityStage.journey,
           )
-        : aggregation.sourceSignals;
+        : const <RecentSignalModel>[];
+    final periodStart = hasCompletedAppMonth ? firstAppMonth : periodEnd;
+    final monthStarts = <DateTime>[];
+    if (hasCompletedAppMonth) {
+      for (var cursor = periodStart;
+          !cursor.isAfter(latestCompletedMonth);
+          cursor = DateTime(cursor.year, cursor.month + 1)) {
+        monthStarts.add(cursor);
+      }
+    }
 
     final months = <JourneyProMonthChangeModel>[];
     for (var index = 0; index < monthStarts.length; index += 1) {
       final start = monthStarts[index];
       final naturalEnd = DateTime(start.year, start.month + 1)
           .subtract(const Duration(days: 1));
-      final end = index == monthStarts.length - 1 ? periodEnd : naturalEnd;
       months.add(
         _monthProjection(
           eligibleSignals,
           start: start,
-          end: end,
+          end: naturalEnd,
         ),
       );
     }
 
-    final installationDate = await _installationDate();
-    final observationRows = await localObservationRepository?.listForPeriod(
-          startDate: _dateKey(installationDate),
-          endDate: _dateKey(periodEnd),
-        ) ??
-        const <Map<String, Object?>>[];
+    final observationRows = hasCompletedAppMonth
+        ? await localObservationRepository?.listForPeriod(
+              startDate: _dateKey(periodStart),
+              endDate: _dateKey(periodEnd),
+            ) ??
+            const <Map<String, Object?>>[]
+        : const <Map<String, Object?>>[];
+    final reportMonthKey = _monthKey(latestCompletedMonth);
 
     return JourneyProReportModel(
-      selectedMonthKey: _monthKey(selectedMonth),
+      selectedMonthKey: reportMonthKey,
       periodStart: _dateKey(periodStart),
       periodEnd: _dateKey(periodEnd),
       sourceHash: _buildSourceHash(
-        selectedMonthKey: _monthKey(selectedMonth),
+        selectedMonthKey: reportMonthKey,
         aggregation: aggregation,
         fallbackSignals: eligibleSignals,
         observationRows: observationRows,
@@ -120,7 +133,7 @@ class JourneyProRepository {
 
   String get currentMonthKey {
     final now = nowLoader().toLocal();
-    return _monthKey(DateTime(now.year, now.month));
+    return _monthKey(DateTime(now.year, now.month, 0));
   }
 
   Future<JourneyAggregationModel?> _loadAggregation({
@@ -139,8 +152,14 @@ class JourneyProRepository {
   }
 
   Future<DateTime> _installationDate() async {
-    return installationDateLoader?.call() ??
-        DateTime(2000, DateTime.january, 1);
+    final now = nowLoader().toLocal();
+    final today = DateTime(now.year, now.month, now.day);
+    final loaded = await installationDateLoader?.call();
+    if (loaded == null) return today;
+    final local = loaded.toLocal();
+    final normalized = DateTime(local.year, local.month, local.day);
+    if (normalized.isAfter(today) || normalized.year < 2020) return today;
+    return normalized;
   }
 
   JourneyProMonthChangeModel _monthProjection(
@@ -154,6 +173,7 @@ class JourneyProRepository {
       for (final state in EnergySignalState.values) state.storageValue: 0,
     };
     final domainCounts = <String, int>{};
+    final themeCounts = <String, int>{};
     for (final signal in signals) {
       final day = DateTime.tryParse(signal.localDateKey())?.toLocal();
       final signalId = _signalIdentity(signal);
@@ -169,6 +189,8 @@ class JourneyProRepository {
           (energyStateCounts[energyState.storageValue] ?? 0) + 1;
       final domainId = _domainId(signal);
       domainCounts[domainId] = (domainCounts[domainId] ?? 0) + 1;
+      final themeId = _themeId(signal, fallbackDomainId: domainId);
+      themeCounts[themeId] = (themeCounts[themeId] ?? 0) + 1;
     }
     return JourneyProMonthChangeModel(
       monthKey: _monthKey(start),
@@ -178,18 +200,71 @@ class JourneyProRepository {
       activeDayCount: activeDates.length,
       energyStateCounts: energyStateCounts,
       domainCounts: domainCounts,
+      themeCounts: themeCounts,
     );
   }
 
   String _domainId(RecentSignalModel signal) {
-    final direct = <String?>[
-      signal.rawPayloadJson['focus_domain_id']?.toString(),
-      signal.rawPayloadJson['category']?.toString(),
-      ...signal.sceneTags,
-      signal.scene,
+    return FocusDomains.classifyId(
+      explicitIds: [
+        ..._stringValues(signal.userCorrectionJson['focus_domain_id']),
+        ..._stringValues(signal.userCorrectionJson['category']),
+        ..._stringValues(signal.rawPayloadJson['focus_domain_id']),
+        ..._stringValues(signal.rawPayloadJson['focus_domain_ids']),
+        ..._stringValues(signal.rawPayloadJson['category']),
+      ],
+      taxonomyTokens: [
+        ..._stringValues(signal.rawPayloadJson['domain_tags']),
+        ..._stringValues(signal.rawPayloadJson['focus_domains']),
+        ..._stringValues(signal.rawPayloadJson['scene_tags']),
+        ...signal.sceneTags,
+        signal.scene,
+      ],
+      textEvidence: _classificationText(signal),
+    );
+  }
+
+  String _themeId(
+    RecentSignalModel signal, {
+    required String fallbackDomainId,
+  }) {
+    return FocusDomains.classifyId(
+      taxonomyTokens: [
+        ..._stringValues(signal.rawPayloadJson['theme_id']),
+        ..._stringValues(signal.rawPayloadJson['theme']),
+        ...signal.intentTags,
+        ...signal.sceneTags,
+        signal.scene,
+      ],
+      textEvidence: _classificationText(signal),
+      fallbackId: fallbackDomainId,
+    );
+  }
+
+  List<String?> _classificationText(RecentSignalModel signal) {
+    return <String?>[
+      signal.content,
+      signal.observation,
+      signal.tryNext,
+      signal.friction,
+      signal.positiveSignal,
+      signal.energyLoad,
+      ..._stringValues(signal.rawPayloadJson['title']),
+      ..._stringValues(signal.rawPayloadJson['note']),
+      ..._stringValues(signal.userCorrectionJson['content']),
+      ..._stringValues(signal.userCorrectionJson['text']),
     ];
-    final normalized = FocusDomains.normalizeIds(direct);
-    return normalized.isEmpty ? 'other' : normalized.first;
+  }
+
+  List<String> _stringValues(Object? raw) {
+    if (raw is Iterable) {
+      return raw
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
+    }
+    final value = raw?.toString().trim() ?? '';
+    return value.isEmpty ? const <String>[] : <String>[value];
   }
 
   String _buildSourceHash({
@@ -198,8 +273,14 @@ class JourneyProRepository {
     required Iterable<RecentSignalModel> fallbackSignals,
     required List<Map<String, Object?>> observationRows,
   }) {
-    final source = <String>['journey_pro_v2', selectedMonthKey];
-    final signals = aggregation?.sourceSignals ?? fallbackSignals.toList();
+    final source = <String>[
+      'journey_pro_v4_completed_months',
+      selectedMonthKey,
+    ];
+    // Always hash the same complete-history Signal set that is projected into
+    // the report. Latest-completed-month aggregation remains contextual
+    // material only.
+    final signals = fallbackSignals.toList();
     for (final signal in signals.toList()
       ..sort((a, b) => _signalIdentity(a).compareTo(_signalIdentity(b)))) {
       source.add(_stableJson({
@@ -332,16 +413,6 @@ class JourneyProRepository {
   String _monthKey(DateTime value) {
     final month = value.month.toString().padLeft(2, '0');
     return '${value.year}-$month';
-  }
-
-  DateTime? _parseMonthKey(String? value) {
-    final normalized = value?.trim() ?? '';
-    final match = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(normalized);
-    if (match == null) return null;
-    final year = int.tryParse(match.group(1)!);
-    final month = int.tryParse(match.group(2)!);
-    if (year == null || month == null || month < 1 || month > 12) return null;
-    return DateTime(year, month);
   }
 
   String _dateKey(DateTime value) {

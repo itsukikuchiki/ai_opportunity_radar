@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/preferences/focus_domains.dart';
+import '../../../shared/utils/user_visible_text_sanitizer.dart';
 
 /// Localizes analysis tokens only at presentation time.
 ///
@@ -9,7 +10,7 @@ import '../../../core/preferences/focus_domains.dart';
 /// storage. This helper prevents those implementation values from leaking into
 /// the localized report UI without changing the underlying records.
 String localizeJourneyDisplayText(BuildContext context, String text) {
-  var output = text.replaceAll(
+  var output = localizeUserVisibleDynamicText(context, text).replaceAll(
     RegExp(r'\[planning\]', caseSensitive: false),
     _categoryLabel(context, 'planning'),
   );
@@ -33,8 +34,12 @@ String localizeJourneyEvidenceText(
   required String sourceType,
   required String text,
 }) {
+  final normalizedSourceType = sourceType.trim().toLowerCase();
+  if (_rawSignalSourceTypes.contains(normalizedSourceType)) {
+    return text;
+  }
   var output = localizeJourneyDisplayText(context, text);
-  if (sourceType.trim().toLowerCase() != 'micro_action_feedback') {
+  if (normalizedSourceType != 'micro_action_feedback') {
     return output;
   }
 
@@ -81,8 +86,50 @@ String localizeJourneyEvidenceText(
   return output;
 }
 
+/// Signal body copy is authored by the user and must remain byte-for-byte
+/// readable in every locale. Only derived analysis and feedback labels use the
+/// dynamic taxonomy localizer.
+const _rawSignalSourceTypes = <String>{
+  'signal_card',
+  'signalcard',
+  'text',
+  'voice',
+  'status',
+  'time_use',
+  'library_saved',
+  'signal_library',
+  'manual_reflection',
+};
+
 String localizeJourneyCategoryLabel(BuildContext context, String value) {
   final normalized = value.trim().toLowerCase();
+  if (normalized == 'observation') {
+    return AppLocaleText.tr(
+      context,
+      en: 'Observation',
+      zhHans: '观察',
+      zhHant: '觀察',
+      ja: '観察',
+    );
+  }
+  if (normalized == 'manual reflection') {
+    return AppLocaleText.tr(
+      context,
+      en: 'Manual reflection',
+      zhHans: '手动反思',
+      zhHant: '手動反思',
+      ja: '手動の振り返り',
+    );
+  }
+  if (normalized == 'weekly reflection') {
+    return AppLocaleText.tr(
+      context,
+      en: 'Weekly reflection',
+      zhHans: '每周复盘',
+      zhHant: '每週複盤',
+      ja: '毎週の振り返り',
+    );
+  }
   if (const {
     'micro action feedback',
     'micro-action feedback',
@@ -106,9 +153,42 @@ String localizeJourneyCategoryLabel(BuildContext context, String value) {
     return _categoryLabel(context, normalized);
   }
   if (normalized == 'signalcard' || normalized == 'signal_card') {
-    return 'Signal Card';
+    return AppLocaleText.tr(
+      context,
+      en: 'Signal Card',
+      zhHans: '信号卡',
+      zhHant: 'Signal 卡片',
+      ja: 'Signal カード',
+    );
   }
   return localizeJourneyDisplayText(context, value);
+}
+
+/// Presents English and Japanese Journey chart series as one of the nine
+/// Focus Domains.
+///
+/// Older cached traces may still carry a free-form cluster label. Rendering
+/// that label directly can leak the language in which the cache was created
+/// into an English or Japanese chart. Reclassifying at presentation time keeps
+/// storage unchanged while making those legends stable and locale-correct.
+/// Chinese locales keep their existing category presentation for backwards
+/// compatibility; current projections already store canonical domain ids.
+String localizeJourneyChartSeriesLabel(
+  BuildContext context, {
+  required String categoryId,
+  Iterable<String?> evidence = const [],
+}) {
+  final language = AppLocaleText.resolve(context);
+  if (language == AppLanguage.simplifiedChinese ||
+      language == AppLanguage.traditionalChinese) {
+    return localizeJourneyCategoryLabel(context, categoryId);
+  }
+  final domainId = FocusDomains.classifyId(
+    explicitIds: [categoryId],
+    taxonomyTokens: [categoryId],
+    textEvidence: [categoryId, ...evidence],
+  );
+  return FocusDomains.labelFor(context, domainId);
 }
 
 String journeySourceTypeLabel(BuildContext context, String sourceType) {
@@ -178,7 +258,13 @@ String journeySourceTypeLabel(BuildContext context, String sourceType) {
       );
     case 'signal_card':
     case 'signalcard':
-      return 'Signal Card';
+      return AppLocaleText.tr(
+        context,
+        en: 'Signal Card',
+        zhHans: '信号卡',
+        zhHant: 'Signal 卡片',
+        ja: 'Signal カード',
+      );
     default:
       return localizeJourneyCategoryLabel(context, sourceType);
   }
@@ -186,7 +272,7 @@ String journeySourceTypeLabel(BuildContext context, String sourceType) {
 
 String _smallTryFeedbackLabel(BuildContext context) => AppLocaleText.tr(
       context,
-      en: 'Life Experiment · Small experiment feedback',
+      en: 'Life Experiment · Spot Try feedback',
       zhHans: '生活小实验 · 小实验反馈',
       zhHant: '生活小實驗 · 小實驗回饋',
       ja: '生活実験 · 小実験の反応',

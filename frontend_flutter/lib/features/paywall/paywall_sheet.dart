@@ -111,9 +111,9 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                     AppLocaleText.tr(
                       context,
                       en: 'Signal Path Pro',
-                      zhHans: 'Signal Path Pro',
-                      zhHant: 'Signal Path Pro',
-                      ja: 'Signal Path Pro',
+                      zhHans: 'Signal Path 专业版',
+                      zhHant: 'Signal Path 專業版',
+                      ja: 'Signal Path プロ版',
                     ),
                     style: theme.textTheme.titleLarge?.copyWith(
                       color: AuroraColors.ink,
@@ -148,9 +148,9 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                           AppLocaleText.tr(
                             context,
                             en: 'Pro is active on this device.',
-                            zhHans: '这台设备已开通 Pro。',
-                            zhHant: '這台裝置已開通 Pro。',
-                            ja: 'このデバイスでは Pro が有効です。',
+                            zhHans: '这台设备已开通专业版。',
+                            zhHant: '這台裝置已開通專業版。',
+                            ja: 'このデバイスではプロ版が有効です。',
                           ),
                           style: TextStyle(
                             color: theme.colorScheme.onPrimaryContainer,
@@ -180,10 +180,11 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
               icon: Icons.auto_graph_outlined,
               text: AppLocaleText.tr(
                 context,
-                en: 'See Signal, energy-state and life-area change across three natural months',
-                zhHans: '查看三个自然月的 Signal、能量状态和生活领域变化',
-                zhHant: '查看三個自然月的 Signal、能量狀態和生活領域變化',
-                ja: '3か月のSignal・エネルギー状態・生活領域の変化を見る',
+                en: 'See focus-area, theme, energy and rhythm changes across every month since first use',
+                zhHans: '查看从首次使用至今，每个月的关注领域、主题、能量与节奏变化',
+                zhHant: '查看從首次使用至今，每個月的關注領域、主題、能量與節奏變化',
+                ja: '初回利用から現在まで、すべての月の関心領域・テーマ・'
+                    'エネルギー・リズムの変化を見る',
               ),
             ),
             _BenefitRow(
@@ -206,15 +207,25 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                 ja: '控えめで確認可能な月ごとの変化を振り返る',
               ),
             ),
+            _BenefitRow(
+              icon: Icons.insights_outlined,
+              text: AppLocaleText.tr(
+                context,
+                en: 'Summarize which experiments feel more helpful, manageable and easier to begin',
+                zhHans: '整理哪些实验更有帮助、负担更合适，也更容易开始',
+                zhHant: '整理哪些實驗更有幫助、負擔更合適，也更容易開始',
+                ja: '役立ちやすく、負担が合い、始めやすい実験の傾向を整理する',
+              ),
+            ),
             const SizedBox(height: 18),
             if (!isPremium) ...[
               _PlanOption(
                 title: AppLocaleText.tr(
                   context,
                   en: 'Yearly Pro',
-                  zhHans: '年付 Pro',
-                  zhHant: '年付 Pro',
-                  ja: '年額 Pro',
+                  zhHans: '年付专业版',
+                  zhHant: '年付專業版',
+                  ja: '年額プロ版',
                 ),
                 subtitle: AppLocaleText.tr(
                   context,
@@ -251,9 +262,9 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                 title: AppLocaleText.tr(
                   context,
                   en: 'Monthly Pro',
-                  zhHans: '月付 Pro',
-                  zhHant: '月付 Pro',
-                  ja: '月額 Pro',
+                  zhHans: '月付专业版',
+                  zhHant: '月付專業版',
+                  ja: '月額プロ版',
                 ),
                 subtitle: AppLocaleText.tr(
                   context,
@@ -342,7 +353,7 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
                         en: 'Debug unlock',
                         zhHans: '调试解锁',
                         zhHant: '調試解鎖',
-                        ja: 'Debug unlock',
+                        ja: 'デバッグ解除',
                       ),
                     ),
                   ),
@@ -382,9 +393,9 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
               AppLocaleText.tr(
                 context,
                 en: 'Subscription renews automatically until canceled in your App Store account.',
-                zhHans: '订阅会自动续期，可在 App Store 账户中取消。',
-                zhHant: '訂閱會自動續期，可在 App Store 帳戶中取消。',
-                ja: 'サブスクリプションは App Store アカウントで解約するまで自動更新されます。',
+                zhHans: '订阅会自动续期，可在苹果应用商店账户中取消。',
+                zhHant: '訂閱會自動續期，可在蘋果應用程式商店帳戶中取消。',
+                ja: 'サブスクリプションはアプリストアのアカウントで解約するまで自動更新されます。',
               ),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
@@ -397,12 +408,51 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
   }
 
   String _subtitle(BuildContext context, String source) {
+    final visibleSource = switch (AppLocaleText.resolve(context)) {
+      AppLanguage.simplifiedChinese => switch (source) {
+          'Structured self-review' => '深度专题梳理',
+          'Weekly chart reading' => '每周复盘图表解读',
+          'goal_summary_history' => '目标总结历史',
+          'small_experiment_summary_history' => '小实验总结历史',
+          'life_experiment_action_preferences' => '行动偏好深度报告',
+          'Pro' => '专业版',
+          'Today record' || '今天记录' || '今天記錄' || '今日の記録' => '今天记录',
+          '每周复盘深度分析' => '每周复盘深度分析',
+          '旅程深度分析' => '旅程深度分析',
+          _ => '专业版功能',
+        },
+      AppLanguage.traditionalChinese => switch (source) {
+          'Structured self-review' => '深度專題梳理',
+          'Weekly chart reading' => '每週復盤圖表解讀',
+          'goal_summary_history' => '目標總結歷史',
+          'small_experiment_summary_history' => '小實驗總結歷史',
+          'life_experiment_action_preferences' => '行動偏好深度報告',
+          'Pro' => '專業版',
+          'Today record' || '今天记录' || '今天記錄' || '今日の記録' => '今天記錄',
+          '每周复盘深度分析' => '每週復盤深度分析',
+          '旅程深度分析' => '旅程深度分析',
+          _ => '專業版功能',
+        },
+      AppLanguage.japanese => switch (source) {
+          'Structured self-review' => '深掘りテーマ整理',
+          'Weekly chart reading' => '週次振り返りの図表解説',
+          'goal_summary_history' => '目標まとめの履歴',
+          'small_experiment_summary_history' => '小さな実験まとめの履歴',
+          'life_experiment_action_preferences' => '行動傾向の深掘りレポート',
+          'Pro' => 'プロ版',
+          'Today record' || '今天记录' || '今天記錄' || '今日の記録' => '今日の記録',
+          '每周复盘深度分析' => '週次振り返りの深掘り分析',
+          '旅程深度分析' => '旅程の深掘り分析',
+          _ => 'プロ版機能',
+        },
+      AppLanguage.english => source,
+    };
     return AppLocaleText.tr(
       context,
-      en: '$source is part of the Pro layer for longer-period reflection.',
-      zhHans: '$source 属于 Pro 的深度层，用来做更长周期的回看。',
-      zhHant: '$source 屬於 Pro 的深度層，用來做更長週期的回看。',
-      ja: '$source は、より長い期間を振り返るための Pro 機能です。',
+      en: '$visibleSource is part of the Pro layer for longer-period reflection.',
+      zhHans: '$visibleSource 属于专业版的深度层，用来做更长周期的回看。',
+      zhHant: '$visibleSource 屬於專業版的深度層，用來做更長週期的回看。',
+      ja: '$visibleSource は、より長い期間を振り返るためのプロ版機能です。',
     );
   }
 
@@ -411,38 +461,36 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
       return AppLocaleText.tr(
         context,
         en: 'No active Pro subscription was found in this StoreKit environment.',
-        zhHans: '当前 StoreKit 环境中没有找到可恢复的 Pro 订阅。',
-        zhHant: '目前 StoreKit 環境中沒有找到可恢復的 Pro 訂閱。',
-        ja: '現在の StoreKit 環境では復元できる Pro サブスクリプションが見つかりませんでした。',
+        zhHans: '当前购买环境中没有找到可恢复的专业版订阅。',
+        zhHant: '目前購買環境中沒有找到可恢復的專業版訂閱。',
+        ja: '現在の購入環境では復元できるプロ版サブスクリプションが見つかりませんでした。',
       );
     }
     if (message == PurchaseController.restoreTemporarilyUnavailableMessage) {
       return AppLocaleText.tr(
         context,
         en: 'The App Store could not refresh purchases right now. Please check the connection and try again later.',
-        zhHans: 'App Store 暂时无法刷新购买状态，请检查网络后稍后重试。',
-        zhHant: 'App Store 暫時無法重新整理購買狀態，請檢查網路後稍後重試。',
-        ja: 'App Store から購入状態を更新できませんでした。少し待ってから復元をお試しください。',
+        zhHans: '苹果应用商店暂时无法刷新购买状态，请检查网络后稍后重试。',
+        zhHant: '蘋果應用程式商店暫時無法重新整理購買狀態，請檢查網路後稍後重試。',
+        ja: 'アプリストアから購入状態を更新できませんでした。少し待ってから復元をお試しください。',
       );
     }
     if (message == PurchaseController.sandboxRestoreMessage) {
       return AppLocaleText.tr(
         context,
         en: 'This TestFlight build can only restore Pro purchased in TestFlight. A production App Store subscription can be restored only in the App Store version.',
-        zhHans:
-            'TestFlight 版只能恢复在 TestFlight 中购买的测试订阅；App Store 正式订阅需要在正式版中恢复。',
-        zhHant:
-            'TestFlight 版只能恢復在 TestFlight 中購買的測試訂閱；App Store 正式訂閱需要在正式版中恢復。',
-        ja: 'TestFlight 版では TestFlight 内で購入したテスト用サブスクリプションのみ復元できます。App Store の正式な購読は正式版で復元してください。',
+        zhHans: '内部测试版只能恢复在内部测试中购买的测试订阅；正式订阅需要在正式版中恢复。',
+        zhHant: '內部測試版只能恢復在內部測試中購買的測試訂閱；正式訂閱需要在正式版中恢復。',
+        ja: '内部テスト版では、内部テストで購入したテスト用サブスクリプションのみ復元できます。正式な購読は正式版で復元してください。',
       );
     }
     if (message == PurchaseController.localStoreKitRestoreMessage) {
       return AppLocaleText.tr(
         context,
         en: 'This development build can only restore purchases made in the same StoreKit test environment.',
-        zhHans: '开发测试版只能恢复同一个 StoreKit 测试环境中的购买。',
-        zhHant: '開發測試版只能恢復同一個 StoreKit 測試環境中的購買。',
-        ja: '開発用ビルドでは、同じ StoreKit テスト環境で行った購入のみ復元できます。',
+        zhHans: '开发测试版只能恢复同一个购买测试环境中的购买。',
+        zhHant: '開發測試版只能恢復同一個購買測試環境中的購買。',
+        ja: '開発用ビルドでは、同じ購入テスト環境で行った購入のみ復元できます。',
       );
     }
     if (message ==
@@ -450,12 +498,49 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
       return AppLocaleText.tr(
         context,
         en: 'Pro was verified in another or unknown StoreKit environment. Access stays active while the entitlement is reconciled.',
-        zhHans: 'Pro 权益来自另一个或尚未识别的 StoreKit 环境；对账期间会继续保留访问权限。',
-        zhHant: 'Pro 權益來自另一個或尚未識別的 StoreKit 環境；對帳期間會繼續保留存取權限。',
-        ja: 'Pro は別の、または未確認の StoreKit 環境で検証されています。照合中もアクセスは維持されます。',
+        zhHans: '专业版权益来自另一个或尚未识别的购买环境；对账期间会继续保留访问权限。',
+        zhHant: '專業版權益來自另一個或尚未識別的購買環境；對帳期間會繼續保留存取權限。',
+        ja: 'プロ版は別の、または未確認の購入環境で検証されています。照合中もアクセスは維持されます。',
       );
     }
-    return message;
+    return switch (AppLocaleText.resolve(context)) {
+      AppLanguage.english => message,
+      AppLanguage.simplifiedChinese => switch (message) {
+          'Purchases are temporarily unavailable.' => '购买功能暂时不可用，请稍后重试。',
+          'Premium product is not available from the store yet.' =>
+            '商店暂时还没有提供专业版方案。',
+          'The store could not start the purchase.' => '商店暂时无法开始购买，请稍后重试。',
+          'The store did not return a transaction.' => '商店没有返回购买结果，请稍后重试。',
+          'Purchases are not available on this platform.' => '当前平台不支持应用内购买。',
+          'Purchase failed. Please try again.' => '购买失败，请稍后重试。',
+          _ => '暂时无法完成购买操作，请稍后重试。',
+        },
+      AppLanguage.traditionalChinese => switch (message) {
+          'Purchases are temporarily unavailable.' => '購買功能暫時不可用，請稍後重試。',
+          'Premium product is not available from the store yet.' =>
+            '商店暫時還沒有提供專業版方案。',
+          'The store could not start the purchase.' => '商店暫時無法開始購買，請稍後重試。',
+          'The store did not return a transaction.' => '商店沒有傳回購買結果，請稍後重試。',
+          'Purchases are not available on this platform.' => '目前平台不支援應用程式內購買。',
+          'Purchase failed. Please try again.' => '購買失敗，請稍後重試。',
+          _ => '暫時無法完成購買操作，請稍後重試。',
+        },
+      AppLanguage.japanese => switch (message) {
+          'Purchases are temporarily unavailable.' =>
+            '購入機能は一時的に利用できません。しばらくしてから再試行してください。',
+          'Premium product is not available from the store yet.' =>
+            'ストアではまだプロ版を利用できません。',
+          'The store could not start the purchase.' =>
+            'ストアで購入を開始できませんでした。しばらくしてから再試行してください。',
+          'The store did not return a transaction.' =>
+            'ストアから購入結果が返されませんでした。しばらくしてから再試行してください。',
+          'Purchases are not available on this platform.' =>
+            'このプラットフォームではアプリ内購入を利用できません。',
+          'Purchase failed. Please try again.' =>
+            '購入できませんでした。しばらくしてから再試行してください。',
+          _ => '購入を完了できませんでした。しばらくしてから再試行してください。',
+        },
+    };
   }
 
   String? _restoreStatusMessage(
@@ -471,18 +556,18 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
       return AppLocaleText.tr(
         context,
         en: 'Checking this StoreKit environment for an active Pro entitlement...',
-        zhHans: '正在当前 StoreKit 环境中查询有效的 Pro 权益…',
-        zhHant: '正在目前 StoreKit 環境中查詢有效的 Pro 權益…',
-        ja: '現在の StoreKit 環境で有効な Pro 権利を確認しています…',
+        zhHans: '正在当前购买环境中查询有效的专业版权益…',
+        zhHant: '正在目前購買環境中查詢有效的專業版權益…',
+        ja: '現在の購入環境で有効なプロ版の権利を確認しています…',
       );
     }
     if (purchase.entitlementReconciliationPending) {
       return AppLocaleText.tr(
         context,
         en: 'Pro is active. Backend verification is syncing in the background and does not block access.',
-        zhHans: 'Pro 已激活。后台验证正在异步同步，不影响当前使用。',
-        zhHant: 'Pro 已啟用。後台驗證正在非同步同步，不影響目前使用。',
-        ja: 'Pro は有効です。バックエンド検証はバックグラウンドで同期中ですが、利用には影響しません。',
+        zhHans: '专业版已激活。后台验证正在异步同步，不影响当前使用。',
+        zhHant: '專業版已啟用。後台驗證正在非同步同步，不影響目前使用。',
+        ja: 'プロ版は有効です。バックエンド検証はバックグラウンドで同期中ですが、利用には影響しません。',
       );
     }
     return null;
@@ -525,14 +610,14 @@ class _PremiumPaywallState extends State<_PremiumPaywall> {
           ? 'Start Pro - $yearlyPrice / year'
           : 'Start Pro - $monthlyPrice / month',
       zhHans: productId == PurchaseController.proYearlyProductId
-          ? '开通 Pro - $yearlyPrice / 年'
-          : '开通 Pro - $monthlyPrice / 月',
+          ? '开通专业版 - $yearlyPrice / 年'
+          : '开通专业版 - $monthlyPrice / 月',
       zhHant: productId == PurchaseController.proYearlyProductId
-          ? '開通 Pro - $yearlyPrice / 年'
-          : '開通 Pro - $monthlyPrice / 月',
+          ? '開通專業版 - $yearlyPrice / 年'
+          : '開通專業版 - $monthlyPrice / 月',
       ja: productId == PurchaseController.proYearlyProductId
-          ? 'Pro を始める - $yearlyPrice / 年'
-          : 'Pro を始める - $monthlyPrice / 月',
+          ? 'プロ版を始める - $yearlyPrice / 年'
+          : 'プロ版を始める - $monthlyPrice / 月',
     );
   }
 
@@ -641,9 +726,9 @@ class _LegalLinksRow extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'Terms of Use (EULA)',
-              zhHans: '使用条款 (EULA)',
-              zhHant: '使用條款 (EULA)',
-              ja: '利用規約 (EULA)',
+              zhHans: '使用条款（最终用户许可协议）',
+              zhHant: '使用條款（最終使用者授權協議）',
+              ja: '利用規約（エンドユーザー使用許諾契約）',
             ),
           ),
         ),

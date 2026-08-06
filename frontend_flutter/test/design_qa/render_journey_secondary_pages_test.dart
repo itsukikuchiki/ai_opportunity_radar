@@ -29,9 +29,9 @@ void main() {
     final repository = StubJourneyProRepository(
       report: JourneyProReportModel(
         selectedMonthKey: '2026-07',
-        periodStart: '2026-05-01',
-        periodEnd: '2026-07-17',
-        sourceHash: 'design-review-three-month-source',
+        periodStart: '2026-01-01',
+        periodEnd: '2026-07-31',
+        sourceHash: 'design-review-full-history-source',
         contextCoverage: const JourneyProContextCoverageModel(
           feedbackCount: 7,
           reviewCount: 3,
@@ -39,15 +39,13 @@ void main() {
           observationCount: 2,
         ),
         months: [
+          _proMonth('2026-01', signals: 0, days: 0, draining: 0),
+          _proMonth('2026-02', signals: 0, days: 0, draining: 0),
+          _proMonth('2026-03', signals: 0, days: 0, draining: 0),
+          _proMonth('2026-04', signals: 0, days: 0, draining: 0),
           _proMonth('2026-05', signals: 8, days: 4, draining: 3),
           _proMonth('2026-06', signals: 11, days: 6, draining: 5),
-          _proMonth(
-            '2026-07',
-            signals: 10,
-            days: 5,
-            draining: 3,
-            periodEnd: '2026-07-17',
-          ),
+          _proMonth('2026-07', signals: 10, days: 5, draining: 3),
         ],
       ),
     );
@@ -68,14 +66,39 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.byKey(const ValueKey('journey-pro-three-month-hero')),
+      find.byKey(const ValueKey('journey-pro-full-history-hero')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
     await _capture(
       tester,
       captureKey,
-      'journey-pro-secondary-current-2026-07-17.png',
+      'spacing-2026-08-01/journey-pro-hero-final.png',
+    );
+
+    final themeHistory = find.byKey(
+      const ValueKey('journey-pro-theme-history'),
+    );
+    final scrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('journey-pro-scroll-view')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      themeHistory,
+      280,
+      scrollable: scrollable,
+    );
+    await Scrollable.ensureVisible(
+      tester.element(themeHistory),
+      alignment: 0.08,
+    );
+    await tester.pumpAndSettle();
+    await _capture(
+      tester,
+      captureKey,
+      'spacing-2026-08-01/journey-pro-themes-final.png',
     );
   });
 }
@@ -113,8 +136,12 @@ Future<void> _capture(
         captureKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
     final image = await boundary.toImage(pixelRatio: 2);
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    await File(p.join(_designQaDirectory, fileName))
-        .writeAsBytes(bytes!.buffer.asUint8List(), flush: true);
+    final output = File(p.join(_designQaDirectory, fileName));
+    await output.parent.create(recursive: true);
+    await output.writeAsBytes(
+      bytes!.buffer.asUint8List(),
+      flush: true,
+    );
     image.dispose();
   });
 }
@@ -197,15 +224,19 @@ JourneyProMonthChangeModel _proMonth(
     activeDayCount: days,
     energyStateCounts: {
       'draining': draining,
-      'steady': signals - draining - 2,
-      'ease': 1,
-      'recovery': 1,
+      'steady': signals == 0 ? 0 : signals - draining - 2,
+      'ease': signals == 0 ? 0 : 1,
+      'recovery': signals == 0 ? 0 : 1,
       'boundary_buffer': 0,
     },
     domainCounts: {
-      'growth_plan': signals - 3,
-      'emotional_stability': 2,
-      'interests': 1,
+      if (signals > 0) 'growth_plan': signals - 3,
+      if (signals > 0) 'emotional_stability': 2,
+      if (signals > 0) 'interests_hobbies': 1,
+    },
+    themeCounts: {
+      if (signals > 0) 'growth_plan': signals - 2,
+      if (signals > 0) 'food_sleep': 2,
     },
   );
 }

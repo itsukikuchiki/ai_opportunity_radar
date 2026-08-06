@@ -250,12 +250,13 @@ void main() {
       linkedSignalCardIds: const [],
       status: 'active',
       minimumObservationDays: 3,
+      progressStartDate: '2026-07-01',
+      progressEndDate: '2026-07-06',
     );
     await lifeExperimentRepository.recordWholeRoundReview(
       experimentId: experiment.id,
       outcomeResult: GoalOutcomeResult.unclear,
       burden: EvaluationEffort.acceptable,
-      userConfirmedRoundEnd: true,
       reviewedAt: DateTime(2026, 7, 6, 18),
     );
 

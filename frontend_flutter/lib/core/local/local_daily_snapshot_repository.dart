@@ -103,8 +103,12 @@ class LocalDailySnapshotRepository {
     );
   }
 
-  String buildSourceHash(List<RecentSignalModel> signals) {
+  String buildSourceHash(
+    List<RecentSignalModel> signals, {
+    String language = '',
+  }) {
     final buffer = StringBuffer();
+    buffer.write('language:$language||');
     for (final signal in signals) {
       buffer.write(signal.id ?? '');
       buffer.write('|');

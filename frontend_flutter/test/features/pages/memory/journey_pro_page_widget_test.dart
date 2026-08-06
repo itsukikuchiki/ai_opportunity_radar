@@ -10,6 +10,7 @@ import 'package:ai_opportunity_radar/core/purchases/purchase_controller.dart';
 import 'package:ai_opportunity_radar/core/state/app_bootstrap_state.dart';
 import 'package:ai_opportunity_radar/features/pages/memory/journey_pro_page.dart';
 import 'package:ai_opportunity_radar/features/pages/memory/journey_pro_view_model.dart';
+import 'package:ai_opportunity_radar/features/shell/main_tab_bottom_navigation.dart';
 import 'package:ai_opportunity_radar/shared/widgets/aurora_ui.dart';
 
 import '../../../helpers/widget_test_helpers.dart';
@@ -17,8 +18,8 @@ import '../../../helpers/widget_test_helpers.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('未达到两个月门槛时仍显示三个月事实图，只隐藏变化总结', (tester) async {
-    tester.view.physicalSize = const Size(390, 1800);
+  testWidgets('只有一个有记录月份且未达总结门槛时仍显示首次使用至今的事实时间轴', (tester) async {
+    tester.view.physicalSize = const Size(390, 1100);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -40,28 +41,103 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.byType(MainTabBottomNavigation), findsOneWidget);
+    expect(
+      find.byKey(MainTabBottomNavigation.navigationKey),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<MainTabBottomNavigation>(
+            find.byType(MainTabBottomNavigation),
+          )
+          .selectedIndex,
+      3,
+    );
     expect(find.byType(AuroraJourneyHeroPattern), findsOneWidget);
     expect(
+      find.byKey(const ValueKey('journey-pro-full-history-hero')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+              .getBottomLeft(
+                find.byKey(const ValueKey('journey-pro-full-history-hero')),
+              )
+              .dy -
+          tester
+              .getBottomLeft(
+                find.byKey(const ValueKey('journey-pro-history-period')),
+              )
+              .dy,
+      lessThanOrEqualTo(17),
+    );
+    expect(
+      find.byKey(const ValueKey('journey-pro-history-overview')),
+      findsOneWidget,
+    );
+    final scrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('journey-pro-scroll-view')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-pro-domain-history')),
+      280,
+      scrollable: scrollable,
+    );
+    expect(
+      find.byKey(const ValueKey('journey-pro-domain-history')),
+      findsOneWidget,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-pro-theme-history')),
+      280,
+      scrollable: scrollable,
+    );
+    expect(
+      find.byKey(const ValueKey('journey-pro-theme-history')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('journey-pro-theme-history')),
+        matching: find.text('其他线索'),
+      ),
+      findsNothing,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-pro-energy-rhythm-history')),
+      280,
+      scrollable: scrollable,
+    );
+    expect(
+      find.byKey(const ValueKey('journey-pro-energy-rhythm-history')),
+      findsOneWidget,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-pro-history-conclusion')),
+      280,
+      scrollable: scrollable,
+    );
+    expect(
+      find.byKey(const ValueKey('journey-pro-history-conclusion')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('真实时间轴已经显示'), findsOneWidget);
+    expect(
       find.byKey(const ValueKey('journey-pro-three-month-chart')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('journey-pro-energy-state-trend')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('journey-pro-domain-trend')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('journey-pro-three-month-readiness')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('journey-pro-three-month-change')),
       findsNothing,
     );
-    expect(find.textContaining('已有 1/2 个自然月可比较'), findsOneWidget);
     expect(find.text('分析范围'), findsNothing);
     expect(find.text('和 AI 聊聊'), findsNothing);
     expect(find.textContaining('来源 Signal'), findsNothing);
@@ -69,8 +145,82 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('至少两个自然月达标后显示保守的月度变化总结', (tester) async {
-    tester.view.physicalSize = const Size(390, 1900);
+  testWidgets('只有一个完整月份时图表点与月份轴居中对齐', (tester) async {
+    tester.view.physicalSize = const Size(390, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = StubJourneyProRepository(
+      report: JourneyProReportModel(
+        selectedMonthKey: '2026-07',
+        periodStart: '2026-07-01',
+        periodEnd: '2026-07-31',
+        sourceHash: 'single-complete-month',
+        contextCoverage: const JourneyProContextCoverageModel(
+          feedbackCount: 0,
+          reviewCount: 0,
+          experimentContextCount: 0,
+          observationCount: 0,
+        ),
+        months: [
+          _month(
+            key: '2026-07',
+            signals: 8,
+            days: 4,
+            draining: 2,
+            steady: 3,
+            recovery: 3,
+            work: 5,
+            recoveryDomain: 3,
+          ),
+        ],
+      ),
+    );
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const JourneyProPage(initialMonthKey: '2026-07'),
+        providers: [
+          ChangeNotifierProvider<JourneyProViewModel>(
+            create: (_) => JourneyProViewModel(repository),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final card = find.byKey(const ValueKey('journey-pro-domain-history'));
+    final scrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('journey-pro-scroll-view')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(card, 280, scrollable: scrollable);
+    final chart = find.descendant(of: card, matching: find.byType(CustomPaint));
+    final monthLabel = find.descendant(of: card, matching: find.text('7月'));
+
+    expect(chart, findsOneWidget);
+    expect(monthLabel, findsOneWidget);
+    final chartSize = tester.getSize(chart);
+    final plot =
+        Rect.fromLTRB(10, 10, chartSize.width - 8, chartSize.height - 24);
+    expect(
+      journeyHistoryLinePointX(plot: plot, index: 0, pointCount: 1),
+      plot.center.dx,
+    );
+    expect(
+      (tester.getCenter(chart).dx - tester.getCenter(monthLabel).dx).abs(),
+      lessThanOrEqualTo(2),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('多个有记录月份时显示完整时间轴回看', (tester) async {
+    tester.view.physicalSize = const Size(390, 1100);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -92,23 +242,41 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final scrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('journey-pro-scroll-view')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-pro-history-conclusion')),
+      320,
+      scrollable: scrollable,
+    );
+    expect(find.text('完整时间轴回看'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('journey-pro-three-month-change')),
+      find.byKey(const ValueKey('journey-pro-history-conclusion')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(const ValueKey('journey-pro-three-month-readiness')),
-      findsNothing,
-    );
-    expect(find.text('最近一个月的变化'), findsOneWidget);
-    expect(find.textContaining('不推断因果'), findsWidgets);
     expect(
       find.byKey(const ValueKey('journey-pro-context-coverage')),
       findsNothing,
     );
     expect(find.textContaining('资料范围'), findsNothing);
-    expect(find.text('生活小实验'), findsNothing);
-    expect(find.text('目标'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('journey-pro-scroll-view')),
+        matching: find.text('生活小实验'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('journey-pro-scroll-view')),
+        matching: find.text('目标'),
+      ),
+      findsNothing,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -144,6 +312,46 @@ void main() {
     expect(find.textContaining('资料范围'), findsNothing);
   });
 
+  testWidgets('首个自然月尚未结束时说明月底后再显示', (tester) async {
+    final repository = StubJourneyProRepository(
+      report: const JourneyProReportModel(
+        selectedMonthKey: '2026-07',
+        periodStart: '2026-07-31',
+        periodEnd: '2026-07-31',
+        sourceHash: 'no-complete-month',
+        months: [],
+        contextCoverage: JourneyProContextCoverageModel(
+          feedbackCount: 0,
+          reviewCount: 0,
+          experimentContextCount: 0,
+          observationCount: 0,
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const JourneyProPage(initialMonthKey: '2026-07'),
+        providers: [
+          ChangeNotifierProvider<JourneyProViewModel>(
+            create: (_) => JourneyProViewModel(repository),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('首个自然月结束后显示'), findsOneWidget);
+    expect(find.text('首个完整月份还在形成中'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('journey-pro-theme-history')),
+      findsNothing,
+    );
+  });
+
   testWidgets('加载失败显示可重试状态', (tester) async {
     final repository = StubJourneyProRepository(
       report: _report(ready: false),
@@ -161,12 +369,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Three-month change failed to load'), findsOneWidget);
+    expect(find.text('Journey history failed to load'), findsOneWidget);
     expect(find.text('Try again'), findsOneWidget);
     expect(repository.requestedMonths, ['2026-05']);
   });
 
-  testWidgets('Pro 路由保留付费门槛，并把 month 查询参数传给三个月页面', (tester) async {
+  testWidgets('Pro 路由保留付费门槛，并兼容已有 month 查询参数', (tester) async {
     final freeHarness = await _RouteHarness.create(isPremium: false);
     addTearDown(freeHarness.dispose);
     await tester.pumpWidget(freeHarness.app);
@@ -195,8 +403,8 @@ JourneyProReportModel _report({
 }) {
   return JourneyProReportModel(
     selectedMonthKey: '2026-07',
-    periodStart: '2026-05-01',
-    periodEnd: '2026-07-22',
+    periodStart: '2026-01-01',
+    periodEnd: '2026-07-31',
     sourceHash: ready ? 'ready-source' : 'forming-source',
     contextCoverage: withContext
         ? const JourneyProContextCoverageModel(
@@ -212,25 +420,41 @@ JourneyProReportModel _report({
             observationCount: 0,
           ),
     months: [
+      for (final monthKey in const [
+        '2026-01',
+        '2026-02',
+        '2026-03',
+        '2026-04',
+      ])
+        _month(
+          key: monthKey,
+          signals: 0,
+          days: 0,
+          draining: 0,
+          steady: 0,
+          recovery: 0,
+          work: 0,
+          recoveryDomain: 0,
+        ),
       _month(
         key: '2026-05',
-        signals: ready ? 8 : 3,
-        days: ready ? 4 : 2,
-        draining: 2,
-        steady: 1,
+        signals: ready ? 8 : 0,
+        days: ready ? 4 : 0,
+        draining: ready ? 2 : 0,
+        steady: ready ? 1 : 0,
         recovery: ready ? 5 : 0,
-        work: ready ? 5 : 2,
-        recoveryDomain: ready ? 3 : 1,
+        work: ready ? 5 : 0,
+        recoveryDomain: ready ? 3 : 0,
       ),
       _month(
         key: '2026-06',
-        signals: 9,
-        days: 5,
-        draining: 4,
-        steady: 3,
-        recovery: 2,
-        work: 7,
-        recoveryDomain: 2,
+        signals: ready ? 9 : 0,
+        days: ready ? 5 : 0,
+        draining: ready ? 4 : 0,
+        steady: ready ? 3 : 0,
+        recovery: ready ? 2 : 0,
+        work: ready ? 7 : 0,
+        recoveryDomain: ready ? 2 : 0,
       ),
       _month(
         key: '2026-07',
@@ -241,7 +465,6 @@ JourneyProReportModel _report({
         recovery: ready ? 4 : 1,
         work: ready ? 6 : 3,
         recoveryDomain: ready ? 5 : 1,
-        end: '2026-07-22',
       ),
     ],
   );
@@ -278,6 +501,10 @@ JourneyProMonthChangeModel _month({
     domainCounts: {
       'growth_plan': work,
       'emotional_stability': recoveryDomain,
+    },
+    themeCounts: {
+      'food_sleep': recovery,
+      'growth_plan': signals - recovery,
     },
   );
 }

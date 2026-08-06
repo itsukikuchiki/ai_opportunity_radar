@@ -32,7 +32,7 @@ class WeeklyService:
                 "week_start": week_start.isoformat(),
                 "week_end": today.isoformat(),
                 "status": "not_started",
-                "message": "Weekly 将从首条记录后的第 2 天开始展示。",
+                "message": "每周复盘将从首条记录后的第 2 天开始展示。",
                 "first_signal_date": first_signal_date.isoformat()
                 if first_signal_date
                 else None,

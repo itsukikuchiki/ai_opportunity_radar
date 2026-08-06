@@ -15,25 +15,26 @@ void main() {
   final fallbackOpenings = <({Locale locale, String expected})>[
     (
       locale: const Locale('en'),
-      expected: 'You mentioned “今天切换得有点密集”. I’m here with this moment.',
+      expected:
+          'I hear you saying “今天切换得有点密集,” and I am staying with it as you experienced it.',
     ),
     (
       locale: const Locale.fromSubtags(
         languageCode: 'zh',
         scriptCode: 'Hans',
       ),
-      expected: '你说“今天切换得有点密集”，这个片段我接住了。',
+      expected: '我听见你在说“今天切换得有点密集”，这件事先按你感受到的样子留在这里。',
     ),
     (
       locale: const Locale.fromSubtags(
         languageCode: 'zh',
         scriptCode: 'Hant',
       ),
-      expected: '你說「今天切换得有点密集」，這個片段我接住了。',
+      expected: '我聽見你在說「今天切换得有点密集」，這件事先按你感受到的樣子留在這裡。',
     ),
     (
       locale: const Locale('ja'),
-      expected: '「今天切换得有点密集」と書いていましたね。この瞬間を受け止めました。',
+      expected: '「今天切换得有点密集」と感じていることを、そのまま受け止めます。',
     ),
   ];
 
@@ -70,6 +71,38 @@ void main() {
       expect(sample.expected, isNot(contains('？')));
     });
   }
+
+  testWidgets('历史 AI 预判确认状态不作为聊天开场展示', (tester) async {
+    final signal = RecentSignalModel(
+      id: 'legacy-ai-prediction',
+      sourceType: 'ai_predicted',
+      content: '事情太多了',
+      acknowledgement: '这条内容已从 AI 预判确认并加入时间线。',
+    );
+    final repository = StubTodayRepository(
+      fetchTodayResult: const {},
+      captureById: {'legacy-ai-prediction': signal},
+    );
+    final dependencies = await buildTestDependencies(
+      todayRepository: repository,
+    );
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        child: const TodayDialogPage(captureId: 'legacy-ai-prediction'),
+        providers: [Provider<AppDependencies>.value(value: dependencies)],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('这条内容已从 AI 预判确认并加入时间线。'), findsNothing);
+    expect(find.textContaining('这么多事压过来'), findsOneWidget);
+    expect(find.textContaining('喘不过气'), findsOneWidget);
+  });
 
   testWidgets('TodayDialog 本地化 time_use 关注领域且不泄漏内部能量枚举', (tester) async {
     final signal = RecentSignalModel(

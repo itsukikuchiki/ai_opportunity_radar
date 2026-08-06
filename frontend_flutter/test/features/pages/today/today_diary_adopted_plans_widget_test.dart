@@ -81,8 +81,12 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(ValueKey('today-diary-calendar-content-$dateKey')),
+      find.byKey(ValueKey('today-diary-calendar-day-$dateKey')),
       findsOneWidget,
+    );
+    expect(
+      find.byKey(ValueKey('today-diary-calendar-content-$dateKey')),
+      findsNothing,
     );
     await tester.tap(
       find.byKey(ValueKey('today-diary-calendar-day-$dateKey')),
@@ -257,7 +261,7 @@ void main() {
     expect(find.text('进度 2/7'), findsOneWidget);
     expect(find.text('今天未完成'), findsNWidgets(2));
     expect(find.text('今天不适合'), findsNothing);
-    expect(find.text('AI'), findsOneWidget);
+    expect(find.text('聊聊'), findsOneWidget);
 
     await tester.dragUntilVisible(
       find.text('午后离开屏幕十分钟'),

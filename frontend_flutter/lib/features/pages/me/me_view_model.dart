@@ -61,12 +61,27 @@ class MeViewModel extends ChangeNotifier {
   bool deletingData = false;
   bool usageLoadFailed = false;
   String? errorMessage;
+  Future<void>? _loadInFlight;
 
   MeViewModel([this.apiClient, this.localDatabase]) {
     load();
   }
 
-  Future<void> load() async {
+  Future<void> load() {
+    final activeLoad = _loadInFlight;
+    if (activeLoad != null) return activeLoad;
+
+    final future = _performLoad();
+    _loadInFlight = future;
+    future.whenComplete(() {
+      if (identical(_loadInFlight, future)) {
+        _loadInFlight = null;
+      }
+    });
+    return future;
+  }
+
+  Future<void> _performLoad() async {
     loading = true;
     errorMessage = null;
     notifyListeners();

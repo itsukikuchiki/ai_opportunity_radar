@@ -54,14 +54,20 @@ class CandidateGateCard extends StatelessWidget {
         : AppLocaleText.tr(
             context,
             en: 'A few real signals help the app avoid over-interpreting one moment. Drafts and unconfirmed AI content do not count.',
-            zhHans: '先积累几条真实信号，是为了避免把某一个瞬间过度解读。草稿和未确认的 AI 内容不会计入。',
-            zhHant: '先累積幾條真實信號，是為了避免把某一個瞬間過度解讀。草稿和未確認的 AI 內容不會計入。',
-            ja: '一つの瞬間を読み込みすぎないよう、複数の実際のシグナルを待ちます。下書きと未確認の AI 内容は数えません。',
+            zhHans: '先积累几条真实信号，是为了避免把某一个瞬间过度解读。草稿和未确认的智能预判不会计入。',
+            zhHant: '先累積幾條真實信號，是為了避免把某一個瞬間過度解讀。草稿和未確認的智能預判不會計入。',
+            ja: '一つの瞬間を読み込みすぎないよう、複数の実際のシグナルを待ちます。下書きと未確認のアシスタント予測は数えません。',
           );
 
     return Semantics(
       container: true,
-      label: '$title, $count of ${gate.requiredSignalCount}',
+      label: AppLocaleText.tr(
+        context,
+        en: '$title, $count of ${gate.requiredSignalCount}',
+        zhHans: '$title，已记录 $count / ${gate.requiredSignalCount}',
+        zhHant: '$title，已記錄 $count / ${gate.requiredSignalCount}',
+        ja: '$title、$count / ${gate.requiredSignalCount} 件',
+      ),
       child: AuroraCard(
         key: const ValueKey('candidate-gate-card'),
         padding: AuroraMainPageSpec.comfortableCardPadding,

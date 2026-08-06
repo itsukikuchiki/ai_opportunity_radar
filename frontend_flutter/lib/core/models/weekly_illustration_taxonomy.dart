@@ -70,7 +70,7 @@ class WeeklyIllustrationTaxonomy {
     '只是观察也有帮助',
     '被安排打断',
     '被情绪打断',
-    '下周继续 / 停止 / 改小',
+    '下周是否继续 / 继续时可改小',
   ];
 
   static const weeklyGeneratePayload = {

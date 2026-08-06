@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +10,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:ai_opportunity_radar/core/di/app_dependencies.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
+import 'package:ai_opportunity_radar/core/models/experiment_creation_source.dart';
 import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
 import 'package:ai_opportunity_radar/features/pages/experiment/experiment_page.dart';
@@ -25,7 +27,9 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(390, 3000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final today = _testDateOnly(DateTime.now());
-    final activeStart = today.subtract(const Duration(days: 2));
+    final activeStart = today.subtract(
+      Duration(days: today.weekday - DateTime.monday),
+    );
     final expiredStart = today.subtract(const Duration(days: 12));
     final futureStart = today.add(const Duration(days: 2));
     final weeklyRepository = StubWeeklyRepository(weekly: _weeklyModel);
@@ -56,6 +60,7 @@ void main() {
           reason: '这是可以立即开始的轻行为。',
           status: 'active',
           localUserId: dependencies.localUserId,
+          creationSource: ExperimentCreationSource.candidateAdoption,
           adoptedAt: today.add(const Duration(hours: 9)),
           progressStartDate: _testDateKey(activeStart),
           progressEndDate: _testDateKey(
@@ -65,6 +70,17 @@ void main() {
           sourceChanged: true,
           sourceChangeReason: '一条来源 Signal 已删除。',
         ),
+      );
+      await dependencies.localPhase3PlusRepository
+          .recordStructuredMicroActionFeedback(
+        microActionId: 'small_try_visible',
+        localDate: _testDateKey(today),
+        completionStatus: 'completed',
+        effect: 'helpful',
+        difficulty: 'easy',
+        note: 'The pause made the next task easier to start.',
+        durationMinutes: 2,
+        createdAt: today.add(const Duration(hours: 10)),
       );
       await dependencies.localPhase3PlusRepository.upsertMicroAction(
         MicroActionModel(
@@ -118,9 +134,19 @@ void main() {
         await dependencies.localLifeExperimentRepository.recordFeedback(
           experimentId: activeGoal.id,
           completionStatus: 'completed',
+          feedbackText:
+              day == 0 ? 'The afternoon felt easier to recover from.' : null,
           feedbackDate: activeStart.add(Duration(days: day, hours: 10)),
         );
       }
+      final storedGoalFeedbacks = await dependencies
+          .localLifeExperimentRepository
+          .listFeedbacksForExperiments(experimentIds: [activeGoal.id]);
+      expect(storedGoalFeedbacks, hasLength(3));
+      expect(
+        storedGoalFeedbacks.map((item) => item.feedbackText),
+        contains('The afternoon felt easier to recover from.'),
+      );
       final db = await database.database;
       final nowIso = DateTime.now().toUtc().toIso8601String();
       await db.insert('micro_action_candidates', {
@@ -182,20 +208,18 @@ void main() {
       ),
     );
     await tester.pump();
-    for (var attempt = 0; attempt < 30; attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 60)),
-      );
-      await tester.pump(const Duration(milliseconds: 60));
-      if (find
-          .byKey(const ValueKey('life-experiment-small-try-small_try_visible'))
-          .evaluate()
-          .isNotEmpty) {
-        break;
-      }
-    }
+    await _waitForFinder(
+      tester,
+      find.byKey(
+        const ValueKey('life-experiment-small-try-small_try_visible'),
+      ),
+    );
 
-    expect(find.text('Small experiments · within 10 minutes'), findsOneWidget);
+    expect(find.text('Spot Tries · quick and simple'), findsOneWidget);
+    expect(
+      find.text('Small experiments · Spot tries'),
+      findsNothing,
+    );
     expect(find.text('现在留两分钟不切换'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('life-experiment-small-try-small_try_visible')),
@@ -203,7 +227,41 @@ void main() {
     );
     expect(
         find.byKey(const ValueKey('small-try-branch-chart')), findsOneWidget);
-    expect(find.byKey(const ValueKey('goal-timeline-matrix')), findsOneWidget);
+    expect(find.byKey(const ValueKey('goal-timeline-matrix')), findsNothing);
+    expect(
+      find.byKey(
+        const ValueKey('experiment-track-switch-small-experiments'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('experiment-track-switch-goals')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('experiment-hero-active-count')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('experiment-hero-feedback-count')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('experiment-hero-conclusion-count')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .getSize(
+            find.byKey(
+              const ValueKey(
+                'life-experiment-small-try-small_try_visible',
+              ),
+            ),
+          )
+          .width,
+      greaterThan(280),
+    );
     expect(
       find.byKey(
         const ValueKey(
@@ -214,7 +272,7 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('considering-goal-considering_goal')),
-      findsOneWidget,
+      findsNothing,
     );
 
     final searchField = find.descendant(
@@ -245,6 +303,7 @@ void main() {
       ),
       findsNothing,
     );
+    await _showGoals(tester);
     expect(
       find.byKey(const ValueKey('considering-goal-considering_goal')),
       findsOneWidget,
@@ -252,6 +311,7 @@ void main() {
     await tester.enterText(searchField, '');
     await tester.pumpAndSettle();
 
+    await _showSmallExperiments(tester);
     await tester.tap(
       find.byKey(
         const ValueKey(
@@ -260,12 +320,13 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Small experiment detail'), findsOneWidget);
+    expect(find.text('Spot Try details'), findsOneWidget);
     expect(find.text('正在考虑的小实验'), findsOneWidget);
     expect(find.text('Adopt'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.chevron_left_rounded).first);
     await tester.pumpAndSettle();
 
+    await _showGoals(tester);
     await tester.tap(
       find.byKey(const ValueKey('considering-goal-considering_goal')),
     );
@@ -276,68 +337,127 @@ void main() {
     await tester.tap(find.byIcon(Icons.chevron_left_rounded).first);
     await tester.pumpAndSettle();
 
+    await _showSmallExperiments(tester);
     await tester.tap(
       find.byKey(const ValueKey('life-experiment-small-try-small_try_visible')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Small experiment detail'), findsOneWidget);
-    expect(find.text('Within 10 minutes · try it now'), findsOneWidget);
-    expect(find.text('Attempt history'), findsOneWidget);
-    expect(find.text('Source Signals'), findsOneWidget);
-    expect(find.text('Plan versions'), findsOneWidget);
-    expect(find.text('Round-summary history'), findsOneWidget);
-    expect(find.textContaining(RegExp(r'^\d+/7$')), findsNothing);
+    expect(find.text('Spot Try details'), findsOneWidget);
+    expect(find.text('Spot Try · start anytime'), findsOneWidget);
+    expect(find.text('Within 10 minutes · try it now'), findsNothing);
+    expect(find.text('Attempt history'), findsNothing);
+    expect(find.text('Source Signals'), findsNothing);
+    expect(find.text('Plan versions'), findsNothing);
     expect(
-      find.text('Adopted ${today.year}/${today.month}/${today.day}'),
+      find.byKey(
+        const ValueKey('small-experiment-detail-overview'),
+      ),
       findsOneWidget,
     );
-    expect(find.text('Source Signals: 2'), findsOneWidget);
-    expect(find.text('Source changed'), findsOneWidget);
-    expect(find.text('一条来源 Signal 已删除。'), findsOneWidget);
-    await tester.tap(find.text('Record one try'));
-    await tester.pumpAndSettle();
-    expect(find.text('Did you try it?'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey('small-try-completed-choice')),
-    );
-    await tester.pump();
-    expect(find.text('How did it feel right away?'), findsOneWidget);
-    expect(find.text('How much effort did it take?'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey('small-try-effect-helpful')),
-    );
-    await tester.pump();
-    await tester.tap(
-      find.byKey(const ValueKey('small-try-difficulty-easy')),
-    );
-    await tester.pump();
-    final saveAttempt = find.byKey(const ValueKey('small-try-feedback-save'));
-    expect(tester.widget<FilledButton>(saveAttempt).onPressed, isNotNull);
-    await tester.ensureVisible(saveAttempt);
-    await tester.tap(saveAttempt);
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 80)),
-    );
-    await tester.pumpAndSettle();
     expect(
-      find.byKey(const ValueKey('small-try-feedback-sheet')),
-      findsNothing,
+      find.byKey(
+        const ValueKey('small-experiment-completion-chart'),
+      ),
+      findsOneWidget,
     );
-    expect(todayRepository.submittedMicroActionFeedbacks, [
-      {
-        'microActionId': 'small_try_visible',
-        'feedback': 'completed',
-        'effect': 'helpful',
-        'difficulty': 'easy',
-        'userNote': null,
-      },
-    ]);
-    await tester.pump(const Duration(seconds: 5));
-
+    expect(
+      find.byKey(
+        const ValueKey('small-experiment-feedback-chart'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('small-experiment-overview-keywords'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('small-experiment-overview-summary'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Tried'), findsOneWidget);
+    expect(find.text('Not tried'), findsOneWidget);
+    expect(
+      find.textContaining('1 real attempt(s) have been recorded.'),
+      findsOneWidget,
+    );
+    final feedbackCounts = find.byKey(
+      const ValueKey('small-experiment-feedback-count'),
+    );
+    expect(
+      find.descendant(
+        of: feedbackCounts,
+        matching: find.textContaining('1 helpful', findRichText: true),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: feedbackCounts,
+        matching: find.textContaining('0 a little', findRichText: true),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: feedbackCounts,
+        matching: find.textContaining('0 no difference', findRichText: true),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Easier to start'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'The three feedback choices are placed at high, middle, and low',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey(
+          'experiment-content-change-guide-smallExperiment',
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('small-experiment-feedback-overview'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('The pause made the next task easier to start.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Overall:'), findsWidgets);
+    expect(find.textContaining('Registered:'), findsWidgets);
+    expect(find.textContaining('Content:'), findsWidgets);
+    expect(find.textContaining(RegExp(r'^\d+/7$')), findsNothing);
+    await _bringIntoViewport(
+      tester,
+      find.byKey(const ValueKey('experiment-creation-origin')),
+    );
+    expect(
+      find.text(
+        'You adopted an AI suggestion on '
+        '${today.year}/${today.month}/${today.day}.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Source Signals: 2'), findsNothing);
+    expect(find.text('Source changed'), findsNothing);
+    expect(find.text('一条来源 Signal 已删除。'), findsNothing);
+    expect(find.text('Record one try'), findsNothing);
+    expect(find.text('登记一次'), findsNothing);
     await tester.ensureVisible(find.text('Summarize this round'));
     await tester.tap(find.text('Summarize this round'));
     await tester.pumpAndSettle();
     expect(find.text('What should happen next?'), findsOneWidget);
+    expect(find.text('End it'), findsNothing);
     await tester.tap(find.text('Keep it'));
     await tester.pump();
     await tester.tap(find.text('Easy').last);
@@ -349,9 +469,9 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 60)),
       );
       await tester.pump(const Duration(milliseconds: 20));
-      if (find.text('Small experiment detail').evaluate().isNotEmpty) break;
+      if (find.text('Spot Try details').evaluate().isNotEmpty) break;
     }
-    expect(find.text('Small experiment detail'), findsOneWidget);
+    expect(find.text('Spot Try details'), findsOneWidget);
     late String completedStatus;
     await tester.runAsync(() async {
       final db = await database.database;
@@ -373,31 +493,12 @@ void main() {
       expect(reviews.single.result, 'worth_keeping');
       expect(reviews.single.effort, 'easy');
     });
-    await tester.ensureVisible(find.text('Complete this small experiment'));
-    await tester.tap(find.text('Complete this small experiment'));
-    await tester.pumpAndSettle();
-    expect(find.text('Complete this small experiment?'), findsOneWidget);
-    await tester.tap(find.text('Confirm completion'));
-    for (var attempt = 0; attempt < 20; attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 60)),
-      );
-      await tester.pump(const Duration(milliseconds: 20));
-      if (find.text('Small experiment detail').evaluate().isEmpty) break;
-    }
-    expect(find.text('Small experiment detail'), findsNothing);
-    await tester.runAsync(() async {
-      final db = await database.database;
-      final rows = await db.query(
-        'micro_actions',
-        columns: ['status'],
-        where: 'id = ?',
-        whereArgs: ['small_try_visible'],
-      );
-      completedStatus = rows.single['status']! as String;
-    });
-    expect(completedStatus, 'completed');
+    expect(find.text('End this observation'), findsNothing);
+    expect(find.text('End observation'), findsNothing);
 
+    await tester.tap(find.byIcon(Icons.chevron_left_rounded).first);
+    await tester.pumpAndSettle();
+    await _showGoals(tester);
     expect(find.textContaining('-day observation'), findsWidgets);
     await tester.tap(
       find.byKey(ValueKey('experiment-archive-card-$activeGoalId')),
@@ -407,12 +508,40 @@ void main() {
     expect(find.text('连续一周观察恢复节奏'), findsWidgets);
     expect(find.textContaining('3 completed days'), findsOneWidget);
     expect(find.text('What this goal observes'), findsOneWidget);
-    expect(find.text('Long-term progress'), findsOneWidget);
-    expect(find.text('Daily records'), findsOneWidget);
-    expect(find.text('Source Signals'), findsOneWidget);
-    expect(find.text('Plan versions'), findsOneWidget);
+    expect(find.text('Long-term progress'), findsNothing);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('goal-weekly-summary-card')),
+    );
     expect(find.text('Weekly summaries'), findsOneWidget);
-    expect(find.text('Overall summaries'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('goal-weekly-summary-card')),
+        matching: find.byKey(
+          ValueKey('goal-observation-timeline-$activeGoalId'),
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Daily records'), findsNothing);
+    expect(find.text('Source Signals'), findsNothing);
+    expect(find.text('Plan versions'), findsNothing);
+    expect(find.text('Overall summaries'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('experiment-content-change-guide-goal')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('goal-feedback-overview')),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('goal-feedback-overview')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('The afternoon felt easier to recover from.'),
+      findsOneWidget,
+    );
     expect(find.text('Overview'), findsNothing);
     await tester.ensureVisible(find.text('Write an overall summary'));
     await tester.tap(find.text('Write an overall summary'));
@@ -425,36 +554,21 @@ void main() {
     await tester.ensureVisible(find.text('Save overall summary'));
     await tester.tap(find.text('Save overall summary'));
     await tester.pumpAndSettle();
-    var savedGoalReview = false;
-    for (var attempt = 0; attempt < 20 && !savedGoalReview; attempt++) {
+    for (var attempt = 0; attempt < 50; attempt++) {
       await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 60)),
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
       );
       await tester.pump(const Duration(milliseconds: 20));
-      await tester.runAsync(() async {
-        final reviews = await dependencies.localLifeExperimentRepository
-            .listOutcomeReviews(experimentId: activeGoalId);
-        savedGoalReview = reviews.length == 1;
-        if (savedGoalReview) {
-          expect(reviews.single.outcomeResult, 'somewhat_improved');
-          expect(reviews.single.burden, 'acceptable');
-        }
-      });
     }
-    expect(savedGoalReview, isTrue);
-    await tester.ensureVisible(find.text('Complete this goal'));
-    await tester.tap(find.text('Complete this goal'));
-    await tester.pumpAndSettle();
-    expect(find.text('Complete this goal?'), findsOneWidget);
-    await tester.tap(find.text('Confirm completion'));
-    for (var attempt = 0; attempt < 20; attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 60)),
-      );
-      await tester.pump(const Duration(milliseconds: 20));
-      if (find.text('Goal detail').evaluate().isEmpty) break;
-    }
-    expect(find.text('Goal detail'), findsNothing);
+    await tester.runAsync(() async {
+      final reviews = await dependencies.localLifeExperimentRepository
+          .listOutcomeReviews(experimentId: activeGoalId);
+      expect(reviews, hasLength(1));
+      expect(reviews.single.outcomeResult, 'somewhat_improved');
+      expect(reviews.single.burden, 'acceptable');
+    });
+    expect(find.text('End this observation'), findsNothing);
+    expect(find.text('End observation'), findsNothing);
     await tester.runAsync(() async {
       final db = await database.database;
       final rows = await db.query(
@@ -465,11 +579,14 @@ void main() {
       );
       completedStatus = rows.single['status']! as String;
     });
-    expect(completedStatus, 'completed');
+    expect(completedStatus, 'active');
   });
 
   testWidgets('小实验与目标独立分页且加载第二页不会丢失第一页', (tester) async {
     final weeklyRepository = StubWeeklyRepository(weekly: _weeklyModel);
+    final baseDate =
+        _testDateOnly(DateTime.now()).subtract(const Duration(days: 1));
+    final periodEnd = baseDate.add(const Duration(days: 6));
     late Directory tempDir;
     late LocalDatabase database;
     late AppDependencies dependencies;
@@ -496,9 +613,9 @@ void main() {
             reason: 'Small try pagination evidence.',
             status: 'active',
             localUserId: dependencies.localUserId,
-            adoptedAt: DateTime(2026, 7, 10 + index, 9),
-            progressStartDate: '2026-07-10',
-            progressEndDate: '2026-07-16',
+            adoptedAt: baseDate.add(Duration(minutes: index)),
+            progressStartDate: _testDateKey(baseDate),
+            progressEndDate: _testDateKey(periodEnd),
           ).toDb(),
         );
         await db.insert(
@@ -507,19 +624,19 @@ void main() {
             LifeExperimentModel(
               id: 'paged_goal_$index',
               localUserId: dependencies.localUserId,
-              sourceWeekStart: '2026-07-${10 + index}',
-              sourceWeekEnd: '2026-07-${16 + index}',
+              sourceWeekStart: _testDateKey(baseDate),
+              sourceWeekEnd: _testDateKey(periodEnd),
               title: 'Paged goal $index',
               hypothesis: 'Goal pagination evidence.',
               suggestedAction: 'Repeat for several days.',
               linkedSignalCardIds: const [],
               status: 'active',
               originCandidateId: 'candidate_goal_$index',
-              adoptedAt: DateTime(2026, 7, 10 + index, 10),
-              progressStartDate: '2026-07-${10 + index}',
-              progressEndDate: '2026-07-${16 + index}',
-              createdAt: DateTime(2026, 7, 10 + index, 10),
-              updatedAt: DateTime(2026, 7, 10 + index, 10),
+              adoptedAt: baseDate.add(Duration(minutes: index)),
+              progressStartDate: _testDateKey(baseDate),
+              progressEndDate: _testDateKey(periodEnd),
+              createdAt: baseDate.add(Duration(minutes: index)),
+              updatedAt: baseDate.add(Duration(minutes: index)),
             ),
           ),
         );
@@ -571,13 +688,7 @@ void main() {
       ),
     );
     await tester.pump();
-    for (var attempt = 0; attempt < 20; attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 30)),
-      );
-      await tester.pump(const Duration(milliseconds: 30));
-      if (smallTryLoadMore.evaluate().isEmpty) break;
-    }
+    await _waitForFinderToDisappear(tester, smallTryLoadMore);
     expect(smallTryLoadMore, findsNothing);
     await _bringIntoViewport(
       tester,
@@ -592,6 +703,9 @@ void main() {
     );
     expect(find.text('Paged small try 2'), findsOneWidget);
 
+    await _showGoals(tester);
+    expect(find.byKey(const ValueKey('small-try-branch-chart')), findsNothing);
+    expect(find.byKey(const ValueKey('goal-timeline-matrix')), findsOneWidget);
     final goalLoadMore =
         find.byKey(const ValueKey('life-experiment-goals-load-more'));
     await _bringIntoViewport(tester, goalLoadMore);
@@ -603,13 +717,7 @@ void main() {
       ),
     );
     await tester.pump();
-    for (var attempt = 0; attempt < 20; attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 30)),
-      );
-      await tester.pump(const Duration(milliseconds: 30));
-      if (goalLoadMore.evaluate().isEmpty) break;
-    }
+    await _waitForFinderToDisappear(tester, goalLoadMore);
     expect(goalLoadMore, findsNothing);
     await _bringIntoViewport(
       tester,
@@ -623,6 +731,110 @@ void main() {
       searchDown: false,
     );
     expect(find.text('Paged goal 2'), findsOneWidget);
+  });
+
+  testWidgets(
+      'defaults to small experiments and switches tracks with swipes and segments',
+      (tester) async {
+    final repository = StubWeeklyRepository(weekly: _weeklyModel);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => WeeklyViewModel(repository),
+        child: const MaterialApp(home: ExperimentPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final switcher = find.byKey(const ValueKey('experiment-track-switcher'));
+    await _buildInScrollable(tester, switcher);
+    expect(find.text('Spot Try'), findsOneWidget);
+    expect(find.text('Within 10 min'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('experiment-track-small-experiments')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('experiment-track-goals')),
+      findsNothing,
+    );
+    final semantics = tester.ensureSemantics();
+    expect(
+      tester
+          .getSemantics(
+            find.byKey(
+              const ValueKey('experiment-track-switch-small-experiments'),
+            ),
+          )
+          .flagsCollection
+          .isSelected,
+      Tristate.isTrue,
+    );
+    expect(
+      tester
+          .getSemantics(
+            find.byKey(const ValueKey('experiment-track-switch-goals')),
+          )
+          .flagsCollection
+          .isSelected,
+      Tristate.isFalse,
+    );
+
+    final pager = find.byKey(const ValueKey('experiment-track-pager'));
+    await tester.ensureVisible(pager);
+    await tester.pumpAndSettle();
+    await tester.dragFrom(
+      tester.getTopLeft(pager) + const Offset(180, 40),
+      const Offset(-220, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('experiment-track-small-experiments')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('experiment-track-goals')),
+      findsOneWidget,
+    );
+
+    await tester.dragFrom(
+      tester.getTopLeft(pager) + const Offset(180, 40),
+      const Offset(220, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('experiment-track-small-experiments')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('experiment-track-switch-goals')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('experiment-track-goals')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .getSemantics(
+            find.byKey(const ValueKey('experiment-track-switch-goals')),
+          )
+          .flagsCollection
+          .isSelected,
+      Tristate.isTrue,
+    );
+    await tester.tap(
+      find.byKey(
+        const ValueKey('experiment-track-switch-small-experiments'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('experiment-track-small-experiments')),
+      findsOneWidget,
+    );
+    semantics.dispose();
   });
 
   testWidgets('shows home summaries and keeps individual goal details',
@@ -641,15 +853,21 @@ void main() {
     expect(find.byType(AuroraHeroTitle), findsOneWidget);
     expect(find.byType(AuroraExperimentHeroPattern), findsOneWidget);
     expect(find.byType(AuroraHeroEmblem), findsNothing);
-    expect(find.text('Record 10 minutes in the morning'), findsOneWidget);
-    expect(find.text('Small experiments · within 10 minutes'), findsOneWidget);
-    expect(find.text('Goals · long-term'), findsOneWidget);
+    await _buildInScrollable(
+      tester,
+      find.byKey(const ValueKey('small-try-branch-chart')),
+    );
     expect(
       find.byKey(const ValueKey('life-experiment-small-tries-section')),
       findsOneWidget,
     );
     expect(
-        find.byKey(const ValueKey('small-try-branch-chart')), findsOneWidget);
+      find.byKey(const ValueKey('small-try-branch-chart')),
+      findsOneWidget,
+    );
+    expect(find.text('Spot Tries · quick and simple'), findsOneWidget);
+    await _showGoals(tester);
+    expect(find.text('Goals · long-term'), findsOneWidget);
     expect(find.byKey(const ValueKey('goal-timeline-matrix')), findsOneWidget);
     expect(find.text('In progress'), findsWidgets);
     expect(find.textContaining(RegExp(r'^\d+/7$')), findsNothing);
@@ -659,6 +877,8 @@ void main() {
     final goalRow = find.byKey(
       const ValueKey('experiment-archive-card-exp_test'),
     );
+    await _buildInScrollable(tester, goalRow);
+    expect(find.text('Record 10 minutes in the morning'), findsOneWidget);
     await tester.ensureVisible(goalRow);
     await tester.pumpAndSettle();
     await tester.tap(goalRow);
@@ -676,47 +896,35 @@ void main() {
     expect(find.text('What to keep doing'), findsOneWidget);
     await _bringIntoViewport(
       tester,
-      find.byKey(const ValueKey('goal-progress-detail-card')),
+      find.byKey(const ValueKey('goal-weekly-summary-card')),
     );
-    expect(find.text('Long-term progress'), findsOneWidget);
+    expect(find.text('Long-term progress'), findsNothing);
+    expect(find.text('Weekly summaries'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('goal-weekly-summary-card')),
+        matching: find.byKey(
+          const ValueKey('goal-observation-timeline-exp_test'),
+        ),
+      ),
+      findsOneWidget,
+    );
     await _bringIntoViewport(
       tester,
-      find.byKey(const ValueKey('goal-daily-history-card')),
+      find.byKey(const ValueKey('goal-feedback-overview')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Daily records'), findsOneWidget);
-    await _bringIntoViewport(
-      tester,
-      find.byKey(const ValueKey('goal-review-history-weekly')),
-    );
-    expect(find.text('Weekly summaries'), findsOneWidget);
-    await _bringIntoViewport(
-      tester,
-      find.byKey(const ValueKey('goal-review-history-overall')),
-    );
-    expect(find.text('Overall summaries'), findsOneWidget);
+    expect(find.text('Feedback'), findsOneWidget);
+    expect(find.text('Daily records'), findsNothing);
+    expect(find.text('Overall summaries'), findsNothing);
+    expect(find.text('Plan versions'), findsNothing);
     expect(find.text('Overview'), findsNothing);
     expect(find.text('Feedback records'), findsNothing);
     expect(find.text('Conditions & patterns'), findsNothing);
     expect(find.text('Notes'), findsNothing);
     expect(find.text('Record new feedback'), findsNothing);
-    await _bringIntoViewport(
-      tester,
-      find.byKey(
-        const ValueKey('life-experiment-record-window-read-only'),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(
-        const ValueKey('life-experiment-record-window-read-only'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.text('This completed cycle is read-only.'),
-      findsOneWidget,
-    );
+    expect(find.text('Record today\'s completion'), findsNothing);
+    expect(find.text('登记今天的完成情况'), findsNothing);
   });
 
   testWidgets('empty home hides aggregate route and keeps both empty states',
@@ -731,20 +939,123 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Small experiments · within 10 minutes'), findsOneWidget);
+    expect(find.text('Search Spot Tries or goals...'), findsOneWidget);
+    await _buildInScrollable(
+      tester,
+      find.byKey(const ValueKey('small-try-branch-chart')),
+    );
+    expect(find.text('Spot Tries · quick and simple'), findsOneWidget);
+    expect(find.text('No Spot Tries yet'), findsOneWidget);
+    await _showGoals(tester);
     expect(find.text('Goals · long-term'), findsOneWidget);
-    expect(find.text('No small experiments yet'), findsOneWidget);
     expect(find.text('No goals yet'), findsOneWidget);
-    expect(find.text('Search small experiments or goals...'), findsOneWidget);
     expect(find.byKey(const ValueKey('experiment-filter-tabs')), findsNothing);
 
-    final emptyCta =
-        find.byKey(const ValueKey('life-experiment-empty-record-today'));
-    await _bringIntoViewport(tester, emptyCta);
-    expect(emptyCta, findsOneWidget);
+    final emptyState =
+        find.byKey(const ValueKey('life-experiment-empty-state'));
+    await _bringIntoViewport(tester, emptyState);
+    expect(emptyState, findsOneWidget);
 
     expect(find.text('Archive overview'), findsNothing);
     expect(find.text('Goal details'), findsNothing);
+  });
+
+  testWidgets('搜索键盘可通过搜索键、点击页面和滚动列表收回', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = StubWeeklyRepository(weekly: _emptyWeeklyModel);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => WeeklyViewModel(repository),
+        child: const MaterialApp(home: ExperimentPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final searchBar = find.byKey(const ValueKey('experiment-search-bar'));
+    final searchField = find.descendant(
+      of: searchBar,
+      matching: find.byType(TextField),
+    );
+    final listView = find.byKey(const ValueKey('experiment-scroll-view'));
+
+    expect(
+      tester.widget<TextField>(searchField).textInputAction,
+      TextInputAction.search,
+    );
+    expect(
+      tester.widget<ListView>(listView).keyboardDismissBehavior,
+      ScrollViewKeyboardDismissBehavior.onDrag,
+    );
+
+    await tester.enterText(searchField, '恢复');
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(of: searchBar, matching: find.byType(EditableText)),
+          )
+          .focusNode
+          .hasFocus,
+      isTrue,
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pump();
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(of: searchBar, matching: find.byType(EditableText)),
+          )
+          .focusNode
+          .hasFocus,
+      isFalse,
+    );
+
+    await tester.tap(searchField);
+    await tester.pump();
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(of: searchBar, matching: find.byType(EditableText)),
+          )
+          .focusNode
+          .hasFocus,
+      isTrue,
+    );
+    await tester.tap(find.text('Life Experiment'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(of: searchBar, matching: find.byType(EditableText)),
+          )
+          .focusNode
+          .hasFocus,
+      isFalse,
+    );
+
+    await tester.tap(searchField);
+    await tester.pump();
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(of: searchBar, matching: find.byType(EditableText)),
+          )
+          .focusNode
+          .hasFocus,
+      isTrue,
+    );
+    await tester.drag(listView, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(of: searchBar, matching: find.byType(EditableText)),
+          )
+          .focusNode
+          .hasFocus,
+      isFalse,
+    );
   });
 
   testWidgets('experiment archive follows Today main-page density',
@@ -778,7 +1089,7 @@ void main() {
 
     final hero = find.byKey(const ValueKey('experiment-hero-header'));
     expect(hero, findsOneWidget);
-    expect(tester.getSize(hero).height, lessThanOrEqualTo(170));
+    expect(tester.getSize(hero).height, inInclusiveRange(190, 260));
     final title = tester.widget<Text>(find.text('Life Experiment'));
     expect(title.style?.fontSize, AuroraMainPageSpec.heroTitleSize);
     expect(title.style?.fontWeight, FontWeight.w700);
@@ -800,6 +1111,9 @@ void main() {
     expect(find.byKey(const ValueKey('experiment-filter-tabs')), findsNothing);
     expect(
         find.byKey(const ValueKey('small-try-branch-chart')), findsOneWidget);
+    expect(find.byKey(const ValueKey('goal-timeline-matrix')), findsNothing);
+    await _showGoals(tester);
+    expect(find.byKey(const ValueKey('small-try-branch-chart')), findsNothing);
     expect(find.byKey(const ValueKey('goal-timeline-matrix')), findsOneWidget);
 
     final archiveCard = find.byKey(
@@ -826,19 +1140,21 @@ void main() {
       await tester.pump();
       await tester.binding.setSurfaceSize(surfaceSize);
       await tester.pumpWidget(
-        ChangeNotifierProvider(
-          create: (_) => WeeklyViewModel(
-            StubWeeklyRepository(weekly: _weeklyModel),
+        buildTestApp(
+          locale: const Locale.fromSubtags(
+            languageCode: 'zh',
+            scriptCode: 'Hans',
           ),
-          child: const MaterialApp(
-            locale: Locale.fromSubtags(
-              languageCode: 'zh',
-              scriptCode: 'Hans',
+          providers: [
+            ChangeNotifierProvider<WeeklyViewModel>(
+              create: (_) => WeeklyViewModel(
+                StubWeeklyRepository(weekly: _weeklyModel),
+              ),
             ),
-            home: MediaQuery(
-              data: MediaQueryData(textScaler: TextScaler.linear(1.3)),
-              child: ExperimentPage(),
-            ),
+          ],
+          child: const MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(1.3)),
+            child: ExperimentPage(),
           ),
         ),
       );
@@ -847,17 +1163,44 @@ void main() {
       expect(
           find.byKey(const ValueKey('experiment-filter-tabs')), findsNothing);
       expect(
-          find.byKey(const ValueKey('small-try-branch-chart')), findsOneWidget);
-      expect(
         tester
             .getSize(find.byKey(const ValueKey('experiment-search-bar')))
             .height,
         50,
       );
+      await tester.drag(
+        find.byKey(const ValueKey('experiment-scroll-view')),
+        const Offset(0, -520),
+      );
+      await tester.pumpAndSettle();
+      expect(
+          find.byKey(const ValueKey('small-try-branch-chart')), findsOneWidget);
+      final trackSwitcher =
+          find.byKey(const ValueKey('experiment-track-switcher'));
+      expect(trackSwitcher, findsOneWidget);
+      expect(tester.getSize(trackSwitcher).height, greaterThanOrEqualTo(58));
+      expect(
+        find.byKey(
+          const ValueKey('experiment-track-switch-small-experiments'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('experiment-track-switch-goals')),
+        findsOneWidget,
+      );
+      expect(find.text('简单尝试'), findsWidgets);
+      expect(find.text('轻量尝试'), findsNothing);
+      expect(find.text('10分钟以内'), findsNothing);
+      expect(find.byKey(const ValueKey('show-goals-arrow')), findsNothing);
 
+      await _showGoals(tester);
       final goalMatrix = find.byKey(const ValueKey('goal-timeline-matrix'));
-      await _buildInScrollable(tester, goalMatrix);
       expect(goalMatrix, findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('show-small-experiments-arrow')),
+        findsNothing,
+      );
 
       final goalRow = find.byKey(
         const ValueKey('experiment-archive-card-exp_test'),
@@ -903,7 +1246,7 @@ void main() {
 
     expect(find.text('Life Experiment'), findsOneWidget);
     final hero = find.byKey(const ValueKey('experiment-hero-header'));
-    expect(tester.getSize(hero).height, lessThanOrEqualTo(170));
+    expect(tester.getSize(hero).height, inInclusiveRange(190, 280));
     await tester.drag(
       find.byKey(const ValueKey('experiment-scroll-view')),
       const Offset(0, -420),
@@ -911,16 +1254,46 @@ void main() {
     await tester.pumpAndSettle();
     expect(
         find.byKey(const ValueKey('small-try-branch-chart')), findsOneWidget);
+    expect(find.byKey(const ValueKey('goal-timeline-matrix')), findsNothing);
+    await _showGoals(tester);
     expect(find.byKey(const ValueKey('goal-timeline-matrix')), findsOneWidget);
-    final emptyRecordToday =
-        find.byKey(const ValueKey('life-experiment-empty-record-today'));
-    await _bringIntoViewport(tester, emptyRecordToday);
+    final emptyState =
+        find.byKey(const ValueKey('life-experiment-empty-state'));
+    await _bringIntoViewport(tester, emptyState);
     expect(
-      tester.getSize(emptyRecordToday).height,
+      tester.getSize(emptyState).height,
       greaterThanOrEqualTo(44),
     );
     expect(tester.takeException(), isNull);
   });
+}
+
+Future<void> _showGoals(WidgetTester tester) async {
+  final segment = find.byKey(const ValueKey('experiment-track-switch-goals'));
+  await _buildInScrollable(tester, segment);
+  await tester.ensureVisible(segment);
+  await tester.pumpAndSettle();
+  await tester.tap(segment);
+  await tester.pumpAndSettle();
+  expect(
+    find.byKey(const ValueKey('experiment-track-goals')),
+    findsOneWidget,
+  );
+}
+
+Future<void> _showSmallExperiments(WidgetTester tester) async {
+  final segment = find.byKey(
+    const ValueKey('experiment-track-switch-small-experiments'),
+  );
+  await _buildInScrollable(tester, segment);
+  await tester.ensureVisible(segment);
+  await tester.pumpAndSettle();
+  await tester.tap(segment);
+  await tester.pumpAndSettle();
+  expect(
+    find.byKey(const ValueKey('experiment-track-small-experiments')),
+    findsOneWidget,
+  );
 }
 
 Future<void> _bringIntoViewport(
@@ -928,14 +1301,20 @@ Future<void> _bringIntoViewport(
   Finder target, {
   bool searchDown = true,
 }) async {
-  final scrollable = find.byType(Scrollable).first;
-  for (var attempt = 0; attempt < 30; attempt++) {
+  final detailList = find.byKey(
+    const ValueKey('small-try-detail-scroll-view'),
+  );
+  final scrollable = detailList.evaluate().isNotEmpty
+      ? detailList
+      : find.byType(Scrollable).first;
+  final viewportBottom = tester.getRect(scrollable).bottom - 8;
+  for (var attempt = 0; attempt < 300; attempt++) {
     if (target.evaluate().isNotEmpty) {
       final rect = tester.getRect(target.first);
-      if (rect.top >= 8 && rect.bottom <= 592) return;
+      if (rect.top >= 8 && rect.bottom <= viewportBottom) return;
       await tester.drag(
         scrollable,
-        Offset(0, rect.bottom > 592 ? -280 : 280),
+        Offset(0, rect.bottom > viewportBottom ? -280 : 280),
       );
     } else {
       await tester.drag(scrollable, Offset(0, searchDown ? -280 : 280));
@@ -950,7 +1329,35 @@ Future<void> _bringIntoViewport(
   expect(target, findsWidgets);
   final rect = tester.getRect(target.first);
   expect(rect.top, greaterThanOrEqualTo(0));
-  expect(rect.bottom, lessThanOrEqualTo(600));
+  expect(rect.bottom, lessThanOrEqualTo(viewportBottom + 8));
+}
+
+Future<void> _waitForFinder(
+  WidgetTester tester,
+  Finder target,
+) async {
+  for (var attempt = 0; attempt < 200; attempt++) {
+    if (target.evaluate().isNotEmpty) return;
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump(const Duration(milliseconds: 30));
+  }
+  expect(target, findsWidgets);
+}
+
+Future<void> _waitForFinderToDisappear(
+  WidgetTester tester,
+  Finder target,
+) async {
+  for (var attempt = 0; attempt < 200; attempt++) {
+    if (target.evaluate().isEmpty) return;
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump(const Duration(milliseconds: 30));
+  }
+  expect(target, findsNothing);
 }
 
 Future<void> _buildInScrollable(

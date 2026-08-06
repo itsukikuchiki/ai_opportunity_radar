@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../../app/app_router.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/i18n/energy_budget_text.dart';
+import '../../../core/i18n/weekly_report_text.dart';
 import '../../../core/models/candidate_models.dart';
 import '../../../core/models/energy_budget_models.dart';
 import '../../../core/models/experiment_evaluation_models.dart';
@@ -18,6 +19,7 @@ import '../../../core/models/weekly_models.dart';
 import '../../../core/preferences/focus_domains.dart';
 import '../../../core/readiness/report_readiness.dart';
 import '../../../shared/states/load_state.dart';
+import '../../../shared/utils/user_visible_text_sanitizer.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../../../shared/widgets/empty_state_block.dart';
 import '../../../shared/widgets/experiment_feedback_sheets.dart';
@@ -32,130 +34,11 @@ class WeeklyPage extends StatelessWidget {
     context.go(AppRoutes.me);
   }
 
-  Future<String?> _chooseTodayCompletion(
+  Future<GoalCompletionFeedbackDraft?> _chooseTodayGoalCompletion(
     BuildContext context, {
     required String title,
-    required bool isGoal,
   }) {
-    return showModalBottomSheet<String>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => Container(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        decoration: const BoxDecoration(
-          color: Color(0xFFFFFCFA),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 44,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: AuroraColors.line,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              AppLocaleText.tr(
-                sheetContext,
-                en: isGoal
-                    ? 'Record today’s goal'
-                    : 'Record today’s small experiment',
-                zhHans: isGoal ? '登记今天的目标' : '登记今天的小实验',
-                zhHant: isGoal ? '登記今天的目標' : '登記今天的小實驗',
-                ja: isGoal ? '今日の目標を記録' : '今日の小実験を記録',
-              ),
-              style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
-                    color: AuroraColors.ink,
-                    fontWeight: FontWeight.w800,
-                  ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              title,
-              style: Theme.of(sheetContext).textTheme.bodyLarge?.copyWith(
-                    color: AuroraColors.ink,
-                    height: 1.4,
-                  ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              AppLocaleText.tr(
-                sheetContext,
-                en: 'Only today can be recorded here. Past and future days stay read-only.',
-                zhHans: '这里只登记今天。过去和未来的格子保持只读。',
-                zhHant: '這裡只登記今天。過去和未來的格子保持唯讀。',
-                ja: 'ここでは今日だけ記録できます。過去と未来のマスは読み取り専用です。',
-              ),
-              style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
-                    color: AuroraColors.muted,
-                    height: 1.4,
-                  ),
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    key: const ValueKey('weekly-completed-choice'),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(50),
-                      backgroundColor: AuroraColors.mint,
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: () =>
-                        Navigator.of(sheetContext).pop('completed'),
-                    icon: const Icon(Icons.check_rounded),
-                    label: Text(
-                      AppLocaleText.tr(
-                        sheetContext,
-                        en: 'Completed',
-                        zhHans: '已完成',
-                        zhHant: '已完成',
-                        ja: '完了',
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const ValueKey('weekly-not-completed-choice'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(50),
-                      foregroundColor: AuroraColors.orange,
-                      side: BorderSide(
-                        color: AuroraColors.orange.withValues(alpha: 0.45),
-                      ),
-                    ),
-                    onPressed: () =>
-                        Navigator.of(sheetContext).pop('not_completed'),
-                    icon: const Icon(Icons.close_rounded),
-                    label: Text(
-                      AppLocaleText.tr(
-                        sheetContext,
-                        en: 'Not completed',
-                        zhHans: '未完成',
-                        zhHant: '未完成',
-                        ja: '未完了',
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+    return showGoalCompletionFeedbackSheet(context, title: title);
   }
 
   Future<_WeeklyGoalSummaryInput?> _openGoalWeeklySummary(
@@ -168,6 +51,7 @@ class WeeklyPage extends StatelessWidget {
     final noteController = TextEditingController();
     final result = await showModalBottomSheet<_WeeklyGoalSummaryInput>(
       context: context,
+      useRootNavigator: true,
       useSafeArea: true,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -175,268 +59,243 @@ class WeeklyPage extends StatelessWidget {
         String? outcome = belowMinimum ? GoalOutcomeResult.unclear : null;
         String? burden;
         return StatefulBuilder(
-          builder: (context, setSheetState) => Container(
-            padding: EdgeInsets.fromLTRB(
-              20,
-              12,
-              20,
-              24 + MediaQuery.viewInsetsOf(context).bottom,
-            ),
-            decoration: const BoxDecoration(
-              color: Color(0xFFFFFCFA),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 44,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: AuroraColors.line,
-                        borderRadius: BorderRadius.circular(999),
+          builder: (context, setSheetState) => ExperimentFeedbackSheetFrame(
+            sheetKey: const ValueKey('weekly-goal-summary-sheet'),
+            scrollKey: const ValueKey('weekly-goal-summary-scroll'),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Weekly goal summary',
+                    zhHans: '目标周次总结',
+                    zhHant: '目標週次總結',
+                    ja: '目標の週間まとめ',
+                  ),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w800,
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'Weekly goal summary',
-                      zhHans: '目标周次总结',
-                      zhHant: '目標週次總結',
-                      ja: '目標の週間まとめ',
-                    ),
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: AuroraColors.ink,
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    experiment.title,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: AuroraColors.ink,
-                          height: 1.4,
-                        ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'Summarize only this week here. The overall summary stays in Life Experiment.',
-                      zhHans: '这里只总结本周；目标的整体总结留在生活小实验。',
-                      zhHant: '這裡只總結本週；目標的整體總結留在生活小實驗。',
-                      ja: 'ここでは今週だけをまとめます。目標全体のまとめは生活実験に残します。',
-                    ),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AuroraColors.muted,
-                          height: 1.4,
-                        ),
-                  ),
-                  if (belowMinimum) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AuroraColors.gold.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: AuroraColors.gold.withValues(alpha: 0.28),
-                        ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  experiment.title,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: AuroraColors.ink,
+                        height: 1.4,
                       ),
-                      child: Text(
-                        AppLocaleText.tr(
-                          context,
-                          en: 'Only “Too early to tell” is available until the minimum observation period is reached.',
-                          zhHans: '达到最低观察天数前，本周只能记录为“还看不出”。',
-                          zhHant: '達到最低觀察天數前，本週只能記錄為「還看不出」。',
-                          ja: '最低観察日数に達するまでは、今週の結果は「まだ不明」のみ記録できます。',
-                        ),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AuroraColors.ink,
-                              height: 1.4,
-                            ),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'What changed this week?',
-                      zhHans: '这周想观察的变化出现了吗？',
-                      zhHant: '這週想觀察的變化出現了嗎？',
-                      ja: '今週、観察した変化はありましたか？',
-                    ),
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: AuroraColors.ink,
-                          fontWeight: FontWeight.w700,
-                        ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Summarize only this week here. The overall summary stays in Life Experiment.',
+                    zhHans: '这里只总结本周；目标的整体总结留在生活小实验。',
+                    zhHant: '這裡只總結本週；目標的整體總結留在生活小實驗。',
+                    ja: 'ここでは今週だけをまとめます。目標全体のまとめは生活実験に残します。',
                   ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      if (!belowMinimum) ...[
-                        _WeeklySummaryChoice(
-                          label: AppLocaleText.tr(context,
-                              en: 'Improved',
-                              zhHans: '有改善',
-                              zhHant: '有改善',
-                              ja: '改善'),
-                          selected: outcome == GoalOutcomeResult.improved,
-                          onTap: () => setSheetState(
-                            () => outcome = GoalOutcomeResult.improved,
-                          ),
-                        ),
-                        _WeeklySummaryChoice(
-                          label: AppLocaleText.tr(context,
-                              en: 'A little',
-                              zhHans: '有一点',
-                              zhHant: '有一點',
-                              ja: '少し'),
-                          selected:
-                              outcome == GoalOutcomeResult.somewhatImproved,
-                          onTap: () => setSheetState(
-                            () => outcome = GoalOutcomeResult.somewhatImproved,
-                          ),
-                        ),
-                        _WeeklySummaryChoice(
-                          label: AppLocaleText.tr(context,
-                              en: 'No change',
-                              zhHans: '没变化',
-                              zhHant: '沒變化',
-                              ja: '変化なし'),
-                          selected: outcome == GoalOutcomeResult.noChange,
-                          onTap: () => setSheetState(
-                            () => outcome = GoalOutcomeResult.noChange,
-                          ),
-                        ),
-                        _WeeklySummaryChoice(
-                          label: AppLocaleText.tr(context,
-                              en: 'Worse',
-                              zhHans: '变差',
-                              zhHant: '變差',
-                              ja: '悪化'),
-                          selected: outcome == GoalOutcomeResult.worse,
-                          onTap: () => setSheetState(
-                            () => outcome = GoalOutcomeResult.worse,
-                          ),
-                        ),
-                      ],
-                      _WeeklySummaryChoice(
-                        label: AppLocaleText.tr(context,
-                            en: 'Too early to tell',
-                            zhHans: '还看不出',
-                            zhHant: '還看不出',
-                            ja: 'まだ不明'),
-                        selected: outcome == GoalOutcomeResult.unclear,
-                        onTap: () => setSheetState(
-                          () => outcome = GoalOutcomeResult.unclear,
-                        ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AuroraColors.muted,
+                        height: 1.4,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'How demanding was it this week?',
-                      zhHans: '这周做起来费力吗？',
-                      zhHant: '這週做起來費力嗎？',
-                      ja: '今週の負担は？',
-                    ),
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: AuroraColors.ink,
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _WeeklySummaryChoice(
-                        label: AppLocaleText.tr(context,
-                            en: 'Easy', zhHans: '轻松', zhHant: '輕鬆', ja: '楽'),
-                        selected: burden == EvaluationEffort.easy,
-                        onTap: () => setSheetState(
-                          () => burden = EvaluationEffort.easy,
-                        ),
-                      ),
-                      _WeeklySummaryChoice(
-                        label: AppLocaleText.tr(context,
-                            en: 'Acceptable',
-                            zhHans: '可接受',
-                            zhHant: '可接受',
-                            ja: '許容範囲'),
-                        selected: burden == EvaluationEffort.acceptable,
-                        onTap: () => setSheetState(
-                          () => burden = EvaluationEffort.acceptable,
-                        ),
-                      ),
-                      _WeeklySummaryChoice(
-                        label: AppLocaleText.tr(context,
-                            en: 'Too demanding',
-                            zhHans: '太费力',
-                            zhHant: '太費力',
-                            ja: '負担が大きい'),
-                        selected: burden == EvaluationEffort.tooDifficult,
-                        onTap: () => setSheetState(
-                          () => burden = EvaluationEffort.tooDifficult,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: noteController,
-                    maxLength: 240,
-                    decoration: InputDecoration(
-                      labelText: AppLocaleText.tr(
-                        context,
-                        en: 'Add one factual note (optional)',
-                        zhHans: '补一句事实（可选）',
-                        zhHant: '補一句事實（可選）',
-                        ja: '事実をひと言追加（任意）',
-                      ),
-                    ),
-                  ),
-                  SizedBox(
+                ),
+                if (belowMinimum) ...[
+                  const SizedBox(height: 12),
+                  Container(
                     width: double.infinity,
-                    height: 48,
-                    child: FilledButton(
-                      key: const ValueKey('save-weekly-goal-summary'),
-                      onPressed: outcome == null || burden == null
-                          ? null
-                          : () => Navigator.of(sheetContext).pop(
-                                _WeeklyGoalSummaryInput(
-                                  outcome: outcome!,
-                                  burden: burden!,
-                                  note: noteController.text.trim().isEmpty
-                                      ? null
-                                      : noteController.text.trim(),
-                                ),
-                              ),
-                      child: Text(
-                        AppLocaleText.tr(
-                          context,
-                          en: 'Save weekly summary',
-                          zhHans: '保存周次总结',
-                          zhHant: '儲存週次總結',
-                          ja: '週間まとめを保存',
-                        ),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AuroraColors.gold.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: AuroraColors.gold.withValues(alpha: 0.28),
                       ),
+                    ),
+                    child: Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'Only “Too early to tell” is available until the minimum observation period is reached.',
+                        zhHans: '达到最低观察天数前，本周只能记录为“还看不出”。',
+                        zhHant: '達到最低觀察天數前，本週只能記錄為「還看不出」。',
+                        ja: '最低観察日数に達するまでは、今週の結果は「まだ不明」のみ記録できます。',
+                      ),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AuroraColors.ink,
+                            height: 1.4,
+                          ),
                     ),
                   ),
                 ],
-              ),
+                const SizedBox(height: 16),
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'What changed this week?',
+                    zhHans: '这周想观察的变化出现了吗？',
+                    zhHant: '這週想觀察的變化出現了嗎？',
+                    ja: '今週、観察した変化はありましたか？',
+                  ),
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (!belowMinimum) ...[
+                      _WeeklySummaryChoice(
+                        label: AppLocaleText.tr(context,
+                            en: 'Improved',
+                            zhHans: '有改善',
+                            zhHant: '有改善',
+                            ja: '改善'),
+                        selected: outcome == GoalOutcomeResult.improved,
+                        onTap: () => setSheetState(
+                          () => outcome = GoalOutcomeResult.improved,
+                        ),
+                      ),
+                      _WeeklySummaryChoice(
+                        label: AppLocaleText.tr(context,
+                            en: 'A little',
+                            zhHans: '有一点',
+                            zhHant: '有一點',
+                            ja: '少し'),
+                        selected: outcome == GoalOutcomeResult.somewhatImproved,
+                        onTap: () => setSheetState(
+                          () => outcome = GoalOutcomeResult.somewhatImproved,
+                        ),
+                      ),
+                      _WeeklySummaryChoice(
+                        label: AppLocaleText.tr(context,
+                            en: 'No change',
+                            zhHans: '没变化',
+                            zhHant: '沒變化',
+                            ja: '変化なし'),
+                        selected: outcome == GoalOutcomeResult.noChange,
+                        onTap: () => setSheetState(
+                          () => outcome = GoalOutcomeResult.noChange,
+                        ),
+                      ),
+                      _WeeklySummaryChoice(
+                        label: AppLocaleText.tr(context,
+                            en: 'Worse', zhHans: '变差', zhHant: '變差', ja: '悪化'),
+                        selected: outcome == GoalOutcomeResult.worse,
+                        onTap: () => setSheetState(
+                          () => outcome = GoalOutcomeResult.worse,
+                        ),
+                      ),
+                    ],
+                    _WeeklySummaryChoice(
+                      label: AppLocaleText.tr(context,
+                          en: 'Too early to tell',
+                          zhHans: '还看不出',
+                          zhHant: '還看不出',
+                          ja: 'まだ不明'),
+                      selected: outcome == GoalOutcomeResult.unclear,
+                      onTap: () => setSheetState(
+                        () => outcome = GoalOutcomeResult.unclear,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'How demanding was it this week?',
+                    zhHans: '这周做起来费力吗？',
+                    zhHant: '這週做起來費力嗎？',
+                    ja: '今週の負担は？',
+                  ),
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _WeeklySummaryChoice(
+                      label: AppLocaleText.tr(context,
+                          en: 'Easy', zhHans: '轻松', zhHant: '輕鬆', ja: '楽'),
+                      selected: burden == EvaluationEffort.easy,
+                      onTap: () => setSheetState(
+                        () => burden = EvaluationEffort.easy,
+                      ),
+                    ),
+                    _WeeklySummaryChoice(
+                      label: AppLocaleText.tr(context,
+                          en: 'Acceptable',
+                          zhHans: '可接受',
+                          zhHant: '可接受',
+                          ja: '許容範囲'),
+                      selected: burden == EvaluationEffort.acceptable,
+                      onTap: () => setSheetState(
+                        () => burden = EvaluationEffort.acceptable,
+                      ),
+                    ),
+                    _WeeklySummaryChoice(
+                      label: AppLocaleText.tr(context,
+                          en: 'Too demanding',
+                          zhHans: '太费力',
+                          zhHant: '太費力',
+                          ja: '負担が大きい'),
+                      selected: burden == EvaluationEffort.tooDifficult,
+                      onTap: () => setSheetState(
+                        () => burden = EvaluationEffort.tooDifficult,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: noteController,
+                  maxLength: 240,
+                  decoration: InputDecoration(
+                    labelText: AppLocaleText.tr(
+                      context,
+                      en: 'Add one factual note (optional)',
+                      zhHans: '补一句事实（可选）',
+                      zhHant: '補一句事實（可選）',
+                      ja: '事実をひと言追加（任意）',
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: FilledButton(
+                    key: const ValueKey('save-weekly-goal-summary'),
+                    onPressed: outcome == null || burden == null
+                        ? null
+                        : () => Navigator.of(sheetContext).pop(
+                              _WeeklyGoalSummaryInput(
+                                outcome: outcome!,
+                                burden: burden!,
+                                note: noteController.text.trim().isEmpty
+                                    ? null
+                                    : noteController.text.trim(),
+                              ),
+                            ),
+                    child: Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'Save weekly summary',
+                        zhHans: '保存周次总结',
+                        zhHant: '儲存週次總結',
+                        ja: '週間まとめを保存',
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -497,7 +356,7 @@ class WeeklyPage extends StatelessWidget {
                           didSave
                               ? AppLocaleText.tr(
                                   context,
-                                  en: 'Today’s small experiment was recorded.',
+                                  en: 'Today’s Spot Try was recorded.',
                                   zhHans: '今天的小实验完成情况已记录。',
                                   zhHant: '今天的小實驗完成情況已記錄。',
                                   ja: '今日の小実験を記録しました。',
@@ -512,15 +371,15 @@ class WeeklyPage extends StatelessWidget {
                         );
                       },
                       onExperimentTodayTap: (experiment) async {
-                        final status = await _chooseTodayCompletion(
+                        final feedback = await _chooseTodayGoalCompletion(
                           context,
                           title: experiment.title,
-                          isGoal: true,
                         );
-                        if (status == null || !context.mounted) return;
+                        if (feedback == null || !context.mounted) return;
                         await vm.submitLifeExperimentFeedback(
                           experiment: experiment,
-                          status: status,
+                          status: feedback.completionStatus,
+                          feedbackText: feedback.note,
                         );
                         if (!context.mounted) return;
                         final didSave = vm.attemptFeedbackSubmitState ==
@@ -621,14 +480,18 @@ class WeeklyPage extends StatelessWidget {
                                 zhHant: '這週的內容載入失敗了',
                                 ja: '今週の内容を読み込めませんでした',
                               ),
-                              subtitle: vm.errorMessage ??
-                                  AppLocaleText.tr(
-                                    context,
-                                    en: 'Please try again later.',
-                                    zhHans: '请稍后重试。',
-                                    zhHant: '請稍後重試。',
-                                    ja: 'しばらくしてから、もう一度試してください。',
-                                  ),
+                              subtitle: vm.errorMessage == null
+                                  ? AppLocaleText.tr(
+                                      context,
+                                      en: 'Please try again later.',
+                                      zhHans: '请稍后重试。',
+                                      zhHant: '請稍後重試。',
+                                      ja: 'しばらくしてから、もう一度試してください。',
+                                    )
+                                  : localizeUserVisibleErrorText(
+                                      context,
+                                      vm.errorMessage,
+                                    ),
                             ),
                           LoadState.empty => _WeeklyEmptyReviewState(
                               readiness: vm.reportReadiness,
@@ -687,8 +550,8 @@ class WeeklyPage extends StatelessWidget {
         context,
         en: 'Weekly starts after 3 eligible signals in the current local Monday-Sunday week.',
         zhHans: '当前本地周一至周日记录满 3 条有效信号后，每周复盘开始显示报告。',
-        zhHant: '當前本地週一至週日記錄滿 3 條有效信號後，Weekly 開始顯示報告。',
-        ja: '現在のローカル月曜〜日曜で有効なシグナルが 3 件になると Weekly レポートを表示します。',
+        zhHant: '當前本地週一至週日記錄滿 3 條有效信號後，每週回顧開始顯示報告。',
+        ja: '現在のローカル月曜〜日曜で有効なシグナルが 3 件になると週間レビューを表示します。',
       );
     }
 
@@ -696,9 +559,9 @@ class WeeklyPage extends StatelessWidget {
       return AppLocaleText.tr(
         context,
         en: 'Weekly is forming. The page shows exact X/3 progress before publishing a report.',
-        zhHans: '每周复盘正在形成。达到门槛前只显示明确的 X/3 进度，不发布推断报告。',
-        zhHant: 'Weekly 正在形成。達到門檻前只顯示明確的 X/3 進度，不發布推斷報告。',
-        ja: 'Weekly は形成中です。条件を満たすまでは X/3 の進捗だけを表示します。',
+        zhHans: '每周复盘正在形成。达到门槛前只显示当前记录进度，不发布推断报告。',
+        zhHant: '每週回顧正在形成。達到門檻前只顯示明確的記錄進度，不發布推斷報告。',
+        ja: '週間レビューは形成中です。条件を満たすまでは 3 件中の記録数だけを表示します。',
       );
     }
 
@@ -956,9 +819,10 @@ class _WeeklyReadyBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final topic = weekly.deriveTopicFocus();
-    final structure = weekly.deriveV3CStructure();
-    final actionPlan = weekly.deriveActionPlan();
+    final localizedWeekly = WeeklyReportText.localizeInsight(context, weekly);
+    final topic = localizedWeekly.deriveTopicFocus();
+    final structure = localizedWeekly.deriveV3CStructure();
+    final actionPlan = localizedWeekly.deriveActionPlan();
 
     return RefreshIndicator(
       key: const ValueKey('weekly-pull-to-refresh'),
@@ -968,14 +832,14 @@ class _WeeklyReadyBody extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: AuroraMainPageSpec.scrollPadding(context),
         children: [
-          _WeeklyHeroHeader(weekly: weekly),
+          _WeeklyHeroHeader(weekly: localizedWeekly),
           const SizedBox(height: AuroraMainPageSpec.heroGap),
           _WeeklyAiQuoteCard(
-            weekly: weekly,
+            weekly: localizedWeekly,
           ),
           const SizedBox(height: AuroraMainPageSpec.sectionGap),
           _WeeklyReviewReportCard(
-            weekly: weekly,
+            weekly: localizedWeekly,
             structure: structure,
             topic: topic,
             currentDay: currentDay,
@@ -1020,6 +884,9 @@ class _WeeklyHeroHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final titleSize = AuroraMainPageSpec.responsiveHeroTitleSize(context);
+    final languageCode = Localizations.localeOf(context).languageCode;
+    final isEnglish = languageCode == 'en';
+    final isJapanese = languageCode == 'ja';
     final compact = MediaQuery.sizeOf(context).width < 360;
     return AuroraCard(
       key: const ValueKey('weekly-hero-header'),
@@ -1072,7 +939,11 @@ class _WeeklyHeroHeader extends StatelessWidget {
                           zhHant: '每週復盤',
                           ja: '今週の振り返り',
                         ),
-                        fontSize: titleSize,
+                        fontSize: isJapanese
+                            ? titleSize * 0.84
+                            : isEnglish
+                                ? titleSize * 0.88
+                                : titleSize,
                         maxLines: 1,
                       ),
                     ),
@@ -1084,13 +955,11 @@ class _WeeklyHeroHeader extends StatelessWidget {
                       child: Text(
                         AppLocaleText.tr(
                           context,
-                          en: 'Review this week from Signals, behavior patterns, and real attempts.',
-                          zhHans: '从 Signal、行为模式到真实尝试，完整回看这一周。',
-                          zhHant: '從 Signal、行為模式到真實嘗試，完整回看這一週。',
-                          ja: 'Signal、行動パターン、実際の試みから一週間を振り返ります。',
+                          en: 'Signals, patterns, and attempts from this week.',
+                          zhHans: '用 Signal、行为模式与真实尝试回看这一周。',
+                          zhHant: '用 Signal、行為模式與真實嘗試回看這一週。',
+                          ja: 'Signal、行動パターン、試みから一週間を振り返ります。',
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: AuroraColors.ink.withValues(alpha: 0.79),
                               fontSize: compact ? 12.5 : 13.5,
@@ -1147,7 +1016,11 @@ class _WeekRangePill extends StatelessWidget {
                     zhHant: '這一週',
                     ja: '今週',
                   )
-                : _formatWeekRange(weekly!.weekStart, weekly!.weekEnd),
+                : _formatWeekRange(
+                    context,
+                    weekly!.weekStart,
+                    weekly!.weekEnd,
+                  ),
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   color: AuroraColors.purple,
                   fontSize: AuroraMainPageSpec.supportingSize,
@@ -1227,8 +1100,6 @@ class _WeeklyAiQuoteCard extends StatelessWidget {
                           zhHant: '上週還沒有足夠的 Signal 可以回看。',
                           ja: '先週を振り返るための Signal がまだ十分ではありません。',
                         ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF172440),
                         fontSize: 17,
@@ -1474,7 +1345,29 @@ class _WeeklyReportSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       key: sectionKey,
-      padding: const EdgeInsets.fromLTRB(0, 2, 0, 2),
+      padding: const EdgeInsets.fromLTRB(13, 13, 13, 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.78),
+            color.withValues(alpha: 0.055),
+            Colors.white.withValues(alpha: 0.60),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.90),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.055),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1486,14 +1379,23 @@ class _WeeklyReportSection extends StatelessWidget {
                 height: 32,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.13),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      color.withValues(alpha: 0.88),
+                      AuroraColors.purple.withValues(alpha: 0.72),
+                    ],
+                  ),
                   shape: BoxShape.circle,
-                  border: Border.all(color: color.withValues(alpha: 0.22)),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.84),
+                  ),
                 ),
                 child: Text(
                   step,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: color,
+                        color: Colors.white,
                         fontWeight: FontWeight.w800,
                       ),
                 ),
@@ -1638,21 +1540,99 @@ class _WeeklySignalDistributionCard extends StatelessWidget {
             );
           },
         ),
-        if (rows.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          LayoutBuilder(
-            builder: (context, constraints) => Wrap(
-              spacing: 7,
-              runSpacing: 7,
-              children: [
-                for (final row in rows.take(3))
-                  _WeeklyDomainChip(
-                    data: row,
-                    maxWidth: constraints.maxWidth,
+        const SizedBox(height: 12),
+        if (rows.isEmpty)
+          Container(
+            key: const ValueKey('weekly-signal-distribution-empty'),
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.56),
+              borderRadius: BorderRadius.circular(17),
+              border: Border.all(
+                color: AuroraColors.line.withValues(alpha: 0.62),
+              ),
+            ),
+            child: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'This week has ${readiness.signalCount} Signals. A domain distribution will appear after those Signals have a recognizable domain.',
+                zhHans:
+                    '本周已有 ${readiness.signalCount} 条 Signal；记录形成可识别的生活领域后，这里会显示分布。',
+                zhHant:
+                    '本週已有 ${readiness.signalCount} 條 Signal；記錄形成可辨識的生活領域後，這裡會顯示分布。',
+                ja: '今週は Signal が ${readiness.signalCount} 件あります。生活領域を判別できる記録ができると、ここに分布が表示されます。',
+              ),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AuroraColors.muted,
+                    height: 1.45,
                   ),
-              ],
+            ),
+          )
+        else ...[
+          Container(
+            key: const ValueKey('weekly-signal-distribution-visual'),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFFFFFBF8).withValues(alpha: 0.86),
+                  const Color(0xFFF3F1FF).withValues(alpha: 0.82),
+                  const Color(0xFFF3FCFF).withValues(alpha: 0.72),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final total = rows.fold<int>(0, (sum, row) => sum + row.count);
+                final maxCount = _maxCount(rows);
+                final stack = constraints.maxWidth < 300 ||
+                    MediaQuery.textScalerOf(context).scale(1) > 1.15;
+                final chart = SizedBox(
+                  width: stack ? 142 : 118,
+                  height: stack ? 142 : 118,
+                  child: _SignalDistributionDonut(
+                    rows: rows,
+                    total: total,
+                  ),
+                );
+                final ranking = Column(
+                  children: [
+                    for (var index = 0; index < rows.length; index++) ...[
+                      _DistributionRow(
+                        data: rows[index],
+                        maxCount: maxCount,
+                        compact: !stack,
+                      ),
+                      if (index != rows.length - 1) const SizedBox(height: 10),
+                    ],
+                  ],
+                );
+                if (stack) {
+                  return Column(
+                    children: [
+                      Center(child: chart),
+                      const SizedBox(height: 14),
+                      ranking,
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    chart,
+                    const SizedBox(width: 14),
+                    Expanded(child: ranking),
+                  ],
+                );
+              },
             ),
           ),
+          const SizedBox(height: 10),
+          _DistributionFocusNote(rows: rows),
         ],
       ],
     );
@@ -1760,40 +1740,89 @@ class _WeeklySignalDistributionCard extends StatelessWidget {
     final joined = candidates.join(' ');
     if (_containsAny(joined, const [
       '情绪',
+      '情緒',
       '心情',
       '平静',
+      '平靜',
       '开心',
+      '開心',
       '焦虑',
       '混乱',
+      '混亂',
       '累',
       '疲惫',
+      '疲懊',
       'emotion',
       'mood',
       'status'
     ])) {
-      return '情绪安定';
+      return FocusDomains.labelFor(context, 'emotional_stability');
+    }
+    if (_containsAny(joined, const [
+      '关系',
+      '關係',
+      '家人',
+      '朋友',
+      '同事',
+      '伴侣',
+      '伴侶',
+      'connection',
+      'relationship'
+    ])) {
+      return FocusDomains.labelFor(context, 'relationship_connection');
     }
     if (_containsAny(joined,
-        const ['关系', '家人', '朋友', '同事', '伴侣', 'connection', 'relationship'])) {
-      return '关系连接';
+        const ['意义', '意義', '价值', '價值', '方向', 'why', 'meaning', 'value'])) {
+      return FocusDomains.labelFor(context, 'meaning_value');
     }
-    if (_containsAny(
-        joined, const ['意义', '价值', '方向', 'why', 'meaning', 'value'])) {
-      return '价值意义';
+    if (_containsAny(joined, const [
+      '边界',
+      '邊界',
+      '拒绝',
+      '拒絕',
+      '自己的时间',
+      '自己的時間',
+      '推着',
+      '推著',
+      'boundary'
+    ])) {
+      return FocusDomains.labelFor(context, 'self_boundary');
     }
-    if (_containsAny(joined, const ['边界', '拒绝', '自己的时间', '推着', 'boundary'])) {
-      return '自我边界';
+    if (_containsAny(joined, const [
+      '成长',
+      '成長',
+      '计划',
+      '計劃',
+      '計畫',
+      '学习',
+      '學習',
+      '推进',
+      '推進',
+      '目标',
+      '目標',
+      'growth',
+      'plan'
+    ])) {
+      return FocusDomains.labelFor(context, 'growth_plan');
     }
-    if (_containsAny(
-        joined, const ['成长', '计划', '学习', '推进', '目标', 'growth', 'plan'])) {
-      return '成长计划';
-    }
-    if (_containsAny(
-        joined, const ['创造', '表达', '写', '画', '作品', 'create', 'creative'])) {
-      return '创造表达';
+    if (_containsAny(joined, const [
+      '创造',
+      '創造',
+      '表达',
+      '表達',
+      '写',
+      '寫',
+      '画',
+      '畫',
+      '作品',
+      'create',
+      'creative'
+    ])) {
+      return FocusDomains.labelFor(context, 'creative_expression');
     }
     if (_containsAny(joined, const [
       '饮食',
+      '飲食',
       '睡眠',
       '睡',
       '晚',
@@ -1801,21 +1830,46 @@ class _WeeklySignalDistributionCard extends StatelessWidget {
       '吃',
       '休息',
       '恢复',
+      '恢復',
       'sleep',
       'food',
       'recovery'
     ])) {
-      return '饮食睡眠';
+      return FocusDomains.labelFor(context, 'food_sleep');
     }
-    if (_containsAny(joined,
-        const ['环境', '房间', '家里', '整理', '出门', '通勤', 'environment', 'home'])) {
-      return '生活环境';
+    if (_containsAny(joined, const [
+      '环境',
+      '環境',
+      '房间',
+      '房間',
+      '家里',
+      '家裡',
+      '整理',
+      '出门',
+      '出門',
+      '通勤',
+      'environment',
+      'home'
+    ])) {
+      return FocusDomains.labelFor(context, 'living_environment');
     }
-    if (_containsAny(
-        joined, const ['兴趣', '爱好', '骑马', '音乐', '游戏', 'hobby', 'interest'])) {
-      return '兴趣爱好';
+    if (_containsAny(joined, const [
+      '兴趣',
+      '興趣',
+      '爱好',
+      '愛好',
+      '骑马',
+      '騎馬',
+      '音乐',
+      '音樂',
+      '游戏',
+      '遊戲',
+      'hobby',
+      'interest'
+    ])) {
+      return FocusDomains.labelFor(context, 'interests_hobbies');
     }
-    return '情绪安定';
+    return FocusDomains.labelFor(context, 'emotional_stability');
   }
 
   List<String> _stringList(Object? raw) {
@@ -1849,32 +1903,64 @@ class _WeeklySignalDistributionCard extends StatelessWidget {
   }
 
   IconData _domainIcon(String label) {
-    if (label.contains('情绪')) return Icons.mood_rounded;
-    if (label.contains('关系')) return Icons.groups_rounded;
-    if (label.contains('价值')) return Icons.stars_rounded;
-    if (label.contains('边界')) return Icons.shield_rounded;
-    if (label.contains('成长')) return Icons.spa_rounded;
-    if (label.contains('创造')) return Icons.brush_rounded;
-    if (label.contains('饮食') || label.contains('睡眠')) {
+    if (label.contains('情绪') || label.contains('情緒')) {
+      return Icons.mood_rounded;
+    }
+    if (label.contains('关系') || label.contains('關係')) {
+      return Icons.groups_rounded;
+    }
+    if (label.contains('价值') || label.contains('價值')) {
+      return Icons.stars_rounded;
+    }
+    if (label.contains('边界') || label.contains('邊界')) {
+      return Icons.shield_rounded;
+    }
+    if (label.contains('成长') || label.contains('成長')) {
+      return Icons.spa_rounded;
+    }
+    if (label.contains('创造') || label.contains('創造')) {
+      return Icons.brush_rounded;
+    }
+    if (label.contains('饮食') || label.contains('飲食') || label.contains('睡眠')) {
       return Icons.nightlight_round;
     }
-    if (label.contains('环境')) return Icons.home_rounded;
-    if (label.contains('兴趣')) return Icons.favorite_rounded;
+    if (label.contains('环境') || label.contains('環境')) {
+      return Icons.home_rounded;
+    }
+    if (label.contains('兴趣') || label.contains('興趣')) {
+      return Icons.favorite_rounded;
+    }
     return Icons.auto_awesome_rounded;
   }
 
   Color _domainColor(String label, int index) {
-    if (label.contains('情绪')) return AuroraColors.orange;
-    if (label.contains('边界')) return AuroraColors.purple;
-    if (label.contains('饮食') || label.contains('睡眠')) {
+    if (label.contains('情绪') || label.contains('情緒')) {
+      return AuroraColors.orange;
+    }
+    if (label.contains('边界') || label.contains('邊界')) {
+      return AuroraColors.purple;
+    }
+    if (label.contains('饮食') || label.contains('飲食') || label.contains('睡眠')) {
       return const Color(0xFF48C9CE);
     }
-    if (label.contains('成长')) return AuroraColors.blue;
-    if (label.contains('兴趣')) return const Color(0xFFF07CB9);
-    if (label.contains('关系')) return const Color(0xFF8D7AF6);
-    if (label.contains('价值')) return const Color(0xFFFFC45B);
-    if (label.contains('创造')) return const Color(0xFFFF8BC6);
-    if (label.contains('环境')) return const Color(0xFF74D9A4);
+    if (label.contains('成长') || label.contains('成長')) {
+      return AuroraColors.blue;
+    }
+    if (label.contains('兴趣') || label.contains('興趣')) {
+      return const Color(0xFFF07CB9);
+    }
+    if (label.contains('关系') || label.contains('關係')) {
+      return const Color(0xFF8D7AF6);
+    }
+    if (label.contains('价值') || label.contains('價值')) {
+      return const Color(0xFFFFC45B);
+    }
+    if (label.contains('创造') || label.contains('創造')) {
+      return const Color(0xFFFF8BC6);
+    }
+    if (label.contains('环境') || label.contains('環境')) {
+      return const Color(0xFF74D9A4);
+    }
     const palette = [
       AuroraColors.purple,
       AuroraColors.orange,
@@ -2036,25 +2122,18 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final blocks = _patternBlocks(context);
-    final content = LayoutBuilder(
-      builder: (context, constraints) {
-        final stack = constraints.maxWidth < 300 ||
-            MediaQuery.textScalerOf(context).scale(1) > 1.15;
-        final tileWidth =
-            stack ? constraints.maxWidth : (constraints.maxWidth - 10) / 2;
-        return Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            for (var index = 0; index < blocks.length; index++)
-              SizedBox(
-                key: ValueKey('weekly-pattern-block-$index'),
-                width: tileWidth,
-                child: _WeeklyPatternBlockTile(data: blocks[index]),
-              ),
-          ],
-        );
-      },
+    final content = Column(
+      key: const ValueKey('weekly-pattern-blocks'),
+      children: [
+        for (var index = 0; index < blocks.length; index++) ...[
+          SizedBox(
+            key: ValueKey('weekly-pattern-block-$index'),
+            width: double.infinity,
+            child: _WeeklyPatternBlockTile(data: blocks[index]),
+          ),
+          if (index != blocks.length - 1) const SizedBox(height: 10),
+        ],
+      ],
     );
     if (embedded) {
       return _WeeklyReportSection(
@@ -2103,25 +2182,38 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
       return groundedPatterns.indexed.map((entry) {
         final pattern = entry.$2;
         final dates = pattern.supportDates;
-        final trace = dates.isEmpty
-            ? AppLocaleText.tr(
-                context,
-                en: 'Supported by ${pattern.sourceSignalCardIds.length} Signals.',
-                zhHans: '由 ${pattern.sourceSignalCardIds.length} 条 Signal 支持。',
-                zhHant: '由 ${pattern.sourceSignalCardIds.length} 條 Signal 支持。',
-                ja: 'Signal ${pattern.sourceSignalCardIds.length} 件が根拠です。',
-              )
+        final signalCount = pattern.sourceSignalCardIds.length;
+        final trace = AppLocaleText.tr(
+          context,
+          en: '$signalCount Signals · ${dates.length} recorded days',
+          zhHans: '$signalCount 条 Signal · ${dates.length} 个记录日',
+          zhHant: '$signalCount 條 Signal · ${dates.length} 個記錄日',
+          ja: 'Signal $signalCount 件・記録日 ${dates.length} 日',
+        );
+        final dateTrace = dates.isEmpty
+            ? null
             : AppLocaleText.tr(
                 context,
-                en: 'Seen on ${dates.join(', ')}.',
-                zhHans: '支持日期：${dates.join('、')}。',
-                zhHant: '支持日期：${dates.join('、')}。',
-                ja: '確認日：${dates.join('・')}。',
+                en: 'Recorded on ${dates.join(', ')}',
+                zhHans: '记录日期：${dates.join('、')}',
+                zhHant: '記錄日期：${dates.join('、')}',
+                ja: '記録日：${dates.join('・')}',
               );
         return _WeeklyPatternBlockData(
-          label: pattern.label,
-          body: '${pattern.summary}\n$trace',
+          label: _patternKindLabel(context, pattern.kind),
+          body: pattern.label,
+          detail: _patternDescription(context, pattern),
+          trace: trace,
+          dateTrace: dateTrace,
           icon: _iconForText('${pattern.kind} ${pattern.label}'),
+          illustrationAsset: WeeklyIllustrationCatalog.patternForText(
+                '${pattern.illustrationHint ?? ''} '
+                '${pattern.kind} ${pattern.label} ${pattern.summary}',
+              )?.asset ??
+              WeeklyIllustrationCatalog
+                  .patternDefinitions[entry.$1 %
+                      WeeklyIllustrationCatalog.patternDefinitions.length]
+                  .asset,
           color: palette[entry.$1 % palette.length],
         );
       }).toList(growable: false);
@@ -2227,10 +2319,121 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
             label: step.title,
             body: step.body,
             icon: step.icon,
+            illustrationAsset: step.illustrationAsset,
             color: step.color,
           ),
         )
         .toList(growable: false);
+  }
+
+  String _patternKindLabel(BuildContext context, String kind) {
+    return switch (kind) {
+      'context' => AppLocaleText.tr(
+          context,
+          en: 'Recurring context',
+          zhHans: '反复出现的场景',
+          zhHant: '反覆出現的場景',
+          ja: '繰り返し現れた場面',
+        ),
+      'response' => AppLocaleText.tr(
+          context,
+          en: 'Recurring response',
+          zhHans: '反复出现的反应',
+          zhHant: '反覆出現的反應',
+          ja: '繰り返し現れた反応',
+        ),
+      'context_difference' => AppLocaleText.tr(
+          context,
+          en: 'Response across contexts',
+          zhHans: '跨场景的相同反应',
+          zhHant: '跨場景的相同反應',
+          ja: '場面をまたぐ同じ反応',
+        ),
+      'sequence' => AppLocaleText.tr(
+          context,
+          en: 'Recurring sequence',
+          zhHans: '反复出现的行为顺序',
+          zhHant: '反覆出現的行為順序',
+          ja: '繰り返し現れた順序',
+        ),
+      'tradeoff' => AppLocaleText.tr(
+          context,
+          en: 'Different outcomes in one context',
+          zhHans: '同一场景的不同状态',
+          zhHant: '同一場景的不同狀態',
+          ja: '同じ場面で異なる状態',
+        ),
+      _ => AppLocaleText.tr(
+          context,
+          en: 'Context and response',
+          zhHans: '场景与反应',
+          zhHant: '場景與反應',
+          ja: '場面と反応',
+        ),
+    };
+  }
+
+  String _patternDescription(
+    BuildContext context,
+    WeeklyBehaviorPatternModel pattern,
+  ) {
+    final stored = pattern.summary.trim();
+    if (stored.isNotEmpty && !_isSourceOnlyPatternSummary(stored)) {
+      return stored;
+    }
+    return switch (pattern.kind) {
+      'context' => AppLocaleText.tr(
+          context,
+          en: 'This context appeared on multiple recorded days, making it one of this week’s clearest recurring settings.',
+          zhHans: '这个场景在多个记录日重复出现，是本周较稳定的行为背景。',
+          zhHant: '這個場景在多個記錄日重複出現，是本週較穩定的行為背景。',
+          ja: 'この場面は複数の記録日に現れ、今週の比較的はっきりした行動背景になっています。',
+        ),
+      'response' => AppLocaleText.tr(
+          context,
+          en: 'The same response appeared on multiple recorded days rather than as a one-off moment.',
+          zhHans: '相同反应跨多个记录日出现，不只是一次性的感受。',
+          zhHant: '相同反應跨多個記錄日出現，不只是一次性的感受。',
+          ja: '同じ反応が複数の記録日に現れ、一度きりの感覚ではありませんでした。',
+        ),
+      'context_difference' => AppLocaleText.tr(
+          context,
+          en: 'The same response appeared in more than one context, so it was not limited to a single setting.',
+          zhHans: '相同反应出现在不同场景中，并不只局限于一种情境。',
+          zhHant: '相同反應出現在不同場景中，並不只局限於一種情境。',
+          ja: '同じ反応が複数の場面に現れ、ひとつの状況だけに限られていませんでした。',
+        ),
+      'sequence' => AppLocaleText.tr(
+          context,
+          en: 'This before-and-after order repeated on multiple recorded days.',
+          zhHans: '这一先后顺序在多个记录日重复出现。',
+          zhHant: '這一先後順序在多個記錄日重複出現。',
+          ja: 'この前後の順序が複数の記録日で繰り返されました。',
+        ),
+      'tradeoff' => AppLocaleText.tr(
+          context,
+          en: 'The same context was linked with different energy states on different days, so its outcome was not fixed.',
+          zhHans: '同一场景在不同日期呈现不同能量状态，结果并不固定。',
+          zhHant: '同一場景在不同日期呈現不同能量狀態，結果並不固定。',
+          ja: '同じ場面でも日によって異なるエネルギー状態が現れ、結果は一定ではありませんでした。',
+        ),
+      _ => AppLocaleText.tr(
+          context,
+          en: 'This context and response appeared together on multiple recorded days.',
+          zhHans: '这个场景与反应在多个记录日同时出现，形成了可辨认的组合。',
+          zhHant: '這個場景與反應在多個記錄日同時出現，形成了可辨認的組合。',
+          ja: 'この場面と反応が複数の記録日に同時に現れ、見分けられる組み合わせになっています。',
+        ),
+    };
+  }
+
+  bool _isSourceOnlyPatternSummary(String summary) {
+    final normalized = summary.trim().toLowerCase();
+    return normalized.startsWith('来自 ') ||
+        normalized.startsWith('由 ') ||
+        normalized.startsWith('supported by ') ||
+        normalized.startsWith('seen on ') ||
+        normalized.startsWith('signal ');
   }
 
   bool _isSignalSourceItem(Map<String, dynamic> map) {
@@ -2332,9 +2535,16 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
     return sorted.take(3).map((bucket) {
       final sample = bucket.value.first;
       final displayTitle = _localizedSignalTag(context, bucket.key);
+      final fallback = AppLocaleText.tr(
+        context,
+        en: 'This clue appeared in ${bucket.value.length} signals.',
+        zhHans: '这个线索出现在 ${bucket.value.length} 条信号里。',
+        zhHant: '這個線索出現在 ${bucket.value.length} 條信號裡。',
+        ja: 'この手がかりは ${bucket.value.length} 件のシグナルに現れました。',
+      );
       final body = _compact(
         _signalBody(sample),
-        '${bucket.value.length} 条信号里出现过这个线索。',
+        fallback,
       );
       final hint = _signalIllustrationHint(sample, bucket.key, body);
       return _BehaviorStep(
@@ -2344,7 +2554,13 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
         ),
         title: displayTitle,
         body: bucket.value.length > 1
-            ? '$body · ${bucket.value.length} 条信号'
+            ? AppLocaleText.tr(
+                context,
+                en: '$body · ${bucket.value.length} signals',
+                zhHans: '$body · ${bucket.value.length} 条信号',
+                zhHant: '$body · ${bucket.value.length} 條信號',
+                ja: '$body・シグナル ${bucket.value.length} 件',
+              )
             : body,
         color: palette[sorted.indexOf(bucket) % palette.length],
       );
@@ -2434,9 +2650,16 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
       'ai_predicted' || 'ai_prediction' => AppLocaleText.tr(
           context,
           en: 'AI prediction signal',
-          zhHans: 'AI 预判信号',
-          zhHant: 'AI 預判信號',
-          ja: 'AI 予測シグナル',
+          zhHans: '智能预判信号',
+          zhHant: '人工智慧預判信號',
+          ja: '人工知能による予測シグナル',
+        ),
+      'weekly_signal' => AppLocaleText.tr(
+          context,
+          en: 'This week’s signals',
+          zhHans: '本周信号',
+          zhHant: '本週信號',
+          ja: '今週のシグナル',
         ),
       _ => raw.trim(),
     };
@@ -2486,7 +2709,7 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
     }
     final emotion = _textFromMap(entry, const ['emotion', 'mood']);
     if (emotion.isNotEmpty) return emotion;
-    return '本周信号';
+    return 'weekly_signal';
   }
 
   String _signalBody(Map<String, dynamic> entry) {
@@ -2611,13 +2834,21 @@ class _WeeklyBehaviorPatternCard extends StatelessWidget {
 class _WeeklyPatternBlockData {
   final String label;
   final String body;
+  final String? detail;
+  final String? trace;
+  final String? dateTrace;
   final IconData icon;
+  final String? illustrationAsset;
   final Color color;
 
   const _WeeklyPatternBlockData({
     required this.label,
     required this.body,
+    this.detail,
+    this.trace,
+    this.dateTrace,
     required this.icon,
+    this.illustrationAsset,
     required this.color,
   });
 }
@@ -2629,9 +2860,14 @@ class _WeeklyPatternBlockTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final illustration = data.illustrationAsset ??
+        WeeklyIllustrationCatalog.patternForText(
+          '${data.label} ${data.body} ${data.detail ?? ''}',
+        )?.asset;
     return Container(
+      key: ValueKey('weekly-pattern-visual-${data.label}'),
       constraints: const BoxConstraints(minHeight: 116),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -2644,37 +2880,89 @@ class _WeeklyPatternBlockTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: data.color.withValues(alpha: 0.14)),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              AuroraSoftIconCircle(
-                icon: data.icon,
-                color: data.color,
-                size: 30,
-                iconSize: 16,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
+          _WeeklyIllustrationThumb(
+            asset: illustration,
+            fallbackIcon: data.icon,
+            color: data.color,
+            size: 58,
+            iconSize: 24,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
                   data.label,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: const Color(0xFF25324D),
+                        color: data.color,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  data.body,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: const Color(0xFF172440),
+                        height: 1.36,
                         fontWeight: FontWeight.w700,
                       ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            data.body,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF536077),
-                  height: 1.42,
-                  fontWeight: FontWeight.w500,
-                ),
+                if (data.detail != null && data.detail!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    data.detail!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF536077),
+                          height: 1.42,
+                          fontWeight: FontWeight.w500,
+                        ),
+                  ),
+                ],
+                if (data.trace != null && data.trace!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 9),
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: data.color.withValues(alpha: 0.09),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          data.trace!,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: data.color,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                        ),
+                      ),
+                      if (data.dateTrace != null &&
+                          data.dateTrace!.trim().isNotEmpty)
+                        Text(
+                          data.dateTrace!,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: const Color(0xFF79839A),
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                        ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
           ),
         ],
       ),
@@ -2721,13 +3009,16 @@ class _WeeklyAttemptsCard extends StatelessWidget {
           title: item.action.title,
           kind: AppLocaleText.tr(
             context,
-            en: 'Small experiment',
+            en: 'Spot Try',
             zhHans: '小实验',
             zhHant: '小實驗',
             ja: '小実験',
           ),
           icon: Icons.spa_rounded,
           color: AuroraColors.mint,
+          illustrationAsset: WeeklyIllustrationCatalog.assetForText(
+            '${item.action.title} ${item.action.reason}',
+          ),
           progress: item.progress,
           sourceChanged: item.action.sourceChanged,
           action: item.action,
@@ -2744,6 +3035,10 @@ class _WeeklyAttemptsCard extends StatelessWidget {
           ),
           icon: Icons.science_rounded,
           color: AuroraColors.blue,
+          illustrationAsset: WeeklyIllustrationCatalog.assetForText(
+            '${item.experiment.title} ${item.experiment.hypothesis} '
+            '${item.experiment.suggestedAction}',
+          ),
           progress: item.progress,
           sourceChanged: item.experiment.sourceChanged,
           experiment: item.experiment,
@@ -2760,6 +3055,11 @@ class _WeeklyAttemptsCard extends StatelessWidget {
           ),
           icon: Icons.science_rounded,
           color: AuroraColors.blue,
+          illustrationAsset: WeeklyIllustrationCatalog.assetForText(
+            '${fallbackExperiment!.title} '
+            '${fallbackExperiment!.hypothesis} '
+            '${fallbackExperiment!.suggestedAction}',
+          ),
           progress: SevenDayProgressModel(
             subjectId: fallbackExperiment!.id,
             startDate: weekly.weekStart,
@@ -2775,6 +3075,28 @@ class _WeeklyAttemptsCard extends StatelessWidget {
           sourceChanged: fallbackExperiment!.sourceChanged,
           experiment: fallbackExperiment,
         ),
+    ];
+    final feedbackSubjectTitle = feedbackIllustration == null
+        ? null
+        : _feedbackSubjectTitle(
+            selection: feedbackIllustration,
+            items: items,
+            actionReview: weekly.actionReview,
+          );
+    final feedbackSummaries = {
+      for (final summary in weekly.attemptFeedbackSummaries)
+        '${summary.subjectType}:${summary.subjectId}': summary,
+    };
+    final feedbackConclusions = <_WeeklyAttemptFeedbackConclusionEntry>[
+      for (final item in items)
+        if (feedbackSummaries[
+                '${item.action != null ? 'micro_action' : 'life_experiment'}:'
+                    '${item.action?.id ?? item.experiment?.id}']
+            case final summary?)
+          _WeeklyAttemptFeedbackConclusionEntry(
+            item: item,
+            summary: summary,
+          ),
     ];
     final days = _weekDays();
     final recordedDates = <String>{};
@@ -2796,10 +3118,6 @@ class _WeeklyAttemptsCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (progressLoadFailed) const _WeeklyProgressLoadWarning(),
-        if (feedbackIllustration != null) ...[
-          _WeeklyAttemptFeedbackArtwork(selection: feedbackIllustration),
-          const SizedBox(height: 12),
-        ],
         if (items.isEmpty)
           _WeeklyAttemptEmptyRow(
             icon: Icons.spa_rounded,
@@ -2813,7 +3131,7 @@ class _WeeklyAttemptsCard extends StatelessWidget {
             ),
             message: AppLocaleText.tr(
               context,
-              en: 'Adopted small experiments and goals will appear here by day.',
+              en: 'Adopted Spot Tries and goals will appear here by day.',
               zhHans: '采纳的小实验和目标会按周一至周日显示在这里。',
               zhHant: '採納的小實驗和目標會按週一至週日顯示在這裡。',
               ja: '採用した小実験と目標が曜日ごとに表示されます。',
@@ -2864,10 +3182,10 @@ class _WeeklyAttemptsCard extends StatelessWidget {
                 child: Text(
                   AppLocaleText.tr(
                     context,
-                    en: 'Tap today’s cell to record it. Other days are read-only.',
-                    zhHans: '点击今天的格子可登记；其他日期保持只读。',
-                    zhHant: '點擊今天的格子可登記；其他日期保持唯讀。',
-                    ja: '今日のマスをタップして記録できます。ほかの日は読み取り専用です。',
+                    en: 'Use today’s cell or the feedback button. Other days are read-only.',
+                    zhHans: '点击今天的格子或反馈按钮可登记；其他日期保持只读。',
+                    zhHant: '點擊今天的格子或回饋按鈕可登記；其他日期保持唯讀。',
+                    ja: '今日のマスまたはフィードバックボタンから記録できます。ほかの日は読み取り専用です。',
                   ),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AuroraColors.muted,
@@ -2879,15 +3197,64 @@ class _WeeklyAttemptsCard extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 14),
-        _WeeklyAttemptFacts(
-          itemCount: items.length,
-          recordedItemDays: recordedItemDays,
-          completedItemDays: completedItemDays,
-          recordedDates: recordedDates,
-          signalDates: weekly.chartData
-              .where((point) => point.signalCount > 0)
-              .map((point) => point.date)
-              .toSet(),
+        Container(
+          key: const ValueKey('weekly-attempt-review-panel'),
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                const Color(0xFFF4F1FF).withValues(alpha: 0.84),
+                const Color(0xFFEFFFF7).withValues(alpha: 0.74),
+                const Color(0xFFFFFAF2).withValues(alpha: 0.72),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'This week’s review',
+                  zhHans: '本周复盘',
+                  zhHant: '本週復盤',
+                  ja: '今週の振り返り',
+                ),
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: AuroraColors.ink,
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 10),
+              if (feedbackIllustration != null) ...[
+                _WeeklyAttemptFeedbackArtwork(
+                  selection: feedbackIllustration,
+                  subjectTitle: feedbackSubjectTitle,
+                ),
+                const SizedBox(height: 10),
+              ],
+              if (feedbackConclusions.isNotEmpty) ...[
+                _WeeklyAttemptFeedbackConclusions(
+                  entries: feedbackConclusions,
+                ),
+                const SizedBox(height: 10),
+              ],
+              _WeeklyAttemptFacts(
+                itemCount: items.length,
+                recordedItemDays: recordedItemDays,
+                completedItemDays: completedItemDays,
+                recordedDates: recordedDates,
+                signalDates: weekly.chartData
+                    .where((point) => point.signalCount > 0)
+                    .map((point) => point.date)
+                    .toSet(),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -2939,28 +3306,110 @@ class _WeeklyAttemptsCard extends StatelessWidget {
   String _dateKey(DateTime value) => '${value.year.toString().padLeft(4, '0')}-'
       '${value.month.toString().padLeft(2, '0')}-'
       '${value.day.toString().padLeft(2, '0')}';
+
+  String? _feedbackSubjectTitle({
+    required WeeklyReviewIllustrationSelection selection,
+    required List<_WeeklyAttemptDisplayItem> items,
+    required WeeklyActionReviewModel actionReview,
+  }) {
+    final subjectId = selection.subjectId?.trim() ?? '';
+    if (subjectId.isNotEmpty) {
+      for (final item in items) {
+        final itemId = item.action?.id ?? item.experiment?.id;
+        if (itemId == subjectId) return item.title;
+      }
+    }
+
+    final patternId = selection.definition.id;
+    if (_isHelpfulReviewPattern(patternId)) {
+      final title = actionReview.mostHelpfulAction.trim();
+      if (title.isNotEmpty) return title;
+    }
+    if (_isDifficultReviewPattern(patternId)) {
+      final title = actionReview.hardestAction.trim();
+      if (title.isNotEmpty) return title;
+    }
+    return null;
+  }
+
+  bool _isHelpfulReviewPattern(String patternId) {
+    return const {
+      'review.helpful',
+      'review.under_ten_minutes',
+      'review.body_action_effective',
+      'review.one_line_observation_effective',
+      'review.walk_effective',
+      'review.put_phone_down_effective',
+      'review.organize_space_effective',
+      'review.relationship_expression_effective',
+      'review.break_goal_smaller_effective',
+      'review.morning_easier',
+      'review.evening_easier',
+      'review.weekend_easier',
+      'review.continuous_days',
+      'review.restart_after_interruption',
+      'review.observation_helpful',
+    }.contains(patternId);
+  }
+
+  bool _isDifficultReviewPattern(String patternId) {
+    return const {
+      'review.not_done',
+      'review.skip',
+      'review.not_suitable_today',
+      'review.not_helpful',
+      'review.adjust',
+      'review.too_hard',
+      'review.too_complex',
+      'review.task_checkin_pressure',
+      'review.too_long',
+      'review.interrupted_by_schedule',
+      'review.interrupted_by_emotion',
+    }.contains(patternId);
+  }
 }
 
 class _WeeklyAttemptFeedbackArtwork extends StatelessWidget {
   final WeeklyReviewIllustrationSelection selection;
+  final String? subjectTitle;
 
-  const _WeeklyAttemptFeedbackArtwork({required this.selection});
+  const _WeeklyAttemptFeedbackArtwork({
+    required this.selection,
+    this.subjectTitle,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final description = AppLocaleText.tr(
+    final pattern = _patternLabel(context, selection.definition);
+    final title = subjectTitle?.trim() ?? '';
+    final conclusion = title.isEmpty
+        ? AppLocaleText.tr(
+            context,
+            en: 'This week’s recorded feedback points to: $pattern.',
+            zhHans: '本周已登记的反馈显示：$pattern。',
+            zhHant: '本週已登記的回饋顯示：$pattern。',
+            ja: '今週の記録済みフィードバックでは、$pattern。',
+          )
+        : AppLocaleText.tr(
+            context,
+            en: 'For “$title”, this week’s feedback points to: $pattern.',
+            zhHans: '“$title”本周的反馈显示：$pattern。',
+            zhHant: '「$title」本週的回饋顯示：$pattern。',
+            ja: '「$title」の今週のフィードバックでは、$pattern。',
+          );
+    final sourceDescription = AppLocaleText.tr(
       context,
-      en: 'Selected from ${selection.count} real attempt feedback record(s)',
-      zhHans: '根据 ${selection.count} 条真实尝试反馈选择',
-      zhHant: '根據 ${selection.count} 條真實嘗試回饋選擇',
-      ja: '実際の試行フィードバック ${selection.count} 件から選択',
+      en: 'Supported by ${selection.count} real feedback record(s) from this week; this does not determine long-term effect.',
+      zhHans: '来自本周 ${selection.count} 条真实反馈；这里只总结已登记事实，不判断长期效果。',
+      zhHant: '來自本週 ${selection.count} 條真實回饋；這裡只總結已登記事實，不判斷長期效果。',
+      ja: '今週の実際のフィードバック ${selection.count} 件に基づく要約です。長期的な効果は判断しません。',
     );
     return Semantics(
       key: ValueKey(
         'weekly-attempt-feedback-illustration-${selection.definition.id}',
       ),
       image: true,
-      label: description,
+      label: '$conclusion $sourceDescription',
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
@@ -3011,9 +3460,20 @@ class _WeeklyAttemptFeedbackArtwork extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                   ),
+                  const SizedBox(height: 6),
+                  Text(
+                    conclusion,
+                    key: const ValueKey('weekly-attempt-feedback-conclusion'),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AuroraColors.ink,
+                          fontWeight: FontWeight.w700,
+                          height: 1.42,
+                        ),
+                  ),
                   const SizedBox(height: 4),
                   Text(
-                    description,
+                    sourceDescription,
+                    key: const ValueKey('weekly-attempt-feedback-source'),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: AuroraColors.muted,
                           height: 1.35,
@@ -3027,6 +3487,225 @@ class _WeeklyAttemptFeedbackArtwork extends StatelessWidget {
       ),
     );
   }
+
+  String _patternLabel(
+    BuildContext context,
+    WeeklyIllustrationDefinition definition,
+  ) {
+    return switch (definition.id) {
+      'review.done' => AppLocaleText.tr(
+          context,
+          en: 'the attempt was actually completed',
+          zhHans: '尝试已经实际完成',
+          zhHant: '嘗試已經實際完成',
+          ja: '実際に完了できました',
+        ),
+      'review.not_done' => AppLocaleText.tr(
+          context,
+          en: 'the attempt was not completed',
+          zhHans: '尝试有未完成记录',
+          zhHant: '嘗試有未完成記錄',
+          ja: '未完了の記録がありました',
+        ),
+      'review.skip' => AppLocaleText.tr(
+          context,
+          en: 'the attempt was skipped',
+          zhHans: '这次没有继续尝试',
+          zhHant: '這次沒有繼續嘗試',
+          ja: '今回は試しませんでした',
+        ),
+      'review.not_suitable_today' => AppLocaleText.tr(
+          context,
+          en: 'it did not fit that day’s condition',
+          zhHans: '它不适合当天的状态',
+          zhHant: '它不適合當天的狀態',
+          ja: 'その日の状態には合いませんでした',
+        ),
+      'review.helpful' => AppLocaleText.tr(
+          context,
+          en: 'it felt helpful',
+          zhHans: '它带来了一些帮助',
+          zhHant: '它帶來了一些幫助',
+          ja: '役に立つ感覚がありました',
+        ),
+      'review.neutral' => AppLocaleText.tr(
+          context,
+          en: 'the effect felt neutral',
+          zhHans: '目前的体感较为一般',
+          zhHant: '目前的體感較為一般',
+          ja: '今のところ効果はどちらとも言えません',
+        ),
+      'review.not_helpful' => AppLocaleText.tr(
+          context,
+          en: 'it did not feel helpful',
+          zhHans: '目前没有感到明显帮助',
+          zhHant: '目前沒有感到明顯幫助',
+          ja: '今のところ明確な助けにはなりませんでした',
+        ),
+      'review.adjust' => AppLocaleText.tr(
+          context,
+          en: 'the current version needs adjustment',
+          zhHans: '当前做法需要调整',
+          zhHant: '目前做法需要調整',
+          ja: '今のやり方には調整が必要です',
+        ),
+      'review.too_hard' => AppLocaleText.tr(
+          context,
+          en: 'it felt too difficult',
+          zhHans: '执行起来偏难',
+          zhHant: '執行起來偏難',
+          ja: '実行するには難しすぎました',
+        ),
+      'review.too_complex' => AppLocaleText.tr(
+          context,
+          en: 'the steps felt too complex',
+          zhHans: '步骤显得过于复杂',
+          zhHant: '步驟顯得過於複雜',
+          ja: '手順が複雑すぎました',
+        ),
+      'review.task_checkin_pressure' => AppLocaleText.tr(
+          context,
+          en: 'it started to feel like another task to check off',
+          zhHans: '它开始带来任务打卡感',
+          zhHant: '它開始帶來任務打卡感',
+          ja: '別のタスクをこなすような負担が出ました',
+        ),
+      'review.too_long' => AppLocaleText.tr(
+          context,
+          en: 'it took too long to fit easily',
+          zhHans: '所需时间偏长，不容易放进当天',
+          zhHant: '所需時間偏長，不容易放進當天',
+          ja: '時間が長く、日常に入れにくい状態でした',
+        ),
+      'review.under_ten_minutes' => AppLocaleText.tr(
+          context,
+          en: 'keeping it within ten minutes made it easier to try',
+          zhHans: '控制在十分钟以内时更容易尝试',
+          zhHant: '控制在十分鐘以內時更容易嘗試',
+          ja: '10分以内にすると試しやすくなりました',
+        ),
+      'review.body_action_effective' => AppLocaleText.tr(
+          context,
+          en: 'a body-based Spot Try felt more helpful',
+          zhHans: '身体类小实验带来的帮助更明显',
+          zhHant: '身體類小實驗帶來的幫助更明顯',
+          ja: '身体を使う小実験のほうが役立つ感覚がありました',
+        ),
+      'review.one_line_observation_effective' => AppLocaleText.tr(
+          context,
+          en: 'writing one observation felt helpful',
+          zhHans: '写下一句观察带来了一些帮助',
+          zhHant: '寫下一句觀察帶來了一些幫助',
+          ja: '一言の観察を書くことが役立ちました',
+        ),
+      'review.walk_effective' => AppLocaleText.tr(
+          context,
+          en: 'walking felt helpful',
+          zhHans: '散步类小实验带来了一些帮助',
+          zhHant: '散步類小實驗帶來了一些幫助',
+          ja: '歩く小実験が役立ちました',
+        ),
+      'review.put_phone_down_effective' => AppLocaleText.tr(
+          context,
+          en: 'putting the phone down felt helpful',
+          zhHans: '暂时放下手机带来了一些帮助',
+          zhHant: '暫時放下手機帶來了一些幫助',
+          ja: '一度スマートフォンを置くことが役立ちました',
+        ),
+      'review.organize_space_effective' => AppLocaleText.tr(
+          context,
+          en: 'organizing the environment felt helpful',
+          zhHans: '整理环境带来了一些帮助',
+          zhHant: '整理環境帶來了一些幫助',
+          ja: '環境を整えることが役立ちました',
+        ),
+      'review.relationship_expression_effective' => AppLocaleText.tr(
+          context,
+          en: 'expressing something in the relationship felt helpful',
+          zhHans: '关系中的表达带来了一些帮助',
+          zhHant: '關係中的表達帶來了一些幫助',
+          ja: '関係の中で言葉にすることが役立ちました',
+        ),
+      'review.break_goal_smaller_effective' => AppLocaleText.tr(
+          context,
+          en: 'making the goal smaller made it easier to act',
+          zhHans: '把目标拆小后更容易行动',
+          zhHant: '把目標拆小後更容易行動',
+          ja: '目標を小さくすると行動しやすくなりました',
+        ),
+      'review.morning_easier' => AppLocaleText.tr(
+          context,
+          en: 'it was easier to do in the morning',
+          zhHans: '早上更容易做到',
+          zhHant: '早上更容易做到',
+          ja: '朝のほうが実行しやすい傾向でした',
+        ),
+      'review.evening_easier' => AppLocaleText.tr(
+          context,
+          en: 'it was easier to do in the evening',
+          zhHans: '晚上更容易做到',
+          zhHant: '晚上更容易做到',
+          ja: '夜のほうが実行しやすい傾向でした',
+        ),
+      'review.weekend_easier' => AppLocaleText.tr(
+          context,
+          en: 'it was easier to do on the weekend',
+          zhHans: '周末更容易做到',
+          zhHant: '週末更容易做到',
+          ja: '週末のほうが実行しやすい傾向でした',
+        ),
+      'review.continuous_days' => AppLocaleText.tr(
+          context,
+          en: 'it continued across several days',
+          zhHans: '它连续发生了几天',
+          zhHant: '它連續發生了幾天',
+          ja: '数日続けて実行できました',
+        ),
+      'review.restart_after_interruption' => AppLocaleText.tr(
+          context,
+          en: 'it was possible to restart after an interruption',
+          zhHans: '中断后仍能重新开始',
+          zhHant: '中斷後仍能重新開始',
+          ja: '中断後にもう一度始められました',
+        ),
+      'review.partial_happened' => AppLocaleText.tr(
+          context,
+          en: 'part of the attempt happened',
+          zhHans: '尝试有一部分实际发生',
+          zhHant: '嘗試有一部分實際發生',
+          ja: '一部は実際に試せました',
+        ),
+      'review.observation_helpful' => AppLocaleText.tr(
+          context,
+          en: 'observing without forcing action still felt helpful',
+          zhHans: '只做观察也带来了一些帮助',
+          zhHant: '只做觀察也帶來了一些幫助',
+          ja: '行動を急がず観察するだけでも役立ちました',
+        ),
+      'review.interrupted_by_schedule' => AppLocaleText.tr(
+          context,
+          en: 'the attempt was interrupted by the schedule',
+          zhHans: '尝试被当天的安排打断',
+          zhHant: '嘗試被當天的安排打斷',
+          ja: '予定によって試みが中断されました',
+        ),
+      'review.interrupted_by_emotion' => AppLocaleText.tr(
+          context,
+          en: 'the attempt was interrupted by an emotional shift',
+          zhHans: '尝试被当时的情绪打断',
+          zhHant: '嘗試被當時的情緒打斷',
+          ja: '気持ちの変化によって試みが中断されました',
+        ),
+      'review.next_week_branch' => AppLocaleText.tr(
+          context,
+          en: 'the next step is deciding whether to continue next week; continued plans can be made lighter',
+          zhHans: '下一步是决定下周是否继续；继续时可以调轻',
+          zhHant: '下一步是決定下週是否繼續；繼續時可以調輕',
+          ja: '次は来週も続けるかを決め、続ける場合は軽く調整できます',
+        ),
+      _ => definition.hint,
+    };
+  }
 }
 
 class _WeeklyAttemptDisplayItem {
@@ -3034,6 +3713,7 @@ class _WeeklyAttemptDisplayItem {
   final String kind;
   final IconData icon;
   final Color color;
+  final String? illustrationAsset;
   final SevenDayProgressModel progress;
   final bool sourceChanged;
   final MicroActionModel? action;
@@ -3044,11 +3724,371 @@ class _WeeklyAttemptDisplayItem {
     required this.kind,
     required this.icon,
     required this.color,
+    this.illustrationAsset,
     required this.progress,
     required this.sourceChanged,
     this.action,
     this.experiment,
   });
+}
+
+class _WeeklyAttemptFeedbackConclusionEntry {
+  final _WeeklyAttemptDisplayItem item;
+  final WeeklyAttemptFeedbackSummaryModel summary;
+
+  const _WeeklyAttemptFeedbackConclusionEntry({
+    required this.item,
+    required this.summary,
+  });
+}
+
+class _WeeklyAttemptFeedbackConclusions extends StatelessWidget {
+  final List<_WeeklyAttemptFeedbackConclusionEntry> entries;
+
+  const _WeeklyAttemptFeedbackConclusions({
+    required this.entries,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('weekly-attempt-feedback-conclusions'),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AuroraColors.line.withValues(alpha: 0.68),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'What the feedback says',
+              zhHans: '反馈的具体结论',
+              zhHant: '回饋的具體結論',
+              ja: 'フィードバックから分かること',
+            ),
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 10),
+          for (var index = 0; index < entries.length; index++) ...[
+            _WeeklyAttemptFeedbackConclusionRow(entry: entries[index]),
+            if (index != entries.length - 1)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                child: Divider(
+                  height: 1,
+                  color: AuroraColors.line.withValues(alpha: 0.62),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _WeeklyAttemptFeedbackConclusionRow extends StatelessWidget {
+  final _WeeklyAttemptFeedbackConclusionEntry entry;
+
+  const _WeeklyAttemptFeedbackConclusionRow({
+    required this.entry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = entry.summary;
+    final facts = summary.subjectType == 'micro_action'
+        ? _smallExperimentFacts(context, summary)
+        : _goalFacts(context, summary);
+    return Semantics(
+      label: '${entry.item.kind} ${entry.item.title} ${facts.join(' ')}',
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _WeeklyIllustrationThumb(
+            asset: entry.item.illustrationAsset,
+            fallbackIcon: entry.item.icon,
+            color: entry.item.color,
+            size: 42,
+            iconSize: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.item.title,
+                  key: ValueKey(
+                    'weekly-attempt-feedback-title-${summary.subjectId}',
+                  ),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                      ),
+                ),
+                const SizedBox(height: 5),
+                for (var index = 0; index < facts.length; index++) ...[
+                  Text(
+                    facts[index],
+                    key: ValueKey(
+                      'weekly-attempt-feedback-fact-'
+                      '${summary.subjectId}-$index',
+                    ),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: index == 0
+                              ? AuroraColors.ink
+                              : AuroraColors.muted,
+                          fontWeight:
+                              index == 0 ? FontWeight.w600 : FontWeight.w500,
+                          height: 1.42,
+                        ),
+                  ),
+                  if (index != facts.length - 1) const SizedBox(height: 3),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<String> _smallExperimentFacts(
+    BuildContext context,
+    WeeklyAttemptFeedbackSummaryModel summary,
+  ) {
+    final facts = <String>[
+      AppLocaleText.tr(
+        context,
+        en: 'Tried ${summary.recordedCount} time(s): ${summary.completedCount} completed, ${summary.notCompletedCount} not completed.',
+        zhHans:
+            '本周尝试 ${summary.recordedCount} 次：完成 ${summary.completedCount} 次，未完成 ${summary.notCompletedCount} 次。',
+        zhHant:
+            '本週嘗試 ${summary.recordedCount} 次：完成 ${summary.completedCount} 次，未完成 ${summary.notCompletedCount} 次。',
+        ja: '今週は ${summary.recordedCount} 回試し、${summary.completedCount} 回完了、${summary.notCompletedCount} 回未完了でした。',
+      ),
+    ];
+    final effectCount = summary.helpfulCount +
+        summary.somewhatHelpfulCount +
+        summary.noEffectCount;
+    if (effectCount > 0) {
+      facts.add(
+        AppLocaleText.tr(
+          context,
+          en: 'After completion: helpful ${summary.helpfulCount}, somewhat helpful ${summary.somewhatHelpfulCount}, no clear effect ${summary.noEffectCount}.',
+          zhHans:
+              '完成后的反馈：有帮助 ${summary.helpfulCount} 次、有一点帮助 ${summary.somewhatHelpfulCount} 次、没有明显效果 ${summary.noEffectCount} 次。',
+          zhHant:
+              '完成後的回饋：有幫助 ${summary.helpfulCount} 次、有一點幫助 ${summary.somewhatHelpfulCount} 次、沒有明顯效果 ${summary.noEffectCount} 次。',
+          ja: '完了後の感触：役立った ${summary.helpfulCount} 回、少し役立った ${summary.somewhatHelpfulCount} 回、明確な効果なし ${summary.noEffectCount} 回。',
+        ),
+      );
+    } else if (summary.completedCount > 0) {
+      facts.add(
+        AppLocaleText.tr(
+          context,
+          en: 'There are completed attempts, but no effect feedback yet, so effectiveness is not judged.',
+          zhHans: '已有完成记录，但还没有效果反馈，暂不判断是否有效。',
+          zhHant: '已有完成記錄，但還沒有效果回饋，暫不判斷是否有效。',
+          ja: '完了記録はありますが、効果のフィードバックがないため、有効性はまだ判断しません。',
+        ),
+      );
+    }
+    final difficultyCount =
+        summary.easyCount + summary.okayCount + summary.difficultCount;
+    if (difficultyCount > 0) {
+      facts.add(
+        AppLocaleText.tr(
+          context,
+          en: 'Effort: easy ${summary.easyCount}, manageable ${summary.okayCount}, difficult ${summary.difficultCount}.',
+          zhHans:
+              '尝试负担：轻松 ${summary.easyCount} 次、还好 ${summary.okayCount} 次、偏费力 ${summary.difficultCount} 次。',
+          zhHant:
+              '嘗試負擔：輕鬆 ${summary.easyCount} 次、還好 ${summary.okayCount} 次、偏費力 ${summary.difficultCount} 次。',
+          ja: '負担感：楽 ${summary.easyCount} 回、無理なくできた ${summary.okayCount} 回、負担が大きい ${summary.difficultCount} 回。',
+        ),
+      );
+    }
+    final roundSummary = _roundSummary(context, summary);
+    if (roundSummary != null) facts.add(roundSummary);
+    return facts;
+  }
+
+  List<String> _goalFacts(
+    BuildContext context,
+    WeeklyAttemptFeedbackSummaryModel summary,
+  ) {
+    final facts = <String>[
+      AppLocaleText.tr(
+        context,
+        en: 'Recorded on ${summary.recordedDayCount} day(s): ${summary.completedCount} completed, ${summary.notCompletedCount} not completed.',
+        zhHans:
+            '本周登记 ${summary.recordedDayCount} 天：完成 ${summary.completedCount} 天，未完成 ${summary.notCompletedCount} 天。',
+        zhHant:
+            '本週登記 ${summary.recordedDayCount} 天：完成 ${summary.completedCount} 天，未完成 ${summary.notCompletedCount} 天。',
+        ja: '今週は ${summary.recordedDayCount} 日記録し、${summary.completedCount} 日完了、${summary.notCompletedCount} 日未完了でした。',
+      ),
+    ];
+    final completedAtReview = summary.completedDaysAtWeeklyReview;
+    final minimumDays = summary.minimumObservationDays;
+    if (completedAtReview != null &&
+        minimumDays != null &&
+        completedAtReview < minimumDays) {
+      facts.add(
+        AppLocaleText.tr(
+          context,
+          en: '$completedAtReview of $minimumDays observation days are complete; the overall effect cannot be judged yet.',
+          zhHans: '目前完成 $completedAtReview/$minimumDays 个观察日，还不能判断整体效果。',
+          zhHant: '目前完成 $completedAtReview/$minimumDays 個觀察日，還不能判斷整體效果。',
+          ja: '観察日は $completedAtReview/$minimumDays 日で、全体の効果はまだ判断できません。',
+        ),
+      );
+      return facts;
+    }
+    final weeklySummary = _weeklyGoalSummary(context, summary);
+    facts.add(
+      weeklySummary ??
+          AppLocaleText.tr(
+            context,
+            en: 'There is no weekly outcome summary yet, so the goal’s effect is not judged.',
+            zhHans: '本周还没有周次总结，暂不判断目标效果。',
+            zhHant: '本週還沒有週次總結，暫不判斷目標效果。',
+            ja: '今週のまとめがまだないため、目標の効果は判断しません。',
+          ),
+    );
+    return facts;
+  }
+
+  String? _roundSummary(
+    BuildContext context,
+    WeeklyAttemptFeedbackSummaryModel summary,
+  ) {
+    final result = switch (summary.latestRoundResult) {
+      SmallTryRoundResult.worthKeeping => AppLocaleText.tr(
+          context,
+          en: 'worth keeping',
+          zhHans: '值得保留',
+          zhHant: '值得保留',
+          ja: '続ける価値がある',
+        ),
+      SmallTryRoundResult.adjustAndRetry => AppLocaleText.tr(
+          context,
+          en: 'adjust and retry',
+          zhHans: '调整后再试',
+          zhHant: '調整後再試',
+          ja: '調整して再試行',
+        ),
+      SmallTryRoundResult.noHelpObserved => AppLocaleText.tr(
+          context,
+          en: 'no help observed yet',
+          zhHans: '暂未观察到帮助',
+          zhHant: '暫未觀察到幫助',
+          ja: '今のところ役立つ変化なし',
+        ),
+      _ => null,
+    };
+    final effort = _effortLabel(context, summary.latestRoundEffort);
+    final parts = [if (result != null) result, if (effort != null) effort];
+    if (parts.isEmpty) return null;
+    return AppLocaleText.tr(
+      context,
+      en: 'Round summary: ${parts.join('; ')}.',
+      zhHans: '整轮总结：${parts.join('；')}。',
+      zhHant: '整輪總結：${parts.join('；')}。',
+      ja: '一連のまとめ：${parts.join('・')}。',
+    );
+  }
+
+  String? _weeklyGoalSummary(
+    BuildContext context,
+    WeeklyAttemptFeedbackSummaryModel summary,
+  ) {
+    final outcome = switch (summary.latestWeeklyOutcome) {
+      GoalOutcomeResult.improved => AppLocaleText.tr(
+          context,
+          en: 'improved',
+          zhHans: '有所改善',
+          zhHant: '有所改善',
+          ja: '改善した',
+        ),
+      GoalOutcomeResult.somewhatImproved => AppLocaleText.tr(
+          context,
+          en: 'somewhat improved',
+          zhHans: '有一点改善',
+          zhHant: '有一點改善',
+          ja: '少し改善した',
+        ),
+      GoalOutcomeResult.noChange => AppLocaleText.tr(
+          context,
+          en: 'no clear change',
+          zhHans: '没有明显变化',
+          zhHant: '沒有明顯變化',
+          ja: '明確な変化なし',
+        ),
+      GoalOutcomeResult.worse => AppLocaleText.tr(
+          context,
+          en: 'felt worse',
+          zhHans: '感觉变差',
+          zhHant: '感覺變差',
+          ja: '悪化したと感じた',
+        ),
+      GoalOutcomeResult.unclear => AppLocaleText.tr(
+          context,
+          en: 'not enough information yet',
+          zhHans: '还不能判断',
+          zhHant: '還不能判斷',
+          ja: 'まだ判断できない',
+        ),
+      _ => null,
+    };
+    final burden = _effortLabel(context, summary.latestWeeklyBurden);
+    final parts = [if (outcome != null) outcome, if (burden != null) burden];
+    if (parts.isEmpty) return null;
+    return AppLocaleText.tr(
+      context,
+      en: 'Weekly summary: ${parts.join('; ')}.',
+      zhHans: '周次总结：${parts.join('；')}。',
+      zhHant: '週次總結：${parts.join('；')}。',
+      ja: '週次まとめ：${parts.join('・')}。',
+    );
+  }
+
+  String? _effortLabel(BuildContext context, String? raw) {
+    return switch (raw) {
+      EvaluationEffort.easy => AppLocaleText.tr(
+          context,
+          en: 'easy effort',
+          zhHans: '负担轻',
+          zhHant: '負擔輕',
+          ja: '負担が軽い',
+        ),
+      EvaluationEffort.acceptable => AppLocaleText.tr(
+          context,
+          en: 'manageable effort',
+          zhHans: '负担可以接受',
+          zhHant: '負擔可以接受',
+          ja: '無理のない負担',
+        ),
+      EvaluationEffort.tooDifficult => AppLocaleText.tr(
+          context,
+          en: 'too difficult',
+          zhHans: '负担偏大',
+          zhHant: '負擔偏大',
+          ja: '負担が大きい',
+        ),
+      _ => null,
+    };
+  }
 }
 
 class _WeeklyAttemptTotals extends StatelessWidget {
@@ -3200,6 +4240,7 @@ class _WeeklyAttemptMatrixRow extends StatelessWidget {
     final hasAnyRecord = item.progress.cells.any(
       (cell) => cell.state != ProgressCellState.empty,
     );
+    final canRecordToday = _canRecordToday(item, today) && !isBusy;
     return Container(
       key: ValueKey('weekly-attempt-row-${item.progress.subjectId}'),
       padding: const EdgeInsets.fromLTRB(10, 10, 10, 9),
@@ -3214,14 +4255,12 @@ class _WeeklyAttemptMatrixRow extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: item.color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(item.icon, size: 17, color: item.color),
+              _WeeklyIllustrationThumb(
+                asset: item.illustrationAsset,
+                fallbackIcon: item.icon,
+                color: item.color,
+                size: 42,
+                iconSize: 20,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -3238,8 +4277,6 @@ class _WeeklyAttemptMatrixRow extends StatelessWidget {
                     const SizedBox(height: 1),
                     Text(
                       item.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: AuroraColors.ink,
                             height: 1.3,
@@ -3270,42 +4307,81 @@ class _WeeklyAttemptMatrixRow extends StatelessWidget {
                             state: ProgressCellState.empty,
                           ),
                       isToday: _sameDate(day, today),
-                      canRecord: _sameDate(day, today) &&
-                          _canRecordToday(item, today) &&
-                          !isBusy,
+                      canRecord: _sameDate(day, today) && canRecordToday,
                       onTap: onTodayTap,
                     ),
                   ),
                 ),
             ],
           ),
-          if (onWeeklySummaryTap != null && hasAnyRecord) ...[
+          if (canRecordToday ||
+              (onWeeklySummaryTap != null && hasAnyRecord)) ...[
             const SizedBox(height: 9),
             Align(
               alignment: Alignment.centerRight,
-              child: OutlinedButton.icon(
-                key: ValueKey(
-                  'weekly-goal-summary-${item.progress.subjectId}',
-                ),
-                onPressed: isBusy
-                    ? null
-                    : () {
-                        onWeeklySummaryTap?.call();
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (canRecordToday)
+                    OutlinedButton.icon(
+                      key: ValueKey(
+                        'weekly-attempt-feedback-'
+                        '${item.progress.subjectId}',
+                      ),
+                      onPressed: () async {
+                        await onTodayTap();
                       },
-                icon: const Icon(Icons.insights_rounded, size: 17),
-                label: Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Summarize this week',
-                    zhHans: '总结本周',
-                    zhHant: '總結本週',
-                    ja: '今週をまとめる',
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AuroraColors.blue,
-                  minimumSize: const Size(0, 44),
-                ),
+                      icon: const Icon(Icons.edit_note_rounded, size: 18),
+                      label: Text(
+                        item.action != null
+                            ? AppLocaleText.tr(
+                                context,
+                                en: 'Record experiment feedback',
+                                zhHans: '登记小实验反馈',
+                                zhHant: '登記小實驗回饋',
+                                ja: '小実験のフィードバック',
+                              )
+                            : AppLocaleText.tr(
+                                context,
+                                en: 'Record goal feedback',
+                                zhHans: '登记目标反馈',
+                                zhHant: '登記目標回饋',
+                                ja: '目標のフィードバック',
+                              ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: item.color,
+                        minimumSize: const Size(0, 44),
+                      ),
+                    ),
+                  if (onWeeklySummaryTap != null && hasAnyRecord)
+                    OutlinedButton.icon(
+                      key: ValueKey(
+                        'weekly-goal-summary-${item.progress.subjectId}',
+                      ),
+                      onPressed: isBusy
+                          ? null
+                          : () {
+                              onWeeklySummaryTap?.call();
+                            },
+                      icon: const Icon(Icons.insights_rounded, size: 17),
+                      label: Text(
+                        AppLocaleText.tr(
+                          context,
+                          en: 'Summarize this week',
+                          zhHans: '总结本周',
+                          zhHant: '總結本週',
+                          ja: '今週をまとめる',
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AuroraColors.blue,
+                        minimumSize: const Size(0, 44),
+                      ),
+                    ),
+                ],
               ),
             ),
           ],
@@ -3324,10 +4400,10 @@ class _WeeklyAttemptMatrixRow extends StatelessWidget {
           action.adoptedAt ??
           action.createdAt;
       if (start == null) return false;
-      final end = DateTime.tryParse(action.progressEndDate ?? '') ??
-          start.add(const Duration(days: 6));
-      return !_dateOnly(date).isBefore(_dateOnly(start)) &&
-          !_dateOnly(date).isAfter(_dateOnly(end));
+      final localDate = _dateOnly(date);
+      if (localDate.isBefore(_dateOnly(start))) return false;
+      final end = DateTime.tryParse(action.progressEndDate ?? '');
+      return end == null || !localDate.isAfter(_dateOnly(end));
     }
     final experiment = item.experiment;
     if (experiment == null || _isClosedStatus(experiment.status)) return false;
@@ -3337,12 +4413,10 @@ class _WeeklyAttemptMatrixRow extends StatelessWidget {
         experiment.adoptedAt ??
         experiment.createdAt;
     if (start == null) return false;
-    final end = DateTime.tryParse(
-          experiment.progressEndDate ?? experiment.sourceWeekEnd,
-        ) ??
-        start.add(const Duration(days: 6));
-    return !_dateOnly(date).isBefore(_dateOnly(start)) &&
-        !_dateOnly(date).isAfter(_dateOnly(end));
+    final localDate = _dateOnly(date);
+    if (localDate.isBefore(_dateOnly(start))) return false;
+    final end = DateTime.tryParse(experiment.progressEndDate ?? '');
+    return end == null || !localDate.isAfter(_dateOnly(end));
   }
 
   bool _isClosedStatus(String raw) {
@@ -3459,7 +4533,13 @@ class _WeeklyAttemptDayCell extends StatelessWidget {
           ),
         ),
     };
-    final label = '$cell.localDate, $stateLabel${isToday ? ', today' : ''}';
+    final label = AppLocaleText.tr(
+      context,
+      en: '$cell.localDate, $stateLabel${isToday ? ', today' : ''}',
+      zhHans: '$cell.localDate，$stateLabel${isToday ? '，今天' : ''}',
+      zhHant: '$cell.localDate，$stateLabel${isToday ? '，今天' : ''}',
+      ja: '$cell.localDate、$stateLabel${isToday ? '、今日' : ''}',
+    );
     return Semantics(
       button: canRecord,
       enabled: canRecord,
@@ -3666,14 +4746,14 @@ class _LegacyWeeklyAttemptsCard extends StatelessWidget {
               color: AuroraColors.mint,
               kind: AppLocaleText.tr(
                 context,
-                en: 'Small experiment',
+                en: 'Spot Try',
                 zhHans: '小实验',
                 zhHant: '小實驗',
                 ja: '小実験',
               ),
               message: AppLocaleText.tr(
                 context,
-                en: 'No adopted small experiments in the current 7-day window.',
+                en: 'No adopted Spot Tries in the current 7-day window.',
                 zhHans: '当前 7 天周期内还没有采纳的小实验。',
                 zhHant: '目前 7 天週期內還沒有採納的小實驗。',
                 ja: '現在の 7 日間には、採用した小実験がまだありません。',
@@ -3690,7 +4770,7 @@ class _LegacyWeeklyAttemptsCard extends StatelessWidget {
                   color: AuroraColors.mint,
                   kind: AppLocaleText.tr(
                     context,
-                    en: 'Small experiment',
+                    en: 'Spot Try',
                     zhHans: '小实验',
                     zhHant: '小實驗',
                     ja: '小実験',
@@ -3911,8 +4991,6 @@ class _WeeklyAttemptRow extends StatelessWidget {
                   Expanded(
                     child: Text(
                       title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: const Color(0xFF354158),
                             fontWeight: FontWeight.w600,
@@ -4001,7 +5079,7 @@ class _WeeklyActionReviewSummaryCard extends StatelessWidget {
       containerKey: const ValueKey('weekly-action-review-card'),
       title: AppLocaleText.tr(
         context,
-        en: 'Small experiments and review',
+        en: 'Spot Tries and review',
         zhHans: '本周小实验和复盘',
         zhHant: '本週小實驗和回顧',
         ja: '今週の小実験と振り返り',
@@ -4010,7 +5088,7 @@ class _WeeklyActionReviewSummaryCard extends StatelessWidget {
           ? Text(
               AppLocaleText.tr(
                 context,
-                en: 'No small experiment feedback has been recorded this week yet.',
+                en: 'No Spot Try feedback has been recorded this week yet.',
                 zhHans: '这周还没有保存小实验反馈。',
                 zhHant: '這週還沒有保存小實驗回饋。',
                 ja: '今週はまだ小実験のフィードバックが保存されていません。',
@@ -4177,7 +5255,7 @@ class _WeeklyActionReviewSummaryCard extends StatelessWidget {
     if (_hasAny(text, const ['安排', '日程', '会议'])) return '被安排打断';
     if (_hasAny(text, const ['情绪', '焦虑', '烦'])) return '被情绪打断';
     if (_hasAny(text, const ['继续', '停止', '改小', '调轻', '归档', '换'])) {
-      return '下周继续 / 停止 / 改小';
+      return '下周是否继续 / 继续时可改小';
     }
     return '想调整';
   }
@@ -4225,8 +5303,6 @@ class _WeeklyExperimentResultCard extends StatelessWidget {
             children: [
               Text(
                 title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: AuroraColors.purple,
                       fontWeight: FontWeight.w700,
@@ -4235,8 +5311,6 @@ class _WeeklyExperimentResultCard extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 structure.oneExperiment,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: const Color(0xFF49536A),
                       height: 1.45,
@@ -4258,8 +5332,6 @@ class _WeeklyExperimentResultCard extends StatelessWidget {
                     zhHant: '你更適合低壓力、身體感明確、可以馬上開始的小動作。',
                     ja: '低負荷で、身体感覚が明確な毎日の取り組みが合いそうです。',
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color: AuroraColors.purple,
                         fontWeight: FontWeight.w700,
@@ -4467,10 +5539,10 @@ class _NextWeekExperimentCard extends StatelessWidget {
                   ? '每周复盘报告仍可正常查看，可以单独重试候选生成。'
                   : '准备好后可以再次生成候选。',
               zhHant: candidateRefreshFailed
-                  ? 'Weekly 報告仍可正常查看，可以單獨重試候選生成。'
+                  ? '每週回顧報告仍可正常查看，可以單獨重試候選生成。'
                   : '準備好後可以再次生成候選。',
               ja: candidateRefreshFailed
-                  ? 'Weekly レポートは引き続き見られます。候補作成だけ再試行できます。'
+                  ? '週間レビューは引き続き見られます。候補作成だけ再試行できます。'
                   : '準備ができたら、候補作成をもう一度試せます。',
             ),
             buttonLabel: AppLocaleText.tr(
@@ -4537,8 +5609,6 @@ class _NextWeekExperimentCard extends StatelessWidget {
                     const SizedBox(height: 5),
                     Text(
                       candidatePreviewTitle!.trim(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: const Color(0xFF536077),
                             fontWeight: FontWeight.w600,
@@ -4733,8 +5803,6 @@ class _WeeklyCandidateStatusState extends StatelessWidget {
             const SizedBox(height: 5),
             Text(
               detailText,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: const Color(0xFF7A8292),
                     fontWeight: FontWeight.w600,
@@ -4797,9 +5865,9 @@ class _WeeklyProEntryCard extends StatelessWidget {
       label: AppLocaleText.tr(
         context,
         en: 'Pro weekly deep read. Data is ready.',
-        zhHans: 'Pro 本周深读，数据已准备好',
-        zhHant: 'Pro 本週深讀，資料已準備好',
-        ja: 'Pro 今週の深掘り。データの準備ができました。',
+        zhHans: '专业版本周深读，数据已准备好',
+        zhHant: '專業版本週深讀，資料已準備好',
+        ja: 'プロ版の今週の深掘り。データの準備ができました。',
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -4838,7 +5906,13 @@ class _WeeklyProEntryCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(7),
                 ),
                 child: Text(
-                  'Pro',
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Pro',
+                    zhHans: '专业版',
+                    zhHant: '專業版',
+                    ja: 'プロ版',
+                  ),
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: const Color(0xFF5B4215),
                         fontWeight: FontWeight.w700,
@@ -5294,10 +6368,11 @@ class _WeeklyIllustrationAsset {
     if (_contains(lower, const ['第二天', '更累', '偏难', '太难', 'hard'])) {
       return secondDayTired;
     }
-    if (_contains(lower, const ['自我边界', '边界', 'boundary'])) {
+    if (_contains(lower, const ['自我边界', '自我邊界', '边界', '邊界', 'boundary'])) {
       return selfBoundary;
     }
-    if (_contains(lower, const ['饮食睡眠', '饮食', '吃', '午餐', 'food'])) {
+    if (_contains(
+        lower, const ['饮食睡眠', '飲食睡眠', '饮食', '飲食', '吃', '午餐', 'food'])) {
       return foodSleep;
     }
     if (_contains(lower, const ['安排', '会议', '日程', 'schedule', 'calendar'])) {
@@ -5306,13 +6381,36 @@ class _WeeklyIllustrationAsset {
     if (_contains(lower, const ['晚上空转', '空转', '刷手机', '睡', '晚', 'sleep'])) {
       return eveningLoop;
     }
-    if (_contains(lower, const ['成长', '计划', '目标', '推进', 'growth', 'plan'])) {
+    if (_contains(lower, const [
+      '成长',
+      '成長',
+      '计划',
+      '計劃',
+      '目标',
+      '目標',
+      '推进',
+      '推進',
+      'growth',
+      'plan'
+    ])) {
       return growthPlan;
     }
-    if (_contains(lower, const ['兴趣', '爱好', '创造', '表达', 'hobby', 'interest'])) {
+    if (_contains(lower, const [
+      '兴趣',
+      '興趣',
+      '爱好',
+      '愛好',
+      '创造',
+      '創造',
+      '表达',
+      '表達',
+      'hobby',
+      'interest'
+    ])) {
       return interestHobby;
     }
-    if (_contains(lower, const ['情绪', '状态', '平静', '稳定', '焦虑', '累', 'mood'])) {
+    if (_contains(lower,
+        const ['情绪', '情緒', '状态', '狀態', '平静', '稳定', '穩定', '焦虑', '累', 'mood'])) {
       return emotionStable;
     }
     return null;
@@ -5375,10 +6473,12 @@ class _WeeklyIllustrationThumb extends StatelessWidget {
 class _DistributionRow extends StatelessWidget {
   final _DistributionData data;
   final int maxCount;
+  final bool compact;
 
   const _DistributionRow({
     required this.data,
     required this.maxCount,
+    this.compact = false,
   });
 
   @override
@@ -5390,10 +6490,10 @@ class _DistributionRow extends StatelessWidget {
           asset: data.illustrationAsset,
           fallbackIcon: data.icon,
           color: data.color,
-          size: 44,
-          iconSize: 22,
+          size: compact ? 34 : 44,
+          iconSize: compact ? 18 : 22,
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: compact ? 8 : 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -5420,7 +6520,7 @@ class _DistributionRow extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 7),
+              SizedBox(height: compact ? 5 : 7),
               ClipRRect(
                 borderRadius: BorderRadius.circular(99),
                 child: Stack(
@@ -5505,8 +6605,6 @@ class _BehaviorStepTile extends StatelessWidget {
               Text(
                 step.title,
                 textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: const Color(0xFF26314F),
                       fontWeight: FontWeight.w900,
@@ -5516,8 +6614,6 @@ class _BehaviorStepTile extends StatelessWidget {
               Text(
                 step.body,
                 textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       color: const Color(0xFF687389),
                       height: 1.25,
@@ -5554,8 +6650,6 @@ class _ActionReviewRow extends StatelessWidget {
             flex: 3,
             child: Text(
               data.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: const Color(0xFF26304A),
                     fontWeight: FontWeight.w800,
@@ -5857,19 +6951,29 @@ class _SignalDistributionDonutPainter extends CustomPainter {
     final radius = size.shortestSide * 0.35;
     final stroke = size.shortestSide * 0.16;
     final ringRect = Rect.fromCircle(center: center, radius: radius);
-    final background = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.butt
-      ..color = Colors.white.withValues(alpha: 0.42);
-    canvas.drawCircle(center, radius, background);
-
-    if (rows.isEmpty || total <= 0) return;
+    final visibleRows = rows.where((row) => row.count > 0).toList();
+    final visibleTotal =
+        visibleRows.fold<int>(0, (sum, row) => sum + row.count);
+    if (visibleRows.isEmpty || visibleTotal <= 0) {
+      final background = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.butt
+        ..color = Colors.white.withValues(alpha: 0.42);
+      canvas.drawCircle(center, radius, background);
+      return;
+    }
 
     var start = -math.pi / 2.25;
-    const gap = math.pi * 0.018;
-    for (final row in rows) {
-      final sweep = math.max(0.08, (row.count / total) * math.pi * 2 - gap);
+    final circleEnd = start + math.pi * 2;
+    for (var index = 0; index < visibleRows.length; index++) {
+      final row = visibleRows[index];
+      // Calculate the final segment from the remaining angle so floating-point
+      // rounding can never leave an unpainted wedge in the ring.
+      final sweep = index == visibleRows.length - 1
+          ? circleEnd - start
+          : (row.count / visibleTotal) * math.pi * 2;
+      final softColor = Color.lerp(row.color, Colors.white, 0.30)!;
       final paint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = stroke
@@ -5878,9 +6982,9 @@ class _SignalDistributionDonutPainter extends CustomPainter {
           startAngle: start,
           endAngle: start + sweep,
           colors: [
-            row.color.withValues(alpha: 0.58),
+            softColor,
             row.color,
-            Colors.white.withValues(alpha: 0.76),
+            softColor,
           ],
         ).createShader(ringRect);
       canvas.drawArc(ringRect, start, sweep, false, paint);
@@ -5900,7 +7004,7 @@ class _SignalDistributionDonutPainter extends CustomPainter {
         stroke * 0.12,
         Paint()..color = row.color.withValues(alpha: 0.85),
       );
-      start += sweep + gap;
+      start += sweep;
     }
   }
 
@@ -5944,23 +7048,43 @@ class _ActionReviewRowData {
   });
 }
 
-String _formatWeekRange(String start, String end) {
+String _formatWeekRange(BuildContext context, String start, String end) {
   String format(String raw) {
     final parsed = DateTime.tryParse(raw);
     if (parsed == null) return raw;
-    return '${parsed.month}月${parsed.day}日';
+    return AppLocaleText.tr(
+      context,
+      en: '${parsed.month}/${parsed.day}',
+      zhHans: '${parsed.month}月${parsed.day}日',
+      zhHant: '${parsed.month}月${parsed.day}日',
+      ja: '${parsed.month}月${parsed.day}日',
+    );
   }
 
-  return '${format(start)} - ${format(end)}';
+  return AppLocaleText.tr(
+    context,
+    en: '${format(start)}–${format(end)}',
+    zhHans: '${format(start)}－${format(end)}',
+    zhHant: '${format(start)}－${format(end)}',
+    ja: '${format(start)}〜${format(end)}',
+  );
+}
+
+String _localizedListSeparator(BuildContext context) {
+  return AppLocaleText.tr(
+    context,
+    en: ', ',
+    zhHans: '，',
+    zhHant: '，',
+    ja: '、',
+  );
 }
 
 String _compact(String raw, String fallback) {
   final trimmed = raw.trim();
   if (trimmed.isEmpty) return fallback;
   final first = trimmed.split(RegExp(r'[。；;\n]')).first.trim();
-  final source = first.isEmpty ? trimmed : first;
-  if (source.runes.length <= 22) return source;
-  return '${String.fromCharCodes(source.runes.take(22))}...';
+  return first.isEmpty ? trimmed : first;
 }
 
 class _SoftPlant extends StatelessWidget {
@@ -6341,9 +7465,7 @@ class _WeeklyDrainChainCard extends StatelessWidget {
                       const SizedBox(height: 8),
                       Text(
                         nodes[i].label,
-                        maxLines: 2,
                         textAlign: TextAlign.center,
-                        overflow: TextOverflow.ellipsis,
                         style:
                             Theme.of(context).textTheme.labelMedium?.copyWith(
                                   color: AuroraColors.ink,
@@ -6369,8 +7491,6 @@ class _WeeklyDrainChainCard extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             structure.onePattern,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AuroraColors.muted,
                   height: 1.35,
@@ -6458,9 +7578,7 @@ class _WeeklyDrainChainCard extends StatelessWidget {
     if (trimmed.isEmpty) return '';
     final separators = RegExp(r'[：:，,。.\n]');
     final first = trimmed.split(separators).first.trim();
-    final source = first.isEmpty ? trimmed : first;
-    if (source.runes.length <= 9) return source;
-    return String.fromCharCodes(source.runes.take(9));
+    return first.isEmpty ? trimmed : first;
   }
 }
 
@@ -6760,7 +7878,13 @@ class _OneWeeklyFocusCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'One Weekly Focus',
+                    AppLocaleText.tr(
+                      context,
+                      en: 'One weekly focus',
+                      zhHans: '本周一个关注点',
+                      zhHant: '本週一個關注點',
+                      ja: '今週の注目点を一つ',
+                    ),
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           color: AuroraColors.purple,
                           fontWeight: FontWeight.w800,
@@ -6769,8 +7893,6 @@ class _OneWeeklyFocusCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     topic.nextWatch,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AuroraColors.ink,
                           height: 1.35,
@@ -6913,7 +8035,7 @@ class _WeeklyV3CStructureCard extends StatelessWidget {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 12),
-          const ExperimentPathVisual(),
+          const _LocalizedExperimentPathVisual(),
           const SizedBox(height: 8),
           _WeeklyStructureRow(
             icon: Icons.notes_outlined,
@@ -6934,7 +8056,7 @@ class _WeeklyV3CStructureCard extends StatelessWidget {
               en: 'One pattern',
               zhHans: '一个最消耗的模式',
               zhHant: '一個最消耗的模式',
-              ja: '一つの消耗 pattern',
+              ja: '一つの消耗パターン',
             ),
             value: structure.onePattern,
           ),
@@ -6961,6 +8083,97 @@ class _WeeklyV3CStructureCard extends StatelessWidget {
               ja: '回復の手がかり',
             ),
             value: structure.positiveSignal,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocalizedExperimentPathVisual extends StatelessWidget {
+  const _LocalizedExperimentPathVisual();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFCF6).withValues(alpha: 0.66),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFD9D2C2)),
+      ),
+      child: Row(
+        children: [
+          _LocalizedExperimentPathStage(
+            icon: Icons.view_week_outlined,
+            label: AppLocaleText.tr(
+              context,
+              en: 'Too many demands',
+              zhHans: '问题太密',
+              zhHant: '問題太密',
+              ja: '課題が多い',
+            ),
+          ),
+          const Icon(
+            Icons.arrow_forward_rounded,
+            size: 16,
+            color: AuroraColors.muted,
+          ),
+          _LocalizedExperimentPathStage(
+            icon: Icons.space_bar_rounded,
+            label: AppLocaleText.tr(
+              context,
+              en: 'Make room',
+              zhHans: '方法留白',
+              zhHant: '方法留白',
+              ja: '余白を作る',
+            ),
+          ),
+          const Icon(
+            Icons.arrow_forward_rounded,
+            size: 16,
+            color: AuroraColors.muted,
+          ),
+          _LocalizedExperimentPathStage(
+            icon: Icons.spa_outlined,
+            label: AppLocaleText.tr(
+              context,
+              en: 'Lighter goal',
+              zhHans: '目标轻一点',
+              zhHant: '目標輕一點',
+              ja: '目標を軽く',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocalizedExperimentPathStage extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _LocalizedExperimentPathStage({
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 20, color: AuroraColors.purple),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
         ],
       ),
@@ -7132,10 +8345,10 @@ class _EnergyBudgetLiteCard extends StatelessWidget {
                 ? _energyStrengthText(context, value)
                 : AppLocaleText.tr(
                     context,
-                    en: 'Next-week goals will prioritize a light, low-switching, pausable daily practice.',
-                    zhHans: '下周候选将优先采用 3–5 分钟、低切换、可暂停的轻量尝试。',
-                    zhHant: '下週候選將優先採用 3–5 分鐘、低切換、可暫停的輕量嘗試。',
-                    ja: '来週は短時間・切替少なめ・中断できる軽い候補を優先します。',
+                    en: 'Next-week candidates will prioritize 3–5 minute, low-switching, pausable Spot Tries.',
+                    zhHans: '下周候选将优先采用 3–5 分钟、低切换、可暂停的简单尝试。',
+                    zhHant: '下週候選將優先採用 3–5 分鐘、低切換、可暫停的簡單嘗試。',
+                    ja: '来週の候補では、3〜5分で切替が少なく、中断できるスポットトライを優先します。',
                   ),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: const Color(0xFF536077),
@@ -7324,7 +8537,7 @@ class _WeeklyEnergyStateOverview extends StatelessWidget {
   Widget build(BuildContext context) {
     final semantics = _WeeklyEnergyStateKind.values
         .map((state) => '${state.label(context)} ${states.countFor(state)}')
-        .join('，');
+        .join(_localizedListSeparator(context));
     final ring = Semantics(
       key: const ValueKey('weekly-energy-state-ring'),
       label: AppLocaleText.tr(
@@ -7427,8 +8640,15 @@ class _WeeklyEnergyStateLegendItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       key: ValueKey('weekly-energy-state-${state.key}'),
-      label:
-          '${state.label(context)}，${state.description(context)}，$count Signal',
+      label: AppLocaleText.tr(
+        context,
+        en: '${state.label(context)}, ${state.description(context)}, $count Signal',
+        zhHans:
+            '${state.label(context)}，${state.description(context)}，$count Signal',
+        zhHant:
+            '${state.label(context)}，${state.description(context)}，$count Signal',
+        ja: '${state.label(context)}、${state.description(context)}、Signal $count 件',
+      ),
       child: ExcludeSemantics(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -7457,8 +8677,6 @@ class _WeeklyEnergyStateLegendItem extends StatelessWidget {
                     ),
                     Text(
                       state.description(context),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: AuroraColors.muted,
                             height: 1.25,
@@ -7676,8 +8894,6 @@ class _EnergyIntensityPill extends StatelessWidget {
             Flexible(
               child: Text(
                 label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       color: AuroraColors.blue,
                       fontWeight: FontWeight.w800,
@@ -7749,7 +8965,7 @@ class _EnergyDistributionBar extends StatelessWidget {
           en: 'Energy blocks will appear here once a few signals have enough shape.',
           zhHans: '等几条信号更成形后，这里会出现轻量能量块。',
           zhHant: '等幾條信號更成形後，這裡會出現輕量能量塊。',
-          ja: 'いくつかのシグナルが見えてくると、ここに小さな energy block が表示されます。',
+          ja: 'いくつかのシグナルが見えてくると、ここに小さなエネルギーブロックが表示されます。',
         ),
         style: theme.textTheme.bodySmall,
       );
@@ -8008,7 +9224,7 @@ class _WeeklyActionReviewCard extends StatelessWidget {
                 child: Text(
                   AppLocaleText.tr(
                     context,
-                    en: 'Small experiment review',
+                    en: 'Spot Try review',
                     zhHans: '本周小实验复盘',
                     zhHant: '本週小實驗回顧',
                     ja: '今週の小実験の振り返り',
@@ -8027,9 +9243,9 @@ class _WeeklyActionReviewCard extends StatelessWidget {
                 label: AppLocaleText.tr(
                   context,
                   en: 'AI predictions',
-                  zhHans: 'AI 预判',
-                  zhHant: 'AI 預判',
-                  ja: 'AI 予測',
+                  zhHans: '智能预判',
+                  zhHant: '人工智慧預判',
+                  ja: '人工知能による予測',
                 ),
                 value: review.aiJudgementCount,
                 color: AuroraColors.purple,
@@ -8048,7 +9264,7 @@ class _WeeklyActionReviewCard extends StatelessWidget {
               _ActionReviewChip(
                 label: AppLocaleText.tr(
                   context,
-                  en: 'Small experiments',
+                  en: 'Spot Tries',
                   zhHans: '生成小实验',
                   zhHant: '生成小實驗',
                   ja: '小実験',
@@ -8165,7 +9381,7 @@ class _WeeklyActionReviewCard extends StatelessWidget {
     if (!review.hasData) {
       return AppLocaleText.tr(
         context,
-        en: 'No small experiment loop has settled yet. This week can still be read as a small observation.',
+        en: 'No Spot Try loop has settled yet. This week can still be read as a small observation.',
         zhHans: '这一周还没有形成明确的小实验闭环，先把它当作一个小观察。',
         zhHant: '這一週還沒有形成明確的小實驗閉環，先把它當作一個小觀察。',
         ja: '今週はまだ小実験の循環がはっきりしていません。小さな観察として扱います。',
@@ -8173,12 +9389,12 @@ class _WeeklyActionReviewCard extends StatelessWidget {
     }
     return AppLocaleText.tr(
       context,
-      en: '${review.aiJudgementCount} AI prediction(s), ${review.confirmedJudgementCount} confirmed, ${review.generatedActionCount} small experiment/tries, ${review.triedActionCount} tried. Next: ${review.nextAdjustment}',
+      en: '${review.aiJudgementCount} AI prediction(s), ${review.confirmedJudgementCount} confirmed, ${review.generatedActionCount} ${review.generatedActionCount == 1 ? 'Spot Try' : 'Spot Tries'}, ${review.triedActionCount} tried. Next: ${review.nextAdjustment}',
       zhHans:
-          '这周有 ${review.aiJudgementCount} 条 AI 预判，${review.confirmedJudgementCount} 条被确认，生成 ${review.generatedActionCount} 个小实验，实际尝试 ${review.triedActionCount} 个。下周可以先看：${review.nextAdjustment}',
+          '这周有 ${review.aiJudgementCount} 条智能预判，${review.confirmedJudgementCount} 条被确认，生成 ${review.generatedActionCount} 个小实验，实际尝试 ${review.triedActionCount} 个。下周可以先看：${review.nextAdjustment}',
       zhHant:
-          '這週有 ${review.aiJudgementCount} 條 AI 預判，${review.confirmedJudgementCount} 條被確認，生成 ${review.generatedActionCount} 個小實驗，實際嘗試 ${review.triedActionCount} 個。下週可以先看：${review.nextAdjustment}',
-      ja: '今週は AI 予測が ${review.aiJudgementCount} 件、確認済みが ${review.confirmedJudgementCount} 件、小実験が ${review.generatedActionCount} 件、試したものが ${review.triedActionCount} 件。次は「${review.nextAdjustment}」を見ます。',
+          '這週有 ${review.aiJudgementCount} 條人工智慧預判，${review.confirmedJudgementCount} 條被確認，生成 ${review.generatedActionCount} 個小實驗，實際嘗試 ${review.triedActionCount} 個。下週可以先看：${review.nextAdjustment}',
+      ja: '今週は人工知能による予測が ${review.aiJudgementCount} 件、確認済みが ${review.confirmedJudgementCount} 件、小実験が ${review.generatedActionCount} 件、試したものが ${review.triedActionCount} 件。次は「${review.nextAdjustment}」を見ます。',
     );
   }
 }
@@ -8330,8 +9546,8 @@ class _WeeklyInclusionCard extends StatelessWidget {
       zhHans:
           '$used 条记录进入了这份每周复盘，$timelineOnly 条只保留在时间线。$legacy 条旧记录只作为轻量背景参考。',
       zhHant:
-          '$used 條記錄進入了這份 Weekly，$timelineOnly 條只保留在 Timeline。$legacy 條舊記錄只作為輕量背景參考。',
-      ja: '$used 件の記録をこの Weekly に使いました。$timelineOnly 件は Timeline にだけ残しています。$legacy 件の古い記録は軽い背景として扱いました。',
+          '$used 條記錄進入了這份每週回顧，$timelineOnly 條只保留在時間軸。$legacy 條舊記錄只作為輕量背景參考。',
+      ja: '$used 件の記録をこの週間レビューに使いました。$timelineOnly 件はタイムラインにだけ残しています。$legacy 件の古い記録は軽い背景として扱いました。',
     );
   }
 }
@@ -8511,7 +9727,13 @@ class _LifeExperimentCard extends StatelessWidget {
                         ? null
                         : () => onFeedback(
                               status: 'tried',
-                              feedbackText: 'Helped a little',
+                              feedbackText: AppLocaleText.tr(
+                                context,
+                                en: 'Helped a little',
+                                zhHans: '有一点帮助',
+                                zhHant: '有一點幫助',
+                                ja: '少し助かった',
+                              ),
                             ),
                     child: Text(
                       AppLocaleText.tr(
@@ -8528,7 +9750,13 @@ class _LifeExperimentCard extends StatelessWidget {
                         ? null
                         : () => onFeedback(
                               status: 'adjusted',
-                              feedbackText: 'Needs adjustment',
+                              feedbackText: AppLocaleText.tr(
+                                context,
+                                en: 'Needs adjustment',
+                                zhHans: '需要调整',
+                                zhHant: '需要調整',
+                                ja: '調整したい',
+                              ),
                             ),
                     child: Text(
                       AppLocaleText.tr(
@@ -8545,7 +9773,13 @@ class _LifeExperimentCard extends StatelessWidget {
                         ? null
                         : () => onFeedback(
                               status: 'not_helpful',
-                              feedbackText: 'Not helpful this time',
+                              feedbackText: AppLocaleText.tr(
+                                context,
+                                en: 'Not helpful this time',
+                                zhHans: '这次帮助不明显',
+                                zhHant: '這次幫助不明顯',
+                                ja: '今回はあまり合わない',
+                              ),
                             ),
                     child: Text(
                       AppLocaleText.tr(
@@ -9060,9 +10294,9 @@ class _PremiumChartInsightCard extends StatelessWidget {
                   AppLocaleText.tr(
                     context,
                     en: 'Pro chart reading',
-                    zhHans: 'Pro 图表解读',
-                    zhHant: 'Pro 圖表解讀',
-                    ja: 'Pro の図表読み',
+                    zhHans: '专业版图表解读',
+                    zhHant: '專業版圖表解讀',
+                    ja: 'プロ版の図表読み',
                   ),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
@@ -9203,8 +10437,8 @@ class _FeedbackCard extends StatelessWidget {
               context,
               en: 'Did this weekly read feel right?',
               zhHans: '这份每周复盘看起来对吗？',
-              zhHant: '這份 Weekly 看起來對嗎？',
-              ja: 'この Weekly の見立てはしっくりきましたか？',
+              zhHant: '這份每週回顧看起來對嗎？',
+              ja: 'この週間レビューの見立てはしっくりきましたか？',
             ),
             style: Theme.of(context).textTheme.titleMedium,
           ),

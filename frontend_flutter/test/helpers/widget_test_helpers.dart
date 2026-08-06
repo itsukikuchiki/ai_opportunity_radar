@@ -196,7 +196,7 @@ class StubTodayRepository extends TodayRepository {
       sourceType: sourceType,
       content: content,
       createdAt: DateTime.now(),
-      acknowledgement: '草稿已保存在本机。',
+      acknowledgement: '草稿已保留。',
       isLocalDraft: true,
       rawPayloadJson: rawPayloadJson,
     );
@@ -465,6 +465,13 @@ class StubJourneyProRepository extends JourneyProRepository {
 
   @override
   Future<JourneyProReportModel> fetchThreeMonthChange({
+    String? selectedMonthKey,
+  }) async {
+    return fetchFullHistoryChange(selectedMonthKey: selectedMonthKey);
+  }
+
+  @override
+  Future<JourneyProReportModel> fetchFullHistoryChange({
     String? selectedMonthKey,
   }) async {
     requestedMonths.add(selectedMonthKey);

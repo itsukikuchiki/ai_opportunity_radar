@@ -34,6 +34,45 @@ class BuildEnvironment {
     defaultValue: false,
   );
 
+  /// Optional deterministic locale for the isolated QA showcase dataset.
+  ///
+  /// Leave empty to follow the device locale. Localized simulator packages
+  /// pass their language explicitly so persisted fixture copy cannot drift
+  /// from the UI language.
+  static const String qaShowcaseLanguage = String.fromEnvironment(
+    'SIGNALPATH_QA_SHOWCASE_LANGUAGE',
+    defaultValue: '',
+  );
+
+  /// Optional local date-time anchor for deterministic showcase screenshots.
+  ///
+  /// The value intentionally has no production default. Invalid explicit
+  /// values fail initialization instead of silently seeding a different week.
+  static const String rawQaShowcaseNow = String.fromEnvironment(
+    'SIGNALPATH_QA_SHOWCASE_NOW',
+    defaultValue: '',
+  );
+
+  static DateTime? get qaShowcaseNow {
+    final value = rawQaShowcaseNow.trim();
+    if (value.isEmpty) return null;
+    final parsed = DateTime.tryParse(value);
+    if (parsed == null) {
+      throw FormatException(
+        'Invalid SIGNALPATH_QA_SHOWCASE_NOW date-time',
+        value,
+      );
+    }
+    return parsed;
+  }
+
+  /// Current local clock for deterministic QA pages.
+  ///
+  /// Normal builds always use the real system clock. Only an explicitly
+  /// enabled showcase build may substitute the fixed screenshot timestamp.
+  static DateTime get effectiveNow =>
+      qaShowcaseData ? (qaShowcaseNow ?? DateTime.now()) : DateTime.now();
+
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue: '',

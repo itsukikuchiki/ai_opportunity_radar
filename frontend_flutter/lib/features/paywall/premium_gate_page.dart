@@ -25,7 +25,13 @@ class PremiumGatePage extends StatelessWidget {
     if (purchase == null || purchase.isPremium) return child;
 
     final theme = Theme.of(context);
-    const gateTitle = 'Signal Path Pro';
+    final gateTitle = AppLocaleText.tr(
+      context,
+      en: 'Signal Path Pro',
+      zhHans: 'Signal Path 专业版',
+      zhHant: 'Signal Path 專業版',
+      ja: 'Signal Path プロ版',
+    );
     return Scaffold(
       body: Stack(
         children: [
@@ -113,8 +119,8 @@ class PremiumGatePage extends StatelessWidget {
                                   context,
                                   en: 'Weekly deep review',
                                   zhHans: '每周复盘深度分析',
-                                  zhHant: 'Weekly 本週深讀',
-                                  ja: 'Weekly 深掘りレビュー',
+                                  zhHant: '每週復盤深度分析',
+                                  ja: '週次振り返りの深掘りレビュー',
                                 ),
                                 body: AppLocaleText.tr(
                                   context,
@@ -151,19 +157,21 @@ class PremiumGatePage extends StatelessWidget {
                                 color: AuroraColors.mint,
                                 title: AppLocaleText.tr(
                                   context,
-                                  en: 'Three-month change',
-                                  zhHans: '三个月变化',
-                                  zhHant: '三個月變化',
-                                  ja: '3か月の変化',
+                                  en: 'Complete Journey timeline',
+                                  zhHans: '完整旅程时间轴',
+                                  zhHant: '完整旅程時間軸',
+                                  ja: '旅程の全期間タイムライン',
                                 ),
                                 body: AppLocaleText.tr(
                                   context,
-                                  en: 'Compare the selected natural month with the two months before it. Change summaries appear after two months each reach 7 eligible Signals across 3 recording days.',
+                                  en: 'Review every month since first use. Each month can form its own factual summary after 7 eligible Signals across 3 recording days; cross-month changes grow with the months you have.',
                                   zhHans:
-                                      '比较选定自然月与之前两个月；其中至少两个月各达到 7 条有效 Signal、覆盖 3 个记录日后，开始显示变化总结。',
+                                      '查看从首次使用至今的所有月份；每个月达到 7 条有效 Signal、覆盖 3 个记录日后形成当月事实总结，跨月变化会随实际月份逐步呈现。',
                                   zhHant:
-                                      '比較選定自然月與之前兩個月；其中至少兩個月各達到 7 條有效 Signal、覆蓋 3 個記錄日後，開始顯示變化總結。',
-                                  ja: '選択月とその前の2か月を比較します。2か月以上で各月Signal 7件・記録日3日を満たすと、変化のまとめを表示します。',
+                                      '查看從首次使用至今的所有月份；每個月達到 7 條有效 Signal、覆蓋 3 個記錄日後形成當月事實總結，跨月變化會隨實際月份逐步呈現。',
+                                  ja: '初回利用から現在までのすべての月を振り返ります。'
+                                      '各月で Signal 7件・記録日3日を満たすとその月の事実をまとめ、'
+                                      '月をまたぐ変化は実際の月数に合わせて表示します。',
                                 ),
                               ),
                               const SizedBox(height: 18),
@@ -173,9 +181,9 @@ class PremiumGatePage extends StatelessWidget {
                                   label: AppLocaleText.tr(
                                     context,
                                     en: 'View Pro',
-                                    zhHans: '查看 Pro',
-                                    zhHant: '查看 Pro',
-                                    ja: 'Pro を見る',
+                                    zhHans: '查看专业版',
+                                    zhHant: '查看專業版',
+                                    ja: 'プロ版を見る',
                                   ),
                                   icon: Icons.workspace_premium_rounded,
                                   filled: true,

@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import '../../../core/api/repositories/energy_budget_repository.dart';
 import '../../../core/api/repositories/weekly_repository.dart';
 import '../../../core/api/repositories/analytics_repository.dart';
+import '../../../core/i18n/app_locale_text.dart';
+import '../../../core/i18n/runtime_locale_text.dart';
 import '../../../core/local/local_candidate_planning_repository.dart';
 import '../../../core/models/candidate_models.dart';
 import '../../../core/models/energy_budget_models.dart';
@@ -197,7 +199,10 @@ class WeeklyViewModel extends ChangeNotifier {
           await planner.weeklyCandidateSnapshot(weekDay);
       _notifyListeners();
       experimentCandidateSnapshot =
-          await planner.refreshWeeklyWithGroundedSuggestions(day: weekDay);
+          await planner.refreshWeeklyWithGroundedSuggestions(
+        day: weekDay,
+        language: _repositoryLanguage(),
+      );
     } catch (error) {
       candidateErrorMessage = error.toString();
       try {
@@ -226,6 +231,16 @@ class WeeklyViewModel extends ChangeNotifier {
   static DateTime _startOfWeek(DateTime value) {
     final day = DateTime(value.year, value.month, value.day);
     return day.subtract(Duration(days: day.weekday - DateTime.monday));
+  }
+
+  AppLanguage _repositoryLanguage() {
+    return switch (
+        RuntimeLocaleText.normalize(repository.aiRepository.languageLoader())) {
+      'zh-Hans' => AppLanguage.simplifiedChinese,
+      'zh-Hant' => AppLanguage.traditionalChinese,
+      'ja' => AppLanguage.japanese,
+      _ => AppLanguage.english,
+    };
   }
 
   void _notifyListeners() {
@@ -323,6 +338,7 @@ class WeeklyViewModel extends ChangeNotifier {
   Future<void> submitLifeExperimentFeedback({
     required LifeExperimentModel experiment,
     required String status,
+    String? feedbackText,
   }) async {
     final weekly = weeklyInsight;
     if (weekly == null ||
@@ -337,7 +353,7 @@ class WeeklyViewModel extends ChangeNotifier {
       final updated = await repository.submitLifeExperimentFeedback(
         experimentId: experiment.id,
         status: status,
-        feedbackText: '',
+        feedbackText: feedbackText?.trim() ?? '',
       );
       if (updated == null) {
         throw StateError('life_experiment_feedback_not_recorded');
@@ -440,16 +456,6 @@ class WeeklyViewModel extends ChangeNotifier {
     _notifyListeners();
 
     final updated = await repository.saveLifeExperiment(experiment.id);
-    _replaceExperiment(updated);
-  }
-
-  Future<void> skipExperiment() async {
-    final experiment = nextWeekExperiment;
-    if (experiment == null) return;
-    experimentSubmitState = SubmitState.submitting;
-    _notifyListeners();
-
-    final updated = await repository.skipLifeExperiment(experiment.id);
     _replaceExperiment(updated);
   }
 

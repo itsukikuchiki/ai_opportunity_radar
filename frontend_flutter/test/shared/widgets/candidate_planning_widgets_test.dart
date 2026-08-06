@@ -35,7 +35,7 @@ void main() {
     expect(find.text('记录 3 条信号后开始显示'), findsOneWidget);
     expect(find.text('2/3'), findsOneWidget);
     expect(find.textContaining('避免把某一个瞬间过度解读'), findsOneWidget);
-    expect(find.textContaining('草稿和未确认的 AI 内容不会计入'), findsOneWidget);
+    expect(find.textContaining('草稿和未确认的智能预判不会计入'), findsOneWidget);
   });
 
   testWidgets('候选卡用文字与图标表达选择状态并可展开依据', (tester) async {

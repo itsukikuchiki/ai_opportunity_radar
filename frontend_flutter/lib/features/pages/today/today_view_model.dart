@@ -929,9 +929,9 @@ class TodayViewModel extends ChangeNotifier {
           'recovery' => '现在想留一点恢复空间。',
           'connection' => '现在有点想和人连接。',
           'quiet' => '现在想一个人安静一下。',
-          'energy_low' => '现在能量有点低。',
-          'friction_high' => '现在摩擦感有点高。',
-          'recovery_low' => '现在恢复感有点不够。',
+          'energy_low' => '现在精力有点低。',
+          'friction_high' => '现在负担有点重。',
+          'recovery_low' => '现在还没有看到明显恢复。',
           _ => '现在有一个状态信号。',
         };
       case AppLanguage.traditionalChinese:
@@ -944,9 +944,9 @@ class TodayViewModel extends ChangeNotifier {
           'recovery' => '現在想留一點恢復空間。',
           'connection' => '現在有點想和人連結。',
           'quiet' => '現在想一個人安靜一下。',
-          'energy_low' => '現在能量有點低。',
-          'friction_high' => '現在摩擦感有點高。',
-          'recovery_low' => '現在恢復感有點不夠。',
+          'energy_low' => '現在精力有點低。',
+          'friction_high' => '現在負擔有點重。',
+          'recovery_low' => '現在還沒有看到明顯恢復。',
           _ => '現在有一個狀態信號。',
         };
       case AppLanguage.japanese:
@@ -959,9 +959,9 @@ class TodayViewModel extends ChangeNotifier {
           'recovery' => '今、少し回復する余白がほしいです。',
           'connection' => '今、少し人とのつながりがほしいです。',
           'quiet' => '今、一人で静かにしたいです。',
-          'energy_low' => '今、エネルギーが少し低い。',
-          'friction_high' => '今、摩擦感が少し高い。',
-          'recovery_low' => '今、回復感が少し足りない。',
+          'energy_low' => '今、少し余力が少ないです。',
+          'friction_high' => '今、少し負担が重いです。',
+          'recovery_low' => '今、まだはっきりした回復は見えていません。',
           _ => '今、状態のシグナルが一つあります。',
         };
       case AppLanguage.english:
@@ -974,9 +974,9 @@ class TodayViewModel extends ChangeNotifier {
           'recovery' => 'I want a little recovery space right now.',
           'connection' => 'I want a little connection right now.',
           'quiet' => 'I want some quiet alone time right now.',
-          'energy_low' => 'Energy feels a little low right now.',
-          'friction_high' => 'Friction feels a little high right now.',
-          'recovery_low' => 'Recovery feels a little short right now.',
+          'energy_low' => 'Capacity feels a little low right now.',
+          'friction_high' => 'The load feels a little heavy right now.',
+          'recovery_low' => 'Clear recovery is not visible yet.',
           _ => 'There is a small state signal right now.',
         };
     }

@@ -30,6 +30,24 @@ void main() {
     expect(find.text('Accurate'), findsOneWidget);
     expect(find.text('Somewhat'), findsOneWidget);
     expect(find.text('Not accurate'), findsOneWidget);
+    final illustration = find.byKey(
+      const ValueKey('library-pattern-asset-over_scheduled_weeks'),
+    );
+    expect(illustration, findsOneWidget);
+    final image = tester.widget<Image>(illustration);
+    final resized = image.image as ResizeImage;
+    expect(
+      (resized.imageProvider as AssetImage).assetName,
+      'assets/weekly/weekly-pattern-schedule-driven-mood.png',
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Semantics &&
+            widget.properties.label == 'Over-scheduled weeks',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Does this match me?'), findsNothing);
     expect(find.text('Save'), findsNothing);
     expect(find.text('Make it mine'), findsNothing);
@@ -140,7 +158,7 @@ void main() {
 
     expect(repository.responses, hasLength(1));
     expect(
-      find.text('Nothing was added to your timeline.'),
+      find.byKey(const ValueKey('library-pattern-over_scheduled_weeks')),
       findsOneWidget,
     );
   });
@@ -181,6 +199,149 @@ void main() {
       find.byKey(const ValueKey('library-signal-timeline-input')),
       findsNothing,
     );
+    expect(
+      find.byKey(
+        const ValueKey('library-pattern-over_scheduled_weeks_zh_hans'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'not accurate replaces within the current result at most three times '
+      'and never writes to the repository', (tester) async {
+    final patterns = List<LibraryPatternModel>.generate(
+      5,
+      (index) => _replacementPattern(index + 1),
+    );
+    final repository = _FakeSignalLibraryRepository(patterns: patterns);
+    await tester.binding.setSurfaceSize(const Size(1200, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_buildWidget(repository: repository));
+    await tester.pump();
+
+    final firstCard = find.byKey(
+      const ValueKey('library-pattern-replacement-pattern-1'),
+    );
+    final firstSlotTop = tester.getTopLeft(firstCard).dy;
+
+    for (var index = 1; index <= 3; index += 1) {
+      final currentId = 'replacement-pattern-$index';
+      final nextId = 'replacement-pattern-${index + 1}';
+
+      await tester.tap(
+        find.byKey(ValueKey('library-signal-inaccurate-$currentId')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(ValueKey('library-pattern-$currentId')),
+        findsNothing,
+        reason: 'successful replacement $index must remove the current card',
+      );
+      expect(
+        find.byKey(ValueKey('library-pattern-$nextId')),
+        findsOneWidget,
+        reason: 'the next result must fill the vacated slot',
+      );
+      expect(
+        tester
+            .getTopLeft(
+              find.byKey(ValueKey('library-pattern-$nextId')),
+            )
+            .dy,
+        closeTo(firstSlotTop, 1),
+      );
+      expect(repository.responses, isEmpty);
+    }
+
+    final fourthCard = find.byKey(
+      const ValueKey('library-pattern-replacement-pattern-4'),
+    );
+    final fourthTopBefore = tester.getTopLeft(fourthCard).dy;
+    await tester.tap(
+      find.byKey(
+        const ValueKey('library-signal-inaccurate-replacement-pattern-4'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(fourthCard, findsOneWidget);
+    expect(tester.getTopLeft(fourthCard).dy, closeTo(fourthTopBefore, 1));
+    expect(
+      find.byKey(const ValueKey('library-pattern-replacement-pattern-5')),
+      findsOneWidget,
+    );
+    expect(repository.responses, isEmpty);
+  });
+
+  testWidgets(
+      'a single matching result stays visible and does not consume replacement '
+      'quota', (tester) async {
+    final patterns = List<LibraryPatternModel>.generate(
+      4,
+      (index) => _replacementPattern(
+        index + 1,
+        abstractPattern: index == 0
+            ? 'Only isolated-match appears in this search.'
+            : 'Shared replacement result ${index + 1}.',
+      ),
+    );
+    final repository = _FakeSignalLibraryRepository(patterns: patterns);
+    await tester.binding.setSurfaceSize(const Size(1200, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_buildWidget(repository: repository));
+    await tester.pump();
+
+    final searchField = find.byType(TextField);
+    await tester.enterText(searchField, 'isolated-match');
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('library-pattern-replacement-pattern-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('library-pattern-replacement-pattern-2')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('library-signal-inaccurate-replacement-pattern-1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('library-pattern-replacement-pattern-1')),
+      findsOneWidget,
+      reason: 'no replacement means the current result must remain',
+    );
+    expect(repository.responses, isEmpty);
+
+    await tester.enterText(searchField, '');
+    await tester.pump();
+
+    for (var index = 1; index <= 3; index += 1) {
+      final id = 'replacement-pattern-$index';
+      await tester.tap(
+        find.byKey(ValueKey('library-signal-inaccurate-$id')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(ValueKey('library-pattern-$id')),
+        findsNothing,
+        reason:
+            'the failed isolated attempt must not consume success $index of 3',
+      );
+    }
+
+    expect(
+      find.byKey(const ValueKey('library-pattern-replacement-pattern-4')),
+      findsOneWidget,
+    );
+    expect(repository.responses, isEmpty);
   });
 
   testWidgets('passes Traditional Chinese and Japanese locale codes',
@@ -387,10 +548,13 @@ Widget _buildWidget(
 }
 
 class _FakeSignalLibraryRepository extends SignalLibraryRepository {
-  _FakeSignalLibraryRepository({this.includeCategorySet = false})
-      : super(LocalDatabase());
+  _FakeSignalLibraryRepository({
+    this.includeCategorySet = false,
+    this.patterns,
+  }) : super(LocalDatabase());
 
   final bool includeCategorySet;
+  final List<LibraryPatternModel>? patterns;
 
   String? lastLanguage;
   final List<String> requestedLanguages = [];
@@ -402,6 +566,9 @@ class _FakeSignalLibraryRepository extends SignalLibraryRepository {
   }) async {
     lastLanguage = language;
     requestedLanguages.add(language);
+    if (patterns != null && language == 'en') {
+      return patterns!;
+    }
     if (includeCategorySet && language == 'en') {
       return [
         _emotionalPattern,
@@ -458,6 +625,25 @@ final _pattern = LibraryPatternModel(
   createdAt: DateTime.utc(2026, 5, 29),
   updatedAt: DateTime.utc(2026, 5, 29),
 );
+
+LibraryPatternModel _replacementPattern(
+  int number, {
+  String? abstractPattern,
+}) {
+  return LibraryPatternModel(
+    id: 'replacement-pattern-$number',
+    focusDomainId: 'growth_plan',
+    title: 'Replacement pattern $number',
+    abstractPattern: abstractPattern ?? 'Shared replacement result $number.',
+    commonScenes: const ['planning'],
+    commonFrictions: const ['schedule density'],
+    energyLoadHint: 'steady',
+    possiblePositiveSignal: 'a little more room',
+    language: 'en',
+    createdAt: DateTime.utc(2026, 7, 27),
+    updatedAt: DateTime.utc(2026, 7, 27),
+  );
+}
 
 final _simplifiedChinesePattern = LibraryPatternModel(
   id: 'over_scheduled_weeks_zh_hans',

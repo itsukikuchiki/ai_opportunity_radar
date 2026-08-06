@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import 'app_router.dart';
+import '../core/config/build_environment.dart';
 import '../core/di/app_dependencies.dart';
+import '../core/i18n/app_locale_text.dart';
 import '../core/purchases/purchase_controller.dart';
 import '../core/state/app_bootstrap_state.dart';
 import '../core/state/app_data_refresh_coordinator.dart';
@@ -91,6 +93,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
     _memoryViewModel = MemoryViewModel(
       dependencies.memoryRepository,
       analyticsRepository: dependencies.analyticsRepository,
+      nowLoader: () => BuildEnvironment.effectiveNow,
     );
     _journeyProViewModel = JourneyProViewModel(
       dependencies.journeyProRepository,
@@ -234,7 +237,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
   Widget _buildLoadingApp({required bool showOnboarding}) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Signal Path：AI手帳',
+      title: 'Signal Path',
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -257,7 +260,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
   Widget _buildErrorApp(AppBootstrapState bootstrap) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Signal Path：AI手帳',
+      title: 'Signal Path',
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -281,7 +284,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
   Widget _buildRouterApp(GoRouter router) {
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
-      title: 'Signal Path：AI手帳',
+      title: 'Signal Path',
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -455,7 +458,13 @@ class _BrandLaunchScreen extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  '看见信号，轻轻调整',
+                                  AppLocaleText.tr(
+                                    context,
+                                    en: 'Notice the Signal, adjust gently',
+                                    zhHans: '看见信号，轻轻调整',
+                                    zhHant: '看見信號，輕輕調整',
+                                    ja: 'シグナルに気づき、少しずつ整える',
+                                  ),
                                   textAlign: TextAlign.center,
                                   style: Theme.of(context)
                                       .textTheme

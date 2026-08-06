@@ -125,8 +125,10 @@ class LocalWeeklySnapshotRepository {
     required List<Map<String, dynamic>> entries,
     required Map<String, int> dayCounts,
     required List<String> topTokens,
+    String language = '',
   }) {
     final buffer = StringBuffer();
+    buffer.write('language:$language||');
 
     for (final entry in entries) {
       buffer.write(entry['id'] ?? '');

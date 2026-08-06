@@ -52,23 +52,23 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Unlock This Week Deep Read, Journey L3 evidence and period comparisons, SignalCard follow-up, structured self-review, and expanded AI quota.",
+              "description" : "Unlock weekly deep analysis, action-preference insights across experiments and goals, the complete Journey timeline since first use, structured self-review, and expanded AI usage.",
               "displayName" : "Signal Path Pro Monthly",
               "locale" : "en_US"
             },
             {
-              "description" : "解锁本周深读、Journey L3 证据与周期对比、基于 SignalCard 的追问、结构化自我复盘及更多 AI 用量。",
-              "displayName" : "Signal Path Pro 月付",
+              "description" : "解锁本周深度分析、跨小实验与目标的行动偏好、从首次使用至今的旅程完整时间轴、结构化自我复盘及更多智能功能用量。",
+              "displayName" : "Signal Path 专业版月付",
               "locale" : "zh_CN"
             },
             {
-              "description" : "解鎖本週深讀、Journey L3 證據與週期對比、基於 SignalCard 的追問、結構化自我複盤及更多 AI 用量。",
-              "displayName" : "Signal Path Pro 月付",
+              "description" : "解鎖本週深度分析、跨小實驗與目標的行動偏好、從首次使用至今的旅程完整時間軸、結構化自我複盤及更多智慧功能用量。",
+              "displayName" : "Signal Path 專業版月付",
               "locale" : "zh_TW"
             },
             {
-              "description" : "今週のディープリード、Journey L3 の根拠と期間比較、SignalCard に基づく追加質問、構造化された自己振り返り、AI 利用枠の拡張を利用できます。",
-              "displayName" : "Signal Path Pro 月額",
+              "description" : "今週の深い分析、小実験と目標を横断した行動傾向、初回利用から現在までの旅程の全期間タイムライン、構造化された自己振り返り、知能機能の利用枠拡張を利用できます。",
+              "displayName" : "Signal Path プロ版月額",
               "locale" : "ja_JP"
             }
           ],
@@ -95,23 +95,23 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Unlock This Week Deep Read, Journey L3 evidence and period comparisons, SignalCard follow-up, structured self-review, and expanded AI quota for a full year.",
+              "description" : "Unlock weekly deep analysis, action-preference insights across experiments and goals, the complete Journey timeline since first use, structured self-review, and expanded AI usage for a full year.",
               "displayName" : "Signal Path Pro Yearly",
               "locale" : "en_US"
             },
             {
-              "description" : "以年付解锁本周深读、Journey L3 证据与周期对比、基于 SignalCard 的追问、结构化自我复盘及更多 AI 用量。",
-              "displayName" : "Signal Path Pro 年付",
+              "description" : "以年付解锁本周深度分析、跨小实验与目标的行动偏好、从首次使用至今的旅程完整时间轴、结构化自我复盘及更多智能功能用量。",
+              "displayName" : "Signal Path 专业版年付",
               "locale" : "zh_CN"
             },
             {
-              "description" : "以年付解鎖本週深讀、Journey L3 證據與週期對比、基於 SignalCard 的追問、結構化自我複盤及更多 AI 用量。",
-              "displayName" : "Signal Path Pro 年付",
+              "description" : "以年付解鎖本週深度分析、跨小實驗與目標的行動偏好、從首次使用至今的旅程完整時間軸、結構化自我複盤及更多智慧功能用量。",
+              "displayName" : "Signal Path 專業版年付",
               "locale" : "zh_TW"
             },
             {
-              "description" : "今週のディープリード、Journey L3 の根拠と期間比較、SignalCard に基づく追加質問、構造化された自己振り返り、AI 利用枠の拡張を 1 年間利用できます。",
-              "displayName" : "Signal Path Pro 年額",
+              "description" : "今週の深い分析、小実験と目標を横断した行動傾向、初回利用から現在までの旅程の全期間タイムライン、構造化された自己振り返り、知能機能の利用枠拡張を1年間利用できます。",
+              "displayName" : "Signal Path プロ版年額",
               "locale" : "ja_JP"
             }
           ],

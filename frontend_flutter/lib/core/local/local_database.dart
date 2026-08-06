@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 
 class LocalDatabase {
   static const _databaseName = 'ai_opportunity_radar_local.db';
-  static const schemaVersion = 40;
+  static const schemaVersion = 42;
   static const _databaseVersion = schemaVersion;
 
   final String? dbPathOverride;
@@ -294,6 +294,14 @@ class LocalDatabase {
           if (oldVersion < 40) {
             await _upgradeExperimentEvaluationV40(db);
           }
+
+          if (oldVersion < 41) {
+            await _addWeeklyContinuationLineageColumns(db);
+          }
+
+          if (oldVersion < 42) {
+            await _addExperimentCreationSourceColumns(db);
+          }
         },
       ),
     );
@@ -408,6 +416,8 @@ class LocalDatabase {
     await _addLifeExperimentRollupInvalidationColumns(db);
     await _createCandidatePlanningTables(db);
     await _addCandidatePlanningColumns(db);
+    await _addWeeklyContinuationLineageColumns(db);
+    await _addExperimentCreationSourceColumns(db);
     await _addCandidateDecisionColumns(db);
     // v40 reads candidate-planning columns such as progress_end_date, so it
     // must run after those columns exist on a fresh database. Upgrade paths
@@ -1316,6 +1326,14 @@ class LocalDatabase {
         hypothesis TEXT NOT NULL,
         suggested_action TEXT NOT NULL,
         linked_signal_card_ids_json TEXT NOT NULL DEFAULT '[]',
+        creation_source TEXT NOT NULL DEFAULT 'legacy_unknown'
+          CHECK(creation_source IN (
+            'user_created',
+            'candidate_adoption',
+            'continuation',
+            'legacy_ai_judgement',
+            'legacy_unknown'
+          )),
         status TEXT NOT NULL DEFAULT 'pending',
         feedback_text TEXT,
         created_at TEXT NOT NULL,
@@ -1509,9 +1527,10 @@ class LocalDatabase {
             'CHECK(planned_duration_minutes BETWEEN 1 AND 10)',
       );
       // Candidate adoption previously materialized an artificial end exactly
-      // six days after the start. Open lifecycle rows must remain available
-      // until the user explicitly completes them. Terminal rows keep their
-      // old end date so historical diary projections remain stable.
+      // six days after the start. Open lifecycle rows remain available until
+      // weekly boundary reconciliation closes projections the user did not
+      // continue. Terminal rows keep their old end date so historical diary
+      // projections remain stable.
       final currentColumns = await _tableColumnNames(db, 'micro_actions');
       if (currentColumns.containsAll(
         const {'status', 'progress_start_date', 'progress_end_date'},
@@ -1886,6 +1905,237 @@ class LocalDatabase {
       'life_experiment_feedback',
       'is_valid INTEGER NOT NULL DEFAULT 1',
     );
+  }
+
+  /// v41 makes weekly continuation explicit for both quick experiments and
+  /// goals. A new week receives a new immutable planning object while the
+  /// previous week's object can close without rewriting its history.
+  Future<void> _addWeeklyContinuationLineageColumns(Database db) async {
+    await _addColumnIfNeeded(
+      db,
+      'micro_actions',
+      'parent_micro_action_id TEXT',
+    );
+    final microColumns = await _tableColumnNames(db, 'micro_actions');
+    if (microColumns.containsAll(const {
+      'local_user_id',
+      'parent_micro_action_id',
+      'progress_start_date',
+    })) {
+      // Older development builds could create the same continuation more than
+      // once. Keep every historical row, but detach all except the newest row
+      // from the duplicated parent/week identity before adding the constraint.
+      await db.execute('''
+        UPDATE micro_actions
+        SET parent_micro_action_id = NULL
+        WHERE parent_micro_action_id IS NOT NULL
+          AND TRIM(parent_micro_action_id) != ''
+          AND rowid NOT IN (
+            SELECT MAX(rowid)
+            FROM micro_actions
+            WHERE parent_micro_action_id IS NOT NULL
+              AND TRIM(parent_micro_action_id) != ''
+            GROUP BY local_user_id, parent_micro_action_id, progress_start_date
+          )
+      ''');
+      await db.execute('''
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_micro_actions_parent_week
+        ON micro_actions(
+          local_user_id,
+          parent_micro_action_id,
+          progress_start_date
+        )
+        WHERE parent_micro_action_id IS NOT NULL
+      ''');
+    }
+    final experimentColumns = await _tableColumnNames(db, 'life_experiments');
+    if (experimentColumns.containsAll(const {
+      'local_user_id',
+      'parent_experiment_id',
+      'source_week_start',
+    })) {
+      await db.execute('''
+        UPDATE life_experiments
+        SET parent_experiment_id = NULL
+        WHERE parent_experiment_id IS NOT NULL
+          AND TRIM(parent_experiment_id) != ''
+          AND rowid NOT IN (
+            SELECT MAX(rowid)
+            FROM life_experiments
+            WHERE parent_experiment_id IS NOT NULL
+              AND TRIM(parent_experiment_id) != ''
+            GROUP BY local_user_id, parent_experiment_id, source_week_start
+          )
+      ''');
+      await db.execute('''
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_life_experiments_parent_week
+        ON life_experiments(
+          local_user_id,
+          parent_experiment_id,
+          source_week_start
+        )
+        WHERE parent_experiment_id IS NOT NULL
+      ''');
+    }
+  }
+
+  /// v42 separates the way a small experiment or goal entered the user's plan
+  /// from its internal linked-Signal provenance.
+  ///
+  /// Backfill is intentionally conservative: only candidate IDs and legacy AI
+  /// judgement IDs identify a root creation path. Weekly continuation is
+  /// lineage, not a new origin, so children inherit the nearest available root
+  /// source from their parent chain. Every other legacy row remains
+  /// `legacy_unknown` instead of being mislabeled as user-created.
+  Future<void> _addExperimentCreationSourceColumns(Database db) async {
+    await _addColumnIfNeeded(
+      db,
+      'micro_actions',
+      "creation_source TEXT NOT NULL DEFAULT 'legacy_unknown'",
+    );
+    await _addColumnIfNeeded(
+      db,
+      'life_experiments',
+      "creation_source TEXT NOT NULL DEFAULT 'legacy_unknown'",
+    );
+
+    final microColumns = await _tableColumnNames(db, 'micro_actions');
+    if (microColumns.contains('creation_source')) {
+      final candidateCase = microColumns.contains('origin_candidate_id')
+          ? '''
+          WHEN origin_candidate_id IS NOT NULL
+            AND TRIM(origin_candidate_id) != ''
+            THEN 'candidate_adoption'
+        '''
+          : '';
+      final judgementCase = microColumns.contains('judgement_id')
+          ? '''
+          WHEN judgement_id IS NOT NULL
+            AND TRIM(judgement_id) != ''
+            THEN 'legacy_ai_judgement'
+        '''
+          : '';
+      final sourceExpression = '$candidateCase$judgementCase'.trim().isEmpty
+          ? "'legacy_unknown'"
+          : "CASE $candidateCase $judgementCase "
+              "ELSE 'legacy_unknown' END";
+      await db.execute('''
+        UPDATE micro_actions
+        SET creation_source = $sourceExpression
+        WHERE creation_source IS NULL
+          OR TRIM(creation_source) = ''
+          OR creation_source NOT IN (
+            'user_created',
+            'candidate_adoption',
+            'continuation',
+            'legacy_ai_judgement',
+            'legacy_unknown'
+          )
+          OR creation_source = 'legacy_unknown'
+      ''');
+      if (microColumns.contains('id') &&
+          microColumns.contains('parent_micro_action_id')) {
+        await db.execute('''
+        WITH RECURSIVE micro_origin(id, creation_source) AS (
+          SELECT
+            id,
+            CASE
+              WHEN creation_source NOT IN ('continuation', 'legacy_unknown')
+                THEN creation_source
+              ELSE $sourceExpression
+            END
+          FROM micro_actions
+          WHERE parent_micro_action_id IS NULL
+            OR TRIM(parent_micro_action_id) = ''
+            OR parent_micro_action_id NOT IN (SELECT id FROM micro_actions)
+
+          UNION ALL
+
+          SELECT child.id, parent.creation_source
+          FROM micro_actions child
+          INNER JOIN micro_origin parent
+            ON child.parent_micro_action_id = parent.id
+        )
+        UPDATE micro_actions
+        SET creation_source = COALESCE(
+          (
+            SELECT origin.creation_source
+            FROM micro_origin origin
+            WHERE origin.id = micro_actions.id
+          ),
+          'legacy_unknown'
+        )
+        WHERE parent_micro_action_id IS NOT NULL
+          AND TRIM(parent_micro_action_id) != ''
+          AND creation_source IN ('continuation', 'legacy_unknown')
+      ''');
+      }
+    }
+
+    final goalColumns = await _tableColumnNames(db, 'life_experiments');
+    if (goalColumns.contains('creation_source')) {
+      final candidateCase = goalColumns.contains('origin_candidate_id')
+          ? '''
+          WHEN origin_candidate_id IS NOT NULL
+            AND TRIM(origin_candidate_id) != ''
+            THEN 'candidate_adoption'
+        '''
+          : '';
+      final sourceExpression = candidateCase.trim().isEmpty
+          ? "'legacy_unknown'"
+          : "CASE $candidateCase ELSE 'legacy_unknown' END";
+      await db.execute('''
+        UPDATE life_experiments
+        SET creation_source = $sourceExpression
+        WHERE creation_source IS NULL
+          OR TRIM(creation_source) = ''
+          OR creation_source NOT IN (
+            'user_created',
+            'candidate_adoption',
+            'continuation',
+            'legacy_ai_judgement',
+            'legacy_unknown'
+          )
+          OR creation_source = 'legacy_unknown'
+      ''');
+      if (goalColumns.contains('id') &&
+          goalColumns.contains('parent_experiment_id')) {
+        await db.execute('''
+        WITH RECURSIVE goal_origin(id, creation_source) AS (
+          SELECT
+            id,
+            CASE
+              WHEN creation_source NOT IN ('continuation', 'legacy_unknown')
+                THEN creation_source
+              ELSE $sourceExpression
+            END
+          FROM life_experiments
+          WHERE parent_experiment_id IS NULL
+            OR TRIM(parent_experiment_id) = ''
+            OR parent_experiment_id NOT IN (SELECT id FROM life_experiments)
+
+          UNION ALL
+
+          SELECT child.id, parent.creation_source
+          FROM life_experiments child
+          INNER JOIN goal_origin parent
+            ON child.parent_experiment_id = parent.id
+        )
+        UPDATE life_experiments
+        SET creation_source = COALESCE(
+          (
+            SELECT origin.creation_source
+            FROM goal_origin origin
+            WHERE origin.id = life_experiments.id
+          ),
+          'legacy_unknown'
+        )
+        WHERE parent_experiment_id IS NOT NULL
+          AND TRIM(parent_experiment_id) != ''
+          AND creation_source IN ('continuation', 'legacy_unknown')
+      ''');
+      }
+    }
   }
 
   /// v38 separates the user's explicit candidate decision from the existing
@@ -2516,6 +2766,14 @@ class LocalDatabase {
         linked_schedule_signal_id TEXT,
         linked_goal_id TEXT,
         linked_life_experiment_id TEXT,
+        creation_source TEXT NOT NULL DEFAULT 'legacy_unknown'
+          CHECK(creation_source IN (
+            'user_created',
+            'candidate_adoption',
+            'continuation',
+            'legacy_ai_judgement',
+            'legacy_unknown'
+          )),
         status TEXT NOT NULL DEFAULT 'suggested',
         feedback_status TEXT NOT NULL DEFAULT 'none',
         created_at TEXT NOT NULL,

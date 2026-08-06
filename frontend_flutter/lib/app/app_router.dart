@@ -8,7 +8,6 @@ import '../core/models/candidate_models.dart';
 import '../features/pages/candidates/candidate_hub_page.dart';
 import '../features/pages/me/me_page.dart';
 import '../features/pages/me/advanced_signal_settings_page.dart';
-import '../features/pages/me/data_privacy_page.dart';
 import '../features/pages/me/signal_reminder_settings_page.dart';
 import '../features/pages/experiment/experiment_page.dart';
 import '../features/pages/memory/journey_pro_page.dart';
@@ -35,7 +34,6 @@ class AppRoutes {
   static const me = '/me';
   static const selfReview = '/self-review';
   static const advancedSignals = '/me/advanced-signals';
-  static const dataPrivacy = '/me/data-privacy';
   static const signalReminders = '/me/signal-reminders';
   static const signalLibrary = '/signal-library';
   static const todayDiary = '/today/diary';
@@ -155,7 +153,7 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       GoRoute(
         path: AppRoutes.journeyPro,
         builder: (_, state) => PremiumGatePage(
-          source: '旅程 Pro 三个月变化',
+          source: '旅程深度分析',
           fallbackRoute: AppRoutes.memory,
           child: JourneyProPage(
             initialMonthKey: state.uri.queryParameters['month'],
@@ -173,10 +171,6 @@ GoRouter createAppRouter(AppBootstrapState bootstrap) {
       GoRoute(
         path: AppRoutes.advancedSignals,
         builder: (_, __) => const AdvancedSignalSettingsPage(),
-      ),
-      GoRoute(
-        path: AppRoutes.dataPrivacy,
-        builder: (_, __) => const DataPrivacyPage(),
       ),
       GoRoute(
         path: AppRoutes.signalReminders,
@@ -252,7 +246,6 @@ String resolvedInitialRoute(String route) {
     case AppRoutes.todayActionCandidates:
     case AppRoutes.weeklyExperimentCandidates:
     case AppRoutes.journeyPro:
-    case AppRoutes.dataPrivacy:
     case AppRoutes.signalReminders:
       return route;
     case AppRoutes.deepWeekly:

@@ -13,6 +13,7 @@ import '../../models/feedback_event_models.dart';
 import '../../models/memory_models.dart';
 import '../../models/today_models.dart';
 import '../../models/weekly_models.dart';
+import '../../i18n/runtime_locale_text.dart';
 import '../../preferences/focus_domains.dart';
 import '../../readiness/report_readiness.dart';
 import 'ai_repository.dart';
@@ -20,6 +21,7 @@ import 'monthly_repository.dart';
 
 typedef MemoryFocusAreaLoader = Future<String?> Function();
 typedef JourneyInstallationDateLoader = Future<DateTime> Function();
+typedef MemoryNowLoader = DateTime Function();
 
 class MemoryFetchResult {
   final MemorySummaryModel? summary;
@@ -34,6 +36,8 @@ class MemoryFetchResult {
 }
 
 class MemoryRepository {
+  static const _generatedCopyCacheVersion = 'journey_language_guard_v2';
+
   final LocalCaptureRepository localCaptureRepository;
   final LocalJourneySnapshotRepository localJourneySnapshotRepository;
   final LocalLifeExperimentRepository? localLifeExperimentRepository;
@@ -46,6 +50,7 @@ class MemoryRepository {
   final String localUserId;
   final SignalEligibilityService eligibilityService;
   final ReportReadinessRule journeyReadinessRule;
+  final MemoryNowLoader nowLoader;
 
   MemoryRepository({
     required this.localCaptureRepository,
@@ -60,12 +65,14 @@ class MemoryRepository {
     this.localUserId = 'local',
     SignalEligibilityService? eligibilityService,
     this.journeyReadinessRule = ReportReadinessEvaluator.journeyRule,
-  }) : eligibilityService =
-            eligibilityService ?? const SignalEligibilityService();
+    MemoryNowLoader? nowLoader,
+  })  : eligibilityService =
+            eligibilityService ?? const SignalEligibilityService(),
+        nowLoader = nowLoader ?? DateTime.now;
 
   Future<MemoryFetchResult> fetchMemorySummaryResult({DateTime? month}) async {
     final installationDate = await _readOrCreateInstallationDate();
-    final today = _dateOnly(DateTime.now());
+    final today = _dateOnly(nowLoader());
     final requestedMonth = _dateOnly(month ?? today);
     final selectedMonth = DateTime(requestedMonth.year, requestedMonth.month);
     final currentMonth = DateTime(today.year, today.month);
@@ -149,6 +156,8 @@ class MemoryRepository {
       experimentHistory: journeyStats.experimentEntries,
       traceEntries: journeyStats.traceEntries,
       observationEntries: journeyStats.observationEntries,
+      language:
+          '${RuntimeLocaleText.normalize(aiRepository.languageLoader())}|$_generatedCopyCacheVersion',
     );
     await _markJourneyInclusion(journeyStats);
 
@@ -182,6 +191,9 @@ class MemoryRepository {
         generated: generated,
         stats: journeyStats,
       );
+      if (!_generatedJourneyMatchesLanguage(generated)) {
+        generated = _buildFallbackJourneySummary(journeyStats);
+      }
     } catch (error) {
       await _recordPipelineFailure(
         pipelineType: 'reflect_generation',
@@ -322,7 +334,7 @@ class MemoryRepository {
       return _fetchObservationEvidence(trace!);
     }
 
-    final snapshotDate = _dateKey(_dateOnly(DateTime.now()));
+    final snapshotDate = _dateKey(_dateOnly(nowLoader()));
     final links = await LocalTraceLinkRepository(
       localJourneySnapshotRepository.localDatabase,
     ).listForSource(
@@ -761,7 +773,13 @@ class MemoryRepository {
           () => _JourneyTrackAccumulator(
             subjectId: event.subjectId,
             kind: 'small_experiment',
-            title: subjectTitles[event.subjectId] ?? '小实验',
+            title: subjectTitles[event.subjectId] ??
+                _copy(
+                  en: 'Spot try',
+                  zhHans: '轻尝试',
+                  zhHant: '輕嘗試',
+                  ja: 'ちょっと試す',
+                ),
           ),
         );
         if (event.sourceType == 'micro_action_feedback') {
@@ -786,7 +804,13 @@ class MemoryRepository {
           () => _JourneyTrackAccumulator(
             subjectId: event.subjectId,
             kind: 'goal',
-            title: subjectTitles[event.subjectId] ?? '目标',
+            title: subjectTitles[event.subjectId] ??
+                _copy(
+                  en: 'Goal',
+                  zhHans: '目标',
+                  zhHant: '目標',
+                  ja: '目標',
+                ),
           ),
         );
         if (_isGoalDailyEvent(event)) {
@@ -1167,12 +1191,38 @@ class MemoryRepository {
 
   String _feedbackEventTitle(FeedbackEventModel event) {
     return switch (event.sourceType) {
-      'micro_action_feedback' => '小实验尝试',
-      'micro_action_round_review' => '小实验整轮总结',
-      'life_experiment_feedback' || 'goal_feedback' => '目标进展',
+      'micro_action_feedback' => _copy(
+          en: 'Spot try attempt',
+          zhHans: '轻尝试记录',
+          zhHant: '輕嘗試記錄',
+          ja: 'ちょっと試した記録'),
+      'micro_action_round_review' => _copy(
+          en: 'Spot try round review',
+          zhHans: '轻尝试整轮总结',
+          zhHant: '輕嘗試整輪總結',
+          ja: 'ちょっと試す全体まとめ'),
+      'life_experiment_feedback' ||
+      'goal_feedback' =>
+        _copy(en: 'Goal progress', zhHans: '目标进展', zhHant: '目標進展', ja: '目標の進捗'),
       'life_experiment_outcome_review' =>
-        event.metadata['review_type'] == 'weekly' ? '目标周次总结' : '目标整轮总结',
-      'schedule_feedback' => event.metadata['title']?.toString() ?? '时间安排',
+        event.metadata['review_type'] == 'weekly'
+            ? _copy(
+                en: 'Goal weekly review',
+                zhHans: '目标周次总结',
+                zhHant: '目標週次總結',
+                ja: '目標の週次まとめ')
+            : _copy(
+                en: 'Goal round review',
+                zhHans: '目标整轮总结',
+                zhHant: '目標整輪總結',
+                ja: '目標の全体まとめ'),
+      'schedule_feedback' => event.metadata['title']?.toString() ??
+          _copy(
+            en: 'Schedule',
+            zhHans: '时间安排',
+            zhHant: '時間安排',
+            ja: '予定',
+          ),
       _ => event.subjectType,
     };
   }
@@ -1252,18 +1302,22 @@ class MemoryRepository {
       final dayKey = signal.localDateKey();
       if (dayKey.isEmpty || !inMonth(dayKey)) continue;
       final isReflection = _isManualReflectionSignal(signal);
+      final title = isReflection
+          ? _copy(
+              en: 'Manual reflection',
+              zhHans: '手动反思',
+              zhHant: '手動反思',
+              ja: '手動の振り返り',
+            )
+          : _traceTitleForSignal(signal);
+      final summary = _analysisContent(signal);
       traces.add(JourneyTraceModel(
         id: signal.signalCardId ?? signal.id ?? 'signal_$dayKey',
         sourceType: isReflection ? 'manual_reflection' : 'signal_card',
-        title:
-            isReflection ? 'Manual reflection' : _traceTitleForSignal(signal),
-        summary: _analysisContent(signal),
+        title: title,
+        summary: summary,
         localDate: dayKey,
-        cluster: _traceCluster(
-          signal.scene ??
-              (signal.sceneTags.isEmpty ? null : signal.sceneTags.first) ??
-              signal.sourceType,
-        ),
+        cluster: _journeyFocusDomainForSignal(signal),
         intensity: _signalIntensity(signal),
         signalLevel: _journeyEvidenceLevel(signal) == 'standard'
             ? 'repeated_pattern'
@@ -1289,17 +1343,22 @@ class MemoryRepository {
                   event.subjectType == 'goal'
               ? 'goal'
               : event.subjectType;
+      final title =
+          subjectTitles[event.subjectId] ?? _feedbackEventTitle(event);
+      final summary = _eventSummary(event);
       traces.add(JourneyTraceModel(
         // Keep the source type in the identity so append-only rows from
         // different event tables can never collapse when their raw ids match.
         id: event.id,
         sourceType: event.sourceType,
-        title: subjectTitles[event.subjectId] ?? _feedbackEventTitle(event),
-        summary: _eventSummary(event),
+        title: title,
+        summary: summary,
         localDate: event.localDate,
-        cluster: kind == 'small_experiment' || kind == 'goal'
-            ? 'experiment'
-            : _traceCluster(event.effect ?? event.status),
+        cluster: _journeyFocusDomainForFeedback(
+          event,
+          title: title,
+          summary: summary,
+        ),
         intensity: _feedbackIntensity(
           event.effect ?? event.status,
           event.note,
@@ -1360,7 +1419,12 @@ class MemoryRepository {
   List<JourneyThemeModel> _journeyThemes(List<JourneyTraceModel> traces) {
     final counts = <String, int>{};
     for (final trace in traces) {
-      counts[trace.cluster] = (counts[trace.cluster] ?? 0) + 1;
+      final domainId = FocusDomains.classifyId(
+        explicitIds: [trace.cluster],
+        taxonomyTokens: [trace.cluster],
+        textEvidence: [trace.title, trace.summary],
+      );
+      counts[domainId] = (counts[domainId] ?? 0) + 1;
     }
     final sorted = counts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
@@ -1382,36 +1446,97 @@ class MemoryRepository {
 
   String _traceTitleForSignal(RecentSignalModel signal) {
     final scene = signal.scene?.trim();
-    if (scene != null && scene.isNotEmpty) return scene;
-    if (signal.sceneTags.isNotEmpty) return signal.sceneTags.first;
-    return 'Signal Card';
+    if (scene != null && scene.isNotEmpty) return _readableToken(scene);
+    if (signal.sceneTags.isNotEmpty) {
+      return _readableToken(signal.sceneTags.first);
+    }
+    return _copy(
+      en: 'Signal Card',
+      zhHans: '信号卡',
+      zhHant: 'Signal 卡片',
+      ja: 'Signal カード',
+    );
   }
 
-  String _traceCluster(String? value) {
-    final text = (value ?? '').toLowerCase();
-    if (text.contains('recover') ||
-        text.contains('rest') ||
-        text.contains('恢复') ||
-        text.contains('calm')) {
-      return 'recovery';
+  String _journeyFocusDomainForSignal(RecentSignalModel signal) {
+    final storedIds = <String>[
+      ..._stringValues(signal.userCorrectionJson['focus_domain_id']),
+      ..._stringValues(signal.userCorrectionJson['category']),
+      ..._stringValues(signal.rawPayloadJson['focus_domain_id']),
+      ..._stringValues(signal.rawPayloadJson['focus_domain_ids']),
+      ..._stringValues(signal.rawPayloadJson['category']),
+    ];
+    return FocusDomains.classifyId(
+      explicitIds: storedIds,
+      taxonomyTokens: [
+        ...storedIds,
+        ..._stringValues(signal.rawPayloadJson['domain_tags']),
+        ..._stringValues(signal.rawPayloadJson['focus_domains']),
+        ..._stringValues(signal.rawPayloadJson['scene_tags']),
+        ...signal.sceneTags,
+        ...signal.intentTags,
+        signal.scene,
+        signal.sourceType,
+      ],
+      textEvidence: [
+        signal.content,
+        signal.observation,
+        signal.tryNext,
+        signal.friction,
+        signal.positiveSignal,
+        signal.energyLoad,
+        ..._stringValues(signal.rawPayloadJson['title']),
+        ..._stringValues(signal.rawPayloadJson['note']),
+        ..._stringValues(signal.userCorrectionJson['content']),
+        ..._stringValues(signal.userCorrectionJson['text']),
+      ],
+    );
+  }
+
+  String _journeyFocusDomainForFeedback(
+    FeedbackEventModel event, {
+    required String title,
+    required String summary,
+  }) {
+    final storedIds = <String>[
+      ..._stringValues(event.metadata['focus_domain_id']),
+      ..._stringValues(event.metadata['focus_domain_ids']),
+      ..._stringValues(event.metadata['focus_area_id']),
+      ..._stringValues(event.metadata['category']),
+    ];
+    return FocusDomains.classifyId(
+      explicitIds: storedIds,
+      taxonomyTokens: [
+        ...storedIds,
+        ..._stringValues(event.metadata['domain_tags']),
+        ..._stringValues(event.metadata['focus_domains']),
+        ..._stringValues(event.metadata['condition_tags']),
+        ..._stringValues(event.metadata['pattern_id']),
+        ..._stringValues(event.metadata['feedback_pattern_id']),
+        ..._stringValues(event.metadata['scene']),
+        event.subjectType,
+        event.sourceType,
+        event.effect,
+        event.status,
+      ],
+      textEvidence: [
+        title,
+        summary,
+        event.note,
+        ...event.metadata.values.expand(_stringValues),
+      ],
+    );
+  }
+
+  List<String> _stringValues(Object? raw) {
+    if (raw is Iterable) {
+      return raw
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
     }
-    if (text.contains('work') ||
-        text.contains('focus') ||
-        text.contains('安排') ||
-        text.contains('schedule')) {
-      return 'work';
-    }
-    if (text.contains('hard') ||
-        text.contains('drain') ||
-        text.contains('压力') ||
-        text.contains('friction')) {
-      return 'friction';
-    }
-    if (text.contains('help') || text.contains('有效') || text.contains('有帮助')) {
-      return 'helpful';
-    }
-    if (text.contains('weekly')) return 'weekly';
-    return 'life';
+    final value = raw?.toString().trim() ?? '';
+    return value.isEmpty ? const <String>[] : <String>[value];
   }
 
   double _signalIntensity(RecentSignalModel signal) {
@@ -1517,19 +1642,31 @@ class MemoryRepository {
     return MemorySummaryModel(
       patterns: _normalizeSignalItems(
         items: generated.patterns,
-        fallbackLabel: '反复出现的主题',
+        fallbackLabel: _copy(
+            en: 'Recurring theme',
+            zhHans: '反复出现的主题',
+            zhHant: '反覆出現的主題',
+            ja: '繰り返し現れるテーマ'),
         stats: stats,
         preferStable: true,
       ),
       frictions: _normalizeSignalItems(
         items: generated.frictions,
-        fallbackLabel: '持续性的摩擦',
+        fallbackLabel: _copy(
+            en: 'Persistent burden',
+            zhHans: '持续性的负担',
+            zhHant: '持續性的負擔',
+            ja: '続いている負担'),
         stats: stats,
         preferStable: false,
       ),
       desires: _normalizeSignalItems(
         items: generated.desires,
-        fallbackLabel: '一个恢复线索',
+        fallbackLabel: _copy(
+            en: 'A recovery Signal',
+            zhHans: '一个恢复 Signal',
+            zhHant: '一個恢復 Signal',
+            ja: '回復の Signal'),
         stats: stats,
         preferStable: false,
       ),
@@ -1538,11 +1675,54 @@ class MemoryRepository {
           generated.experiments,
           stats,
         ),
-        fallbackLabel: '一个实验调整记录',
+        fallbackLabel: _copy(
+            en: 'An experiment adjustment',
+            zhHans: '一个实验调整记录',
+            zhHant: '一個實驗調整記錄',
+            ja: '実験の調整記録'),
         stats: stats,
         preferStable: false,
       ),
     );
+  }
+
+  bool _generatedJourneyMatchesLanguage(MemorySummaryModel summary) {
+    final language = RuntimeLocaleText.normalize(
+      aiRepository.languageLoader(),
+    );
+    if (language != 'en' && language != 'ja') return true;
+    // The source timeline may legitimately contain content written in another
+    // language. That must not disable validation for newly generated Pro
+    // prose: user-authored traces stay untouched on their own surfaces, while
+    // Journey synthesis must follow the active display language.
+    final items = [
+      ...summary.patterns,
+      ...summary.frictions,
+      ...summary.desires,
+      ...summary.experiments,
+    ];
+    final names = items.map((item) => item.name).join(' ');
+    final summaries = items
+        .map((item) => item.summary.trim())
+        .where((text) => text.isNotEmpty)
+        .toList(growable: false);
+    final allText = '$names ${summaries.join(' ')}';
+    final hasHan = RegExp(r'[\u3400-\u9fff]').hasMatch(allText);
+    final hasKana = RegExp(r'[\u3040-\u30ff]');
+    if (language == 'en') {
+      return !hasHan &&
+          !hasKana.hasMatch(allText) &&
+          RegExp(r'[A-Za-z]').hasMatch(allText);
+    }
+    final hasChineseOnlyForms = RegExp(
+      r'[这们么还没为个录复续觉验這們麼還沒]',
+    ).hasMatch(allText);
+    return !hasChineseOnlyForms &&
+        items.every(
+          (item) => item.name.trim().isEmpty || hasKana.hasMatch(item.name),
+        ) &&
+        summaries.every(hasKana.hasMatch) &&
+        summaries.isNotEmpty;
   }
 
   List<JourneySignalItemModel> _normalizeSignalItems({
@@ -1611,21 +1791,35 @@ class MemoryRepository {
     required _JourneyStats stats,
   }) {
     final topToken = stats.topTokens.isEmpty
-        ? '最近的记录'
+        ? _copy(
+            en: 'recent records', zhHans: '最近的记录', zhHant: '最近的記錄', ja: '最近の記録')
         : _readableToken(stats.topTokens.first);
 
     if (stats.entryCount <= 1) {
-      return '现在还只是一个刚刚冒头的线索，先继续看看它会不会再出现。';
+      return _copy(
+          en: 'This Signal has only just emerged; keep watching to see whether it returns.',
+          zhHans: '这还只是一个刚刚冒头的 Signal，先继续看看它会不会再出现。',
+          zhHant: '這還只是一個剛出現的 Signal，先繼續看看它是否會再次出現。',
+          ja: 'まだ現れたばかりの Signal です。再び現れるか見ていきましょう。');
     }
     if (stats.entryCount < 4 || stats.activeDays < 2) {
-      return '这个方向已经不止一次出现了，开始值得继续留意。';
+      return _copy(
+          en: 'This direction has appeared more than once and is worth watching.',
+          zhHans: '这个方向已经不止一次出现了，开始值得继续留意。',
+          zhHant: '這個方向已經不只出現一次，開始值得繼續留意。',
+          ja: 'この方向は一度きりではなく、引き続き見る価値が出てきました。');
     }
-    return '一路看下来，“$topToken”已经不只是偶然，而开始形成更稳定的节奏。';
+    return _copy(
+        en: 'Across the timeline, “$topToken” is becoming more than a coincidence and forming a steadier rhythm.',
+        zhHans: '一路看下来，“$topToken”已经不只是偶然，而开始形成更稳定的节奏。',
+        zhHant: '一路看下來，「$topToken」已經不只是偶然，而開始形成更穩定的節奏。',
+        ja: '軌跡を通して見ると、「$topToken」は偶然を超え、より安定したリズムになり始めています。');
   }
 
   MemorySummaryModel _buildFallbackJourneySummary(_JourneyStats stats) {
     final topToken = stats.topTokens.isEmpty
-        ? '最近的记录'
+        ? _copy(
+            en: 'recent records', zhHans: '最近的记录', zhHant: '最近的記錄', ja: '最近の記録')
         : _readableToken(stats.topTokens.first);
     final weakOrRepeated = _resolveSignalLevel(
       entryCount: stats.entryCount,
@@ -1641,29 +1835,69 @@ class MemoryRepository {
     return MemorySummaryModel(
       patterns: [
         JourneySignalItemModel(
-          name: '反复出现的主题',
+          name: _copy(
+              en: 'Recurring theme',
+              zhHans: '反复出现的主题',
+              zhHant: '反覆出現的主題',
+              ja: '繰り返し現れるテーマ'),
           summary: stats.entryCount <= 1
-              ? '“$topToken”刚刚出现一次，先把它作为一个值得继续留意的线索放着。'
+              ? _copy(
+                  en:
+                      '“$topToken” has appeared once; keep it as a Signal worth watching.',
+                  zhHans: '“$topToken”刚刚出现一次，先把它作为一个值得继续留意的 Signal 放着。',
+                  zhHant: '「$topToken」剛出現一次，先把它當作值得繼續留意的 Signal。',
+                  ja: '「$topToken」は一度現れたばかりです。引き続き見る Signal として残しておきましょう。')
               : stats.entryCount < 4 || stats.activeDays < 2
-                  ? '一路看下来，“$topToken”已经不止一次出现，开始像一个重复主题了。'
-                  : '一路看下来，“$topToken”已经不止一次地出现，正在慢慢形成稳定模式。',
+                  ? _copy(
+                      en:
+                          '“$topToken” has appeared more than once and is beginning to look recurring.',
+                      zhHans: '一路看下来，“$topToken”已经不止一次出现，开始像一个重复主题了。',
+                      zhHant: '一路看下來，「$topToken」已經不只出現一次，開始像一個重複主題。',
+                      ja: '「$topToken」は一度きりではなく、繰り返すテーマに見え始めています。')
+                  : _copy(
+                      en: '“$topToken” has appeared repeatedly and is gradually forming a stable pattern.',
+                      zhHans: '一路看下来，“$topToken”已经不止一次地出现，正在慢慢形成稳定模式。',
+                      zhHant: '一路看下來，「$topToken」已經反覆出現，正慢慢形成穩定模式。',
+                      ja: '「$topToken」は繰り返し現れ、徐々に安定したパターンになっています。'),
           signalLevel: stableOrRepeated,
         ),
       ],
       frictions: [
         JourneySignalItemModel(
-          name: '持续性的摩擦',
+          name: _copy(
+              en: 'Persistent burden',
+              zhHans: '持续性的负担',
+              zhHant: '持續性的負擔',
+              ja: '続いている負担'),
           summary: stats.entryCount <= 1
-              ? '现在还只是一个初步摩擦点，先继续看它会不会在别的场景里再出现。'
+              ? _copy(
+                  en:
+                      'This is still an early burden Signal; see whether it appears in other settings.',
+                  zhHans: '现在还只是一个初步负担 Signal，先继续看它会不会在别的场景里再出现。',
+                  zhHant: '現在還只是一個初步負擔 Signal，先繼續看它是否會在其他情境再次出現。',
+                  ja: 'まだ初期の負担 Signal です。別の場面でも現れるか見ていきましょう。')
               : stats.entryCount < 4 || stats.activeDays < 2
-                  ? '这段时间里，有些消耗已经不是一次性的，而是在开始重复回来。'
-                  : '这段时间里，某些同类问题已经不是一次性，而是在慢慢累积成稳定摩擦。',
+                  ? _copy(
+                      en:
+                          'Some drains are no longer isolated and are beginning to return.',
+                      zhHans: '这段时间里，有些消耗已经不是一次性的，而是在开始重复回来。',
+                      zhHant: '這段時間裡，有些消耗已經不是一次性的，而是開始反覆出現。',
+                      ja: 'この期間、一部の消耗は一度きりではなく、繰り返し戻り始めています。')
+                  : _copy(
+                      en: 'Similar burdens are gradually accumulating into a stable pattern.',
+                      zhHans: '这段时间里，某些同类问题已经不是一次性，而是在慢慢累积成稳定负担。',
+                      zhHant: '這段時間裡，某些同類問題已不是一次性，而是慢慢累積成穩定負擔。',
+                      ja: '似た負担が一度きりではなく、徐々に安定したパターンとして積み重なっています。'),
           signalLevel: weakOrRepeated,
         ),
       ],
       desires: [
         JourneySignalItemModel(
-          name: '一个恢复线索',
+          name: _copy(
+              en: 'A recovery Signal',
+              zhHans: '一个恢复 Signal',
+              zhHant: '一個恢復 Signal',
+              ja: '回復の Signal'),
           summary: _recoverySummary(stats),
           signalLevel: weakOrRepeated,
         ),
@@ -1682,9 +1916,19 @@ class MemoryRepository {
     final latest = stats.experimentHistory.first;
     return [
       JourneySignalItemModel(
-        name: '最近一次实验调整',
-        summary:
-            '“${latest.title}”现在是 ${_experimentStatusText(latest.status)}。${_feedbackText(latest.feedbackText)}可以把它当作一个生活设计来回看：这个设计有没有帮你省一点力。',
+        name: _copy(
+            en: 'Latest experiment adjustment',
+            zhHans: '最近一次实验调整',
+            zhHant: '最近一次實驗調整',
+            ja: '直近の実験調整'),
+        summary: _copy(
+            en:
+                '“${latest.title}” is ${_experimentStatusText(latest.status)}. ${_feedbackText(latest.feedbackText)}Review whether this design reduced your burden.',
+            zhHans:
+                '“${latest.title}”现在是 ${_experimentStatusText(latest.status)}。${_feedbackText(latest.feedbackText)}可以回看这个设计有没有帮你省一点力。',
+            zhHant:
+                '「${latest.title}」現在是 ${_experimentStatusText(latest.status)}。${_feedbackText(latest.feedbackText)}可以回看這個設計是否幫你省了一點力。',
+            ja: '「${latest.title}」は現在${_experimentStatusText(latest.status)}。${_feedbackText(latest.feedbackText)}この設計が負担を減らしたか振り返れます。'),
         signalLevel: 'weak_signal',
       ),
     ];
@@ -1697,49 +1941,115 @@ class MemoryRepository {
     if (stats.experimentHistory.isNotEmpty) {
       final latest = stats.experimentHistory.first;
       return JourneySignalItemModel(
-        name: '最近一次实验调整',
-        summary:
-            '“${latest.title}”现在是 ${_experimentStatusText(latest.status)}。${_feedbackText(latest.feedbackText)}可以把它当作一个生活设计来回看：这个设计有没有帮你省一点力。',
+        name: _copy(
+            en: 'Latest experiment adjustment',
+            zhHans: '最近一次实验调整',
+            zhHant: '最近一次實驗調整',
+            ja: '直近の実験調整'),
+        summary: _copy(
+            en:
+                '“${latest.title}” is ${_experimentStatusText(latest.status)}. ${_feedbackText(latest.feedbackText)}Review whether this design reduced your burden.',
+            zhHans:
+                '“${latest.title}”现在是 ${_experimentStatusText(latest.status)}。${_feedbackText(latest.feedbackText)}可以回看这个设计有没有帮你省一点力。',
+            zhHant:
+                '「${latest.title}」現在是 ${_experimentStatusText(latest.status)}。${_feedbackText(latest.feedbackText)}可以回看這個設計是否幫你省了一點力。',
+            ja: '「${latest.title}」は現在${_experimentStatusText(latest.status)}。${_feedbackText(latest.feedbackText)}この設計が負担を減らしたか振り返れます。'),
         signalLevel: signalLevel,
       );
     }
     return JourneySignalItemModel(
-      name: '一个实验调整记录',
+      name: _copy(
+          en: 'An experiment adjustment',
+          zhHans: '一个实验调整记录',
+          zhHant: '一個實驗調整記錄',
+          ja: '実験の調整記録'),
       summary: stats.entryCount <= 1
-          ? '现在还太早，不过之后会更容易看见什么正在慢慢对你起作用。'
-          : '继续记录下去，会更容易看见什么做法不是偶然有效，而是在慢慢变得有帮助。',
+          ? _copy(
+              en:
+                  'It is still early; over time, what helps you may become clearer.',
+              zhHans: '现在还太早，不过之后会更容易看见什么正在慢慢对你起作用。',
+              zhHant: '現在還太早，不過之後會更容易看見什麼正在慢慢對你起作用。',
+              ja: 'まだ早い段階ですが、何が少しずつ役立つかは今後見えやすくなります。')
+          : _copy(
+              en: 'Continued records make it easier to see which approaches are becoming reliably helpful.',
+              zhHans: '继续记录下去，会更容易看见什么做法不是偶然有效，而是在慢慢变得有帮助。',
+              zhHant: '繼續記錄下去，會更容易看見哪些做法不是偶然有效，而是逐漸帶來幫助。',
+              ja: '記録を続けると、偶然ではなく安定して役立つ方法が見えやすくなります。'),
       signalLevel: signalLevel,
     );
   }
 
   String _recoverySummary(_JourneyStats stats) {
     if (stats.topPositiveSignals.isNotEmpty) {
-      return '最近反复出现的恢复线索是“${stats.topPositiveSignals.first}”，可以先把它当作轻一点的观察方向。';
+      return _copy(
+          en:
+              'A recurring recovery Signal is “${stats.topPositiveSignals.first}”. Keep it as a gentle direction to watch.',
+          zhHans:
+              '最近反复出现的恢复 Signal 是“${stats.topPositiveSignals.first}”，可以先把它当作轻一点的观察方向。',
+          zhHant:
+              '最近反覆出現的恢復 Signal 是「${stats.topPositiveSignals.first}」，可以先把它當作較輕的觀察方向。',
+          ja: '最近繰り返し現れる回復の Signal は「${stats.topPositiveSignals.first}」です。軽く見る方向として残せます。');
     }
     if (stats.topEnergyLoads.contains('restoring') ||
         stats.topEnergyLoads.contains('recovery')) {
-      return '记录里已经出现一些恢复感，先看看它通常和什么场景一起出现。';
+      return _copy(
+          en: 'Some recovery is appearing in the records; notice which settings accompany it.',
+          zhHans: '记录里已经出现一些恢复感，先看看它通常和什么场景一起出现。',
+          zhHant: '記錄裡已經出現一些恢復感，先看看它通常和哪些情境一起出現。',
+          ja: '記録に回復感が現れています。どんな場面と一緒に現れるか見てみましょう。');
     }
     if (stats.totalDays <= 1) {
-      return '现在还只是一个很轻的方向感，继续记录会更清楚。';
+      return _copy(
+          en: 'This is only a faint direction for now; continued records will make it clearer.',
+          zhHans: '现在还只是一个很轻的方向感，继续记录会更清楚。',
+          zhHant: '現在還只是一個很輕的方向感，繼續記錄會更清楚。',
+          ja: '今はまだかすかな方向です。記録を続けると明確になります。');
     }
-    return '记录已经跨越 ${stats.totalDays} 天，一些让你稍微省力的线索会逐渐更清楚。';
+    return _copy(
+        en: 'Records now span ${stats.totalDays} days, and Signals that reduce your burden are becoming clearer.',
+        zhHans: '记录已经跨越 ${stats.totalDays} 天，一些让你稍微省力的 Signal 会逐渐更清楚。',
+        zhHant: '記錄已經跨越 ${stats.totalDays} 天，一些讓你稍微省力的 Signal 會逐漸更清楚。',
+        ja: '記録は${stats.totalDays}日間にわたり、少し負担を減らす Signal が徐々に明確になります。');
   }
 
   String _experimentStatusText(String status) {
     switch (status) {
       case 'saved':
-        return '已保存，之后可以再试';
+        return _copy(
+            en: 'saved for a later try',
+            zhHans: '已保存，之后可以再试',
+            zhHant: '已儲存，之後可以再試',
+            ja: '保存済みで、後から試せる状態です');
       case 'skipped':
-        return '这次先不看，也会作为回看背景保留';
+        return _copy(
+            en: 'skipped for now and kept as background',
+            zhHans: '这次先不看，也会作为回看背景保留',
+            zhHant: '這次先不看，也會作為回看背景保留',
+            ja: '今回は見送り、振り返りの背景として残っています');
       case 'tried':
-        return '已经试过，可以继续看它是否省力';
+        return _copy(
+            en: 'tried and ready to review for reduced burden',
+            zhHans: '已经试过，可以继续看它是否省力',
+            zhHant: '已經試過，可以繼續看它是否省力',
+            ja: '試した後で、負担が減ったかを見られる状態です');
       case 'not_helpful':
-        return '这次帮助不明显';
+        return _copy(
+            en: 'not clearly helpful this time',
+            zhHans: '这次帮助不明显',
+            zhHant: '這次幫助不明顯',
+            ja: '今回は明確な助けになりませんでした');
       case 'adjusted':
-        return '已经提供了可学习的调整线索';
+        return _copy(
+            en: 'adjusted with a useful learning Signal',
+            zhHans: '已经提供了可学习的调整 Signal',
+            zhHant: '已經提供了可學習的調整 Signal',
+            ja: '学びにつながる調整 Signal が残っています');
       default:
-        return '一个可以试试的方向';
+        return _copy(
+            en: 'a direction worth trying',
+            zhHans: '一个可以试试的方向',
+            zhHant: '一個可以試試的方向',
+            ja: '試してみられる方向です');
     }
   }
 
@@ -1759,30 +2069,40 @@ class MemoryRepository {
         .replaceAll('_', ' ')
         .trim()
         .toLowerCase();
-    const labels = {
-      'planning': '安排',
-      'work': '工作',
-      'relationship': '关系',
-      'relations': '关系',
-      'boundary': '边界',
-      'boundaries': '边界',
-      'recovery': '恢复',
-      'rest': '休息',
-      'sleep': '睡眠',
-      'body': '身体',
-      'energy': '能量',
-      'attention': '注意力',
-      'switching': '切换',
-      'schedule': '日程',
-      'schedule density': '安排密度',
-      'care load': '照顾负荷',
-      'limited buffer': '缓冲不足',
-      'buffer': '缓冲',
-      'weather': '天气',
-      'commute': '通勤',
-      'home': '家里',
-      'daily friction': '日常摩擦',
-      'daily life': '日常生活',
+    final labels = {
+      'planning': _copy(en: 'planning', zhHans: '安排', zhHant: '安排', ja: '予定'),
+      'work': _copy(en: 'work', zhHans: '工作', zhHant: '工作', ja: '仕事'),
+      'relationship':
+          _copy(en: 'relationships', zhHans: '关系', zhHant: '關係', ja: '人間関係'),
+      'relations':
+          _copy(en: 'relationships', zhHans: '关系', zhHant: '關係', ja: '人間関係'),
+      'boundary': _copy(en: 'boundaries', zhHans: '边界', zhHant: '邊界', ja: '境界'),
+      'boundaries':
+          _copy(en: 'boundaries', zhHans: '边界', zhHant: '邊界', ja: '境界'),
+      'recovery': _copy(en: 'recovery', zhHans: '恢复', zhHant: '恢復', ja: '回復'),
+      'rest': _copy(en: 'rest', zhHans: '休息', zhHant: '休息', ja: '休息'),
+      'sleep': _copy(en: 'sleep', zhHans: '睡眠', zhHant: '睡眠', ja: '睡眠'),
+      'body': _copy(en: 'body', zhHans: '身体', zhHant: '身體', ja: '身体'),
+      'energy': _copy(en: 'energy', zhHans: '精力', zhHant: '精力', ja: 'エネルギー'),
+      'attention':
+          _copy(en: 'attention', zhHans: '注意力', zhHant: '注意力', ja: '注意'),
+      'switching':
+          _copy(en: 'switching', zhHans: '切换', zhHant: '切換', ja: '切り替え'),
+      'schedule': _copy(en: 'schedule', zhHans: '日程', zhHant: '日程', ja: '予定'),
+      'schedule density': _copy(
+          en: 'schedule density', zhHans: '安排密度', zhHant: '安排密度', ja: '予定の密度'),
+      'care load':
+          _copy(en: 'care load', zhHans: '照顾负担', zhHant: '照顧負擔', ja: 'ケアの負担'),
+      'limited buffer': _copy(
+          en: 'limited buffer', zhHans: '缓冲不足', zhHant: '緩衝不足', ja: '余白不足'),
+      'buffer': _copy(en: 'buffer', zhHans: '缓冲', zhHant: '緩衝', ja: '余白'),
+      'weather': _copy(en: 'weather', zhHans: '天气', zhHant: '天氣', ja: '天気'),
+      'commute': _copy(en: 'commute', zhHans: '通勤', zhHant: '通勤', ja: '通勤'),
+      'home': _copy(en: 'home', zhHans: '家里', zhHant: '家裡', ja: '家'),
+      'daily friction': _copy(
+          en: 'daily burden', zhHans: '日常负担', zhHant: '日常負擔', ja: '日常の負担'),
+      'daily life':
+          _copy(en: 'daily life', zhHans: '日常生活', zhHant: '日常生活', ja: '日常生活'),
     };
     return labels[normalized] ?? token.trim();
   }
@@ -1790,10 +2110,32 @@ class MemoryRepository {
   String _feedbackText(String? feedbackText) {
     final text = feedbackText?.trim();
     if (text == null || text.isEmpty) {
-      return '没有反馈也没关系，不会影响长期回看。';
+      return _copy(
+          en: 'No feedback yet; that does not prevent a longer-term review. ',
+          zhHans: '没有反馈也没关系，不会影响长期回看。',
+          zhHant: '沒有回饋也沒關係，不會影響長期回看。',
+          ja: 'まだフィードバックがなくても、長期の振り返りには影響しません。');
     }
-    return '反馈是：$text。';
+    return _copy(
+        en: 'Feedback: $text. ',
+        zhHans: '反馈是：$text。',
+        zhHant: '回饋是：$text。',
+        ja: 'フィードバック：$text。');
   }
+
+  String _copy({
+    required String en,
+    required String zhHans,
+    required String zhHant,
+    required String ja,
+  }) =>
+      RuntimeLocaleText.tr(
+        language: aiRepository.languageLoader(),
+        en: en,
+        zhHans: zhHans,
+        zhHant: zhHant,
+        ja: ja,
+      );
 
   Future<String?> _readFocusArea() async {
     if (focusAreaLoader != null) {
@@ -1827,7 +2169,7 @@ class MemoryRepository {
       }
     }
 
-    final today = _dateOnly(DateTime.now());
+    final today = _dateOnly(nowLoader());
     await prefs.setString('local_app_started_date', today.toIso8601String());
     return today;
   }

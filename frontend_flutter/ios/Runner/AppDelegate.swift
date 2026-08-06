@@ -236,9 +236,7 @@ private final class SpeechRecognitionBridge {
     channel.setMethodCallHandler { call, result in
       switch call.method {
       case "startVoiceRecognition":
-        let arguments = call.arguments as? [String: Any]
-        let localeIdentifier = arguments?["localeIdentifier"] as? String
-        start(localeIdentifier: localeIdentifier, result: result)
+        start(result: result)
       case "stopVoiceRecognition":
         stop(result: result)
       case "cancelVoiceRecognition":
@@ -250,7 +248,7 @@ private final class SpeechRecognitionBridge {
     }
   }
 
-  private static func start(localeIdentifier: String?, result: @escaping FlutterResult) {
+  private static func start(result: @escaping FlutterResult) {
     latestTranscript = ""
     pendingStopResult = nil
     stopCompleted = false
@@ -268,11 +266,14 @@ private final class SpeechRecognitionBridge {
 
       DispatchQueue.main.async {
         do {
-          try startRecognitionSession(localeIdentifier: localeIdentifier)
+          try startRecognitionSession()
           result(nil)
         } catch {
+          let nativeError = error as NSError
           result(FlutterError(
-            code: "speech_start_failed",
+            code: nativeError.domain == "signalpath.speech.locale_unavailable"
+              ? "speech_locale_unavailable"
+              : "speech_start_failed",
             message: error.localizedDescription,
             details: nil
           ))
@@ -310,26 +311,22 @@ private final class SpeechRecognitionBridge {
     }
   }
 
-  private static func startRecognitionSession(localeIdentifier: String?) throws {
+  private static func startRecognitionSession() throws {
     stopAudio()
 
-    let preferredLocale = Locale(identifier: sanitizedLocaleIdentifier(localeIdentifier))
-    let currentLocale = Locale.current
-    let englishFallbackLocale = Locale(identifier: "en-US")
-    let recognizers = [
-      SFSpeechRecognizer(locale: preferredLocale),
-      SFSpeechRecognizer(locale: currentLocale),
-      SFSpeechRecognizer(locale: englishFallbackLocale)
-    ].compactMap { $0 }
-    guard let recognizer = recognizers.first(where: {
-      $0.isAvailable && $0.supportsOnDeviceRecognition
-    }) else {
+    // Never bind speech recognition to the app's display language. The default
+    // recognizer follows the user's device dictation settings, so a Chinese UI
+    // can still transcribe Japanese (and vice versa) without an in-app language
+    // selector or a silent cross-language fallback.
+    guard let recognizer = SFSpeechRecognizer(),
+          recognizer.isAvailable,
+          recognizer.supportsOnDeviceRecognition else {
       throw NSError(
-        domain: "signalpath.speech",
+        domain: "signalpath.speech.locale_unavailable",
         code: 1,
         userInfo: [
           NSLocalizedDescriptionKey:
-            "On-device speech recognition is unavailable for this language."
+            "On-device speech recognition is unavailable for the device's current dictation language."
         ]
       )
     }
@@ -368,14 +365,6 @@ private final class SpeechRecognitionBridge {
 
     audioEngine.prepare()
     try audioEngine.start()
-  }
-
-  private static func sanitizedLocaleIdentifier(_ identifier: String?) -> String {
-    let trimmed = identifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    if trimmed.isEmpty {
-      return Locale.current.identifier
-    }
-    return trimmed
   }
 
   private static func finishAudioInput() {

@@ -18,7 +18,7 @@ class JourneyProViewModel extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
     try {
-      report = await repository.fetchThreeMonthChange(
+      report = await repository.fetchFullHistoryChange(
         selectedMonthKey: selectedMonthKey ?? report?.selectedMonthKey,
       );
       loadState = report?.hasData == true ? LoadState.ready : LoadState.empty;

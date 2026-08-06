@@ -283,9 +283,17 @@ void main() {
     await tester.pump();
 
     await tester.runAsync(() async {
-      await dependencies.localLifeExperimentRepository.updateStatus(
-        experimentId: experimentId,
-        status: 'completed',
+      final db = await database.database;
+      await db.update(
+        'life_experiments',
+        {
+          // A direct fixture write simulates an already-closed historical row.
+          // Production has no manual terminal-status writer.
+          'status': 'completed',
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [experimentId],
       );
     });
     await tester.tap(find.text('Save feedback'));

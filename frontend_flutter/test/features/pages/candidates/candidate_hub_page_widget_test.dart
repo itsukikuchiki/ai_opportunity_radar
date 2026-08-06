@@ -357,13 +357,28 @@ void main() {
     expect(find.byType(AuroraHeroEmblem), findsNothing);
     expect(find.textContaining('7月20日'), findsOneWidget);
     expect(find.textContaining('7月26日'), findsOneWidget);
-    expect(find.text('进行中的目标'), findsOneWidget);
+    expect(find.text('进行中的小实验与目标'), findsOneWidget);
     expect(find.text('晚间留十分钟低要求恢复'), findsOneWidget);
     expect(find.text('记录 3 条信号后开始显示'), findsOneWidget);
     expect(find.text('2/3'), findsOneWidget);
     expect(find.text('已采纳与实际进度'), findsNothing);
     expect(
         find.byKey(const ValueKey('progress-cell-2026-07-12')), findsNothing);
+
+    final zeroSelectionConfirm =
+        find.byKey(const ValueKey('candidate-confirm-continuations'));
+    await tester.ensureVisible(zeroSelectionConfirm);
+    expect(
+      tester.widget<FilledButton>(zeroSelectionConfirm).onPressed,
+      isNotNull,
+    );
+    await tester.tap(zeroSelectionConfirm);
+    await tester.pumpAndSettle();
+    expect(repository.microContinuationConfirmCount, 1);
+    expect(repository.goalContinuationConfirmCount, 1);
+    expect(repository.continuedMicroActionIds, isEmpty);
+    expect(repository.continuedExperimentIds, isEmpty);
+    expect(find.text('晚间留十分钟低要求恢复'), findsOneWidget);
 
     final continuationCheckbox = find.descendant(
       of: find.byKey(
@@ -374,17 +389,31 @@ void main() {
     await tester.ensureVisible(continuationCheckbox);
     await tester.tap(continuationCheckbox);
     await tester.pump();
-    expect(find.text('已选择 1 项'), findsOneWidget);
+    expect(find.text('已选择 1 项下周继续'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('candidate-adopt-selected')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('candidate-consider-selected')),
+      findsNothing,
+    );
 
-    final confirm = find.byKey(const ValueKey('candidate-adopt-selected'));
+    final confirm =
+        find.byKey(const ValueKey('candidate-confirm-continuations'));
     await tester.ensureVisible(confirm);
     await tester.tap(confirm);
     await tester.pumpAndSettle();
+    expect(repository.microContinuationConfirmCount, 2);
+    expect(repository.goalContinuationConfirmCount, 2);
     expect(repository.continuedExperimentIds, ['active-experiment-feedback']);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('下周页显示进行中续行与三条 AI 提案并可一起确认', (tester) async {
+  testWidgets('下周续行同时支持小实验与目标，并与候选采纳分开确认', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     final candidates = List.generate(
       4,
       (index) => ExperimentCandidateRecord(
@@ -395,7 +424,7 @@ void main() {
         weekEnd: '2026-07-19',
         rank: index + 1,
         title: '候选目标 ${index + 1}',
-        hypothesis: '这个轻量尝试可能有帮助。',
+        hypothesis: '这个简单尝试可能有帮助。',
         suggestedAction: '每天试一次。',
         linkedSignalCardIds: const ['signal-1', 'signal-2', 'signal-3'],
         linkedObservationIds: const [],
@@ -405,6 +434,13 @@ void main() {
         sourceHash: 'weekly-source-1',
       ),
     );
+    const continuingAction = MicroActionModel(
+      id: 'active-small-experiment-combined',
+      judgementId: '',
+      title: '切换前停两分钟',
+      reason: '先留一点转换余地。',
+      status: 'active',
+    );
     final repository = StubCandidatePlanningRepository(
       microSnapshot: _microSnapshot(count: 3, candidates: const []),
       experimentSnapshot: _experimentSnapshot(
@@ -413,6 +449,12 @@ void main() {
         start: '2026-07-13',
         end: '2026-07-19',
       ),
+      continuableActions: [
+        AdoptedMicroActionProgress(
+          action: continuingAction,
+          progress: _progress(continuingAction.id, completed: 1),
+        ),
+      ],
       continuableExperiments: [
         AdoptedLifeExperimentProgress(
           experiment: const LifeExperimentModel(
@@ -448,9 +490,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('下周尝试'), findsOneWidget);
-    expect(find.text('进行中的目标'), findsOneWidget);
+    expect(find.text('进行中的小实验与目标'), findsOneWidget);
+    expect(find.text('切换前停两分钟'), findsOneWidget);
     expect(find.text('目标提案'), findsNWidgets(2));
-    expect(find.text('七日目标'), findsNWidgets(3));
 
     expect(find.text('候选目标 1'), findsOneWidget);
     expect(find.text('候选目标 3'), findsOneWidget);
@@ -458,15 +500,36 @@ void main() {
     expect(find.text('最多 3 个候选'), findsNothing);
     expect(find.text('可采纳 0–3 个'), findsNothing);
 
-    final continuationCheckbox = find.descendant(
+    final actionContinuationCheckbox = find.descendant(
+      of: find.byKey(
+        const ValueKey(
+          'continuation-small-experiment-active-small-experiment-combined',
+        ),
+      ),
+      matching: find.byType(Checkbox),
+    );
+    await tester.ensureVisible(actionContinuationCheckbox);
+    await tester.tap(actionContinuationCheckbox);
+    await tester.pump();
+
+    final goalContinuationCheckbox = find.descendant(
       of: find.byKey(
         const ValueKey('continuation-option-active-experiment-combined'),
       ),
       matching: find.byType(Checkbox),
     );
-    await tester.ensureVisible(continuationCheckbox);
-    await tester.tap(continuationCheckbox);
+    await tester.ensureVisible(goalContinuationCheckbox);
+    await tester.tap(goalContinuationCheckbox);
     await tester.pump();
+    expect(find.text('已选择 2 项下周继续'), findsOneWidget);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('candidate-consider-selected')),
+          )
+          .onPressed,
+      isNull,
+    );
 
     for (final id in [
       'experiment-candidate-1',
@@ -482,7 +545,7 @@ void main() {
     }
 
     final adoptButton = find.byKey(const ValueKey('candidate-adopt-selected'));
-    expect(find.text('已选择 3 项'), findsOneWidget);
+    expect(find.text('已选择 2 项'), findsOneWidget);
     await tester.ensureVisible(adoptButton);
     await tester.tap(adoptButton);
     await tester.pumpAndSettle();
@@ -491,11 +554,129 @@ void main() {
       repository.adoptedExperimentIds,
       ['experiment-candidate-1', 'experiment-candidate-3'],
     );
+    expect(repository.continuedMicroActionIds, isEmpty);
+    expect(repository.continuedExperimentIds, isEmpty);
+
+    final continuationConfirm =
+        find.byKey(const ValueKey('candidate-confirm-continuations'));
+    await tester.ensureVisible(continuationConfirm);
+    await tester.tap(continuationConfirm);
+    await tester.pumpAndSettle();
+
+    expect(
+      repository.continuedMicroActionIds,
+      ['active-small-experiment-combined'],
+    );
     expect(
       repository.continuedExperimentIds,
       ['active-experiment-combined'],
     );
-    expect(find.textContaining('七日进度从下周一开始'), findsOneWidget);
+  });
+
+  testWidgets('下周页顶部显示已采纳清单且撤销只移除未来计划', (tester) async {
+    final repository = StubCandidatePlanningRepository(
+      microSnapshot: _microSnapshot(count: 3, candidates: const []),
+      experimentSnapshot: _experimentSnapshot(
+        count: 3,
+        candidates: const [],
+        start: '2026-07-13',
+        end: '2026-07-19',
+      ),
+      plannedNextWeekActions: [
+        MicroActionModel(
+          id: 'planned-small-next-week',
+          judgementId: '',
+          title: '下周保留两分钟缓冲',
+          reason: '来自本周 Signal。',
+          status: 'planned',
+          localUserId: 'local',
+          adoptedAt: DateTime(2026, 7, 17, 10),
+          progressStartDate: '2026-07-20',
+        ),
+      ],
+      plannedNextWeekExperiments: [
+        LifeExperimentModel(
+          id: 'planned-goal-next-week',
+          localUserId: 'local',
+          sourceWeekStart: '2026-07-20',
+          sourceWeekEnd: '2026-07-26',
+          title: '下周午后安排恢复',
+          hypothesis: '午后恢复可能降低晚间负担。',
+          suggestedAction: '每天下午离屏十分钟。',
+          linkedSignalCardIds: const ['signal-history-1'],
+          status: 'planned',
+          adoptedAt: DateTime(2026, 7, 17, 10),
+          progressStartDate: '2026-07-20',
+        ),
+      ],
+      historicalRecordIds: const ['signal-history-1', 'feedback-history-1'],
+    );
+
+    await tester.pumpWidget(
+      buildTestApp(
+        locale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+        ),
+        providers: [Provider<int>.value(value: 0)],
+        child: CandidateHubPage(
+          kind: CandidateKind.lifeExperiment,
+          repositoryOverride: repository,
+          nowLoader: () => DateTime(2026, 7, 17),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选下周计划'), findsOneWidget);
+    expect(
+      find.byKey(
+        const ValueKey('next-week-selected-small-planned-small-next-week'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('next-week-selected-goal-planned-goal-next-week'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('下周保留两分钟缓冲'), findsOneWidget);
+    expect(find.text('下周午后安排恢复'), findsOneWidget);
+    expect(find.text('删除'), findsNWidgets(2));
+    expect(find.byIcon(Icons.delete_outline_rounded), findsNWidgets(2));
+    expect(find.textContaining('本周历史记录不会改变'), findsOneWidget);
+
+    final undoSmall = find.byKey(
+      const ValueKey('next-week-withdraw-small-planned-small-next-week'),
+    );
+    await tester.ensureVisible(undoSmall);
+    await tester.tap(undoSmall);
+    await tester.pumpAndSettle();
+
+    expect(repository.withdrawnMicroActionIds, ['planned-small-next-week']);
+    expect(find.text('下周保留两分钟缓冲'), findsNothing);
+    expect(find.text('下周午后安排恢复'), findsOneWidget);
+    expect(
+      repository.historicalRecordIds,
+      ['signal-history-1', 'feedback-history-1'],
+    );
+    expect(find.textContaining('本周历史记录不会改变'), findsWidgets);
+
+    final undoGoal = find.byKey(
+      const ValueKey('next-week-withdraw-goal-planned-goal-next-week'),
+    );
+    await tester.ensureVisible(undoGoal);
+    await tester.tap(undoGoal);
+    await tester.pumpAndSettle();
+
+    expect(repository.withdrawnExperimentIds, ['planned-goal-next-week']);
+    expect(find.text('下周午后安排恢复'), findsNothing);
+    expect(
+      repository.historicalRecordIds,
+      ['signal-history-1', 'feedback-history-1'],
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('Today 每类最多展示三个已采纳项目并把其余放入查看全部', (tester) async {
@@ -604,7 +785,14 @@ void main() {
       activeActions: [
         AdoptedMicroActionProgress(
           action: action,
-          progress: _progress(action.id, completed: 0),
+          progress: _attemptProgress(
+            action.id,
+            const [
+              ProgressCellState.completed,
+              ProgressCellState.notCompleted,
+              ProgressCellState.completed,
+            ],
+          ),
         ),
       ],
       activeExperiments: [
@@ -655,9 +843,16 @@ void main() {
 
     expect(find.text('小实验'), findsOneWidget);
     expect(find.text('目标'), findsOneWidget);
-    expect(find.text('登记一次'), findsOneWidget);
-    expect(find.text('已完成'), findsOneWidget);
-    expect(find.text('未完成'), findsOneWidget);
+    expect(find.text('登记一次'), findsNothing);
+    expect(find.text('尝试 2 次 · 未尝试 1 次'), findsOneWidget);
+    expect(
+      find.byKey(
+        const ValueKey('today-small-experiment-attempt-attempt-1'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('已完成'), findsNWidgets(2));
+    expect(find.text('未完成'), findsNWidgets(2));
     expect(find.text('发生了'), findsNothing);
     expect(find.text('没发生'), findsNothing);
     expect(find.text('今天不适合'), findsNothing);
@@ -669,49 +864,70 @@ void main() {
       findsNothing,
     );
 
-    await tester.tap(find.text('登记一次'));
-    await tester.pumpAndSettle();
-    expect(find.text('登记这次小实验'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey('small-try-completed-choice')),
+    final completedSmallTry = find.byKey(
+      const ValueKey(
+        'today-small-experiment-completed-active-action-completion',
+      ),
     );
+    await tester.ensureVisible(completedSmallTry);
+    await tester.tap(completedSmallTry);
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('small-try-effect-helpful')),
+    expect(
+      find.byKey(
+        const ValueKey('today-small-experiment-completed-details'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('small-try-feedback-sheet')),
+      findsNothing,
     );
     await tester.tap(
-      find.byKey(const ValueKey('small-try-difficulty-easy')),
+      find.byKey(
+        const ValueKey('today-small-experiment-effect-helpful'),
+      ),
     );
-    await tester.pumpAndSettle();
-    final completedSave = find.byKey(const ValueKey('small-try-feedback-save'));
+    await tester.tap(
+      find.byKey(
+        const ValueKey('today-small-experiment-difficulty-easy'),
+      ),
+    );
+    final completedSave = find.byKey(
+      const ValueKey('today-small-experiment-save-completed'),
+    );
     await tester.ensureVisible(completedSave);
     await tester.pumpAndSettle();
     await tester.tap(completedSave);
     await tester.pumpAndSettle();
     expect(
-      find.byKey(const ValueKey('small-try-feedback-sheet')),
+      find.byKey(
+        const ValueKey('today-small-experiment-completed-details'),
+      ),
       findsNothing,
     );
 
-    final recordAgain = find.text('登记一次');
-    await tester.ensureVisible(recordAgain);
-    await tester.tap(recordAgain);
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('small-try-not-completed-choice')),
+    final notCompletedSmallTry = find.byKey(
+      const ValueKey(
+        'today-small-experiment-not-completed-active-action-completion',
+      ),
     );
-    final notCompletedSave =
-        find.byKey(const ValueKey('small-try-feedback-save'));
-    await tester.ensureVisible(notCompletedSave);
-    await tester.pumpAndSettle();
-    await tester.tap(notCompletedSave);
+    await tester.ensureVisible(notCompletedSmallTry);
+    await tester.tap(notCompletedSmallTry);
     await tester.pumpAndSettle();
 
-    final completedGoal = find.text('已完成');
+    final completedGoal = find.byKey(
+      const ValueKey(
+        'today-goal-completed-active-experiment-completion',
+      ),
+    );
     await tester.ensureVisible(completedGoal);
     await tester.tap(completedGoal);
     await tester.pumpAndSettle();
-    final notCompletedGoal = find.text('未完成');
+    final notCompletedGoal = find.byKey(
+      const ValueKey(
+        'today-goal-not-completed-active-experiment-completion',
+      ),
+    );
     await tester.ensureVisible(notCompletedGoal);
     await tester.tap(notCompletedGoal);
     await tester.pumpAndSettle();
@@ -876,23 +1092,55 @@ SevenDayProgressModel _progress(String subjectId, {required int completed}) {
   );
 }
 
+SevenDayProgressModel _attemptProgress(
+  String subjectId,
+  List<ProgressCellState> states,
+) {
+  return SevenDayProgressModel(
+    subjectId: subjectId,
+    startDate: '2026-07-12',
+    endDate: '2026-07-12',
+    cells: List.generate(
+      states.length,
+      (index) => SevenDayProgressCell(
+        localDate: '2026-07-12',
+        state: states[index],
+        latestEventId: 'attempt-${index + 1}',
+      ),
+    ),
+  );
+}
+
 class StubCandidatePlanningRepository extends LocalCandidatePlanningRepository {
   CandidateSnapshot<MicroActionCandidateModel> microSnapshot;
   CandidateSnapshot<ExperimentCandidateRecord>? experimentSnapshot;
   final List<AdoptedMicroActionProgress> activeActions;
   final List<AdoptedLifeExperimentProgress> activeExperiments;
+  List<AdoptedMicroActionProgress> continuableActions;
   List<AdoptedLifeExperimentProgress> continuableExperiments;
   final List<String> adoptedMicroIds = [];
   final List<String> adoptedExperimentIds = [];
+  final List<String> continuedMicroActionIds = [];
   final List<String> continuedExperimentIds = [];
+  int microContinuationConfirmCount = 0;
+  int goalContinuationConfirmCount = 0;
   final List<String> consideredCandidateIds = [];
+  List<MicroActionModel> plannedNextWeekActions;
+  List<LifeExperimentModel> plannedNextWeekExperiments;
+  final List<String> withdrawnMicroActionIds = [];
+  final List<String> withdrawnExperimentIds = [];
+  final List<String> historicalRecordIds;
 
   StubCandidatePlanningRepository({
     required this.microSnapshot,
     this.experimentSnapshot,
     this.activeActions = const [],
     this.activeExperiments = const [],
+    this.continuableActions = const [],
     this.continuableExperiments = const [],
+    this.plannedNextWeekActions = const [],
+    this.plannedNextWeekExperiments = const [],
+    this.historicalRecordIds = const [],
   }) : super(
           localDatabase: LocalDatabase(
             dbPathOverride: 'candidate_hub_widget_stub.db',
@@ -1004,14 +1252,77 @@ class StubCandidatePlanningRepository extends LocalCandidatePlanningRepository {
   }
 
   @override
+  Future<List<AdoptedMicroActionProgress>>
+      listContinuableMicroActionsForNextWeek(DateTime day) async {
+    return continuableActions;
+  }
+
+  @override
+  Future<List<MicroActionModel>> listPlannedMicroActionsForNextWeek(
+    DateTime day,
+  ) async {
+    return plannedNextWeekActions;
+  }
+
+  @override
+  Future<List<LifeExperimentModel>> listPlannedExperimentsForNextWeek(
+    DateTime day,
+  ) async {
+    return plannedNextWeekExperiments;
+  }
+
+  @override
+  Future<bool> withdrawPlannedMicroActionForNextWeek({
+    required String microActionId,
+    required DateTime day,
+  }) async {
+    final before = plannedNextWeekActions.length;
+    plannedNextWeekActions = plannedNextWeekActions
+        .where((item) => item.id != microActionId)
+        .toList(growable: false);
+    if (before == plannedNextWeekActions.length) return false;
+    withdrawnMicroActionIds.add(microActionId);
+    return true;
+  }
+
+  @override
+  Future<bool> withdrawPlannedExperimentForNextWeek({
+    required String experimentId,
+    required DateTime day,
+  }) async {
+    final before = plannedNextWeekExperiments.length;
+    plannedNextWeekExperiments = plannedNextWeekExperiments
+        .where((item) => item.id != experimentId)
+        .toList(growable: false);
+    if (before == plannedNextWeekExperiments.length) return false;
+    withdrawnExperimentIds.add(experimentId);
+    return true;
+  }
+
+  @override
   Future<List<LifeExperimentModel>> continueExperimentsForNextWeek({
     required Iterable<String> experimentIds,
     required DateTime day,
   }) async {
+    goalContinuationConfirmCount += 1;
     final selected = experimentIds.toList(growable: false);
     continuedExperimentIds.addAll(selected);
     continuableExperiments = continuableExperiments
         .where((item) => !selected.contains(item.experiment.id))
+        .toList(growable: false);
+    return const [];
+  }
+
+  @override
+  Future<List<MicroActionModel>> continueMicroActionsForNextWeek({
+    required Iterable<String> microActionIds,
+    required DateTime day,
+  }) async {
+    microContinuationConfirmCount += 1;
+    final selected = microActionIds.toList(growable: false);
+    continuedMicroActionIds.addAll(selected);
+    continuableActions = continuableActions
+        .where((item) => !selected.contains(item.action.id))
         .toList(growable: false);
     return const [];
   }

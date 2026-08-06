@@ -641,20 +641,28 @@ void main() {
 
   test('linked Signal lookup is exact and chunks beyond SQLite bind limits',
       () async {
-    final signals = List.generate(
-      406,
-      (index) => RecentSignalModel(
-        id: 'linked-signal-$index',
-        signalCardId: 'linked-signal-$index',
-        content: 'linked evidence $index',
-        localDate: '2026-07-16',
-        createdAt: DateTime.utc(2026, 7, 16, 8).add(
-          Duration(minutes: index),
-        ),
-        userConfirmation: 'confirmed',
-      ),
-    );
-    await repository.upsertRemoteSignalCards(signals);
+    // Seed this query-boundary fixture directly. Going through remote sync for
+    // every row also exercises cache invalidation and obscures the lookup this
+    // test is intended to cover.
+    final db = await localDatabase.database;
+    final batch = db.batch();
+    for (var index = 0; index < 406; index += 1) {
+      final id = 'linked-signal-$index';
+      final createdAt = DateTime.utc(2026, 7, 16, 8).add(
+        Duration(minutes: index),
+      );
+      batch.insert('signal_cards', {
+        'id': id,
+        'signal_card_id': id,
+        'source_type': 'text',
+        'raw_text': 'linked evidence $index',
+        'created_at': createdAt.toIso8601String(),
+        'local_date': '2026-07-16',
+        'user_confirmation': 'confirmed',
+        'updated_at': createdAt.toIso8601String(),
+      });
+    }
+    await batch.commit(noResult: true);
 
     final loaded = await repository.listSignalCardsByIds(
       List.generate(405, (index) => 'linked-signal-$index'),

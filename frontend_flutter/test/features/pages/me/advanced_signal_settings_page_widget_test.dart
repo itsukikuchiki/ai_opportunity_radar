@@ -20,7 +20,7 @@ void main() {
   });
 
   testWidgets(
-      'Advanced Signals smoke: only health recovery hints remain and raw data stays hidden',
+      'Connected insights shows all three impacts and keeps raw Health data hidden',
       (tester) async {
     final calls = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -50,10 +50,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Advanced signal settings'), findsOneWidget);
-    expect(find.textContaining('abstract recovery signals'), findsOneWidget);
+    expect(find.text('Connected insights'), findsOneWidget);
+    expect(find.text('How Health data participates'), findsOneWidget);
+    expect(find.text('Today overview'), findsOneWidget);
+    expect(find.text('Weekly review'), findsOneWidget);
+    expect(find.text('Life experiments'), findsOneWidget);
     expect(find.text('Calendar schedule density'), findsNothing);
-    expect(find.text('Health recovery signals'), findsOneWidget);
     expect(
         find.textContaining('Private medical recovery session'), findsNothing);
     expect(calls, ['healthPermissionStatus']);
@@ -62,16 +64,20 @@ void main() {
       (mutation) => mutation.reason == 'health_energy_hints_changed',
     );
     final enable = find.byKey(const ValueKey('advanced-signals-health-enable'));
-    await tester.ensureVisible(enable);
+    await tester.scrollUntilVisible(enable, 320);
     await tester.pump();
+    expect(find.text('Health data'), findsOneWidget);
+    expect(find.text('Not connected'), findsOneWidget);
+    expect(find.textContaining('never writes Health data'), findsOneWidget);
     await tester.tap(enable);
     await tester.pumpAndSettle();
     expect((await refresh.timeout(const Duration(seconds: 2))).kind,
         AppDataMutationKind.externalEnergyHints);
 
-    expect(find.text('In use'), findsOneWidget);
-    expect(find.text('Refresh hints'), findsOneWidget);
-    expect(find.text('Clear saved hints'), findsOneWidget);
+    expect(find.text('Connected'), findsOneWidget);
+    expect(find.text('Update connected data'), findsOneWidget);
+    expect(find.text('Clear connected data'), findsOneWidget);
+    expect(find.text('Current connected summary'), findsOneWidget);
     expect(store.loadHealthSummary().lowRecoveryHint, isNotNull);
     expect(
         find.textContaining('Private medical recovery session'), findsNothing);
@@ -100,24 +106,24 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final clear = find.byKey(const ValueKey('advanced-signals-health-clear'));
+    await tester.scrollUntilVisible(clear, 320);
+    await tester.pump();
     expect(find.textContaining('Persisted abstract recovery hint'),
         findsOneWidget);
     expect(find.textContaining('must never be shown'), findsNothing);
-    expect(find.text('In use'), findsOneWidget);
+    expect(find.text('Connected'), findsOneWidget);
 
     final refresh = AppDataMutationBus.stream.firstWhere(
       (mutation) => mutation.reason == 'health_energy_hints_cleared',
     );
-    final clear = find.byKey(const ValueKey('advanced-signals-health-clear'));
-    await tester.ensureVisible(clear);
-    await tester.pump();
     await tester.tap(clear);
     await tester.pumpAndSettle();
     expect((await refresh.timeout(const Duration(seconds: 2))).kind,
         AppDataMutationKind.externalEnergyHints);
 
     expect(store.loadHealthSummary().hasAnyHint, isFalse);
-    expect(find.textContaining('Saved recovery hints were removed'),
+    expect(find.textContaining('Connected Health context was removed'),
         findsOneWidget);
     expect(find.byKey(const ValueKey('advanced-signals-health-clear')),
         findsNothing);
@@ -153,33 +159,63 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(find.textContaining('unavailable right now'), findsOneWidget);
-    expect(find.byKey(const ValueKey('advanced-signals-health-retry')),
+    final retry = find.byKey(const ValueKey('advanced-signals-health-retry'));
+    await tester.scrollUntilVisible(retry, 320);
+    await tester.pump();
+    expect(find.textContaining('Health data is unavailable right now'),
         findsOneWidget);
+    expect(retry, findsOneWidget);
 
     failStatus = false;
-    final retry = find.byKey(const ValueKey('advanced-signals-health-retry'));
-    await tester.ensureVisible(retry);
-    await tester.pump();
     await tester.tap(retry);
     await tester.pumpAndSettle();
-    expect(find.textContaining('unavailable right now'), findsNothing);
-    expect(find.text('Not enabled yet'), findsOneWidget);
+    expect(find.textContaining('Health data is unavailable right now'),
+        findsNothing);
+    expect(find.text('Not connected'), findsOneWidget);
 
     final enable = find.byKey(const ValueKey('advanced-signals-health-enable'));
-    await tester.ensureVisible(enable);
+    await tester.scrollUntilVisible(enable, 320);
     await tester.pump();
     await tester.tap(enable);
     await tester.pumpAndSettle();
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(
         find.textContaining('Health access was not enabled'), findsOneWidget);
-    expect(find.text('Off'), findsOneWidget);
+    expect(find.text('Permission off'), findsOneWidget);
     expect(calls, isNot(contains('calendarPermissionStatus')));
     expect(calls, isNot(contains('requestCalendarScheduleHints')));
   });
 
-  testWidgets('back control closes the pushed Advanced Signals page',
+  testWidgets('authorized without recent data explains the empty state',
+      (tester) async {
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      if (call.method == 'healthPermissionStatus') return 'authorized';
+      return null;
+    });
+    final store = await _buildStore();
+
+    await tester.pumpWidget(
+      MaterialApp(home: AdvancedSignalSettingsPage(hintStore: store)),
+    );
+    await tester.pumpAndSettle();
+
+    final enable = find.byKey(const ValueKey('advanced-signals-health-enable'));
+    await tester.scrollUntilVisible(enable, 320);
+    await tester.pump();
+
+    expect(find.text('No recent data'), findsOneWidget);
+    expect(
+      find.textContaining('Permission is enabled, but no recent Health data'),
+      findsOneWidget,
+    );
+    expect(calls, ['healthPermissionStatus']);
+    expect(calls, isNot(contains('calendarPermissionStatus')));
+  });
+
+  testWidgets('back control closes the pushed Connected insights page',
       (tester) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
@@ -208,11 +244,11 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('open-advanced-signals')));
     await tester.pumpAndSettle();
-    expect(find.text('Advanced signal settings'), findsOneWidget);
+    expect(find.text('Connected insights'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('advanced-signals-back')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('open-advanced-signals')), findsOneWidget);
-    expect(find.text('Advanced signal settings'), findsNothing);
+    expect(find.text('Connected insights'), findsNothing);
   });
 }
 

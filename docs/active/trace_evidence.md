@@ -1,6 +1,6 @@
 # Trace And Evidence
 
-Last updated: 2026-07-22
+Last updated: 2026-07-28
 
 Trace/evidence is the active debugging and trust layer for AI output.
 
@@ -16,8 +16,8 @@ Insight / Observation / Reflection / Rollup
 
 | Surface | Role |
 | --- | --- |
-| Journey source-Signal drilldown | User-visible source explanation. Selected-month date nodes open the canonical Diary date projection; quick-experiment/goal milestones may open the corresponding read-only object detail. |
-| Journey Pro three-month change | Keeps internal trace links for generation and invalidation, but exposes no source-Signal list, date drilldown or AI follow-up section. |
+| Journey source-Signal drilldown | User-visible source explanation. Visible-month date nodes open the canonical Diary date projection; quick-experiment/goal milestones may open the corresponding read-only object detail. |
+| Journey Pro full-history change | Keeps internal trace links and source-version context across every available completed natural month from first app use through the latest completed user-local month, but exposes no source-Signal list, date drilldown or AI follow-up section. The in-progress month is excluded from both the visible timeline and source version. |
 | Candidate source-Signal sheet | Concise explanation for why a quick-experiment/goal candidate appeared; underlying MicroAction/Experiment candidate sources remain separately traceable. |
 | Trace Debug | Dev-only table reader for Signal -> Weekly / Journey / Experiment / PipelineRun. |
 

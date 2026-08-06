@@ -13,6 +13,7 @@ import '../../../core/models/memory_models.dart';
 import '../../../core/preferences/focus_domains.dart';
 import '../../../core/readiness/report_readiness.dart';
 import '../../../shared/states/load_state.dart';
+import '../../../shared/utils/user_visible_text_sanitizer.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../../../shared/widgets/empty_state_block.dart';
 import 'journey_display_text.dart';
@@ -41,20 +42,8 @@ class MemoryPage extends StatelessWidget {
                       _JourneyTop(
                         summary: vm.summary,
                         month: vm.selectedMonth,
-                        onPreviousMonth: () => vm.selectMonth(
-                          DateTime(
-                            vm.selectedMonth.year,
-                            vm.selectedMonth.month - 1,
-                          ),
-                        ),
-                        onNextMonth: vm.canSelectNextMonth
-                            ? () => vm.selectMonth(
-                                  DateTime(
-                                    vm.selectedMonth.year,
-                                    vm.selectedMonth.month + 1,
-                                  ),
-                                )
-                            : null,
+                        onPreviousMonth: null,
+                        onNextMonth: null,
                       ),
                       const SizedBox(height: AuroraMainPageSpec.heroGap),
                       EmptyStateBlock(
@@ -63,19 +52,23 @@ class MemoryPage extends StatelessWidget {
                           context,
                           en: 'Journey failed to load',
                           zhHans: '旅程加载失败了',
-                          zhHant: 'Journey 載入失敗了',
-                          ja: 'Journey の読み込みに失敗しました',
+                          zhHant: '旅程載入失敗了',
+                          ja: '旅程の読み込みに失敗しました',
                         ),
-                        subtitle: vm.errorMessage ??
-                            AppLocaleText.tr(
-                              context,
-                              en: 'Reason: local Journey data or generation failed. Report content starts after 7 eligible Signal Cards across 3 local days in the current month.',
-                              zhHans:
-                                  '原因：本地旅程数据或生成过程读取失败。本月达到 7 条有效 Signal Card、覆盖 3 个本地日期后，才开始显示报告内容。',
-                              zhHant:
-                                  '原因：本地 Journey 資料或生成過程讀取失敗。本月達到 7 條有效 Signal Card、覆蓋 3 個本地日期後，才開始顯示報告內容。',
-                              ja: '理由: Journey データまたは生成の読み込みに失敗しました。今月、有効な Signal Card 7 件とローカル日付 3 日を満たすとレポートを表示します。',
-                            ),
+                        subtitle: vm.errorMessage == null
+                            ? AppLocaleText.tr(
+                                context,
+                                en: 'Reason: local Journey data or generation failed. Report content starts after 7 eligible Signal Cards across 3 local days in the current month.',
+                                zhHans:
+                                    '原因：本地旅程数据或生成过程读取失败。本月达到 7 条有效信号卡、覆盖 3 个本地日期后，才开始显示报告内容。',
+                                zhHant:
+                                    '原因：本地旅程資料或生成過程讀取失敗。本月達到 7 條有效 Signal 卡片、覆蓋 3 個本地日期後，才開始顯示報告內容。',
+                                ja: '理由: 旅程データまたは生成の読み込みに失敗しました。今月、有効な Signal カード 7 件とローカル日付 3 日を満たすとレポートを表示します。',
+                              )
+                            : localizeUserVisibleErrorText(
+                                context,
+                                vm.errorMessage,
+                              ),
                       ),
                     ],
                   ),
@@ -94,8 +87,7 @@ class MemoryPage extends StatelessWidget {
 /// The report threshold never hides facts the user already owns.
 ///
 /// Before the monthly synthesis is ready, Journey still exposes the free
-/// factual layer (Signal path, calendar, experiment/goal trajectory, and real
-/// state rhythm). Only
+/// factual layer (monthly overview, calendar, and theme timeline). Only
 /// interpretive report sections remain gated.
 class _JourneyFormingBody extends StatefulWidget {
   final MemoryViewModel vm;
@@ -130,12 +122,8 @@ class _JourneyFormingBodyState extends State<_JourneyFormingBody> {
           readiness: vm.journeyReadiness,
           vm: vm,
           month: month,
-          onPreviousMonth: () => vm.selectMonth(
-            DateTime(month.year, month.month - 1),
-          ),
-          onNextMonth: vm.canSelectNextMonth
-              ? () => vm.selectMonth(DateTime(month.year, month.month + 1))
-              : null,
+          onPreviousMonth: null,
+          onNextMonth: null,
         ),
         const SizedBox(height: AuroraMainPageSpec.heroGap),
         _JourneyThresholdNotice(
@@ -164,11 +152,6 @@ class _JourneyFormingBodyState extends State<_JourneyFormingBody> {
         ],
         if (summary != null) ...[
           const SizedBox(height: AuroraMainPageSpec.sectionGap),
-          _JourneyMonthlyPathCard(
-            summary: summary,
-            month: month,
-          ),
-          const SizedBox(height: AuroraMainPageSpec.sectionGap),
           _JourneyMonthlyFactsCard(
             readiness: vm.journeyReadiness,
             traces: traces,
@@ -184,24 +167,17 @@ class _JourneyFormingBodyState extends State<_JourneyFormingBody> {
             key: _calendarKey,
             month: month,
             traces: traces,
-            onPrevious: () => vm.selectMonth(
-              DateTime(month.year, month.month - 1),
-            ),
-            onNext: vm.canSelectNextMonth
-                ? () => vm.selectMonth(DateTime(month.year, month.month + 1))
-                : null,
+            facts: summary.periodFacts,
+            onPrevious: null,
+            onNext: null,
           ),
           const SizedBox(height: AuroraMainPageSpec.sectionGap),
-          _JourneyExperimentGoalTrajectoryCard(
+          _JourneyThemeTimelineCard(
+            summary: summary,
             month: month,
             traces: traces,
             facts: summary.periodFacts,
-          ),
-          const SizedBox(height: AuroraMainPageSpec.sectionGap),
-          _JourneyStateRhythmCard(
-            month: month,
-            traces: traces,
-            facts: summary.periodFacts,
+            synthesisReady: false,
           ),
         ],
         const SizedBox(height: AuroraMainPageSpec.sectionGap),
@@ -262,12 +238,12 @@ class _JourneyFormingSummaryCard extends StatelessWidget {
                 Text(
                   AppLocaleText.tr(
                     context,
-                    en: 'The monthly synthesis starts after 7 eligible Signal Cards across at least 3 local days. The real Signal path, facts, experiment and goal trajectory, and state rhythm remain visible below.',
+                    en: 'The monthly synthesis starts after 7 eligible Signal Cards across at least 3 local days. The real monthly overview, calendar, and activity timeline remain visible below.',
                     zhHans:
-                        '本月达到 7 条有效 Signal Card、覆盖至少 3 个记录日后开始显示综合；真实 Signal 轨迹与事实、小实验／目标轨迹、状态与节奏仍会继续显示。',
+                        '本月达到 7 条有效 Signal、覆盖至少 3 个记录日后开始显示综合；真实的轨迹概览、月度视图与主题变化仍会继续显示。',
                     zhHant:
-                        '本月達到 7 條有效 Signal Card、覆蓋至少 3 個記錄日後開始顯示綜合；真實 Signal 軌跡與事實、小實驗／目標軌跡、狀態與節奏仍會繼續顯示。',
-                    ja: '今月、有効な Signal Card 7件が3日以上に分布すると月次のまとめを表示します。実際のSignalの軌跡と事実、小実験／目標の軌跡、状態とリズムは引き続き表示します。',
+                        '本月達到 7 條有效 Signal、覆蓋至少 3 個記錄日後開始顯示綜合；真實的軌跡概覽、月度視圖與主題變化仍會繼續顯示。',
+                    ja: '今月、有効な Signal 7件が3日以上に分布すると月次のまとめを表示します。実際の軌跡の概要、月間ビュー、テーマの変化は引き続き表示します。',
                   ),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF49659A),
@@ -381,7 +357,7 @@ class _JourneyEvidenceSheet extends StatelessWidget {
             en: 'Journey Signals',
             zhHans: '旅程 Signal',
             zhHant: '旅程 Signal',
-            ja: 'Journey の Signal',
+            ja: '旅程の Signal',
           )
         : localizeJourneyCategoryLabel(context, trace!.title);
     return DraggableScrollableSheet(
@@ -423,8 +399,6 @@ class _JourneyEvidenceSheet extends StatelessWidget {
                       children: [
                         Text(
                           title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                           style:
                               Theme.of(context).textTheme.titleLarge?.copyWith(
                                     color: const Color(0xFF09286A),
@@ -452,7 +426,9 @@ class _JourneyEvidenceSheet extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               if (errorMessage != null)
-                _JourneyEvidenceEmpty(message: errorMessage!)
+                _JourneyEvidenceEmpty(
+                  message: localizeUserVisibleErrorText(context, errorMessage),
+                )
               else if (items.isEmpty)
                 _JourneyEvidenceEmpty(
                   message: AppLocaleText.tr(
@@ -567,8 +543,6 @@ class _JourneyEvidenceTile extends StatelessWidget {
                   item.title.trim().isEmpty
                       ? label
                       : localizeJourneyCategoryLabel(context, item.title),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF09286A),
                         fontWeight: FontWeight.w700,
@@ -759,12 +733,14 @@ class _JourneyHeroSurface extends StatelessWidget {
                     const SizedBox(height: 7),
                     Row(
                       children: [
-                        _SmallCircleButton(
-                          key: const ValueKey('journey-previous-month'),
-                          icon: Icons.chevron_left_rounded,
-                          onTap: onPreviousMonth,
-                        ),
-                        const SizedBox(width: 8),
+                        if (onPreviousMonth != null) ...[
+                          _SmallCircleButton(
+                            key: const ValueKey('journey-previous-month'),
+                            icon: Icons.chevron_left_rounded,
+                            onTap: onPreviousMonth,
+                          ),
+                          const SizedBox(width: 8),
+                        ],
                         Expanded(
                           child: Text(
                             monthLabel,
@@ -782,12 +758,14 @@ class _JourneyHeroSurface extends StatelessWidget {
                                 ),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        _SmallCircleButton(
-                          key: const ValueKey('journey-next-month'),
-                          icon: Icons.chevron_right_rounded,
-                          onTap: onNextMonth,
-                        ),
+                        if (onNextMonth != null) ...[
+                          const SizedBox(width: 8),
+                          _SmallCircleButton(
+                            key: const ValueKey('journey-next-month'),
+                            icon: Icons.chevron_right_rounded,
+                            onTap: onNextMonth,
+                          ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 9),
@@ -795,8 +773,7 @@ class _JourneyHeroSurface extends StatelessWidget {
                       padding: EdgeInsets.only(right: compact ? 72 : 94),
                       child: Text(
                         summaryText,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        key: const ValueKey('journey-hero-summary'),
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: AuroraColors.ink.withValues(alpha: 0.78),
                               fontSize: AuroraMainPageSpec.heroSubtitleSize,
@@ -835,6 +812,63 @@ class _JourneyHeroReadiness extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = reportReady ? const Color(0xFF45B894) : AuroraColors.purple;
+    final languageCode = Localizations.localeOf(context).languageCode;
+    final title = reportReady
+        ? AppLocaleText.tr(
+            context,
+            en: 'Monthly report ready',
+            zhHans: '月度综合已形成',
+            zhHant: '月度綜合已形成',
+            ja: '月次サマリー完成',
+          )
+        : AppLocaleText.tr(
+            context,
+            en: 'Monthly report is forming',
+            zhHans: '月度综合正在形成',
+            zhHant: '月度綜合正在形成',
+            ja: '月次サマリーを作成中',
+          );
+    final detail = AppLocaleText.tr(
+      context,
+      en: '${readiness.signalCount} signals · ${readiness.distinctDayCount} record days',
+      zhHans:
+          '${readiness.signalCount} 条有效信号 · ${readiness.distinctDayCount} 个记录日',
+      zhHant:
+          '${readiness.signalCount} 條有效信號 · ${readiness.distinctDayCount} 個記錄日',
+      ja: '${readiness.signalCount} 件 · ${readiness.distinctDayCount} 記録日',
+    );
+    final titleStyle = Theme.of(context).textTheme.labelLarge?.copyWith(
+          color: accent,
+          fontWeight: FontWeight.w700,
+        );
+    final detailStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: const Color(0xFF49659A),
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
+        );
+    if (languageCode == 'en') {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                reportReady ? Icons.check_circle_rounded : Icons.route_rounded,
+                size: 19,
+                color: accent,
+              ),
+              const SizedBox(width: 6),
+              Expanded(child: Text(title, maxLines: 1, style: titleStyle)),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Padding(
+            padding: const EdgeInsets.only(left: 25),
+            child: Text(detail, maxLines: 1, style: detailStyle),
+          ),
+        ],
+      );
+    }
     return Row(
       children: [
         Icon(
@@ -845,49 +879,20 @@ class _JourneyHeroReadiness extends StatelessWidget {
         const SizedBox(width: 6),
         Flexible(
           child: Text(
-            reportReady
-                ? AppLocaleText.tr(
-                    context,
-                    en: 'Monthly synthesis ready',
-                    zhHans: '月度综合已形成',
-                    zhHant: '月度綜合已形成',
-                    ja: '月次サマリーができました',
-                  )
-                : AppLocaleText.tr(
-                    context,
-                    en: 'Monthly synthesis is forming',
-                    zhHans: '月度综合正在形成',
-                    zhHant: '月度綜合正在形成',
-                    ja: '月次サマリーを作成中',
-                  ),
+            title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: accent,
-                  fontWeight: FontWeight.w700,
-                ),
+            style: titleStyle,
           ),
         ),
         const SizedBox(width: 8),
         Flexible(
           child: Text(
-            AppLocaleText.tr(
-              context,
-              en: '${readiness.signalCount} signals · ${readiness.distinctDayCount} record days',
-              zhHans:
-                  '${readiness.signalCount} 条有效信号 · ${readiness.distinctDayCount} 个记录日',
-              zhHant:
-                  '${readiness.signalCount} 條有效信號 · ${readiness.distinctDayCount} 個記錄日',
-              ja: '${readiness.signalCount} 件 · ${readiness.distinctDayCount} 記録日',
-            ),
+            detail,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.end,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: const Color(0xFF49659A),
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                ),
+            style: detailStyle,
           ),
         ),
       ],
@@ -1128,14 +1133,8 @@ class _JourneyReadyBodyState extends State<_JourneyReadyBody> {
           _JourneyTop(
             summary: summary,
             month: month,
-            onPreviousMonth: () => widget.vm.selectMonth(
-              DateTime(month.year, month.month - 1),
-            ),
-            onNextMonth: widget.vm.canSelectNextMonth
-                ? () => widget.vm.selectMonth(
-                      DateTime(month.year, month.month + 1),
-                    )
-                : null,
+            onPreviousMonth: null,
+            onNextMonth: null,
           ),
           const SizedBox(height: AuroraMainPageSpec.heroGap),
           EmptyStateBlock(
@@ -1150,11 +1149,9 @@ class _JourneyReadyBodyState extends State<_JourneyReadyBody> {
             subtitle: AppLocaleText.tr(
               context,
               en: 'Reason: no eligible Journey records were found yet. It starts with Signal Card, feedback, Weekly Review, Life Experiment, or manual reflection data.',
-              zhHans:
-                  '原因：还没有找到可进入旅程的记录。Signal Card、反馈、每周复盘、生活小实验或手动反思出现后会开始显示。',
-              zhHant:
-                  '原因：還沒有找到可進入旅程的記錄。Signal Card、回饋、每週回顧、生活小實驗或手動反思出現後會開始顯示。',
-              ja: '理由: 旅程に使える記録がまだありません。Signal Card、反応、週間レビュー、生活実験、手動の振り返りで表示が始まります。',
+              zhHans: '原因：还没有找到可进入旅程的记录。信号卡、反馈、每周复盘、生活小实验或手动反思出现后会开始显示。',
+              zhHant: '原因：還沒有找到可進入旅程的記錄。Signal 卡片、回饋、每週回顧、生活小實驗或手動反思出現後會開始顯示。',
+              ja: '理由: 旅程に使える記録がまだありません。Signal カード、反応、週間レビュー、生活実験、手動の振り返りで表示が始まります。',
             ),
           ),
         ],
@@ -1171,21 +1168,10 @@ class _JourneyReadyBodyState extends State<_JourneyReadyBody> {
           vm: widget.vm,
           readiness: widget.vm.journeyReadiness,
           month: month,
-          onPreviousMonth: () => widget.vm.selectMonth(
-            DateTime(month.year, month.month - 1),
-          ),
-          onNextMonth: widget.vm.canSelectNextMonth
-              ? () => widget.vm.selectMonth(
-                    DateTime(month.year, month.month + 1),
-                  )
-              : null,
+          onPreviousMonth: null,
+          onNextMonth: null,
         ),
         const SizedBox(height: AuroraMainPageSpec.heroGap),
-        _JourneyMonthlyPathCard(
-          summary: summary,
-          month: month,
-        ),
-        const SizedBox(height: AuroraMainPageSpec.sectionGap),
         _JourneyMonthlyFactsCard(
           readiness: widget.vm.journeyReadiness,
           traces: _userVisibleJourneyTraces(summary.journeyTraces),
@@ -1201,33 +1187,20 @@ class _JourneyReadyBodyState extends State<_JourneyReadyBody> {
           key: _calendarKey,
           month: month,
           traces: _userVisibleJourneyTraces(summary.journeyTraces),
-          onPrevious: () => widget.vm.selectMonth(
-            DateTime(month.year, month.month - 1),
-          ),
-          onNext: widget.vm.canSelectNextMonth
-              ? () => widget.vm.selectMonth(
-                    DateTime(month.year, month.month + 1),
-                  )
-              : null,
+          facts: summary.periodFacts,
+          onPrevious: null,
+          onNext: null,
         ),
         const SizedBox(height: AuroraMainPageSpec.sectionGap),
-        _JourneyThemesAndChangesCard(
+        _JourneyThemeTimelineCard(
           summary: summary,
-        ),
-        const SizedBox(height: AuroraMainPageSpec.sectionGap),
-        _JourneyExperimentGoalTrajectoryCard(
           month: month,
           traces: _userVisibleJourneyTraces(summary.journeyTraces),
           facts: summary.periodFacts,
+          synthesisReady: true,
         ),
         const SizedBox(height: AuroraMainPageSpec.sectionGap),
-        _JourneyStateRhythmCard(
-          month: month,
-          traces: _userVisibleJourneyTraces(summary.journeyTraces),
-          facts: summary.periodFacts,
-        ),
-        const SizedBox(height: AuroraMainPageSpec.sectionGap),
-        _JourneyMonthReviewCard(
+        _JourneyGentleReviewCard(
           summary: summary,
           month: month,
         ),
@@ -1531,7 +1504,7 @@ class _JourneyMonthlyFactsCard extends StatelessWidget {
         const Color(0xFFF1B94A),
         '$attemptCount',
         AppLocaleText.tr(context,
-            en: 'small-experiment attempts',
+            en: 'Spot Try attempts',
             zhHans: '小实验尝试',
             zhHant: '小實驗嘗試',
             ja: '小実験の試行')
@@ -1553,10 +1526,10 @@ class _JourneyMonthlyFactsCard extends StatelessWidget {
           _JourneySectionTitle(
             title: AppLocaleText.tr(
               context,
-              en: 'Facts this month',
-              zhHans: '本月事实',
-              zhHant: '本月事實',
-              ja: '今月の事実',
+              en: 'Journey overview · This month',
+              zhHans: '轨迹概览 · 本月',
+              zhHant: '軌跡概覽 · 本月',
+              ja: '軌跡の概要 · 今月',
             ),
           ),
           const SizedBox(height: 10),
@@ -1604,7 +1577,7 @@ class _JourneyMonthlyFactsCard extends StatelessWidget {
                       en: 'Month grid',
                       zhHans: '月历',
                       zhHant: '月曆',
-                      ja: '月間カレンダー')),
+                      ja: 'カレンダー')),
                 ),
               ),
             ],
@@ -1763,6 +1736,434 @@ class _JourneyThemeRow extends StatelessWidget {
   }
 }
 
+class _JourneyThemeTimelineCard extends StatelessWidget {
+  final MemorySummaryModel summary;
+  final DateTime month;
+  final List<JourneyTraceModel> traces;
+  final JourneyPeriodFactsModel? facts;
+  final bool synthesisReady;
+
+  const _JourneyThemeTimelineCard({
+    required this.summary,
+    required this.month,
+    required this.traces,
+    required this.facts,
+    required this.synthesisReady,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+    final monthTraces = traces
+        .where((trace) => _sameMonth(trace.localDate, month))
+        .where((trace) =>
+            !_isSmallExperimentAttempt(trace) &&
+            !_isSmallExperimentRoundSummary(trace) &&
+            !_isGoalProgressTrace(trace))
+        .toList(growable: false);
+    final grouped = <String, List<JourneyTraceModel>>{};
+    for (final trace in monthTraces) {
+      final key =
+          trace.cluster.trim().isEmpty ? trace.sourceType : trace.cluster;
+      grouped.putIfAbsent(key, () => []).add(trace);
+    }
+    final ordered = grouped.entries.toList(growable: false)
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+    const palette = [
+      Color(0xFFFF83B5),
+      Color(0xFF7B6FF2),
+      Color(0xFF58B8F6),
+      Color(0xFF55C7B2),
+    ];
+    final series = <_JourneyThemeSeries>[];
+    for (var index = 0; index < math.min(3, ordered.length); index++) {
+      final entry = ordered[index];
+      final values = List<double>.filled(daysInMonth, 0);
+      for (final trace in entry.value) {
+        final date = DateTime.tryParse(trace.localDate);
+        if (date == null || date.day < 1 || date.day > daysInMonth) continue;
+        values[date.day - 1] += math.max(0.35, trace.intensity);
+      }
+      series.add(
+        _JourneyThemeSeries(
+          label: localizeJourneyChartSeriesLabel(
+            context,
+            categoryId: entry.key,
+            evidence: [
+              for (final trace in entry.value) ...[
+                trace.title,
+                trace.summary,
+              ],
+            ],
+          ),
+          color: palette[index],
+          values: values,
+        ),
+      );
+    }
+    final smallExperimentValues = List<double>.filled(daysInMonth, 0);
+    final goalValues = List<double>.filled(daysInMonth, 0);
+    final smallExperimentTraces = traces
+        .where((trace) => _sameMonth(trace.localDate, month))
+        .where((trace) =>
+            _isSmallExperimentAttempt(trace) ||
+            _isSmallExperimentRoundSummary(trace))
+        .toList(growable: false);
+    final goalTraces = traces
+        .where((trace) => _sameMonth(trace.localDate, month))
+        .where(_isGoalProgressTrace)
+        .toList(growable: false);
+    for (final trace in smallExperimentTraces) {
+      final date = DateTime.tryParse(trace.localDate);
+      if (date != null && date.day >= 1 && date.day <= daysInMonth) {
+        smallExperimentValues[date.day - 1] += 1;
+      }
+    }
+    for (final trace in goalTraces) {
+      final date = DateTime.tryParse(trace.localDate);
+      if (date != null && date.day >= 1 && date.day <= daysInMonth) {
+        goalValues[date.day - 1] += 1;
+      }
+    }
+    if (smallExperimentTraces.isEmpty || goalTraces.isEmpty) {
+      for (final day in facts?.days ?? const <JourneyDayFactModel>[]) {
+        final date = DateTime.tryParse(day.localDate);
+        if (date == null || date.day < 1 || date.day > daysInMonth) continue;
+        if (smallExperimentTraces.isEmpty &&
+            day.smallExperimentAttemptCount > 0) {
+          smallExperimentValues[date.day - 1] +=
+              day.smallExperimentAttemptCount;
+        }
+        if (goalTraces.isEmpty && day.goalFeedbackCount > 0) {
+          goalValues[date.day - 1] += day.goalFeedbackCount;
+        }
+      }
+    }
+    if (smallExperimentValues.any((value) => value > 0)) {
+      series.add(
+        _JourneyThemeSeries(
+          label: AppLocaleText.tr(
+            context,
+            en: 'Spot Try feedback',
+            zhHans: '小实验反馈',
+            zhHant: '小實驗回饋',
+            ja: '小実験のフィードバック',
+          ),
+          color: const Color(0xFFF1B94A),
+          values: smallExperimentValues,
+        ),
+      );
+    }
+    if (goalValues.any((value) => value > 0)) {
+      series.add(
+        _JourneyThemeSeries(
+          label: AppLocaleText.tr(
+            context,
+            en: 'Goal feedback',
+            zhHans: '目标反馈',
+            zhHant: '目標回饋',
+            ja: '目標のフィードバック',
+          ),
+          color: const Color(0xFF45B894),
+          values: goalValues,
+        ),
+      );
+    }
+    final attemptCount = facts?.smallExperimentAttemptCount ??
+        traces.where(_isSmallExperimentAttempt).length;
+    final goalCount =
+        facts?.goalFeedbackCount ?? traces.where(_isGoalProgressTrace).length;
+
+    return _JourneyGlassCard(
+      key: const ValueKey('journey-theme-timeline'),
+      padding: AuroraMainPageSpec.comfortableCardPadding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _JourneySectionTitle(
+            title: AppLocaleText.tr(
+              context,
+              en: 'Themes changing this month',
+              zhHans: '本月主题变化',
+              zhHant: '本月主題變化',
+              ja: '今月のテーマの変化',
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            synthesisReady
+                ? AppLocaleText.tr(
+                    context,
+                    en: 'Read each line together with Spot Try and goal feedback.',
+                    zhHans: '把主题曲线与小实验、目标反馈放在一起阅读。',
+                    zhHant: '把主題曲線與小實驗、目標回饋放在一起閱讀。',
+                    ja: 'テーマの線を、小実験と目標のフィードバックと一緒に読みます。',
+                  )
+                : AppLocaleText.tr(
+                    context,
+                    en: 'Real monthly activity is shown first. Named themes appear after the report threshold.',
+                    zhHans: '先展示真实月度活动；达到报告门槛后再命名综合主题。',
+                    zhHant: '先展示真實月度活動；達到報告門檻後再命名綜合主題。',
+                    ja: 'まず実際の月間活動を表示し、基準到達後に総合テーマを表示します。',
+                  ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF5C70A4),
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            height: 190,
+            padding: const EdgeInsets.fromLTRB(10, 12, 10, 8),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFFFFF3F1).withValues(alpha: 0.78),
+                  const Color(0xFFF1EEFF).withValues(alpha: 0.84),
+                  const Color(0xFFEAF8FF).withValues(alpha: 0.74),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.82)),
+            ),
+            child: series.isEmpty
+                ? Center(
+                    child: Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'Theme changes will appear after you record Signal.',
+                        zhHans: '留下 Signal 后，主题变化会显示在这里。',
+                        zhHant: '留下 Signal 後，主題變化會顯示在這裡。',
+                        ja: 'Signal を記録すると、テーマの変化がここに表示されます。',
+                      ),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF7180A8),
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  )
+                : CustomPaint(
+                    painter: _JourneyThemeTimelinePainter(series),
+                    child: const SizedBox.expand(),
+                  ),
+          ),
+          if (series.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 7,
+              children: [
+                for (final item in series)
+                  _JourneyTimelineLegend(
+                    color: item.color,
+                    label: item.label,
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 9,
+            runSpacing: 8,
+            children: [
+              _JourneyTimelineFactChip(
+                icon: Icons.science_outlined,
+                color: const Color(0xFFF1B94A),
+                label: AppLocaleText.tr(
+                  context,
+                  en: '$attemptCount Spot Try feedback',
+                  zhHans: '小实验反馈 $attemptCount 次',
+                  zhHant: '小實驗回饋 $attemptCount 次',
+                  ja: '小実験のフィードバック $attemptCount 件',
+                ),
+              ),
+              _JourneyTimelineFactChip(
+                icon: Icons.flag_outlined,
+                color: const Color(0xFF45B894),
+                label: AppLocaleText.tr(
+                  context,
+                  en: '$goalCount goal updates',
+                  zhHans: '目标反馈 $goalCount 次',
+                  zhHant: '目標回饋 $goalCount 次',
+                  ja: '目標のフィードバック $goalCount 件',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _JourneyThemeSeries {
+  final String label;
+  final Color color;
+  final List<double> values;
+
+  const _JourneyThemeSeries({
+    required this.label,
+    required this.color,
+    required this.values,
+  });
+}
+
+class _JourneyThemeTimelinePainter extends CustomPainter {
+  final List<_JourneyThemeSeries> series;
+
+  const _JourneyThemeTimelinePainter(this.series);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final plot = Rect.fromLTRB(12, 10, size.width - 8, size.height - 22);
+    final gridPaint = Paint()
+      ..color = const Color(0xFF9AA8CC).withValues(alpha: 0.18)
+      ..strokeWidth = 1;
+    for (var line = 0; line < 4; line++) {
+      final y = plot.top + plot.height * line / 3;
+      canvas.drawLine(Offset(plot.left, y), Offset(plot.right, y), gridPaint);
+    }
+    final maxValue = series
+        .expand((item) => item.values)
+        .fold<double>(1, (max, value) => math.max(max, value));
+    for (final item in series) {
+      if (item.values.isEmpty) continue;
+      final path = Path();
+      final paint = Paint()
+        ..color = item.color
+        ..strokeWidth = 2.6
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke;
+      for (var index = 0; index < item.values.length; index++) {
+        final x = plot.left +
+            plot.width *
+                (item.values.length == 1
+                    ? 0
+                    : index / (item.values.length - 1));
+        final normalized = item.values[index] / maxValue;
+        final y = plot.bottom - (normalized * plot.height * 0.82);
+        if (index == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(path, paint);
+      for (var index = 0; index < item.values.length; index++) {
+        if (item.values[index] <= 0) continue;
+        final x = plot.left +
+            plot.width *
+                (item.values.length == 1
+                    ? 0
+                    : index / (item.values.length - 1));
+        final y = plot.bottom -
+            ((item.values[index] / maxValue) * plot.height * 0.82);
+        canvas.drawCircle(
+          Offset(x, y),
+          3.5,
+          Paint()..color = Colors.white,
+        );
+        canvas.drawCircle(
+          Offset(x, y),
+          2.2,
+          Paint()..color = item.color,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _JourneyThemeTimelinePainter oldDelegate) =>
+      oldDelegate.series != series;
+}
+
+class _JourneyTimelineLegend extends StatelessWidget {
+  final Color color;
+  final String label;
+
+  const _JourneyTimelineLegend({
+    required this.color,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(color: color.withValues(alpha: 0.32), blurRadius: 6),
+            ],
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: const Color(0xFF49659A),
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
+class _JourneyTimelineFactChip extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+
+  const _JourneyTimelineFactChip({
+    required this.icon,
+    required this.color,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.sizeOf(context).width - 64,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 17),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              softWrap: true,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: const Color(0xFF315083),
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _JourneyExperimentGoalTrajectoryCard extends StatelessWidget {
   final DateTime month;
   final List<JourneyTraceModel> traces;
@@ -1800,7 +2201,7 @@ class _JourneyExperimentGoalTrajectoryCard extends StatelessWidget {
         children: [
           _JourneySectionTitle(
             title: AppLocaleText.tr(context,
-                en: 'Small experiments and goals',
+                en: 'Spot Tries and goals',
                 zhHans: '小实验与目标轨迹',
                 zhHant: '小實驗與目標軌跡',
                 ja: '小実験と目標の軌跡'),
@@ -1811,10 +2212,7 @@ class _JourneyExperimentGoalTrajectoryCard extends StatelessWidget {
               icon: Icons.science_outlined,
               color: const Color(0xFFF1B94A),
               title: AppLocaleText.tr(context,
-                  en: 'Small experiments',
-                  zhHans: '小实验',
-                  zhHant: '小實驗',
-                  ja: '小実験'),
+                  en: 'Spot Tries', zhHans: '小实验', zhHant: '小實驗', ja: '小実験'),
               value: AppLocaleText.tr(context,
                   en: attemptCount == 1
                       ? '1 real attempt'
@@ -1939,11 +2337,13 @@ class _JourneyTrajectoryRow extends StatelessWidget {
                         ?.copyWith(color: color, fontWeight: FontWeight.w700)),
                 if (detail != null && detail!.trim().isNotEmpty) ...[
                   const SizedBox(height: 4),
-                  Text(detail!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF5C70A4), height: 1.35)),
+                  Text(
+                    detail!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF5C70A4),
+                          height: 1.35,
+                        ),
+                  ),
                 ],
               ],
             ),
@@ -2128,7 +2528,7 @@ class _JourneyStateRhythmCard extends StatelessWidget {
             const SizedBox(height: 14),
             Text(
               AppLocaleText.tr(context,
-                  en: 'Small-experiment feedback markers',
+                  en: 'Spot Try feedback markers',
                   zhHans: '小实验反馈标记',
                   zhHant: '小實驗回饋標記',
                   ja: '小実験の反応マーカー'),
@@ -2368,10 +2768,10 @@ class _JourneyProEntryCard extends StatelessWidget {
               children: [
                 Text(
                     AppLocaleText.tr(context,
-                        en: 'Pro · Three-month deep analysis',
-                        zhHans: 'Pro · 三个月深度分析',
-                        zhHant: 'Pro · 三個月深度分析',
-                        ja: 'Pro · 3か月の深度分析'),
+                        en: 'Pro · Complete Journey changes',
+                        zhHans: '专业版 · 完整旅程变化',
+                        zhHant: '專業版 · 完整旅程變化',
+                        ja: 'プロ版・旅程全体の変化'),
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF09286A),
                         fontWeight: FontWeight.w700)),
@@ -2379,19 +2779,17 @@ class _JourneyProEntryCard extends StatelessWidget {
                 Text(
                     AppLocaleText.tr(context,
                         en:
-                            'See how patterns and state have changed across three months.',
-                        zhHans: '查看行为模式与状态在三个月里的变化。',
-                        zhHant: '查看行為模式與狀態在三個月裡的變化。',
-                        ja: '行動パターンと状態の3か月の変化を確認します。'),
+                            'See focus, themes, and energy changes since you started using the app.',
+                        zhHans: '查看从开始使用至今的关注领域、主题与能量变化。',
+                        zhHant: '查看從開始使用至今的關注領域、主題與能量變化。',
+                        ja: '利用開始からの関心領域、テーマ、エネルギーの変化を確認します。'),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF5C70A4), height: 1.35)),
               ],
             ),
           ),
           IconButton(
-              onPressed: () => context.push(
-                    '${AppRoutes.journeyPro}?month=${_monthKey(month)}',
-                  ),
+              onPressed: () => context.push(AppRoutes.journeyPro),
               icon: const Icon(Icons.chevron_right_rounded,
                   color: Color(0xFF6957EE))),
         ],
@@ -2405,7 +2803,7 @@ class _DreamJourneyHero extends StatelessWidget {
   final MemoryViewModel vm;
   final ReportReadiness readiness;
   final DateTime month;
-  final VoidCallback onPreviousMonth;
+  final VoidCallback? onPreviousMonth;
   final VoidCallback? onNextMonth;
 
   const _DreamJourneyHero({
@@ -2413,7 +2811,7 @@ class _DreamJourneyHero extends StatelessWidget {
     required this.vm,
     required this.readiness,
     required this.month,
-    required this.onPreviousMonth,
+    this.onPreviousMonth,
     required this.onNextMonth,
   });
 
@@ -2758,8 +3156,7 @@ class _JourneyFeaturedPatternCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   patternText,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
+                  key: const ValueKey('journey-monthly-pattern-body'),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF102B67),
                         height: 1.4,
@@ -3065,8 +3462,9 @@ class _JourneyObservationRow extends StatelessWidget {
                   const SizedBox(height: 7),
                   Text(
                     _localizedGeneratedText(context, observation.text),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
+                    key: ValueKey(
+                      'journey-observation-${observation.id}-body',
+                    ),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: observation.isDismissed
                               ? const Color(0xFF7180A8)
@@ -3082,8 +3480,6 @@ class _JourneyObservationRow extends StatelessWidget {
                         context,
                         observation.suggestedPattern,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: const Color(0xFF5C70A4),
                             height: 1.35,
@@ -3136,13 +3532,15 @@ class _JourneyObservationStatusPill extends StatelessWidget {
 class _JourneyCalendarCard extends StatelessWidget {
   final DateTime month;
   final List<JourneyTraceModel> traces;
-  final VoidCallback onPrevious;
+  final JourneyPeriodFactsModel? facts;
+  final VoidCallback? onPrevious;
   final VoidCallback? onNext;
 
   const _JourneyCalendarCard({
     super.key,
     required this.month,
     required this.traces,
+    required this.facts,
     required this.onPrevious,
     required this.onNext,
   });
@@ -3150,6 +3548,7 @@ class _JourneyCalendarCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _JourneyGlassCard(
+      key: const ValueKey('journey-calendar-card'),
       padding: AuroraMainPageSpec.comfortableCardPadding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3165,11 +3564,13 @@ class _JourneyCalendarCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _SmallCircleButton(
-                icon: Icons.chevron_left_rounded,
-                onTap: onPrevious,
-              ),
-              const SizedBox(width: 12),
+              if (onPrevious != null) ...[
+                _SmallCircleButton(
+                  icon: Icons.chevron_left_rounded,
+                  onTap: onPrevious,
+                ),
+                const SizedBox(width: 12),
+              ],
               Flexible(
                 child: Text(
                   _monthLabel(context, month),
@@ -3182,22 +3583,41 @@ class _JourneyCalendarCard extends StatelessWidget {
                       ),
                 ),
               ),
-              const SizedBox(width: 12),
-              _SmallCircleButton(
-                icon: Icons.chevron_right_rounded,
-                onTap: onNext,
-              ),
+              if (onNext != null) ...[
+                const SizedBox(width: 12),
+                _SmallCircleButton(
+                  icon: Icons.chevron_right_rounded,
+                  onTap: onNext,
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.45),
+              image: const DecorationImage(
+                image: AssetImage('assets/journey/journey-review-road.png'),
+                fit: BoxFit.cover,
+                opacity: 0.18,
+              ),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFFFF8F4),
+                  Color(0xFFF4F0FF),
+                  Color(0xFFEEF8FF),
+                ],
+              ),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: Colors.white.withValues(alpha: 0.7)),
             ),
-            child: _JourneyCalendarGrid(month: month, traces: traces),
+            child: _JourneyCalendarGrid(
+              month: month,
+              traces: traces,
+              facts: facts,
+            ),
           ),
         ],
       ),
@@ -3311,7 +3731,11 @@ class _JourneySectionTitle extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text('✦', style: TextStyle(color: Color(0xFFE6B7FF))),
+        const Icon(
+          Icons.auto_awesome_rounded,
+          color: Color(0xFFE0A8FF),
+          size: 18,
+        ),
         const SizedBox(width: 6),
         Flexible(
           child: suffix == null
@@ -3433,15 +3857,22 @@ class _JourneyMetricTile extends StatelessWidget {
 class _JourneyCalendarGrid extends StatelessWidget {
   final DateTime month;
   final List<JourneyTraceModel> traces;
+  final JourneyPeriodFactsModel? facts;
 
   const _JourneyCalendarGrid({
     required this.month,
     required this.traces,
+    required this.facts,
   });
 
   @override
   Widget build(BuildContext context) {
-    final days = ['日', '一', '二', '三', '四', '五', '六'];
+    final languageCode = Localizations.localeOf(context).languageCode;
+    final days = switch (languageCode) {
+      'en' => const ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      'ja' => const ['日', '月', '火', '水', '木', '金', '土'],
+      _ => const ['日', '一', '二', '三', '四', '五', '六'],
+    };
     final first = DateTime(month.year, month.month);
     final leading = first.weekday % 7;
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
@@ -3459,6 +3890,22 @@ class _JourneyCalendarGrid extends StatelessWidget {
       markersByDay
           .putIfAbsent(parsed.day, () => [])
           .add(_calendarMarkerColor(trace));
+    }
+    for (final dayFact in facts?.days ?? const <JourneyDayFactModel>[]) {
+      final parsed = DateTime.tryParse(dayFact.localDate);
+      if (parsed == null ||
+          parsed.year != month.year ||
+          parsed.month != month.month) {
+        continue;
+      }
+      final markers = markersByDay.putIfAbsent(parsed.day, () => []);
+      if (dayFact.signalCount > 0) markers.add(const Color(0xFF7667F5));
+      if (dayFact.smallExperimentAttemptCount > 0) {
+        markers.add(const Color(0xFFF1B94A));
+      }
+      if (dayFact.goalFeedbackCount > 0) {
+        markers.add(const Color(0xFF45B894));
+      }
     }
     return Column(
       children: [
@@ -3480,7 +3927,10 @@ class _JourneyCalendarGrid extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         GridView.builder(
+          key: const ValueKey('journey-calendar-grid'),
           shrinkWrap: true,
+          primary: false,
+          padding: EdgeInsets.zero,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: cellCount,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -3520,7 +3970,7 @@ class _JourneyCalendarGrid extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      for (final color in markers.take(2))
+                      for (final color in markers.toSet().take(3))
                         Container(
                           width: 6,
                           height: 6,
@@ -3539,6 +3989,7 @@ class _JourneyCalendarGrid extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Wrap(
+          key: const ValueKey('journey-calendar-legend'),
           alignment: WrapAlignment.center,
           spacing: 18,
           runSpacing: 6,
@@ -3554,10 +4005,7 @@ class _JourneyCalendarGrid extends StatelessWidget {
             _CalendarLegend(
               color: const Color(0xFFF1B94A),
               label: AppLocaleText.tr(context,
-                  en: 'Small experiment',
-                  zhHans: '小实验',
-                  zhHant: '小實驗',
-                  ja: '小実験'),
+                  en: 'Spot Try', zhHans: '小实验', zhHant: '小實驗', ja: '小実験'),
             ),
             _CalendarLegend(
               color: const Color(0xFF45B894),
@@ -3735,10 +4183,7 @@ String _traceSourceLabel(BuildContext context, JourneyTraceModel trace) {
   switch (trace.sourceType) {
     case 'observation':
       return AppLocaleText.tr(context,
-          en: 'Observation',
-          zhHans: '观察判断',
-          zhHant: 'Observation 判斷',
-          ja: 'Observation');
+          en: 'Observation', zhHans: '观察判断', zhHant: '觀察判斷', ja: '観察');
     case 'manual_reflection':
       return AppLocaleText.tr(context,
           en: 'manual reflection',
@@ -3747,16 +4192,13 @@ String _traceSourceLabel(BuildContext context, JourneyTraceModel trace) {
           ja: '手動の振り返り');
     case 'micro_action_feedback':
       return AppLocaleText.tr(context,
-          en: 'Life Experiment · Small experiment feedback',
+          en: 'Life Experiment · Spot Try feedback',
           zhHans: '生活小实验 · 小实验反馈',
           zhHant: '生活小實驗 · 小實驗回饋',
           ja: '生活実験 · 小実験の反応');
     case 'weekly_review':
       return AppLocaleText.tr(context,
-          en: 'Weekly Review',
-          zhHans: '每周复盘回顾',
-          zhHant: 'Weekly 回顧',
-          ja: 'Weekly Review');
+          en: 'Weekly Review', zhHans: '每周复盘回顾', zhHant: '每週回顧', ja: '週間レビュー');
     case 'goal_feedback':
     case 'life_experiment_feedback':
       return AppLocaleText.tr(context,
@@ -3773,9 +4215,9 @@ String _traceSourceLabel(BuildContext context, JourneyTraceModel trace) {
     default:
       return AppLocaleText.tr(context,
           en: 'Signal Card',
-          zhHans: 'Signal Card',
-          zhHant: 'Signal Card',
-          ja: 'Signal Card');
+          zhHans: '信号卡',
+          zhHant: 'Signal 卡片',
+          ja: 'Signal カード');
   }
 }
 
@@ -3835,13 +4277,10 @@ String _evidenceSourceLabel(BuildContext context, String sourceType) {
           ja: '手動の振り返り');
     case 'observation':
       return AppLocaleText.tr(context,
-          en: 'Observation',
-          zhHans: '观察判断',
-          zhHant: 'Observation 判斷',
-          ja: 'Observation');
+          en: 'Observation', zhHans: '观察判断', zhHant: '觀察判斷', ja: '観察');
     case 'micro_action_feedback':
       return AppLocaleText.tr(context,
-          en: 'Life Experiment · Small experiment Feedback',
+          en: 'Life Experiment · Spot Try Feedback',
           zhHans: '生活小实验 · 小实验反馈',
           zhHant: '生活小實驗 · 小實驗回饋',
           ja: '生活実験 · 小実験の反応');
@@ -3849,8 +4288,8 @@ String _evidenceSourceLabel(BuildContext context, String sourceType) {
       return AppLocaleText.tr(context,
           en: 'Weekly Reflection',
           zhHans: '每周复盘反思',
-          zhHant: 'Weekly Reflection',
-          ja: 'Weekly Reflection');
+          zhHant: '每週回顧',
+          ja: '週間の振り返り');
     case 'goal_feedback':
     case 'life_experiment_feedback':
       return AppLocaleText.tr(context,
@@ -4429,16 +4868,24 @@ class _ExperimentTracksCard extends StatelessWidget {
       };
       return _ExperimentTrackData(
         icon: Icons.science_outlined,
-        title: _compactTrackTitle(item.name),
+        title: _compactTrackTitle(context, item.name),
         status: _trackStatus(context, item.signalLevel),
         color: color,
       );
     }).toList();
   }
 
-  String _compactTrackTitle(String value) {
+  String _compactTrackTitle(BuildContext context, String value) {
     final text = value.trim();
-    if (text.isEmpty) return 'Experiment';
+    if (text.isEmpty) {
+      return AppLocaleText.tr(
+        context,
+        en: 'Experiment',
+        zhHans: '实验',
+        zhHant: '實驗',
+        ja: '実験',
+      );
+    }
     if (text.runes.length <= 8) return text;
     return String.fromCharCodes(text.runes.take(8));
   }
@@ -4614,7 +5061,7 @@ class _JourneyActionLoopCard extends StatelessWidget {
             ? next
             : AppLocaleText.tr(
                 context,
-                en: 'Saved small experiments and feedback will slowly show which small designs fit your life.',
+                en: 'Saved Spot Tries and feedback will slowly show which small designs fit your life.',
                 zhHans: '保存的小实验和反馈会慢慢看出，哪些生活设计更适合你。',
                 zhHant: '保存的小實驗和回饋會慢慢看出，哪些生活設計更適合你。',
                 ja: '保存した小実験と反応から、どんな生活設計が合うかが少しずつ見えてきます。',
@@ -4954,8 +5401,6 @@ class _JourneyHeatmapLite extends StatelessWidget {
               zhHant: '簡單看一下信號正在聚到哪裡。它是地圖，不是評分。',
               ja: 'シグナルがどこに集まっているかを軽く見る地図です。点数ではありません。',
             ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: AuroraColors.muted,
               height: 1.35,
@@ -5097,8 +5542,8 @@ class _JourneyOverviewCard extends StatelessWidget {
               context,
               en: 'Where your journey stands now',
               zhHans: '你现在的旅程，停在这里',
-              zhHant: '你現在的 Journey，停在這裡',
-              ja: '今の Journey はこのあたりです',
+              zhHant: '你現在的旅程，停在這裡',
+              ja: '今の旅程はこのあたりです',
             ),
             style: Theme.of(context).textTheme.titleMedium,
           ),
@@ -5234,7 +5679,7 @@ class _ReviewAdjustSection extends StatelessWidget {
               en: 'One pattern',
               zhHans: '一个反复出现的生活模式',
               zhHant: '一個反覆出現的生活模式',
-              ja: 'ひとつの pattern',
+              ja: 'ひとつのパターン',
             ),
             item: summary.longTermPattern,
             fallback: AppLocaleText.tr(
@@ -5242,7 +5687,7 @@ class _ReviewAdjustSection extends StatelessWidget {
               en: 'There is no clear repeated pattern yet. Keeping the notes is enough for now.',
               zhHans: '暂时还没有清楚重复起来的模式。现在先把记录留下来就够了。',
               zhHant: '暫時還沒有清楚重複起來的模式。現在先把記錄留下來就夠了。',
-              ja: 'まだはっきり繰り返す pattern はありません。今は記録が残っていれば十分です。',
+              ja: 'まだはっきり繰り返すパターンはありません。今は記録が残っていれば十分です。',
             ),
           ),
           _ReviewAdjustTile(
@@ -5252,7 +5697,7 @@ class _ReviewAdjustSection extends StatelessWidget {
               en: 'One friction source',
               zhHans: '一个主要消耗来源',
               zhHant: '一個主要消耗來源',
-              ja: 'ひとつの friction',
+              ja: 'ひとつの摩擦',
             ),
             item: summary.mainFriction,
             fallback: AppLocaleText.tr(
@@ -5260,7 +5705,7 @@ class _ReviewAdjustSection extends StatelessWidget {
               en: 'No single friction source is standing out yet.',
               zhHans: '暂时还没有特别突出的单一消耗来源。',
               zhHant: '暫時還沒有特別突出的單一消耗來源。',
-              ja: '今はまだ、ひとつだけ目立つ friction はありません。',
+              ja: '今はまだ、ひとつだけ目立つ摩擦はありません。',
             ),
           ),
           _ReviewAdjustTile(
@@ -5470,7 +5915,7 @@ class _JourneySignalCard extends StatelessWidget {
           en: 'stable mode',
           zhHans: '稳定倾向',
           zhHant: '穩定傾向',
-          ja: '安定し始めた mode',
+          ja: '安定し始めた状態',
         );
       case 'repeated_pattern':
         return AppLocaleText.tr(
@@ -5478,7 +5923,7 @@ class _JourneySignalCard extends StatelessWidget {
           en: 'repeated pattern',
           zhHans: '重复模式',
           zhHant: '重複模式',
-          ja: '繰り返している pattern',
+          ja: '繰り返しているパターン',
         );
       default:
         return AppLocaleText.tr(
@@ -5508,9 +5953,9 @@ class _SourceGroupsSection extends StatelessWidget {
           title: AppLocaleText.tr(
             context,
             en: 'Patterns',
-            zhHans: 'Patterns / 模式',
-            zhHant: 'Patterns / 模式',
-            ja: 'Patterns / パターン',
+            zhHans: '模式',
+            zhHant: '模式',
+            ja: 'パターン',
           ),
           subtitle: AppLocaleText.tr(
             context,
@@ -5527,9 +5972,9 @@ class _SourceGroupsSection extends StatelessWidget {
           title: AppLocaleText.tr(
             context,
             en: 'Frictions',
-            zhHans: 'Frictions / 摩擦',
-            zhHant: 'Frictions / 摩擦',
-            ja: 'Frictions / 摩擦',
+            zhHans: '摩擦',
+            zhHant: '摩擦',
+            ja: '摩擦',
           ),
           subtitle: AppLocaleText.tr(
             context,
@@ -5546,9 +5991,9 @@ class _SourceGroupsSection extends StatelessWidget {
           title: AppLocaleText.tr(
             context,
             en: 'Desires',
-            zhHans: 'Desires / 方向',
-            zhHant: 'Desires / 方向',
-            ja: 'Desires / 方向',
+            zhHans: '方向',
+            zhHant: '方向',
+            ja: '方向',
           ),
           subtitle: AppLocaleText.tr(
             context,

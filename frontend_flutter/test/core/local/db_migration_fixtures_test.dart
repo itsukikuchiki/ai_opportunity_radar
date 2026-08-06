@@ -20,6 +20,88 @@ void main() {
   );
 
   group('P2.1-11 DB migration fixtures', () {
+    test('v42 backfills experiment creation source conservatively', () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('db_v42_creation_source_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final path = p.join(tempDir.path, 'legacy_v41.db');
+      final legacy = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 41,
+          onCreate: (db, _) async {
+            await db.execute('''
+              CREATE TABLE micro_actions (
+                id TEXT PRIMARY KEY,
+                judgement_id TEXT,
+                origin_candidate_id TEXT,
+                parent_micro_action_id TEXT
+              )
+            ''');
+            await db.execute('''
+              CREATE TABLE life_experiments (
+                id TEXT PRIMARY KEY,
+                origin_candidate_id TEXT,
+                parent_experiment_id TEXT
+              )
+            ''');
+          },
+        ),
+      );
+      await legacy.insert('micro_actions', {
+        'id': 'micro-candidate',
+        'origin_candidate_id': 'candidate-1',
+      });
+      await legacy.insert('micro_actions', {
+        'id': 'micro-continuation',
+        'parent_micro_action_id': 'micro-candidate',
+      });
+      await legacy.insert('micro_actions', {
+        'id': 'micro-ai',
+        'judgement_id': 'judgement-1',
+      });
+      await legacy.insert('micro_actions', {'id': 'micro-unknown'});
+      await legacy.insert('life_experiments', {
+        'id': 'goal-candidate',
+        'origin_candidate_id': 'candidate-2',
+      });
+      await legacy.insert('life_experiments', {
+        'id': 'goal-continuation',
+        'parent_experiment_id': 'goal-candidate',
+      });
+      await legacy.insert('life_experiments', {'id': 'goal-unknown'});
+      await legacy.close();
+
+      final localDatabase = LocalDatabase(
+        dbPathOverride: path,
+        databaseFactoryOverride: databaseFactoryFfi,
+      );
+      addTearDown(localDatabase.close);
+      final upgraded = await localDatabase.database;
+      expect(await _userVersion(upgraded), LocalDatabase.schemaVersion);
+      final micro = {
+        for (final row in await upgraded.query('micro_actions'))
+          row['id']: row['creation_source'],
+      };
+      expect(micro, {
+        'micro-candidate': 'candidate_adoption',
+        'micro-continuation': 'candidate_adoption',
+        'micro-ai': 'legacy_ai_judgement',
+        'micro-unknown': 'legacy_unknown',
+      });
+      final goals = {
+        for (final row in await upgraded.query('life_experiments'))
+          row['id']: row['creation_source'],
+      };
+      expect(goals, {
+        'goal-candidate': 'candidate_adoption',
+        'goal-continuation': 'candidate_adoption',
+        'goal-unknown': 'legacy_unknown',
+      });
+    });
+
     test('v38 adds candidate decisions and backfills adopted history',
         () async {
       final tempDir =
@@ -84,7 +166,7 @@ void main() {
       );
       addTearDown(localDatabase.close);
       final upgraded = await localDatabase.database;
-      expect(await _userVersion(upgraded), 40);
+      expect(await _userVersion(upgraded), LocalDatabase.schemaVersion);
       final microRows = {
         for (final row in await upgraded.query('micro_action_candidates'))
           row['id']: row['decision_status'],
@@ -157,7 +239,7 @@ void main() {
       );
       addTearDown(localDatabase.close);
       final upgraded = await localDatabase.database;
-      expect(await _userVersion(upgraded), 40);
+      expect(await _userVersion(upgraded), LocalDatabase.schemaVersion);
       final goal = (await upgraded.query('life_experiments')).single;
       expect(goal['minimum_observation_days'], 3);
       expect(await _tableExists(upgraded, 'micro_action_review_events'), true);
@@ -168,7 +250,7 @@ void main() {
       expect(legacyFeedback['user_note'], '旧事实必须保留');
     });
 
-    test('fresh v40 database creates candidate columns before v40 repair',
+    test('fresh database creates planning and continuation columns in order',
         () async {
       final tempDir =
           await Directory.systemTemp.createTemp('db_v40_fresh_order_');
@@ -183,11 +265,277 @@ void main() {
       addTearDown(localDatabase.close);
 
       final db = await localDatabase.database;
-      expect(await _userVersion(db), 40);
+      expect(await _userVersion(db), LocalDatabase.schemaVersion);
       final columns = await db.rawQuery('PRAGMA table_info(micro_actions)');
       final names = columns.map((row) => row['name']).toSet();
       expect(names, contains('progress_end_date'));
       expect(names, contains('planned_duration_minutes'));
+      expect(names, contains('parent_micro_action_id'));
+      expect(await db.query('micro_actions'), isEmpty);
+      expect(await db.query('life_experiments'), isEmpty);
+    });
+
+    test('v41 adds weekly continuation lineage to an existing v40 database',
+        () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('db_v41_continuation_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final path = p.join(tempDir.path, 'legacy_v40.db');
+      final legacy = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 40,
+          onCreate: (db, _) async {
+            await db.execute('''
+              CREATE TABLE micro_actions (
+                id TEXT PRIMARY KEY,
+                local_user_id TEXT NOT NULL DEFAULT 'local',
+                progress_start_date TEXT
+              )
+            ''');
+            await db.execute('''
+              CREATE TABLE life_experiments (
+                id TEXT PRIMARY KEY,
+                local_user_id TEXT NOT NULL DEFAULT 'local',
+                parent_experiment_id TEXT,
+                source_week_start TEXT NOT NULL
+              )
+            ''');
+            await db.insert('life_experiments', {
+              'id': 'duplicate-child-1',
+              'parent_experiment_id': 'legacy-parent',
+              'source_week_start': '2026-07-06',
+            });
+            await db.insert('life_experiments', {
+              'id': 'duplicate-child-2',
+              'parent_experiment_id': 'legacy-parent',
+              'source_week_start': '2026-07-06',
+            });
+          },
+        ),
+      );
+      await legacy.close();
+
+      final localDatabase = LocalDatabase(
+        dbPathOverride: path,
+        databaseFactoryOverride: databaseFactoryFfi,
+      );
+      addTearDown(localDatabase.close);
+      final db = await localDatabase.database;
+      expect(await _userVersion(db), LocalDatabase.schemaVersion);
+      final microColumns = await db.rawQuery(
+        'PRAGMA table_info(micro_actions)',
+      );
+      expect(
+        microColumns.map((row) => row['name']),
+        contains('parent_micro_action_id'),
+      );
+      final indexes = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'index'",
+      );
+      final names = indexes.map((row) => row['name']).toSet();
+      expect(names, contains('idx_micro_actions_parent_week'));
+      expect(names, contains('idx_life_experiments_parent_week'));
+      final repairedChildren = await db.query(
+        'life_experiments',
+        where: 'parent_experiment_id = ?',
+        whereArgs: ['legacy-parent'],
+      );
+      expect(repairedChildren, hasLength(1));
+      expect(repairedChildren.single['id'], 'duplicate-child-2');
+      expect(await db.query('life_experiments'), hasLength(2));
+    });
+
+    test('v41 preserves legacy rows without inventing a continuation decision',
+        () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('db_v41_open_plan_grace_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final path = p.join(tempDir.path, 'legacy_v40_open_plans.db');
+      final nowLocal = DateTime.now().toLocal();
+      final today = DateTime(nowLocal.year, nowLocal.month, nowLocal.day);
+      final currentWeekStart = today.subtract(
+        Duration(days: today.weekday - 1),
+      );
+      final currentWeekEnd = currentWeekStart.add(const Duration(days: 6));
+      final staleWeekStart =
+          currentWeekStart.subtract(const Duration(days: 14));
+      final staleWeekEnd = staleWeekStart.add(const Duration(days: 6));
+      final timestamp = DateTime.now().toUtc().toIso8601String();
+
+      final legacy = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 40,
+          onCreate: (db, _) async {
+            await db.execute('''
+              CREATE TABLE micro_actions (
+                id TEXT PRIMARY KEY,
+                local_user_id TEXT NOT NULL DEFAULT 'local',
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                feedback_status TEXT NOT NULL DEFAULT 'none',
+                planned_date TEXT,
+                origin_candidate_id TEXT,
+                adopted_at TEXT,
+                progress_start_date TEXT,
+                progress_end_date TEXT,
+                source_changed INTEGER NOT NULL DEFAULT 0,
+                source_change_reason TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+              )
+            ''');
+            await db.execute('''
+              CREATE TABLE life_experiments (
+                id TEXT PRIMARY KEY,
+                local_user_id TEXT NOT NULL DEFAULT 'local',
+                source_week_start TEXT NOT NULL,
+                source_week_end TEXT NOT NULL,
+                parent_experiment_id TEXT,
+                title TEXT NOT NULL,
+                hypothesis TEXT NOT NULL,
+                suggested_action TEXT NOT NULL,
+                status TEXT NOT NULL,
+                feedback_text TEXT,
+                origin_candidate_id TEXT,
+                adopted_at TEXT,
+                progress_start_date TEXT,
+                progress_end_date TEXT,
+                source_changed INTEGER NOT NULL DEFAULT 0,
+                source_change_reason TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+              )
+            ''');
+          },
+        ),
+      );
+      await legacy.insert('micro_actions', {
+        'id': 'legacy-open-quick-try',
+        'title': '旧版仍在进行的小实验',
+        'status': 'accepted',
+        'feedback_status': 'done',
+        'planned_date': _dateKey(staleWeekStart),
+        'origin_candidate_id': 'legacy-quick-candidate',
+        'adopted_at': timestamp,
+        'progress_start_date': _dateKey(staleWeekStart),
+        'progress_end_date': _dateKey(staleWeekEnd),
+        'source_changed': 1,
+        'source_change_reason': 'legacy',
+        'created_at': timestamp,
+        'updated_at': timestamp,
+      });
+      await legacy.insert('life_experiments', {
+        'id': 'legacy-open-goal',
+        'source_week_start': _dateKey(staleWeekStart),
+        'source_week_end': _dateKey(staleWeekEnd),
+        'title': '旧版仍在进行的目标',
+        'hypothesis': '继续观察',
+        'suggested_action': '保持原计划',
+        'status': 'active',
+        'feedback_text': '旧周事实',
+        'origin_candidate_id': 'legacy-goal-candidate',
+        'adopted_at': timestamp,
+        'progress_start_date': _dateKey(staleWeekStart),
+        'progress_end_date': _dateKey(staleWeekEnd),
+        'source_changed': 1,
+        'source_change_reason': 'legacy',
+        'created_at': timestamp,
+        'updated_at': timestamp,
+      });
+      await legacy.insert('micro_actions', {
+        'id': 'already-current-quick-try',
+        'title': '本周已在进行的小实验',
+        'status': 'active',
+        'planned_date': _dateKey(currentWeekStart),
+        'progress_start_date': _dateKey(currentWeekStart),
+        'progress_end_date': _dateKey(currentWeekStart),
+        'created_at': timestamp,
+        'updated_at': timestamp,
+      });
+      await legacy.insert('life_experiments', {
+        'id': 'already-current-goal',
+        'source_week_start': _dateKey(currentWeekStart),
+        'source_week_end': _dateKey(currentWeekEnd),
+        'title': '本周已在进行的目标',
+        'hypothesis': '继续观察',
+        'suggested_action': '保持原计划',
+        'status': 'saved',
+        'progress_start_date': _dateKey(currentWeekStart),
+        'progress_end_date': _dateKey(currentWeekStart),
+        'created_at': timestamp,
+        'updated_at': timestamp,
+      });
+      await legacy.close();
+
+      final localDatabase = LocalDatabase(
+        dbPathOverride: path,
+        databaseFactoryOverride: databaseFactoryFfi,
+      );
+      addTearDown(localDatabase.close);
+      final db = await localDatabase.database;
+
+      final quickChildren = await db.query(
+        'micro_actions',
+        where: 'parent_micro_action_id = ?',
+        whereArgs: ['legacy-open-quick-try'],
+      );
+      expect(quickChildren, isEmpty);
+
+      final goalChildren = await db.query(
+        'life_experiments',
+        where: 'parent_experiment_id = ?',
+        whereArgs: ['legacy-open-goal'],
+      );
+      expect(goalChildren, isEmpty);
+
+      // Migration only adds lineage structure. It must not manufacture a
+      // continuation choice, rewrite a fixed duration, or clear old facts.
+      final oldQuick = (await db.query(
+        'micro_actions',
+        where: 'id = ?',
+        whereArgs: ['legacy-open-quick-try'],
+      ))
+          .single;
+      final oldGoal = (await db.query(
+        'life_experiments',
+        where: 'id = ?',
+        whereArgs: ['legacy-open-goal'],
+      ))
+          .single;
+      expect(oldQuick['progress_start_date'], _dateKey(staleWeekStart));
+      expect(oldQuick['progress_end_date'], _dateKey(staleWeekEnd));
+      expect(oldQuick['feedback_status'], 'done');
+      expect(oldGoal['source_week_start'], _dateKey(staleWeekStart));
+      expect(oldGoal['progress_end_date'], _dateKey(staleWeekEnd));
+      expect(oldGoal['feedback_text'], '旧周事实');
+
+      final currentQuick = (await db.query(
+        'micro_actions',
+        where: 'id = ?',
+        whereArgs: ['already-current-quick-try'],
+      ))
+          .single;
+      final currentGoal = (await db.query(
+        'life_experiments',
+        where: 'id = ?',
+        whereArgs: ['already-current-goal'],
+      ))
+          .single;
+      expect(
+        currentQuick['progress_end_date'],
+        _dateKey(currentWeekStart),
+      );
+      expect(
+        currentGoal['progress_end_date'],
+        _dateKey(currentWeekStart),
+      );
+      expect(await _userVersion(db), LocalDatabase.schemaVersion);
     });
 
     test('v40 migrates real-attempt and typed-review fields compatibly',
@@ -264,7 +612,7 @@ void main() {
       );
       addTearDown(localDatabase.close);
       final db = await localDatabase.database;
-      expect(await _userVersion(db), 40);
+      expect(await _userVersion(db), LocalDatabase.schemaVersion);
 
       final open = (await db.query(
         'micro_actions',
@@ -519,7 +867,7 @@ void main() {
       await localDatabase.init();
       final db = await localDatabase.database;
 
-      expect(await _userVersion(db), 40);
+      expect(await _userVersion(db), LocalDatabase.schemaVersion);
       final candidates = await db.query('experiment_candidates');
       expect(candidates, hasLength(1));
       expect(candidates.single['title'], '旧内嵌实验');
@@ -616,7 +964,10 @@ void main() {
       expect(partial.single['observation_text'], '用户修改后的最终表述');
       expect(partial.single['confirmed_at'], isNotNull);
       expect(partial.single['dismissed_at'], isNull);
-      expect(await _userVersion(upgradedDb), 40);
+      expect(
+        await _userVersion(upgradedDb),
+        LocalDatabase.schemaVersion,
+      );
     });
   });
 }
@@ -673,4 +1024,11 @@ Future<int> _count(
     whereArgs: whereArgs,
   );
   return rows.single['count'] as int;
+}
+
+String _dateKey(DateTime value) {
+  final local = value.toLocal();
+  return '${local.year.toString().padLeft(4, '0')}-'
+      '${local.month.toString().padLeft(2, '0')}-'
+      '${local.day.toString().padLeft(2, '0')}';
 }

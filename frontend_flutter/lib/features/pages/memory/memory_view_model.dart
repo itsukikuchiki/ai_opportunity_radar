@@ -9,6 +9,7 @@ import '../../../shared/states/load_state.dart';
 class MemoryViewModel extends ChangeNotifier {
   final MemoryRepository repository;
   final AnalyticsRepository? analyticsRepository;
+  final DateTime Function() nowLoader;
 
   LoadState loadState = LoadState.initial;
   MemorySummaryModel? summary;
@@ -25,21 +26,22 @@ class MemoryViewModel extends ChangeNotifier {
   MemoryViewModel(
     this.repository, {
     this.analyticsRepository,
-  }) {
-    final now = DateTime.now();
+    DateTime Function()? nowLoader,
+  }) : nowLoader = nowLoader ?? DateTime.now {
+    final now = this.nowLoader();
     selectedMonth = DateTime(now.year, now.month);
     load();
   }
 
   bool get canSelectNextMonth {
-    final now = DateTime.now();
+    final now = nowLoader();
     final currentMonth = DateTime(now.year, now.month);
     return selectedMonth.isBefore(currentMonth);
   }
 
   Future<void> selectMonth(DateTime month) async {
     final normalized = DateTime(month.year, month.month);
-    final now = DateTime.now();
+    final now = nowLoader();
     final currentMonth = DateTime(now.year, now.month);
     if (normalized.isAfter(currentMonth) || normalized == selectedMonth) return;
     selectedMonth = normalized;

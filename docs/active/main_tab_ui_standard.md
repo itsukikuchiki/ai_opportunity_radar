@@ -1,6 +1,6 @@
 # Main Tab UI Standard
 
-Last updated: 2026-07-17
+Last updated: 2026-07-28
 
 Today is the visual-density reference for the five primary tabs: Today,
 Weekly, Life Experiment, Journey, and Me. Page-specific illustrations and
@@ -12,6 +12,15 @@ local-day nodes connected by one continuous returning path, expressing Signal
 facts -> repeated pattern -> attempt results -> the next recording cycle.
 Neither Weekly nor its owned secondary surfaces may use the application icon or
 a generic feature icon as the hero illustration.
+
+The five related hero motifs form one visual family: Today gathers glowing
+Signal points; Weekly connects them into a review loop; Life Experiment lets
+them branch into possible changes; Journey turns them into a path around its
+ring; Me uses a soft Aurora path/landscape to represent personal direction.
+Me keeps the same hero bounds, title hierarchy, card radius, and background
+continuity as the other tabs instead of opening with a plain settings header.
+Its edit pencil is attached to the user name and never doubles as a whole-profile
+editor.
 
 | Token | Standard |
 | --- | --- |
@@ -32,8 +41,37 @@ introduce a decorative font for its primary title. Complex content may retain
 the height needed for legibility, and cards may grow when Dynamic Type is
 enlarged; fixed-height regions must not clip or overflow accessibility text.
 
+User-visible narrative copy is never silently shortened. Generated summaries,
+analysis, user-authored directions, experiment reasons, and observation text
+wrap to their full height with no `maxLines + ellipsis` combination. A compact
+preview may be shortened only when the same control clearly opens the complete
+content, such as a timeline row leading to the diary or a chart node leading to
+its detail. Chips, dates, metrics, and navigation labels remain compact controls
+and may use a one-line fit or controlled ellipsis.
+
 The implementation source of truth is `AuroraMainPageSpec` in
 `frontend_flutter/lib/shared/widgets/aurora_ui.dart`.
+
+## Simplified Chinese Terminology
+
+In the Simplified Chinese interface, `Signal` and `Signal Path` are the only
+English product terms that remain visible. All other interface copy,
+navigation, state labels, source labels, purchase messages, analysis headings,
+and generated taxonomy labels use natural Simplified Chinese. In particular:
+
+- `AI` is presented by role, such as `智能助手`, `智能预判`, or `智能分析`;
+- `Pro` is `专业版`;
+- `Library` is `信号库`;
+- `Signal Card` is `Signal 卡片` or `信号卡`, depending on sentence context;
+- platform and implementation terms such as `StoreKit`, `App Store`, `iOS`,
+  internal enum keys, and snake-case taxonomy values are translated before
+  display.
+
+This is a presentation rule only. Stable storage keys and source hashes remain
+language-independent, and text authored by the user is never translated or
+rewritten. Generated Weekly, Journey, and deep-analysis copy must pass through
+the shared taxonomy-localization layer so keys such as `work`,
+`body_tension`, or `context_switching` cannot leak into the interface.
 
 ## Secondary Surfaces
 
@@ -44,12 +82,41 @@ requires a different composition. Onboarding
 uses a separate full-screen layout but keeps the same brand, copy hierarchy, and
 accessible control standards.
 
+Me-owned Life Direction and the user-visible `联动` Health surface inherit the
+Me Aurora path/landscape motif and these same dimensions. `联动` is a
+relationship explanation, not a raw Health dashboard: it uses short cards to show how a
+sanitized Health hint may influence Today, Weekly, and Life Experiment while
+keeping raw values out of the interface.
+
+Me does not show a “stored on this device” badge or a Terms of Use row. Privacy
+and Security opens the public `/privacy` policy directly; Help and Support opens
+the public `#guestbook` form directly. These external destinations replace
+intermediate in-app explanation pages.
+
 Weekly-owned secondary surfaces, including Weekly Deep Analysis and next-week
 experiment selection, inherit the Weekly review-loop pattern and hero
 proportions. The review-loop hero pattern remains decorative; the page title
 and supporting copy carry the task meaning, and assistive technology receives
 an equivalent review-cycle label. User-visible Weekly copy says `Signal`, `linked Signal`, or
 `source Signal`; it never says Evidence／证据.
+
+## Today Compact State
+
+The three visible titles are fixed to `Energy / 精力 / 精力 / エネルギー`,
+`Load / 负担 / 負擔 / 負担`, and
+`Recovery / 恢复 / 恢復 / 回復`. Do not use the old user-facing titles
+`能量` or `摩擦`.
+
+- Energy is a whole-day composite of real eligible Signals, the newest explicit
+  status as a high-weight anchor, and completed time-use feedback. It is not a
+  mirror of the latest status row.
+- Load is actual burden context; low energy alone does not prove load.
+- Recovery is explicit recovery context; missing evidence says “not seen yet,”
+  never “insufficient recovery.”
+- One indirect Signal stays neutral instead of producing a strong score.
+- Planned time-use and release-QA showcase fixtures never affect Today count,
+  summary, timeline, or these three values.
+- Every state must have text and semantics; color and icon are supplementary.
 
 ## Weekly Report Components
 
@@ -94,6 +161,15 @@ relationships, time positions, support level, or next-week validation that the
 standard Signal-facts, repeated-pattern, attempt-results, and energy sections
 have not already stated.
 
+Within the standard Weekly report, Signal distribution uses a compact luminous
+donut beside ranked focus-domain rows on regular widths and stacks them on
+narrow or 1.3x Dynamic Type layouts. Behavior patterns use full-width cards
+with one catalog illustration, a concrete pattern statement, and visible
+Signal/date trace. Small-experiment and goal rows keep the real registration
+grid; the feedback illustration and factual conclusion belong to a distinct
+review panel after those rows. These visuals must never replace missing data
+with decorative percentages or a fixed seven-day success score.
+
 ## Weekly Deep Analysis Components
 
 Weekly answers `what happened this week`; Weekly Deep Analysis answers `how
@@ -111,7 +187,7 @@ The content order is:
    whether attempt feedback exists that day;
 4. three compact validation tiles: `Why try / How next week / What to watch`;
 5. source-Signal count and drill-down;
-6. `Analysis scope / 分析范围`, replacing `Use gently / 温和使用`.
+6. an optional grounded Signal reminder suggestion.
 
 Relationship lines are visually undirected unless a separately traceable
 causal contract exists; current UI copy says `co-occurred / related`. The
@@ -123,9 +199,9 @@ shares, fake percentages, and decorative ratios are forbidden.
 
 User-visible support uses text plus shape, not color or a number:
 `forming / repeated this week / supported across weeks` (`刚开始形成 / 本周重复出现
-/ 跨周仍出现`). The final scope copy states the actual Signal count and recorded
-days and says that co-occurrence is neither causation nor a long-term
-conclusion. At 320/390/430-point widths or 1.3x Dynamic Type, the relationship
+/ 跨周仍出现`). The page does not show an Analysis Scope card; non-causal and
+no-long-term-conclusion limits remain generation guardrails. At
+320/390/430-point widths or 1.3x Dynamic Type, the relationship
 map becomes a vertical node-and-line stack and validation tiles become one
 column; labels remain readable rather than being ellipsized into ambiguity.
 

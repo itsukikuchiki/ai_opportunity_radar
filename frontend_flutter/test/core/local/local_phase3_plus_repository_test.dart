@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/local/local_phase3_plus_repository.dart';
+import 'package:ai_opportunity_radar/core/models/experiment_creation_source.dart';
 import 'package:ai_opportunity_radar/core/models/experiment_evaluation_models.dart';
 import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 
@@ -159,6 +160,43 @@ void main() {
       (await repository.getMicroActionById(action.id))?.plannedDurationMinutes,
       5,
     );
+    for (final terminalStatus in const [
+      'completed',
+      'done',
+      'finished',
+      'stopped',
+      'archived',
+      'skipped',
+      'effective',
+      'not_effective',
+    ]) {
+      await repository.updateMicroActionStatus(
+        id: action.id,
+        status: terminalStatus,
+      );
+      expect(
+        (await repository.getMicroActionById(action.id))?.status,
+        'active',
+        reason: 'generic writers cannot close a small experiment',
+      );
+    }
+    await repository.updateMicroActionStatus(
+      id: action.id,
+      status: 'active',
+      feedbackStatus: 'done',
+    );
+    expect(
+      (await repository.getMicroActionById(action.id))?.feedbackStatus,
+      'done',
+    );
+    await repository.updateMicroActionStatus(
+      id: action.id,
+      status: 'completed',
+      feedbackStatus: 'helpful',
+    );
+    final feedbackOnlyUpdate = await repository.getMicroActionById(action.id);
+    expect(feedbackOnlyUpdate?.status, 'active');
+    expect(feedbackOnlyUpdate?.feedbackStatus, 'helpful');
     await expectLater(
       repository.upsertMicroAction(
         const MicroActionModel(
@@ -268,5 +306,97 @@ void main() {
     expect(feedbackRows, hasLength(3));
     expect(feedbackRows[1]['effect'], '');
     expect(feedbackRows[1]['difficulty'], '');
+  });
+
+  test('user-created small experiment persists source and initial version',
+      () async {
+    final created = await repository.createUserSmallExperiment(
+      title: '切换前先停两分钟',
+      description: '看看下一件事是否更容易开始',
+      durationMinutes: 2,
+      startDate: DateTime.now(),
+    );
+
+    expect(created.creationSource, ExperimentCreationSource.userCreated);
+    expect(created.originCandidateId, isNull);
+    expect(created.linkedSignalCardIds, isEmpty);
+    expect(created.progressEndDate, isNull);
+    expect(created.plannedDurationMinutes, 2);
+
+    final db = await localDatabase.database;
+    final stored = (await db.query(
+      'micro_actions',
+      where: 'id = ?',
+      whereArgs: [created.id],
+    ))
+        .single;
+    expect(stored['creation_source'], 'user_created');
+    expect(
+      await db.query(
+        'plan_content_versions',
+        where: 'object_kind = ? AND object_id = ?',
+        whereArgs: ['quick_try', created.id],
+      ),
+      hasLength(1),
+    );
+    expect(
+      await db.query(
+        'micro_action_feedback',
+        where: 'micro_action_id = ?',
+        whereArgs: [created.id],
+      ),
+      isEmpty,
+    );
+
+    await expectLater(
+      repository.createUserSmallExperiment(
+        title: '超过边界',
+        description: '',
+        durationMinutes: 11,
+        startDate: DateTime.now(),
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test(
+      'user-created small experiment rolls back projection when initial version fails',
+      () async {
+    final db = await localDatabase.database;
+    await db.execute('''
+      CREATE TRIGGER reject_user_small_experiment_initial_version
+      BEFORE INSERT ON plan_content_versions
+      WHEN NEW.object_kind = 'quick_try'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced initial version failure');
+      END
+    ''');
+
+    await expectLater(
+      repository.createUserSmallExperiment(
+        title: '事务中断的小实验',
+        description: '不应留下半成品',
+        durationMinutes: 2,
+        startDate: DateTime(2026, 7, 28),
+      ),
+      throwsA(isA<DatabaseException>()),
+    );
+
+    expect(
+      await db.query(
+        'micro_actions',
+        where: 'title = ?',
+        whereArgs: ['事务中断的小实验'],
+      ),
+      isEmpty,
+    );
+    expect(
+      await db.query(
+        'plan_content_versions',
+        where: 'object_kind = ?',
+        whereArgs: ['quick_try'],
+      ),
+      isEmpty,
+    );
   });
 }

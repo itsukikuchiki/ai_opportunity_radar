@@ -95,6 +95,49 @@ void main() {
     expect(result.acknowledgement, contains('可信任的人'));
   });
 
+  test('offline timeline acknowledgement attunes to terse emotions', () async {
+    final repository = AiRepository(_FailingApiClient());
+    final cases = <(String, List<String>)>[
+      ('事情太多了', ['压', '喘不过气']),
+      ('我好累', ['累', '疲惫']),
+      ('今天很开心', ['开心', '真切']),
+    ];
+
+    for (final (content, expectedTerms) in cases) {
+      final result = await repository.generateCaptureReply(
+        content: content,
+        recentAssistantTexts: const [],
+      );
+      expect(
+        expectedTerms.any(result.acknowledgement.contains),
+        isTrue,
+        reason: result.acknowledgement,
+      );
+      expect(result.acknowledgement, isNot(contains('已经记下')));
+      expect(result.acknowledgement, isNot(contains('如果愿意')));
+      expect(result.acknowledgement, isNot(contains('？')));
+    }
+  });
+
+  test('capture reply sends UI language while preserving user-authored content',
+      () async {
+    final client = _RecordingApiClient();
+    final repository = AiRepository(client);
+    const original = 'I still prefer rap, even when token cost feels high.';
+
+    final result = await repository.generateCaptureReply(
+      content: original,
+      recentAssistantTexts: const [],
+      language: 'zh-Hant',
+    );
+
+    expect(client.lastPath, '/api/v1/ai/capture-reply');
+    expect(client.lastBody?['language'], 'zh-Hant');
+    expect(client.lastBody?['content'], original);
+    expect(result.acknowledgement, contains('模型用量'));
+    expect(result.acknowledgement, isNot(contains('token')));
+  });
+
   test('light dialog sends language and keeps current turn out of history',
       () async {
     final client = _RecordingApiClient();
@@ -158,17 +201,62 @@ void main() {
     expect(zhHans.reply, contains('负担最小'));
     expect(zhHans.reply, isNot(contains('当时最让你停住')));
     expect(zhHans.suggestedPrompts, isEmpty);
-    expect(english.reply, contains('low-effort'));
+    expect(english.reply, contains('low-pressure'));
     expect(english.suggestedPrompts, isEmpty);
     expect(zhHant.reply, contains('負擔最小'));
     expect(japanese.reply, contains('負担が少なく'));
-    expect(alternateEnglish.reply, contains('low-effort'));
+    expect(alternateEnglish.reply, contains('low-pressure'));
+  });
+
+  test('offline light dialog repairs a cold response without prompting',
+      () async {
+    final repository = AiRepository(_FailingApiClient());
+    final result = await repository.generateLightDialog(
+      signal: RecentSignalModel(
+        content: '事情太多了',
+        acknowledgement: '这条内容已从 AI 预判确认并加入时间线。',
+      ),
+      history: const [
+        LightDialogTurnModel(
+          role: 'assistant',
+          text: '这条内容已从 AI 预判确认并加入时间线。',
+        ),
+      ],
+      userMessage: '你的回复太无情了',
+      language: 'zh-Hans',
+    );
+
+    expect(result.reply, contains('你说得对'));
+    expect(result.reply, contains('没有接住'));
+    expect(result.reply, contains('很多事'));
+    expect(result.reply, isNot(contains('AI 预判')));
+    expect(result.reply, isNot(contains('继续说')));
+    expect(result.reply, isNot(contains('？')));
+  });
+
+  test('offline light dialog grounds ordinary sharing in the current turn',
+      () async {
+    final repository = AiRepository(_FailingApiClient());
+    final result = await repository.generateLightDialog(
+      signal: RecentSignalModel(content: '事情太多了'),
+      history: const [],
+      userMessage: '我好累',
+      language: 'zh-Hans',
+    );
+
+    expect(result.reply, anyOf(contains('累'), contains('疲惫')));
+    expect(result.reply, isNot(contains('你可以继续说')));
+    expect(result.reply, isNot(contains('如果愿意')));
+    expect(result.reply, isNot(contains('？')));
   });
 
   test('deep weekly sends attempt aggregates and parses chart-ready fields',
       () async {
     final client = _RecordingApiClient();
-    final repository = AiRepository(client);
+    final repository = AiRepository(
+      client,
+      languageLoader: () => 'zh-Hans',
+    );
     final result = await repository.generateWeeklyReflect(
       weekly: WeeklyInsightModel(
         weekStart: '2026-07-13',
@@ -244,7 +332,114 @@ void main() {
     expect(result.sourceSignalCardIds, ['signal-1', 'signal-2']);
     expect(result.scopeNote, contains('不代表因果'));
   });
+
+  test(
+      'English deep weekly rejects mixed-language prose even when an internal hint is Chinese',
+      () async {
+    final client = _MixedLanguageDeepWeeklyApiClient();
+    final repository = AiRepository(
+      client,
+      languageLoader: () => 'en',
+    );
+
+    final result = await repository.generateWeeklyReflect(
+      weekly: _localizedDeepWeeklySource('en'),
+    );
+
+    final visibleCopy = _deepWeeklyVisibleCopy(result);
+    expect(client.lastBody?['language'], 'en');
+    expect(visibleCopy, isNot(matches(RegExp(r'[\u3400-\u9fff]'))));
+    expect(visibleCopy, contains('Reading the chart with the text'));
+    expect(result.summary, contains('Regaining momentum'));
+  });
+
+  test(
+      'Japanese deep weekly rejects Chinese prose and returns Japanese fallback copy',
+      () async {
+    final client = _MixedLanguageDeepWeeklyApiClient();
+    final repository = AiRepository(
+      client,
+      languageLoader: () => 'ja',
+    );
+
+    final result = await repository.generateWeeklyReflect(
+      weekly: _localizedDeepWeeklySource('ja'),
+    );
+
+    final visibleCopy = _deepWeeklyVisibleCopy(result);
+    expect(client.lastBody?['language'], 'ja');
+    expect(visibleCopy, matches(RegExp(r'[\u3040-\u30ff]')));
+    expect(visibleCopy, isNot(contains('这')));
+    expect(visibleCopy, isNot(contains('下周')));
+    expect(result.hiddenPattern, contains('図と文章'));
+  });
 }
+
+WeeklyInsightModel _localizedDeepWeeklySource(String language) {
+  final isJapanese = language == 'ja';
+  return WeeklyInsightModel(
+    weekStart: '2026-07-27',
+    weekEnd: '2026-08-02',
+    status: 'ready',
+    keyInsight: isJapanese
+        ? '今週は切り替えによる消耗が繰り返し現れました。'
+        : 'A recurring drain around task switching stood out this week.',
+    patterns: [
+      {
+        'name':
+            isJapanese ? '切り替えをめぐる繰り返し' : 'Recurring task-switching pattern',
+        'summary': isJapanese
+            ? '同じ場面が異なる日に繰り返しました。'
+            : 'The same setting returned on different days.',
+        // Internal illustration taxonomy is intentionally language-neutral and
+        // must not disable validation of user-visible generated prose.
+        'illustration_hint': '任务堆积，开始变困难',
+      },
+    ],
+    frictions: [
+      {
+        'name': isJapanese ? '切り替えの負担' : 'Switching load',
+        'summary': isJapanese
+            ? '切り替えるたびにリズムを戻す負担がありました。'
+            : 'Regaining momentum after each switch created extra load.',
+      },
+    ],
+    bestAction: isJapanese
+        ? '来週、同じ状況がいつ戻るかに注目します。'
+        : 'Next week, notice when the same situation returns.',
+    opportunitySnapshot: const {
+      '_weekly_signal_entries': [
+        {'id': 'signal-1', 'local_date': '2026-07-31'},
+      ],
+    },
+    feedbackSubmitted: false,
+    chartData: const [
+      WeeklyChartPointModel(
+        date: '2026-07-31',
+        signalCount: 4,
+        moodScore: -0.4,
+        frictionScore: 0.7,
+        hasPositiveSignal: false,
+      ),
+    ],
+  );
+}
+
+String _deepWeeklyVisibleCopy(WeeklyReflectModel result) => <String>[
+      result.summary,
+      result.rootTension,
+      result.hiddenPattern,
+      result.nextFocus,
+      result.riskNote,
+      ...result.keyNodes,
+      result.patternLabel,
+      result.frictionLabel,
+      result.impactLabel,
+      result.relationshipSummary,
+      result.timingSummary,
+      result.nextQuestion,
+      result.scopeNote,
+    ].join(' ');
 
 class _FailingApiClient extends ApiClient {
   _FailingApiClient() : super(baseUrl: 'http://127.0.0.1:1', userId: 'test');
@@ -296,6 +491,40 @@ class _RecordingApiClient extends ApiClient {
       'data': {
         'reply': '受け取りました。',
         'suggested_prompts': <String>[],
+      },
+    };
+  }
+}
+
+class _MixedLanguageDeepWeeklyApiClient extends ApiClient {
+  _MixedLanguageDeepWeeklyApiClient()
+      : super(baseUrl: 'http://127.0.0.1:1', userId: 'test');
+
+  Map<String, dynamic>? lastBody;
+
+  @override
+  Future<Map<String, dynamic>> postJson(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    lastBody = body;
+    return {
+      'data': {
+        'summary': '本周关系已经形成。',
+        'root_tension': '想推进时也会被安排拉走。',
+        'hidden_pattern': '把图和文字放在一起看，周五的线索更密。',
+        'next_focus': '下周只验证一次。',
+        'risk_note': '不代表长期结论。',
+        'key_nodes': ['任务堆积', '安排打断'],
+        'pattern_label': '任务堆积',
+        'friction_label': '安排打断',
+        'impact_label': '尝试反馈仍在形成',
+        'relationship_summary': '任务堆积与安排打断在本周共同出现。',
+        'timing_summary': '周五的 Signal 更密。',
+        'next_question': '安排发生在任务的哪个阶段？',
+        'illustration_hint': '任务堆积，开始变困难',
+        'source_signal_card_ids': ['signal-1'],
+        'scope_note': '只说明本周关系，不代表因果。',
       },
     };
   }

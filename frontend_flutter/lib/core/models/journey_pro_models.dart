@@ -1,8 +1,9 @@
-/// A factual three-calendar-month projection for the Journey Pro surface.
+/// A factual full-history projection for the Journey Pro surface.
 ///
-/// The window contains the selected local calendar month and the two preceding
-/// local calendar months. Raw Signal content, source drill-downs, experiments,
-/// goals, and AI chat deliberately do not belong to this projection.
+/// The window starts with the first available app month and ends with the most
+/// recent completed user-local calendar month. Raw Signal content, source
+/// drill-downs, experiments, goals, and AI chat deliberately do not belong to
+/// this projection.
 class JourneyProReportModel {
   static const minimumSignalsPerMonth = 7;
   static const minimumActiveDaysPerMonth = 3;
@@ -29,6 +30,11 @@ class JourneyProReportModel {
   int get totalSignalCount => months.fold(
         0,
         (total, month) => total + month.signalCount,
+      );
+
+  int get totalActiveDayCount => months.fold(
+        0,
+        (total, month) => total + month.activeDayCount,
       );
 
   int get readyMonthCount =>
@@ -89,7 +95,7 @@ class JourneyProContextCoverageModel {
 /// One user-local calendar month's reproducible change metrics.
 ///
 /// Signal identities and active dates are deduplicated before these counts are
-/// created. The current month is intentionally month-to-date.
+/// created. In-progress calendar months never belong to this projection.
 class JourneyProMonthChangeModel {
   final String monthKey;
   final String periodStart;
@@ -98,6 +104,7 @@ class JourneyProMonthChangeModel {
   final int activeDayCount;
   final Map<String, int> energyStateCounts;
   final Map<String, int> domainCounts;
+  final Map<String, int> themeCounts;
 
   const JourneyProMonthChangeModel({
     required this.monthKey,
@@ -107,11 +114,14 @@ class JourneyProMonthChangeModel {
     required this.activeDayCount,
     required this.energyStateCounts,
     required this.domainCounts,
+    this.themeCounts = const {},
   });
 
   int energyCount(String state) => energyStateCounts[state] ?? 0;
 
   int domainCount(String domainId) => domainCounts[domainId] ?? 0;
+
+  int themeCount(String themeId) => themeCounts[themeId] ?? 0;
 
   bool get meetsComparisonMinimum =>
       signalCount >= JourneyProReportModel.minimumSignalsPerMonth &&

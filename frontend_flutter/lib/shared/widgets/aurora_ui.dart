@@ -45,7 +45,10 @@ abstract final class AuroraMainPageSpec {
       horizontalPadding,
       topPadding,
       horizontalPadding,
-      MediaQuery.paddingOf(context).bottom + bottomNavigationClearance,
+      // `Scaffold.extendBody` injects the bottom-navigation height into
+      // MediaQuery.padding. viewPadding keeps only the device safe area, so
+      // the navigation clearance is reserved exactly once.
+      MediaQuery.viewPaddingOf(context).bottom + bottomNavigationClearance,
     );
   }
 
@@ -1077,13 +1080,13 @@ class AuroraHeroEmblem extends StatelessWidget {
 class AuroraHeroTitle extends StatelessWidget {
   final String text;
   final double fontSize;
-  final int maxLines;
+  final int? maxLines;
 
   const AuroraHeroTitle({
     super.key,
     required this.text,
     required this.fontSize,
-    this.maxLines = 2,
+    this.maxLines,
   });
 
   @override
@@ -1102,7 +1105,8 @@ class AuroraHeroTitle extends StatelessWidget {
       child: Text(
         text,
         maxLines: maxLines,
-        overflow: TextOverflow.ellipsis,
+        overflow:
+            maxLines == null ? TextOverflow.visible : TextOverflow.ellipsis,
         style: Theme.of(context).textTheme.displaySmall?.copyWith(
               color: Colors.white,
               fontSize: fontSize,

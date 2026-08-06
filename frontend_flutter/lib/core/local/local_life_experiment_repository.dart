@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/weekly_models.dart';
+import '../models/experiment_creation_source.dart';
 import '../models/experiment_evaluation_models.dart';
 import '../policies/planning_content_edit_policy.dart';
 import 'local_cache_invalidation_repository.dart';
@@ -80,6 +81,40 @@ class LocalLifeExperimentRepository {
         : _mapRowForDate(rows.first, selectedLocalDate);
   }
 
+  Future<ExperimentCreationSource> _rootCreationSourceForParent(
+    String parentExperimentId,
+  ) async {
+    final parent = await getById(parentExperimentId);
+    if (parent == null) return ExperimentCreationSource.legacyUnknown;
+    return _rootCreationSource(parent);
+  }
+
+  Future<ExperimentCreationSource> _rootCreationSource(
+    LifeExperimentModel experiment,
+  ) async {
+    final visited = <String>{};
+    var current = experiment;
+    while (visited.add(current.id)) {
+      if (current.originCandidateId?.trim().isNotEmpty == true) {
+        return ExperimentCreationSource.candidateAdoption;
+      }
+      if (current.creationSource != ExperimentCreationSource.continuation &&
+          current.creationSource != ExperimentCreationSource.legacyUnknown) {
+        return current.creationSource;
+      }
+      final parentId = current.parentExperimentId?.trim();
+      if (parentId == null || parentId.isEmpty) {
+        return current.creationSource == ExperimentCreationSource.continuation
+            ? ExperimentCreationSource.legacyUnknown
+            : current.creationSource;
+      }
+      final parent = await getById(parentId);
+      if (parent == null) return ExperimentCreationSource.legacyUnknown;
+      current = parent;
+    }
+    return ExperimentCreationSource.legacyUnknown;
+  }
+
   Future<LifeExperimentModel?> getByOriginCandidateId(
     String originCandidateId,
   ) async {
@@ -133,6 +168,8 @@ class LocalLifeExperimentRepository {
     int? plannedDurationMinutes,
     int? plannedTotalDays,
     int minimumObservationDays = 3,
+    ExperimentCreationSource creationSource =
+        ExperimentCreationSource.legacyUnknown,
     String? originCandidateId,
     DateTime? adoptedAt,
     String? progressStartDate,
@@ -149,6 +186,11 @@ class LocalLifeExperimentRepository {
     final db = await localDatabase.database;
     final now = nowLoader().toUtc();
     final id = 'exp_${_uuid.v4().replaceAll('-', '').substring(0, 12)}';
+    final resolvedCreationSource = originCandidateId?.trim().isNotEmpty == true
+        ? ExperimentCreationSource.candidateAdoption
+        : parentExperimentId?.trim().isNotEmpty == true
+            ? await _rootCreationSourceForParent(parentExperimentId!)
+            : creationSource;
     final experiment = LifeExperimentModel(
       id: id,
       localUserId: localUserId,
@@ -171,6 +213,7 @@ class LocalLifeExperimentRepository {
       minimumObservationDays: _normalizeMinimumObservationDays(
         minimumObservationDays,
       ),
+      creationSource: resolvedCreationSource,
       originCandidateId: originCandidateId,
       adoptedAt: adoptedAt,
       progressStartDate: progressStartDate,
@@ -191,11 +234,132 @@ class LocalLifeExperimentRepository {
       experiment: experiment,
       eventType: 'created',
       statusTo: experiment.status,
-      sourceType: parentExperimentId == null ? 'manual_or_weekly' : 'clone',
-      sourceId: parentExperimentId,
+      sourceType: resolvedCreationSource.storageValue,
+      sourceId: originCandidateId ?? parentExperimentId,
     );
     await _writeExperimentTraceLinks(experiment);
     await refreshRollup(experiment.id);
+    return experiment;
+  }
+
+  /// Creates a user-defined goal as a first-class adopted plan. This path does
+  /// not create a candidate, Signal, or feedback event, and it intentionally
+  /// allows several goals to start in the same natural week.
+  Future<LifeExperimentModel> createUserGoal({
+    required String localUserId,
+    required String title,
+    required String hypothesis,
+    required String suggestedAction,
+    required DateTime startDate,
+    String? plannedFrequency,
+    int? plannedDurationMinutes,
+    int? plannedTotalDays,
+    int minimumObservationDays = 3,
+  }) async {
+    final normalizedTitle = title.trim();
+    final normalizedHypothesis = hypothesis.trim();
+    final normalizedAction = suggestedAction.trim();
+    if (normalizedTitle.isEmpty) {
+      throw ArgumentError.value(title, 'title', 'goal_title_empty');
+    }
+    if (normalizedHypothesis.isEmpty) {
+      throw ArgumentError.value(
+        hypothesis,
+        'hypothesis',
+        'goal_observation_empty',
+      );
+    }
+    if (normalizedAction.isEmpty) {
+      throw ArgumentError.value(
+        suggestedAction,
+        'suggestedAction',
+        'goal_action_empty',
+      );
+    }
+    if (plannedDurationMinutes != null && plannedDurationMinutes < 1) {
+      throw ArgumentError.value(
+        plannedDurationMinutes,
+        'plannedDurationMinutes',
+        'goal_duration_must_be_positive',
+      );
+    }
+    if (plannedTotalDays != null && plannedTotalDays < 1) {
+      throw ArgumentError.value(
+        plannedTotalDays,
+        'plannedTotalDays',
+        'goal_observation_days_must_be_positive',
+      );
+    }
+
+    final start = DateTime(
+      startDate.toLocal().year,
+      startDate.toLocal().month,
+      startDate.toLocal().day,
+    );
+    final weekStart = _startOfWeek(start);
+    final weekEnd = weekStart.add(const Duration(days: 6));
+    final now = nowLoader();
+    final today = DateTime(now.year, now.month, now.day);
+    final progressEnd = plannedTotalDays == null
+        ? null
+        : start.add(Duration(days: plannedTotalDays - 1));
+    final experiment = LifeExperimentModel(
+      id: 'exp_${_uuid.v4().replaceAll('-', '').substring(0, 12)}',
+      localUserId: localUserId,
+      sourceWeekStart: _dateKey(weekStart),
+      sourceWeekEnd: _dateKey(weekEnd),
+      title: normalizedTitle,
+      hypothesis: normalizedHypothesis,
+      suggestedAction: normalizedAction,
+      linkedSignalCardIds: const [],
+      status: start.isAfter(today) ? 'planned' : 'saved',
+      plannedFrequency: plannedFrequency?.trim().isEmpty == true
+          ? null
+          : plannedFrequency?.trim(),
+      plannedDurationMinutes: plannedDurationMinutes,
+      plannedTotalDays: plannedTotalDays,
+      minimumObservationDays: _normalizeMinimumObservationDays(
+        minimumObservationDays,
+      ),
+      creationSource: ExperimentCreationSource.userCreated,
+      adoptedAt: now,
+      progressStartDate: _dateKey(start),
+      progressEndDate: progressEnd == null ? null : _dateKey(progressEnd),
+      createdAt: now,
+      updatedAt: now,
+    );
+    final db = await localDatabase.database;
+    await db.transaction((txn) async {
+      await txn.insert(
+        'life_experiments',
+        _toRow(experiment),
+        conflictAlgorithm: ConflictAlgorithm.abort,
+      );
+      await planContentVersionRepository.ensureInitialWithExecutor(
+        txn,
+        localUserId: experiment.localUserId,
+        objectKind: PlanContentObjectKind.goal,
+        objectId: experiment.id,
+        effectiveFromLocalDate: _lifeExperimentStartDate(experiment),
+        content: _lifeExperimentContent(experiment),
+        createdAt: experiment.createdAt,
+      );
+      await _recordLifecycleEvent(
+        executor: txn,
+        experiment: experiment,
+        eventType: 'created',
+        statusTo: experiment.status,
+        sourceType: ExperimentCreationSource.userCreated.storageValue,
+        eventDate: now,
+      );
+    });
+    await _writeExperimentTraceLinks(experiment);
+    await refreshRollup(experiment.id);
+    await LocalCacheInvalidationRepository(localDatabase).markExperimentChanged(
+      weekStart: experiment.sourceWeekStart,
+      eventDate: start,
+      reason: 'user_goal_created',
+    );
     return experiment;
   }
 
@@ -209,6 +373,92 @@ class LocalLifeExperimentRepository {
       status: status,
       feedbackText: feedbackText,
     );
+  }
+
+  /// Closes one weekly goal projection when its local Monday-to-Sunday period
+  /// has ended without a continuation into the following week.
+  ///
+  /// Completion is lifecycle metadata only. It never creates feedback,
+  /// summaries, effectiveness judgements, observations, or Signal Cards.
+  Future<LifeExperimentModel?> completeAtWeekBoundary({
+    required String experimentId,
+    required DateTime weekEnd,
+    DateTime? asOfDate,
+  }) async {
+    final before = await getById(experimentId);
+    if (before == null) return null;
+    final normalizedStatus = before.status.trim().toLowerCase();
+    if (normalizedStatus == 'completed') return before;
+    const completableStatuses = {
+      'saved',
+      'active',
+      'accepted',
+      'adjusted',
+      'paused',
+      'done',
+    };
+    if (!completableStatuses.contains(normalizedStatus)) return null;
+
+    final localWeekEnd = DateTime(
+      weekEnd.toLocal().year,
+      weekEnd.toLocal().month,
+      weekEnd.toLocal().day,
+    );
+    final projectionStart = DateTime.tryParse(
+      before.progressStartDate ?? before.sourceWeekStart,
+    );
+    if (projectionStart == null) return null;
+    final expectedWeekEnd =
+        _startOfWeek(projectionStart.toLocal()).add(const Duration(days: 6));
+    if (_dateKey(localWeekEnd) != _dateKey(expectedWeekEnd)) return null;
+    final today = (asOfDate ?? nowLoader()).toLocal();
+    final localToday = DateTime(today.year, today.month, today.day);
+    if (!localToday.isAfter(localWeekEnd)) return null;
+
+    final db = await localDatabase.database;
+    final now = nowLoader().toUtc();
+    final affected = await db.update(
+      'life_experiments',
+      {
+        'status': 'completed',
+        'progress_end_date': _dateKey(localWeekEnd),
+        'updated_at': now.toIso8601String(),
+      },
+      where: '''
+        id = ? AND local_user_id = ?
+        AND status IN (?, ?, ?, ?, ?, ?)
+      ''',
+      whereArgs: [
+        experimentId,
+        before.localUserId,
+        'saved',
+        'active',
+        'accepted',
+        'adjusted',
+        'paused',
+        'done',
+      ],
+    );
+    if (affected == 0) return getById(experimentId);
+    final completed = await getById(experimentId);
+    if (completed == null) return null;
+
+    await _recordLifecycleEvent(
+      experiment: completed,
+      eventType: 'completed_at_week_boundary',
+      statusFrom: before.status,
+      statusTo: completed.status,
+      sourceType: 'weekly_continuation',
+      eventDate: localWeekEnd,
+    );
+    await _writeExperimentTraceLinks(completed);
+    await refreshRollup(completed.id);
+    await LocalCacheInvalidationRepository(localDatabase).markExperimentChanged(
+      weekStart: completed.sourceWeekStart,
+      eventDate: localWeekEnd,
+      reason: 'life_experiment_completed_at_week_boundary',
+    );
+    return completed;
   }
 
   Future<LifeExperimentModel?> updateDetails({
@@ -230,6 +480,12 @@ class LocalLifeExperimentRepository {
     final db = await localDatabase.database;
     final before = await getById(experimentId);
     if (before == null) return null;
+    if (status != null && _isManualTerminalStatus(status)) {
+      // Historical lifecycle facts cannot be rewritten from a screen or a
+      // generic repository call. Weekly boundary reconciliation is the only
+      // writer allowed to close a goal projection.
+      return null;
+    }
     final changesPlanningContent = title != null ||
         hypothesis != null ||
         suggestedAction != null ||
@@ -489,11 +745,13 @@ class LocalLifeExperimentRepository {
     return rows.map(_mapRow).toList();
   }
 
-  /// Paged all-time archive of adopted goals.
+  /// Paged logical archive of adopted goals.
   ///
   /// Current rows carry explicit adoption evidence. The status branch keeps
   /// legacy accepted/saved goals visible after migrating older databases.
-  /// Suggested/generated rows never enter the archive.
+  /// Suggested/generated rows never enter the archive. A continued goal is
+  /// represented by its newest weekly leaf so the logical object remains
+  /// ongoing instead of appearing once as completed and again as active.
   Future<List<LifeExperimentModel>> listAdoptedGoals({
     required String localUserId,
     int limit = 20,
@@ -511,6 +769,12 @@ class LocalLifeExperimentRepository {
         AND LOWER(status) NOT LIKE '%generated%'
         AND LOWER(status) NOT LIKE '%gated%'
         AND LOWER(status) NOT LIKE '%dismiss%'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM life_experiments continuation
+          WHERE continuation.local_user_id = life_experiments.local_user_id
+            AND continuation.parent_experiment_id = life_experiments.id
+        )
         AND (
           adopted_at IS NOT NULL
           OR (origin_candidate_id IS NOT NULL AND TRIM(origin_candidate_id) != '')
@@ -595,17 +859,54 @@ class LocalLifeExperimentRepository {
       const Duration(days: 7),
     ));
     final displayWeekEnd = start.add(const Duration(days: 6));
-    final resolvedPlannedTotalDays =
-        plannedTotalDays ?? experiment.plannedTotalDays;
-    final normalizedPlannedTotalDays =
-        resolvedPlannedTotalDays != null && resolvedPlannedTotalDays > 0
-            ? resolvedPlannedTotalDays
-            : null;
-    final progressEnd = normalizedPlannedTotalDays == null
-        ? null
-        : start.add(Duration(days: normalizedPlannedTotalDays - 1));
+    final originalDuration = experiment.plannedTotalDays;
+    final originalStart = DateTime.tryParse(
+      experiment.progressStartDate ?? experiment.sourceWeekStart,
+    );
+    final explicitOriginalEnd = DateTime.tryParse(
+      experiment.progressEndDate?.trim() ?? '',
+    );
+    final derivedOriginalEnd = explicitOriginalEnd ??
+        (originalStart != null &&
+                originalDuration != null &&
+                originalDuration > 0
+            ? originalStart.add(Duration(days: originalDuration - 1))
+            : null);
+
+    late final int? normalizedPlannedTotalDays;
+    late final DateTime? progressEnd;
+    if (plannedTotalDays != null) {
+      // An explicit edit defines a new future plan window.
+      normalizedPlannedTotalDays =
+          plannedTotalDays > 0 ? plannedTotalDays : null;
+      progressEnd = normalizedPlannedTotalDays == null
+          ? null
+          : start.add(Duration(days: normalizedPlannedTotalDays - 1));
+    } else if (derivedOriginalEnd != null &&
+        !derivedOriginalEnd.isBefore(start)) {
+      // A fixed-duration goal that is still inside its original observation
+      // window carries only the remaining days into the next weekly
+      // projection. Continuing must not silently restart the full duration.
+      progressEnd = DateTime(
+        derivedOriginalEnd.year,
+        derivedOriginalEnd.month,
+        derivedOriginalEnd.day,
+      );
+      normalizedPlannedTotalDays = progressEnd.difference(start).inDays + 1;
+    } else {
+      // When the previous fixed window has already ended, an explicit
+      // continuation starts a fresh cycle with the original duration.
+      normalizedPlannedTotalDays =
+          originalDuration != null && originalDuration > 0
+              ? originalDuration
+              : null;
+      progressEnd = normalizedPlannedTotalDays == null
+          ? null
+          : start.add(Duration(days: normalizedPlannedTotalDays - 1));
+    }
     final now = nowLoader().toUtc();
     final db = await localDatabase.database;
+    final rootCreationSource = await _rootCreationSource(experiment);
     final proposed = LifeExperimentModel(
       id: 'exp_${_uuid.v4().replaceAll('-', '').substring(0, 12)}',
       localUserId: experiment.localUserId,
@@ -629,6 +930,7 @@ class LocalLifeExperimentRepository {
       minimumObservationDays: minimumObservationDays == null
           ? experiment.minimumObservationDays
           : _normalizeMinimumObservationDays(minimumObservationDays),
+      creationSource: rootCreationSource,
       adoptedAt: now,
       progressStartDate: _dateKey(start),
       progressEndDate: progressEnd == null ? null : _dateKey(progressEnd),
@@ -664,24 +966,24 @@ class LocalLifeExperimentRepository {
       },
     );
     final clone = persisted.$1;
-    if (!persisted.$2) return clone;
-
     await _ensureInitialContentVersion(clone);
-    await _recordLifecycleEvent(
-      experiment: clone,
-      eventType: 'continued_next_week',
-      statusTo: clone.status,
-      sourceType: 'life_experiment',
-      sourceId: experiment.id,
-    );
-    await _recordLifecycleEvent(
-      experiment: experiment,
-      eventType: 'continued_as',
-      statusFrom: experiment.status,
-      statusTo: experiment.status,
-      sourceType: 'life_experiment',
-      sourceId: clone.id,
-    );
+    if (persisted.$2) {
+      await _recordLifecycleEvent(
+        experiment: clone,
+        eventType: 'continued_next_week',
+        statusTo: clone.status,
+        sourceType: 'life_experiment',
+        sourceId: experiment.id,
+      );
+      await _recordLifecycleEvent(
+        experiment: experiment,
+        eventType: 'continued_as',
+        statusFrom: experiment.status,
+        statusTo: experiment.status,
+        sourceType: 'life_experiment',
+        sourceId: clone.id,
+      );
+    }
     await _writeExperimentTraceLinks(clone);
     await _writeExperimentTraceLinks(experiment);
     await refreshRollup(clone.id);
@@ -701,6 +1003,7 @@ class LocalLifeExperimentRepository {
     final start = _startOfWeek(fromDate ?? nowLoader());
     final end = start.add(const Duration(days: 6));
     final now = nowLoader().toUtc();
+    final rootCreationSource = await _rootCreationSource(experiment);
     final clone = LifeExperimentModel(
       id: 'exp_${_uuid.v4().replaceAll('-', '').substring(0, 12)}',
       localUserId: experiment.localUserId,
@@ -721,6 +1024,7 @@ class LocalLifeExperimentRepository {
       plannedDurationMinutes: experiment.plannedDurationMinutes,
       plannedTotalDays: experiment.plannedTotalDays,
       minimumObservationDays: experiment.minimumObservationDays,
+      creationSource: rootCreationSource,
       createdAt: now,
       updatedAt: now,
     );
@@ -859,7 +1163,6 @@ class LocalLifeExperimentRepository {
     required String outcomeResult,
     required String burden,
     String reviewType = GoalReviewType.wholeRound,
-    bool userConfirmedRoundEnd = false,
     String? reviewNote,
     DateTime? reviewedAt,
   }) async {
@@ -900,8 +1203,7 @@ class LocalLifeExperimentRepository {
     if (reviewType == GoalReviewType.wholeRound) {
       final mayEndRound = metMinimumObservationDays ||
           reachedExplicitPeriodEnd ||
-          terminalLifecycle ||
-          userConfirmedRoundEnd;
+          terminalLifecycle;
       if (!mayEndRound) {
         throw StateError(
           'goal_whole_round_review_requires_minimum_or_round_end:'
@@ -959,7 +1261,6 @@ class LocalLifeExperimentRepository {
           'round_end_context': {
             'explicit_period_end_reached': reachedExplicitPeriodEnd,
             'terminal_lifecycle': terminalLifecycle,
-            'user_confirmed_round_end': userConfirmedRoundEnd,
           },
       },
       createdAt: createdAt,
@@ -1041,7 +1342,6 @@ class LocalLifeExperimentRepository {
     required String experimentId,
     required String outcomeResult,
     required String burden,
-    bool userConfirmedRoundEnd = false,
     String? reviewNote,
     DateTime? reviewedAt,
   }) {
@@ -1050,7 +1350,6 @@ class LocalLifeExperimentRepository {
       outcomeResult: outcomeResult,
       burden: burden,
       reviewType: GoalReviewType.wholeRound,
-      userConfirmedRoundEnd: userConfirmedRoundEnd,
       reviewNote: reviewNote,
       reviewedAt: reviewedAt,
     );
@@ -1524,6 +1823,7 @@ class LocalLifeExperimentRepository {
   }
 
   Future<String> _recordLifecycleEvent({
+    DatabaseExecutor? executor,
     required LifeExperimentModel experiment,
     required String eventType,
     String? statusFrom,
@@ -1534,11 +1834,16 @@ class LocalLifeExperimentRepository {
     Map<String, dynamic> payload = const {},
     DateTime? createdAt,
   }) async {
-    final db = await localDatabase.database;
+    final DatabaseExecutor writer;
+    if (executor != null) {
+      writer = executor;
+    } else {
+      writer = await localDatabase.database;
+    }
     final date = eventDate ?? DateTime.now();
     final eventId =
         'exp_evt_${_uuid.v4().replaceAll('-', '').substring(0, 12)}';
-    await db.insert(
+    await writer.insert(
       'life_experiment_lifecycle_events',
       {
         'id': eventId,
@@ -1715,6 +2020,9 @@ class LocalLifeExperimentRepository {
       minimumObservationDays: _normalizeMinimumObservationDays(
         _toInt(row['minimum_observation_days']) ?? 3,
       ),
+      creationSource: ExperimentCreationSource.fromStorage(
+        row['creation_source'],
+      ),
       originCandidateId: row['origin_candidate_id'] as String?,
       adoptedAt: DateTime.tryParse((row['adopted_at'] as String?) ?? ''),
       progressStartDate: row['progress_start_date'] as String?,
@@ -1749,6 +2057,7 @@ class LocalLifeExperimentRepository {
       'planned_duration_minutes': experiment.plannedDurationMinutes,
       'planned_total_days': experiment.plannedTotalDays,
       'minimum_observation_days': experiment.minimumObservationDays,
+      'creation_source': experiment.creationSource.storageValue,
       'origin_candidate_id': experiment.originCandidateId,
       'adopted_at': experiment.adoptedAt?.toUtc().toIso8601String(),
       'progress_start_date': experiment.progressStartDate,
@@ -1874,6 +2183,18 @@ class LocalLifeExperimentRepository {
         minimumObservationDays ?? experiment.minimumObservationDays,
       ),
     };
+  }
+
+  bool _isManualTerminalStatus(String rawStatus) {
+    return const {
+      'completed',
+      'done',
+      'stopped',
+      'archived',
+      'skipped',
+      'effective',
+      'not_effective',
+    }.contains(rawStatus.trim().toLowerCase());
   }
 
   bool _hasAdoptionEvidence(LifeExperimentModel experiment) {

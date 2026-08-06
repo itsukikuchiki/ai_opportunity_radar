@@ -95,7 +95,7 @@ class SignalEligibilityService {
       case 'library_unconfirmed':
         return '信号库内容需要补充个人语境';
       case 'ai_prediction_unconfirmed':
-        return 'AI 预判需要确认';
+        return '智能预判需要确认';
       case 'legacy_reference':
         return '旧记录仅作参考';
       default:

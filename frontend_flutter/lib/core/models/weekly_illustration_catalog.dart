@@ -167,7 +167,7 @@ class WeeklyIllustrationCatalog {
     ),
     WeeklyIllustrationDefinition(
       id: 'review.next_week_branch',
-      hint: '下周继续 / 停止 / 改小',
+      hint: '下周是否继续 / 继续时可改小',
       asset: 'assets/weekly/weekly-review-next-week-branch.png',
     ),
   ];
@@ -414,11 +414,13 @@ class WeeklyReviewIllustrationSelection {
   final WeeklyIllustrationDefinition definition;
   final int count;
   final DateTime? latestAt;
+  final String? subjectId;
 
   const WeeklyReviewIllustrationSelection({
     required this.definition,
     required this.count,
     this.latestAt,
+    this.subjectId,
   });
 }
 
@@ -448,6 +450,7 @@ class WeeklyReviewIllustrationSelector {
       final definition = _definitionForEvent(event);
       if (definition == null) continue;
       final latest = _eventDate(event);
+      final subjectId = _text(event['subject_id']);
       final bucket = buckets.putIfAbsent(
         definition.id,
         () => _SelectionBucket(definition),
@@ -456,6 +459,9 @@ class WeeklyReviewIllustrationSelector {
       if (latest != null &&
           (bucket.latestAt == null || latest.isAfter(bucket.latestAt!))) {
         bucket.latestAt = latest;
+        bucket.latestSubjectId = subjectId.isEmpty ? null : subjectId;
+      } else if (bucket.latestSubjectId == null && subjectId.isNotEmpty) {
+        bucket.latestSubjectId = subjectId;
       }
     }
 
@@ -478,6 +484,7 @@ class WeeklyReviewIllustrationSelector {
         definition: refined,
         count: winner.count,
         latestAt: winner.latestAt,
+        subjectId: winner.latestSubjectId,
       );
     }
 
@@ -733,6 +740,7 @@ class _SelectionBucket {
   final WeeklyIllustrationDefinition definition;
   int count = 0;
   DateTime? latestAt;
+  String? latestSubjectId;
 
   _SelectionBucket(this.definition);
 }

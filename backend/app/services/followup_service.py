@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 from sqlalchemy.orm import Session
 from app.models import FollowupQuestion, FollowupAnswer
@@ -22,7 +22,7 @@ class FollowupService:
                 question_type=q['question_type'],
                 question_text=q['question_text'],
                 options_json=q['options'],
-                expires_at=datetime.utcnow() + timedelta(days=7),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
             )
             self.db.add(row)
             self.db.flush()
@@ -31,11 +31,11 @@ class FollowupService:
 
     def submit_answer(self, user_id: str, followup_id: str, answer_value: str) -> dict:
         question = self.db.get(FollowupQuestion, followup_id)
-        if not question:
+        if not question or question.user_id != user_id:
             raise ValueError('Follow-up not found')
         self.db.add(FollowupAnswer(id=f"fa_{uuid4().hex[:8]}", followup_question_id=followup_id, user_id=user_id, answer_value=answer_value))
         question.status = 'skipped' if answer_value == 'skip' else 'answered'
-        question.answered_at = datetime.utcnow()
+        question.answered_at = datetime.now(timezone.utc)
         self.db.flush()
         return {
             'followup_id': followup_id,

@@ -12,6 +12,7 @@ import '../../../core/models/today_models.dart';
 import '../../../core/navigation/app_back_navigation.dart';
 import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/widgets/aurora_ui.dart';
+import '../../../shared/utils/l1_attunement_fallback.dart';
 import '../../../shared/utils/user_visible_text_sanitizer.dart';
 
 class TodayDialogPage extends StatefulWidget {
@@ -87,13 +88,15 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
     BuildContext context,
     RecentSignalModel signal,
   ) {
-    final short = _compactSignalText(signal.content);
-    return AppLocaleText.tr(
-      context,
-      en: 'You mentioned “$short”. I’m here with this moment.',
-      zhHans: '你说“$short”，这个片段我接住了。',
-      zhHant: '你說「$short」，這個片段我接住了。',
-      ja: '「$short」と書いていましたね。この瞬間を受け止めました。',
+    final language = switch (AppLocaleText.resolve(context)) {
+      AppLanguage.simplifiedChinese => 'zh-Hans',
+      AppLanguage.traditionalChinese => 'zh-Hant',
+      AppLanguage.japanese => 'ja',
+      AppLanguage.english => 'en',
+    };
+    return l1AttunedAcknowledgement(
+      content: signal.content,
+      language: language,
     );
   }
 
@@ -147,9 +150,9 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
     final dialogTitle = AppLocaleText.tr(
       context,
       en: 'Chat With AI',
-      zhHans: '和 AI 聊聊',
-      zhHant: '和 AI 聊聊',
-      ja: 'AI と話す',
+      zhHans: '和智能助手聊聊',
+      zhHant: '和智慧助手聊聊',
+      ja: '人工知能と話す',
     );
     return Scaffold(
       resizeToAvoidBottomInset: true,
@@ -221,10 +224,10 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                                           context,
                                           en: 'Chat around this entry. AI will first acknowledge what you express without offering unsolicited advice.',
                                           zhHans:
-                                              '可以围绕这条记录对话。AI 会先承接你的表达，不主动给建议。',
+                                              '可以围绕这条记录对话。智能助手会先承接你的表达，不主动给建议。',
                                           zhHant:
-                                              '可以圍繞這條記錄對話。AI 會先承接你的表達，不主動給建議。',
-                                          ja: 'この記録を起点に対話できます。AI はまず表現を受け止め、求められない助言はしません。',
+                                              '可以圍繞這條記錄對話。智慧助手會先承接你的表達，不主動給建議。',
+                                          ja: 'この記録を起点に対話できます。人工知能はまず表現を受け止め、求められない助言はしません。',
                                         ),
                                         style: Theme.of(context)
                                             .textTheme
@@ -288,13 +291,21 @@ class _TodayDialogPageState extends State<TodayDialogPage> {
                     ),
                   ],
                 ),
-                child: const Center(
+                child: Center(
                   child: Text(
-                    'AI',
-                    style: TextStyle(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'AI',
+                      zhHans: '智能\n助手',
+                      zhHant: '智慧\n助手',
+                      ja: '人工\n知能',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
-                      fontSize: 20,
+                      fontSize: 13,
+                      height: 1.05,
                     ),
                   ),
                 ),
@@ -458,8 +469,7 @@ class _SignalSummaryCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     signal.content,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    key: const ValueKey('today-dialog-source-signal-text'),
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: AuroraColors.ink,
                           height: 1.32,
@@ -1042,7 +1052,7 @@ class _DialogMicroActionCard extends StatelessWidget {
         raw.length > 18 ? '${raw.substring(0, 18).trim()}...' : raw;
     final actionText = AppLocaleText.tr(
       context,
-      en: 'Turn this into one very small experiment for today.',
+      en: 'Turn this into one simple Spot Try for today.',
       zhHans: '把刚才说到的线索，变成今天一个很小的尝试。',
       zhHant: '把剛才說到的線索，變成今天一個很小的嘗試。',
       ja: '今話した手がかりを、今日の小実験にします。',
@@ -1082,7 +1092,7 @@ class _DialogMicroActionCard extends StatelessWidget {
                 child: Text(
                   AppLocaleText.tr(
                     context,
-                    en: 'Make this a small experiment?',
+                    en: 'Make this a Spot Try?',
                     zhHans: '要不要变成一个小实验？',
                     zhHant: '要不要變成一個小實驗？',
                     ja: '小実験にしますか？',
@@ -1119,7 +1129,7 @@ class _DialogMicroActionCard extends StatelessWidget {
                 ),
                 onPressed: () => showSaved(AppLocaleText.tr(
                   context,
-                  en: 'Saved as a small experiment for today.',
+                  en: 'Saved as a Spot Try for today.',
                   zhHans: '已保存为今天的小实验。',
                   zhHant: '已保存為今天的小實驗。',
                   ja: '今日の小実験として保存しました。',
@@ -1231,7 +1241,7 @@ class _RelatedEvidenceStrip extends StatelessWidget {
       (
         Icons.battery_3_bar_rounded,
         AppLocaleText.tr(context,
-            en: 'Energy', zhHans: '能量', zhHant: '能量', ja: 'エネルギー'),
+            en: 'Capacity', zhHans: '精力', zhHant: '精力', ja: '余力'),
         energyLabel,
         AuroraColors.mint,
       ),
@@ -1255,8 +1265,13 @@ class _RelatedEvidenceStrip extends StatelessWidget {
         Icons.science_rounded,
         AppLocaleText.tr(context,
             en: 'Goal', zhHans: '目标', zhHant: '目標', ja: '目標'),
-        AppLocaleText.tr(context,
-            en: 'try gently', zhHans: '轻量尝试', zhHant: '輕量嘗試', ja: '軽く試す'),
+        AppLocaleText.tr(
+          context,
+          en: 'Spot Try',
+          zhHans: '简单尝试',
+          zhHant: '簡單嘗試',
+          ja: 'スポットトライ',
+        ),
         AuroraColors.purple,
       ),
     ];

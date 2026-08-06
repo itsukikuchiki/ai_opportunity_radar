@@ -1,6 +1,6 @@
 # Pro Purchase And Entitlement
 
-Last updated: 2026-07-22
+Last updated: 2026-07-28
 
 Status: **final target contract; manual restore and silent current-entitlement refresh baselines implemented; native transaction lifecycle/server modernization Target; Restore Purchase Platform QA open**.
 
@@ -11,23 +11,46 @@ Purchase and entitlement form an independent control plane. They may control Pro
 Free users retain direct recording, the immutable SignalCard timeline,
 pre-save editable AI/Library confirmation decisions, adopted quick-try/goal
 feedback under Life Experiment, and the Free Weekly/Journey fact layer. Pro may
-unlock This Week Deep Read, Journey three-month change analysis, structured
-self-review, L1 Attune short dialogue, and expanded AI quota. Pro never unlocks editing of a
-saved fact or historical progress record.
+unlock This Week Deep Read, the Life Experiment cross-object Action Preference
+report, Journey historical-month access and all-history change analysis,
+structured self-review, L1 Attune short dialogue, and expanded AI quota. Pro
+never unlocks editing of a saved fact or historical progress record.
 
 That is the final current Pro product range. Pro does not sell access to the
-user's own SignalCards, the Free Weekly/Journey fact layer, raw Health data,
-Calendar data, or a response-style switch. The local StoreKit product copy must
-use this same boundary and must not advertise source-Signal follow-up or any
-removed Journey feature.
+user’s own SignalCards, the Free Weekly/Journey fact layer, raw Health data,
+Calendar data, the user’s raw quick-try/goal feedback, per-object Life
+Experiment details, or a response-style switch. The local StoreKit product copy
+must use this same boundary and must not advertise a fixed three-month Journey
+window, source-Signal follow-up, or any removed Journey feature.
 
 Entitlement and report readiness are separate:
 
 - Weekly and This Week Deep Read: 3 eligible current-week SignalCards.
+- Life Experiment Action Preference initial synthesis: 5 explicit eligible
+  ratings across 2 formal quick tries/goals and 3 user-local dates. Condition
+  comparison additionally requires 10 eligible ratings across 3 formal objects
+  and at least 2 comparable groups.
 - Free Journey monthly synthesis: 7 eligible SignalCards across 3 local dates.
-- Journey Pro three-month change: the selected natural month and two preceding months are visible as facts; cross-month interpretation starts when at least two months individually meet the Free Journey `7 eligible SignalCards / 3 local dates` threshold.
+- Journey Pro history and long-term change: Free is limited to the current
+  natural month. Pro may re-fetch and view every completed natural month from
+  first use through the latest completed user-local month, then place those
+  months on the same long-term timeline. Each month independently uses the Free Journey
+  `7 eligible SignalCards / 3 local dates` synthesis gate. One ready month may
+  show its factual structure with `change still forming`; two or more ready
+  months may support a conservative direction claim. There is no fixed
+  three-month minimum or window.
 
 A subscription never lowers an evidence threshold.
+
+The Life Experiment Action Preference gate applies only to cross-object
+synthesis. The entry and precise readiness gap remain visible without Pro.
+Quick-try real-attempt history, explicit effect/effort feedback, goal
+weekly/whole-round reviews, and all per-object detail remain Free because they
+are the user's own data. Completion count, completion days, lifecycle
+completion, continuation, `unclear` reviews, invalid feedback, and unstructured
+notes without an explicit rating do not satisfy Action Preference readiness.
+The report keeps quick tries and goals separate before any cautious comparison,
+and it cannot create, adopt, edit, continue, complete, or remove a plan.
 
 ## 2. Entitlement Sources And Precedence
 

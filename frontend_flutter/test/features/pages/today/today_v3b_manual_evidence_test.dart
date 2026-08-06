@@ -265,7 +265,7 @@ void main() {
       ),
       (
         locale: const Locale('ja'),
-        title: 'AI予測',
+        title: '人工知能による予測',
         empty: 'まだ予測はありません',
       ),
       (
@@ -273,7 +273,7 @@ void main() {
           languageCode: 'zh',
           scriptCode: 'Hans',
         ),
-        title: 'AI预判',
+        title: '智能预判',
         empty: '暂时还没有预判',
       ),
       (
@@ -281,7 +281,7 @@ void main() {
           languageCode: 'zh',
           scriptCode: 'Hant',
         ),
-        title: 'AI預判',
+        title: '智慧預判',
         empty: '暫時還沒有預判',
       ),
     ];

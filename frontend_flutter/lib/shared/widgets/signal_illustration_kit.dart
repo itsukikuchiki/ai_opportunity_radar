@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../core/i18n/app_locale_text.dart';
+
 const _ink = Color(0xFF223044);
 const _body = Color(0xFF394B5C);
 const _muted = Color(0xFF728292);
@@ -103,13 +105,40 @@ class LibraryFlowVisual extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: _line),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          _MiniStage(icon: Icons.auto_stories_outlined, label: 'Library\n模式'),
-          _ArrowGlyph(),
-          _MiniStage(icon: Icons.lock_outline_rounded, label: '私人\n观察'),
-          _ArrowGlyph(),
-          _MiniStage(icon: Icons.edit_note_rounded, label: '你的\n语境'),
+          _MiniStage(
+            icon: Icons.auto_stories_outlined,
+            label: AppLocaleText.tr(
+              context,
+              en: 'Library\npatterns',
+              zhHans: '信号库\n模式',
+              zhHant: '信號庫\n模式',
+              ja: 'ライブラリ\nパターン',
+            ),
+          ),
+          const _ArrowGlyph(),
+          _MiniStage(
+            icon: Icons.lock_outline_rounded,
+            label: AppLocaleText.tr(
+              context,
+              en: 'Private\nreflection',
+              zhHans: '私人\n观察',
+              zhHant: '私人\n觀察',
+              ja: '自分だけの\n振り返り',
+            ),
+          ),
+          const _ArrowGlyph(),
+          _MiniStage(
+            icon: Icons.edit_note_rounded,
+            label: AppLocaleText.tr(
+              context,
+              en: 'Your\ncontext',
+              zhHans: '你的\n语境',
+              zhHant: '你的\n脈絡',
+              ja: 'あなたの\n文脈',
+            ),
+          ),
         ],
       ),
     );
@@ -186,15 +215,51 @@ class JourneyPathVisual extends StatelessWidget {
               ),
             ),
           ),
-          const Wrap(
+          Wrap(
             spacing: 10,
             runSpacing: 8,
             alignment: WrapAlignment.center,
             children: [
-              _LegendDot(label: 'W1-W8', color: Color(0xFF5F9AA0)),
-              _LegendDot(label: '恢复线索', color: Color(0xFF83A881)),
-              _LegendDot(label: '实验轨迹', color: Color(0xFFE4C96D)),
-              _LegendDot(label: '耗力模式', color: Color(0xFFC98787)),
+              _LegendDot(
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Weeks 1–8',
+                  zhHans: '第1–8周',
+                  zhHant: '第1–8週',
+                  ja: '第1〜8週',
+                ),
+                color: const Color(0xFF5F9AA0),
+              ),
+              _LegendDot(
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Recovery cues',
+                  zhHans: '恢复线索',
+                  zhHant: '恢復線索',
+                  ja: '回復の手がかり',
+                ),
+                color: const Color(0xFF83A881),
+              ),
+              _LegendDot(
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Experiment path',
+                  zhHans: '实验轨迹',
+                  zhHant: '實驗軌跡',
+                  ja: '実験の軌跡',
+                ),
+                color: const Color(0xFFE4C96D),
+              ),
+              _LegendDot(
+                label: AppLocaleText.tr(
+                  context,
+                  en: 'Demanding patterns',
+                  zhHans: '耗力模式',
+                  zhHant: '耗力模式',
+                  ja: '負荷の高いパターン',
+                ),
+                color: const Color(0xFFC98787),
+              ),
             ],
           ),
         ],
@@ -230,13 +295,40 @@ class ExperimentPathVisual extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: _line),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          _MiniStage(icon: Icons.view_week_outlined, label: '问题\n太密'),
-          _ArrowGlyph(),
-          _MiniStage(icon: Icons.space_bar_rounded, label: '方法\n留白'),
-          _ArrowGlyph(),
-          _MiniStage(icon: Icons.spa_outlined, label: '目标\n轻一点'),
+          _MiniStage(
+            icon: Icons.view_week_outlined,
+            label: AppLocaleText.tr(
+              context,
+              en: 'Too many\ndemands',
+              zhHans: '事情\n太密',
+              zhHant: '事情\n太密',
+              ja: '予定が\n詰まりすぎ',
+            ),
+          ),
+          const _ArrowGlyph(),
+          _MiniStage(
+            icon: Icons.space_bar_rounded,
+            label: AppLocaleText.tr(
+              context,
+              en: 'Make\nspace',
+              zhHans: '方法\n留白',
+              zhHant: '方法\n留白',
+              ja: '余白を\nつくる',
+            ),
+          ),
+          const _ArrowGlyph(),
+          _MiniStage(
+            icon: Icons.spa_outlined,
+            label: AppLocaleText.tr(
+              context,
+              en: 'A lighter\ngoal',
+              zhHans: '目标\n轻一点',
+              zhHant: '目標\n輕一點',
+              ja: '目標を\n軽くする',
+            ),
+          ),
         ],
       ),
     );
@@ -623,7 +715,7 @@ class _JourneyPathPainter extends CustomPainter {
     for (var i = 0; i < points.length; i++) {
       fill.color = colors[i].withValues(alpha: 0.78);
       canvas.drawCircle(points[i], 8 + ((intensity + i) % 4) * 2, fill);
-      _drawLabel(canvas, 'W${i + 1}', points[i] + const Offset(-8, 17));
+      _drawLabel(canvas, '${i + 1}', points[i] + const Offset(-8, 17));
     }
   }
 

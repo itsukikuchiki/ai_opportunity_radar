@@ -1,6 +1,6 @@
 # Feedback Event
 
-Last updated: 2026-07-22
+Last updated: 2026-07-28
 
 FeedbackEvent is the active read model for feedback across modules.
 
@@ -33,6 +33,15 @@ past date or completed period exposes no edit or backfill operation. Planning
 content for the current or next user-local week may be revised through a
 separate prospective plan-version path; that is not a FeedbackEvent edit.
 
+Lifecycle completion is reconciled at the local-week boundary, not by a manual
+detail action. Weekly's next-week selection creates an idempotent linked child
+for every adopted quick try or goal the user chooses to continue. The child
+activates on the next local Monday; without a child, the current projection
+becomes completed at its own Sunday boundary. Reconciliation creates no
+FeedbackEvent, outcome review, effort review, conclusion, or Signal. Historical
+lifecycle rows remain immutable and read-only; they never become a current
+write path.
+
 ## Completion And Outcome Projections
 
 Completion and effectiveness are separate append-only facts. A completion
@@ -46,17 +55,16 @@ submits an outcome review.
   to one daily cell;
 - after a real attempt, collect immediate effect
   `helpful | somewhat | no_effect`, effort `easy | okay | effortful`, and an
-  optional sentence through one shared Today / Weekly / Life Experiment write
-  path;
+  optional sentence through one shared Today / Weekly write path;
 - no review is `awaiting review`; one positive review is `early help`;
 - at least two positive (`helpful` or `somewhat`) attempts, with acceptable
   overall burden and `effortful` not the majority, are required before the UI
   may say `worth keeping`;
 - positive but effortful/context-dependent becomes `adjust`; at least two
   reviewed attempts with no positive result becomes `no help observed yet`;
-- ending the round separately records `keep | lighten_and_retry | end` and
-  never manufactures an attempt, lifecycle completion, or outcome review;
-  completing the formal quick experiment is a second explicit action.
+- the usefulness projection never decides whether the object continues.
+  Continuation is selected only on Weekly's next-week page; no manual “end
+  observation” or formal-complete action exists.
 
 ### Goal (medium/long term)
 
@@ -71,9 +79,8 @@ submits an outcome review.
   goal's minimum observation threshold it must stay cautious and use
   `unclear` rather than claim a directional result;
 - Life Experiment may append a `whole_round` review when the observation
-  threshold is met, the period ends, or the user explicitly ends/summarizes
-  the complete goal; an early or below-threshold round likewise permits only
-  `unclear`;
+  threshold is met or the user explicitly summarizes the complete goal; an
+  early or below-threshold round likewise permits only `unclear`;
 - both typed reviews collect outcome `improved | somewhat | unchanged | worse |
   unclear`, effort `easy | acceptable | too_effortful`, and an optional
   sentence; neither review completes the goal;

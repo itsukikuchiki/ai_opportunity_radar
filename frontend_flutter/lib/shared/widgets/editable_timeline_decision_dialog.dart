@@ -107,13 +107,13 @@ class _EditableTimelineDecisionDialogState
                   ? 'Edit the wording so it reflects what is true for you. Nothing is written until you save.'
                   : 'You can edit the wording first, then choose whether it becomes a timeline entry.',
               zhHans: widget.saveAsTodaySignal
-                  ? '先改成符合你实际情况的说法。只有点击保存后，才会生成 Signal Card 并进入时间线。'
+                  ? '先改成符合你实际情况的说法。只有点击保存后，才会生成信号卡并进入时间线。'
                   : '你可以先修改这句话，再决定是否把它作为一条真实记录放进时间线。',
               zhHant: widget.saveAsTodaySignal
-                  ? '先改成符合你實際情況的說法。只有點擊儲存後，才會生成 Signal Card 並進入時間線。'
+                  ? '先改成符合你實際情況的說法。只有點擊儲存後，才會生成信號卡並進入時間線。'
                   : '你可以先修改這句話，再決定是否把它作為一條真實記錄放進時間線。',
               ja: widget.saveAsTodaySignal
-                  ? '自分の実感に合う言葉に編集できます。保存するまで Signal Card やタイムラインには記録されません。'
+                  ? '自分の実感に合う言葉に編集できます。保存するまでシグナルカードやタイムラインには記録されません。'
                   : '言葉を編集してから、実際の記録としてタイムラインに残すか選べます。',
             ),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(

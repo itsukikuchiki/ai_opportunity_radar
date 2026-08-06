@@ -12,13 +12,14 @@ import '../../../core/preferences/focus_domains.dart';
 import '../../../shared/states/load_state.dart';
 import '../../../shared/widgets/aurora_ui.dart';
 import '../../../shared/widgets/empty_state_block.dart';
+import '../../shell/main_tab_bottom_navigation.dart';
+import 'journey_display_text.dart';
 import 'journey_pro_view_model.dart';
 
-/// Pro projection for the selected month and its two preceding natural months.
+/// Pro projection from first app use through the latest completed local month.
 ///
-/// This surface intentionally contains only three-month change. Experiments,
-/// goals, analysis-scope copy, raw Signal drill-down, date drill-down, and AI
-/// chat belong to other surfaces and must not be reintroduced here.
+/// Experiments, goals, raw Signal drill-down, date drill-down, and AI chat
+/// belong to other surfaces and must not be reintroduced here.
 class JourneyProPage extends StatefulWidget {
   final String? initialMonthKey;
 
@@ -47,6 +48,7 @@ class _JourneyProPageState extends State<JourneyProPage> {
   Widget build(BuildContext context) {
     final vm = context.watch<JourneyProViewModel>();
     return Scaffold(
+      extendBody: true,
       body: Stack(
         children: [
           AuroraPage(
@@ -60,13 +62,6 @@ class _JourneyProPageState extends State<JourneyProPage> {
                   const SizedBox(height: 14),
                   _Hero(
                     report: vm.report,
-                    onPrevious: vm.loadState == LoadState.loading
-                        ? null
-                        : () => vm.moveByMonths(-1),
-                    onNext: vm.loadState == LoadState.loading ||
-                            !vm.canMoveToNextMonth
-                        ? null
-                        : () => vm.moveByMonths(1),
                   ),
                   const SizedBox(height: AuroraMainPageSpec.sectionGap),
                   ..._body(context, vm),
@@ -77,6 +72,7 @@ class _JourneyProPageState extends State<JourneyProPage> {
           const AuroraSafeTopMask(extraHeight: 4),
         ],
       ),
+      bottomNavigationBar: const MainTabBottomNavigation(selectedIndex: 3),
     );
   }
 
@@ -94,10 +90,10 @@ class _JourneyProPageState extends State<JourneyProPage> {
             icon: Icons.error_outline_rounded,
             title: AppLocaleText.tr(
               context,
-              en: 'Three-month change failed to load',
-              zhHans: '三个月变化加载失败',
-              zhHant: '三個月變化載入失敗',
-              ja: '3か月の変化を読み込めませんでした',
+              en: 'Journey history failed to load',
+              zhHans: '完整旅程变化加载失败',
+              zhHant: '完整旅程變化載入失敗',
+              ja: '旅程全体の変化を読み込めませんでした',
             ),
             subtitle: AppLocaleText.tr(
               context,
@@ -127,17 +123,66 @@ class _JourneyProPageState extends State<JourneyProPage> {
       case LoadState.ready:
         final report = vm.report;
         if (report == null) return const [SizedBox.shrink()];
+        if (report.months.isEmpty) {
+          return [
+            EmptyStateBlock(
+              icon: Icons.calendar_month_rounded,
+              title: AppLocaleText.tr(
+                context,
+                en: 'Your first complete month is still forming',
+                zhHans: '首个完整月份还在形成中',
+                zhHant: '首個完整月份仍在形成中',
+                ja: '最初の1か月はまだ進行中です',
+              ),
+              subtitle: AppLocaleText.tr(
+                context,
+                en: 'Journey Pro will show it after the calendar month ends, so partial data cannot distort the trend.',
+                zhHans: '自然月结束后，旅程深度分析才会显示这个月，避免不完整数据让趋势图失真。',
+                zhHant: '自然月結束後，旅程深度分析才會顯示這個月，避免不完整資料讓趨勢圖失真。',
+                ja: '不完全なデータで傾向が歪まないよう、月が終わってから旅程の深度分析に表示します。',
+              ),
+            ),
+          ];
+        }
+        if (!report.hasData) {
+          return [
+            _JourneyHistoryOverview(report: report),
+            const SizedBox(height: AuroraMainPageSpec.sectionGap),
+            EmptyStateBlock(
+              icon: Icons.route_outlined,
+              title: AppLocaleText.tr(
+                context,
+                en: 'Your complete timeline is ready to begin',
+                zhHans: '完整时间轴等待第一条记录',
+                zhHant: '完整時間軸等待第一條記錄',
+                ja: '全期間のタイムラインは最初の記録を待っています',
+              ),
+              subtitle: AppLocaleText.tr(
+                context,
+                en: 'Record Signal first. Focus, themes, energy and rhythm will appear here without inventing missing months.',
+                zhHans: '先留下 Signal；关注领域、主题、能量与节奏会按真实月份逐步显示，不会补造缺失数据。',
+                zhHant: '先留下 Signal；關注領域、主題、能量與節奏會按真實月份逐步顯示，不會補造缺失資料。',
+                ja: 'まず Signal を残してください。関心領域、テーマ、エネルギーとリズムを、存在しない月を補わずに表示します。',
+              ),
+            ),
+          ];
+        }
         return [
-          _ThreeMonthChart(report: report),
+          _JourneyHistoryOverview(report: report),
           const SizedBox(height: AuroraMainPageSpec.sectionGap),
-          _EnergyStateTrend(report: report),
+          _JourneyHistoryLineCard(
+            report: report,
+            kind: _JourneyHistoryLineKind.domain,
+          ),
           const SizedBox(height: AuroraMainPageSpec.sectionGap),
-          _DomainTrend(report: report),
+          _JourneyHistoryLineCard(
+            report: report,
+            kind: _JourneyHistoryLineKind.theme,
+          ),
           const SizedBox(height: AuroraMainPageSpec.sectionGap),
-          if (report.canShowChange)
-            _ChangeSummary(report: report)
-          else
-            _ComparisonReadiness(report: report),
+          _JourneyEnergyRhythmHistoryCard(report: report),
+          const SizedBox(height: AuroraMainPageSpec.sectionGap),
+          _JourneyHistoryConclusionCard(report: report),
         ];
     }
   }
@@ -163,9 +208,9 @@ class _Header extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'Journey Pro',
-              zhHans: '旅程 Pro',
-              zhHant: '旅程 Pro',
-              ja: '旅程 Pro',
+              zhHans: '旅程深度分析',
+              zhHant: '旅程深度分析',
+              ja: '旅程の深度分析',
             ),
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   color: AuroraColors.ink,
@@ -180,130 +225,643 @@ class _Header extends StatelessWidget {
 
 class _Hero extends StatelessWidget {
   final JourneyProReportModel? report;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onNext;
 
   const _Hero({
     required this.report,
-    required this.onPrevious,
-    required this.onNext,
   });
 
   @override
   Widget build(BuildContext context) {
-    final selectedMonth = report?.selectedMonthKey;
     return AuroraCard(
-      key: const ValueKey('journey-pro-three-month-hero'),
+      key: const ValueKey('journey-pro-full-history-hero'),
       padding: EdgeInsets.zero,
       borderRadius: BorderRadius.circular(24),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 210),
-          child: Stack(
-            children: [
-              const Positioned.fill(
-                child: AuroraJourneyHeroPattern(
-                  opacity: 0.62,
-                  alignment: Alignment.centerRight,
-                ),
+        child: Stack(
+          children: [
+            const Positioned.fill(
+              child: AuroraJourneyHeroPattern(
+                opacity: 0.62,
+                alignment: Alignment.centerRight,
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    AuroraHeroTitle(
-                      text: AppLocaleText.tr(
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AuroraHeroTitle(
+                    text: AppLocaleText.tr(
+                      context,
+                      en: 'Complete Journey changes',
+                      zhHans: '完整旅程变化',
+                      zhHant: '完整旅程變化',
+                      ja: '旅程全体の変化',
+                    ),
+                    fontSize: 31,
+                    maxLines: 1,
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: 236,
+                    child: Text(
+                      AppLocaleText.tr(
                         context,
-                        en: 'Three-month change',
-                        zhHans: '三个月变化',
-                        zhHant: '三個月變化',
-                        ja: '3か月の変化',
+                        en: 'See how focus, themes, energy, and rhythm changed through your latest complete month.',
+                        zhHans: '查看从开始使用到最近一个完整月份，关注领域、主题、能量与节奏如何变化。',
+                        zhHant: '查看從開始使用到最近一個完整月份，關注領域、主題、能量與節奏如何變化。',
+                        ja: '利用開始から直近の完了月まで、関心領域、テーマ、エネルギーとリズムがどう変化したかを確認します。',
                       ),
-                      fontSize: 31,
-                      maxLines: 1,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AuroraColors.muted,
+                            height: 1.42,
+                          ),
                     ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: 236,
-                      child: Text(
-                        AppLocaleText.tr(
-                          context,
-                          en: 'Compare the selected month with the two natural months before it.',
-                          zhHans: '比较选定月与之前两个自然月的记录变化。',
-                          zhHant: '比較選定月與之前兩個自然月的記錄變化。',
-                          ja: '選択した月と、その前の2か月の記録変化を比べます。',
-                        ),
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: AuroraColors.muted,
-                              height: 1.42,
-                            ),
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    key: const ValueKey('journey-pro-history-period'),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.78),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: AuroraColors.purple.withValues(alpha: 0.16),
                       ),
                     ),
-                    const SizedBox(height: 18),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _MonthArrow(
-                          icon: Icons.chevron_left_rounded,
-                          onPressed: onPrevious,
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          key: const ValueKey('journey-pro-selected-month'),
-                          constraints: const BoxConstraints(minWidth: 112),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
+                    child: Text(
+                      report == null
+                          ? AppLocaleText.tr(
+                              context,
+                              en: 'Loading…',
+                              zhHans: '加载中…',
+                              zhHant: '載入中…',
+                              ja: '読み込み中…',
+                            )
+                          : report!.months.isEmpty
+                              ? AppLocaleText.tr(
+                                  context,
+                                  en: 'Available after the first complete month',
+                                  zhHans: '首个自然月结束后显示',
+                                  zhHant: '首個自然月結束後顯示',
+                                  ja: '最初の1か月終了後に表示',
+                                )
+                              : '${_shortDate(context, report!.periodStart)} — ${_shortDate(context, report!.periodEnd)}',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            color: AuroraColors.purple,
+                            fontWeight: FontWeight.w700,
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.78),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color:
-                                  AuroraColors.purple.withValues(alpha: 0.16),
-                            ),
-                          ),
-                          child: Text(
-                            selectedMonth == null
-                                ? AppLocaleText.tr(
-                                    context,
-                                    en: 'Loading…',
-                                    zhHans: '加载中…',
-                                    zhHant: '載入中…',
-                                    ja: '読み込み中…',
-                                  )
-                                : _monthLabel(context, selectedMonth),
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelLarge
-                                ?.copyWith(
-                                  color: AuroraColors.purple,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        _MonthArrow(
-                          icon: Icons.chevron_right_rounded,
-                          onPressed: onNext,
-                        ),
-                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
+class _JourneyHistoryOverview extends StatelessWidget {
+  final JourneyProReportModel report;
+
+  const _JourneyHistoryOverview({required this.report});
+
+  @override
+  Widget build(BuildContext context) {
+    final activeMonths =
+        report.months.where((month) => month.signalCount > 0).length;
+    return AuroraCard(
+      key: const ValueKey('journey-pro-history-overview'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Timeline overview',
+              zhHans: '完整时间轴概览',
+              zhHant: '完整時間軸概覽',
+              ja: '全期間の概要',
+            ),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _HistoryMetricTile(
+                  icon: Icons.calendar_view_month_rounded,
+                  color: AuroraColors.purple,
+                  value: '$activeMonths',
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'recorded months',
+                    zhHans: '有记录月份',
+                    zhHant: '有記錄月份',
+                    ja: '記録した月',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _HistoryMetricTile(
+                  icon: Icons.auto_awesome_rounded,
+                  color: AuroraColors.blue,
+                  value: '${report.totalSignalCount}',
+                  label: 'Signal',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _HistoryMetricTile(
+            icon: Icons.calendar_today_rounded,
+            color: AuroraColors.mint,
+            value: '${report.totalActiveDayCount}',
+            label: AppLocaleText.tr(
+              context,
+              en: 'recording days across the timeline',
+              zhHans: '完整时间轴记录日',
+              zhHant: '完整時間軸記錄日',
+              ja: '全期間の記録日',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryMetricTile extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String value;
+  final String label;
+
+  const _HistoryMetricTile({
+    required this.icon,
+    required this.color,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 25),
+          const SizedBox(width: 9),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 2,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: AuroraColors.ink,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _JourneyHistoryLineKind { domain, theme }
+
+class _JourneyHistoryLineCard extends StatelessWidget {
+  final JourneyProReportModel report;
+  final _JourneyHistoryLineKind kind;
+
+  const _JourneyHistoryLineCard({
+    required this.report,
+    required this.kind,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final totals = <String, int>{};
+    for (final month in report.months) {
+      final counts = kind == _JourneyHistoryLineKind.domain
+          ? month.domainCounts
+          : month.themeCounts;
+      for (final entry in counts.entries) {
+        totals[entry.key] = (totals[entry.key] ?? 0) + entry.value;
+      }
+    }
+    final keys = totals.keys.toList()
+      ..sort((a, b) => (totals[b] ?? 0).compareTo(totals[a] ?? 0));
+    const palette = [
+      Color(0xFFFF83B5),
+      Color(0xFF7B6FF2),
+      Color(0xFF58B8F6),
+      Color(0xFF55C7B2),
+    ];
+    final series = <_HistoryLineSeries>[];
+    for (var index = 0; index < math.min(4, keys.length); index++) {
+      final key = keys[index];
+      series.add(
+        _HistoryLineSeries(
+          label: kind == _JourneyHistoryLineKind.domain
+              ? _domainLabel(context, key)
+              : localizeJourneyChartSeriesLabel(
+                  context,
+                  categoryId: key,
+                ),
+          color: palette[index],
+          values: [
+            for (final month in report.months)
+              kind == _JourneyHistoryLineKind.domain
+                  ? month.domainCount(key).toDouble()
+                  : month.themeCount(key).toDouble(),
+          ],
+        ),
+      );
+    }
+    return AuroraCard(
+      key: ValueKey(
+        kind == _JourneyHistoryLineKind.domain
+            ? 'journey-pro-domain-history'
+            : 'journey-pro-theme-history',
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            kind == _JourneyHistoryLineKind.domain
+                ? AppLocaleText.tr(
+                    context,
+                    en: 'Focus-area change',
+                    zhHans: '关注领域变化',
+                    zhHant: '關注領域變化',
+                    ja: '関心領域の変化',
+                  )
+                : AppLocaleText.tr(
+                    context,
+                    en: 'Theme change',
+                    zhHans: '主题变化',
+                    zhHant: '主題變化',
+                    ja: 'テーマの変化',
+                  ),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 14),
+          if (series.isEmpty)
+            Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Changes will appear as you keep recording Signal.',
+                zhHans: '继续记录 Signal 后，变化会显示在这里。',
+                zhHant: '繼續記錄 Signal 後，變化會顯示在這裡。',
+                ja: 'Signal を記録し続けると、変化がここに表示されます。',
+              ),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AuroraColors.muted,
+                  ),
+            )
+          else ...[
+            SizedBox(
+              height: 180,
+              child: CustomPaint(
+                painter: _HistoryLinePainter(series),
+                child: const SizedBox.expand(),
+              ),
+            ),
+            _HistoryTimelineAxis(months: report.months),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 7,
+              children: [
+                for (final item in series)
+                  _Legend(color: item.color, label: item.label),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryLineSeries {
+  final String label;
+  final Color color;
+  final List<double> values;
+
+  const _HistoryLineSeries({
+    required this.label,
+    required this.color,
+    required this.values,
+  });
+}
+
+class _HistoryLinePainter extends CustomPainter {
+  final List<_HistoryLineSeries> series;
+
+  const _HistoryLinePainter(this.series);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final plot = Rect.fromLTRB(10, 10, size.width - 8, size.height - 24);
+    final gridPaint = Paint()
+      ..color = AuroraColors.muted.withValues(alpha: 0.15)
+      ..strokeWidth = 1;
+    for (var index = 0; index < 4; index++) {
+      final y = plot.top + plot.height * index / 3;
+      canvas.drawLine(Offset(plot.left, y), Offset(plot.right, y), gridPaint);
+    }
+    final maxValue = series
+        .expand((item) => item.values)
+        .fold<double>(1, (value, item) => math.max(value, item));
+    for (final item in series) {
+      final path = Path();
+      for (var index = 0; index < item.values.length; index++) {
+        final x = journeyHistoryLinePointX(
+          plot: plot,
+          index: index,
+          pointCount: item.values.length,
+        );
+        final y =
+            plot.bottom - (item.values[index] / maxValue) * plot.height * 0.82;
+        if (index == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = item.color
+          ..strokeWidth = 2.6
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..style = PaintingStyle.stroke,
+      );
+      for (var index = 0; index < item.values.length; index++) {
+        if (item.values[index] <= 0) continue;
+        final x = journeyHistoryLinePointX(
+          plot: plot,
+          index: index,
+          pointCount: item.values.length,
+        );
+        final y =
+            plot.bottom - (item.values[index] / maxValue) * plot.height * 0.82;
+        canvas.drawCircle(Offset(x, y), 3.5, Paint()..color = Colors.white);
+        canvas.drawCircle(Offset(x, y), 2.2, Paint()..color = item.color);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _HistoryLinePainter oldDelegate) =>
+      oldDelegate.series != series;
+}
+
+@visibleForTesting
+double journeyHistoryLinePointX({
+  required Rect plot,
+  required int index,
+  required int pointCount,
+}) {
+  if (pointCount <= 1) return plot.center.dx;
+  return plot.left + plot.width * index / (pointCount - 1);
+}
+
+class _HistoryTimelineAxis extends StatelessWidget {
+  final List<JourneyProMonthChangeModel> months;
+
+  const _HistoryTimelineAxis({required this.months});
+
+  @override
+  Widget build(BuildContext context) {
+    if (months.isEmpty) return const SizedBox.shrink();
+    if (months.length == 1) {
+      return SizedBox(
+        height: 24,
+        child: Center(
+          child: Text(
+            _shortMonthLabel(context, months.first.monthKey),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: AuroraColors.muted,
+                ),
+          ),
+        ),
+      );
+    }
+
+    final lastIndex = months.length - 1;
+    final indices = <int>{
+      0,
+      (lastIndex / 3).round(),
+      (lastIndex * 2 / 3).round(),
+      lastIndex,
+    }.toList()
+      ..sort();
+    return SizedBox(
+      height: 24,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final labelWidth =
+              math.min(72.0, constraints.maxWidth / indices.length);
+          return Stack(
+            children: [
+              for (final index in indices)
+                Positioned(
+                  left: (constraints.maxWidth * index / lastIndex -
+                          labelWidth / 2)
+                      .clamp(0.0, constraints.maxWidth - labelWidth),
+                  width: labelWidth,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      _shortMonthLabel(context, months[index].monthKey),
+                      maxLines: 1,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: AuroraColors.muted,
+                          ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _JourneyEnergyRhythmHistoryCard extends StatelessWidget {
+  final JourneyProReportModel report;
+
+  const _JourneyEnergyRhythmHistoryCard({required this.report});
+
+  static const _colors = <EnergySignalState, Color>{
+    EnergySignalState.draining: Color(0xFFF39A66),
+    EnergySignalState.steady: Color(0xFF6E9BF2),
+    EnergySignalState.ease: Color(0xFFF2C85B),
+    EnergySignalState.recovery: Color(0xFF58C6A7),
+    EnergySignalState.boundaryBuffer: Color(0xFF9A78E8),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final series = [
+      for (final state in EnergySignalState.values)
+        _HistoryLineSeries(
+          label: _energyStateLabel(context, state),
+          color: _colors[state]!,
+          values: [
+            for (final month in report.months)
+              month.energyCount(state.storageValue).toDouble(),
+          ],
+        ),
+    ];
+    return AuroraCard(
+      key: const ValueKey('journey-pro-energy-rhythm-history'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Energy and rhythm change',
+              zhHans: '能量与节奏变化',
+              zhHant: '能量與節奏變化',
+              ja: 'エネルギーとリズムの変化',
+            ),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 180,
+            child: CustomPaint(
+              painter: _HistoryLinePainter(series),
+              child: const SizedBox.expand(),
+            ),
+          ),
+          _HistoryTimelineAxis(months: report.months),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 9,
+            runSpacing: 7,
+            children: [
+              for (final item in series)
+                _Legend(color: item.color, label: item.label),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _JourneyHistoryConclusionCard extends StatelessWidget {
+  final JourneyProReportModel report;
+
+  const _JourneyHistoryConclusionCard({required this.report});
+
+  @override
+  Widget build(BuildContext context) {
+    final recorded = report.months
+        .where((month) => month.meetsComparisonMinimum)
+        .toList(growable: false);
+    final text = recorded.isEmpty
+        ? AppLocaleText.tr(
+            context,
+            en: 'The factual timeline is visible now. A month-level conclusion appears after one month reaches 7 eligible Signals across 3 recording days.',
+            zhHans: '真实时间轴已经显示。任一月份达到 7 条有效 Signal、覆盖 3 个记录日后，才会形成该月结论。',
+            zhHant: '真實時間軸已經顯示。任一月份達到 7 條有效 Signal、覆蓋 3 個記錄日後，才會形成該月結論。',
+            ja: '事実のタイムラインは表示されています。1か月で有効な Signal 7件・記録日3日を満たすと、その月のまとめが表示されます。',
+          )
+        : recorded.length < 2
+            ? AppLocaleText.tr(
+                context,
+                en: 'One month is ready for a factual summary. The full timeline remains visible while change is still forming.',
+                zhHans: '已有一个月份可以形成事实总结；完整时间轴会继续显示，跨月变化仍在形成。',
+                zhHant: '已有一個月份可以形成事實總結；完整時間軸會繼續顯示，跨月變化仍在形成。',
+                ja: '1か月分の事実をまとめられる状態です。全期間のタイムラインを表示しながら、月をまたぐ変化は形成中として扱います。',
+              )
+            : _fullHistorySummary(context, recorded);
+    return AuroraCard(
+      key: const ValueKey('journey-pro-history-conclusion'),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const AuroraSectionIcon(
+            icon: Icons.route_rounded,
+            color: AuroraColors.purple,
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Changes across your timeline',
+                    zhHans: '完整时间轴回看',
+                    zhHant: '完整時間軸回看',
+                    ja: '全期間の振り返り',
+                  ),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  text,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AuroraColors.ink,
+                        height: 1.48,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Legacy widgets below are retained only for local fixture compatibility; the
+// active Journey Pro tree uses the complete-history line charts above.
+// ignore: unused_element
 class _MonthArrow extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onPressed;
@@ -326,6 +884,7 @@ class _MonthArrow extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _ThreeMonthChart extends StatelessWidget {
   final JourneyProReportModel report;
 
@@ -344,17 +903,17 @@ class _ThreeMonthChart extends StatelessWidget {
           0, (value, month) => math.max(value, month.activeDayCount)),
     );
     return AuroraCard(
-      key: const ValueKey('journey-pro-three-month-chart'),
+      key: const ValueKey('journey-pro-legacy-month-chart'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             AppLocaleText.tr(
               context,
-              en: 'Three natural months',
-              zhHans: '三个自然月',
-              zhHant: '三個自然月',
-              ja: '3つの暦月',
+              en: 'Complete timeline',
+              zhHans: '完整时间轴',
+              zhHant: '完整時間軸',
+              ja: '全期間のタイムライン',
             ),
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: AuroraColors.ink,
@@ -534,6 +1093,7 @@ class _Bar extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _EnergyStateTrend extends StatelessWidget {
   final JourneyProReportModel report;
 
@@ -651,6 +1211,7 @@ class _StackedEnergyRow extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _DomainTrend extends StatelessWidget {
   final JourneyProReportModel report;
 
@@ -806,6 +1367,7 @@ class _DomainCountCell extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _ComparisonReadiness extends StatelessWidget {
   final JourneyProReportModel report;
 
@@ -864,6 +1426,7 @@ class _ComparisonReadiness extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _ChangeSummary extends StatelessWidget {
   final JourneyProReportModel report;
 
@@ -999,12 +1562,6 @@ class _DeltaTile extends StatelessWidget {
   }
 }
 
-String _monthLabel(BuildContext context, String monthKey) {
-  final month = _parseMonthKey(monthKey);
-  if (month == null) return monthKey;
-  return MaterialLocalizations.of(context).formatMonthYear(month);
-}
-
 String _shortMonthLabel(BuildContext context, String monthKey) {
   final month = _parseMonthKey(monthKey);
   if (month == null) return monthKey;
@@ -1025,6 +1582,18 @@ String _shortMonthLabel(BuildContext context, String monthKey) {
     'Dec',
   ];
   return labels[month.month - 1];
+}
+
+String _shortDate(BuildContext context, String dateKey) {
+  final parsed = DateTime.tryParse(dateKey);
+  if (parsed == null) return dateKey;
+  return AppLocaleText.tr(
+    context,
+    en: '${parsed.month}/${parsed.day}/${parsed.year}',
+    zhHans: '${parsed.year}/${parsed.month}/${parsed.day}',
+    zhHant: '${parsed.year}/${parsed.month}/${parsed.day}',
+    ja: '${parsed.year}/${parsed.month}/${parsed.day}',
+  );
 }
 
 DateTime? _parseMonthKey(String value) {
@@ -1077,16 +1646,85 @@ String _energyStateLabel(BuildContext context, EnergySignalState state) {
 }
 
 String _domainLabel(BuildContext context, String domainId) {
-  if (domainId == 'other') {
-    return AppLocaleText.tr(
-      context,
-      en: 'Other',
-      zhHans: '其他',
-      zhHant: '其他',
-      ja: 'その他',
-    );
-  }
   return FocusDomains.labelFor(context, domainId);
+}
+
+String _fullHistorySummary(
+  BuildContext context,
+  List<JourneyProMonthChangeModel> readyMonths,
+) {
+  if (readyMonths.isEmpty) return '';
+  final first = readyMonths.first;
+  final latest = readyMonths.last;
+  final firstDomain = _topCountKey(first.domainCounts);
+  final latestDomain = _topCountKey(latest.domainCounts);
+  final firstTheme = _topCountKey(first.themeCounts);
+  final latestTheme = _topCountKey(latest.themeCounts);
+
+  final domainText = firstDomain == null || latestDomain == null
+      ? ''
+      : firstDomain == latestDomain
+          ? AppLocaleText.tr(
+              context,
+              en: '${_domainLabel(context, latestDomain)} remained the most-recorded focus area.',
+              zhHans: '记录最多的关注领域一直是${_domainLabel(context, latestDomain)}。',
+              zhHant: '記錄最多的關注領域一直是${_domainLabel(context, latestDomain)}。',
+              ja: '最も多く記録された関心領域は引き続き${_domainLabel(context, latestDomain)}です。',
+            )
+          : AppLocaleText.tr(
+              context,
+              en: 'The most-recorded focus area changed from ${_domainLabel(context, firstDomain)} to ${_domainLabel(context, latestDomain)}.',
+              zhHans:
+                  '记录最多的关注领域从${_domainLabel(context, firstDomain)}变为${_domainLabel(context, latestDomain)}。',
+              zhHant:
+                  '記錄最多的關注領域從${_domainLabel(context, firstDomain)}變為${_domainLabel(context, latestDomain)}。',
+              ja: '最も多く記録された関心領域は${_domainLabel(context, firstDomain)}から${_domainLabel(context, latestDomain)}に変わりました。',
+            );
+  final themeText = firstTheme == null || latestTheme == null
+      ? ''
+      : firstTheme == latestTheme
+          ? AppLocaleText.tr(
+              context,
+              en: '${_domainLabel(context, latestTheme)} remained the most visible theme.',
+              zhHans: '出现最多的主题一直是${_domainLabel(context, latestTheme)}。',
+              zhHant: '出現最多的主題一直是${_domainLabel(context, latestTheme)}。',
+              ja: '最も多く現れたテーマは引き続き${_domainLabel(context, latestTheme)}です。',
+            )
+          : AppLocaleText.tr(
+              context,
+              en: 'The most visible theme changed from ${_domainLabel(context, firstTheme)} to ${_domainLabel(context, latestTheme)}.',
+              zhHans:
+                  '出现最多的主题从${_domainLabel(context, firstTheme)}变为${_domainLabel(context, latestTheme)}。',
+              zhHant:
+                  '出現最多的主題從${_domainLabel(context, firstTheme)}變為${_domainLabel(context, latestTheme)}。',
+              ja: '最も多く現れたテーマは${_domainLabel(context, firstTheme)}から${_domainLabel(context, latestTheme)}に変わりました。',
+            );
+  final statements =
+      [domainText, themeText].where((item) => item.trim().isNotEmpty).join(' ');
+  final range = AppLocaleText.tr(
+    context,
+    en: 'From ${_shortMonthLabel(context, first.monthKey)} to ${_shortMonthLabel(context, latest.monthKey)}, ',
+    zhHans:
+        '从${_shortMonthLabel(context, first.monthKey)}到${_shortMonthLabel(context, latest.monthKey)}，',
+    zhHant:
+        '從${_shortMonthLabel(context, first.monthKey)}到${_shortMonthLabel(context, latest.monthKey)}，',
+    ja: '${_shortMonthLabel(context, first.monthKey)}から${_shortMonthLabel(context, latest.monthKey)}まで、',
+  );
+  final fallback = AppLocaleText.tr(
+    context,
+    en: 'the recorded months now support a cautious comparison across the full timeline.',
+    zhHans: '已有月份可以进行一次保守的完整时间轴比较。',
+    zhHant: '已有月份可以進行一次保守的完整時間軸比較。',
+    ja: '記録済みの月を使って、全期間を控えめに比較できます。',
+  );
+  final scope = AppLocaleText.tr(
+    context,
+    en: ' These are co-occurring timeline changes, not causal conclusions.',
+    zhHans: '这些只是时间轴中共同出现的变化，不代表因果。',
+    zhHant: '這些只是時間軸中共同出現的變化，不代表因果。',
+    ja: 'これは時系列上で同時に見られた変化であり、因果関係を示すものではありません。',
+  );
+  return '$range${statements.isEmpty ? fallback : statements}$scope';
 }
 
 String _factChangeSummary(

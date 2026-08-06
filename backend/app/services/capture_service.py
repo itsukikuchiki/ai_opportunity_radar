@@ -54,7 +54,8 @@ class CaptureService:
         )
         if created.get("deleted"):
             return CaptureSubmitResponseSchema(
-                acknowledgement=created.get("acknowledgement") or "This SignalCard was deleted.",
+                acknowledgement=created.get("acknowledgement")
+                or self._deleted_capture_reply(language),
                 followup=None,
                 recent_signals=self.list_recent_signal_cards(user_id=user_id, limit=50),
             )
@@ -67,7 +68,9 @@ class CaptureService:
         )
         if risk_checker(content):
             acknowledgement = (
-                self.classification_service.immediate_safety_acknowledgement()
+                self.classification_service.immediate_safety_acknowledgement(
+                    language
+                )
             )
             self.capture_repository.mark_signal_card_immediate_safety_risk(
                 signal_card_id=signal_card_id,
@@ -170,7 +173,7 @@ class CaptureService:
         fallback_used = False
         model_used = "local_rules_reply"
         if quota_decision == "quota_exceeded":
-            acknowledgement = self._fallback_reply(language)
+            acknowledgement = self._fallback_reply(language, content)
             fallback_used = True
             model_used = "local_fallback"
         else:
@@ -179,9 +182,10 @@ class CaptureService:
                     content,
                     classified_signal=parsed_signal,
                     recent_assistant_texts=recent_assistant_texts,
+                    language=language,
                 )
             except Exception:
-                acknowledgement = self._fallback_reply(language)
+                acknowledgement = self._fallback_reply(language, content)
                 fallback_used = True
                 model_used = "local_fallback"
 
@@ -391,9 +395,56 @@ class CaptureService:
             commit=True,
         )
 
-    def _fallback_reply(self, language: str) -> str:
-        if language == "ja":
-            return "保存しました。意味づけはあとで一緒に見直せます。"
-        if language in {"zh", "zh-Hans", "zh-Hant"}:
-            return "我先帮你保存下来了，后面我们再一起看它意味着什么。"
-        return "I saved this. We can come back to what it means later."
+    def _fallback_reply(self, language: str, content: str = "") -> str:
+        normalized_language = (language or "").strip().lower().replace("_", "-")
+        if normalized_language.startswith("ja"):
+            display_language = "ja"
+        elif normalized_language in {"zh-hant", "zh-tw", "zh-hk", "zh-mo"}:
+            display_language = "zh-Hant"
+        elif normalized_language.startswith("zh"):
+            display_language = "zh-Hans"
+        else:
+            display_language = "en"
+        normalized = (content or "").strip().lower()
+        overload = any(token in normalized for token in [
+            "事情太多", "太多了", "一堆事", "忙不过来", "忙不完",
+            "事情太雜", "忙不過來", "多すぎ", "やることが多",
+            "too much", "too many", "overwhelmed",
+        ])
+        fatigue = any(token in normalized for token in [
+            "好累", "很累", "累了", "疲惫", "疲憊", "撑不住", "撐不住",
+            "疲れた", "しんどい", "tired", "exhausted",
+        ])
+        if display_language == "ja":
+            if overload:
+                return "いろいろなことが一度に重なると、息をつく余裕もなくなるほど苦しくなりますよね。"
+            if fatigue:
+                return "今、本当に疲れているのですね。その疲れはきちんと受け止めたいです。"
+            return "今話してくれたことを、こちらで意味を決めつけずに受け止めます。"
+        if display_language == "zh-Hant":
+            if overload:
+                return "一下子有這麼多事壓過來，確實很容易讓人喘不過氣。"
+            if fatigue:
+                return "聽起來你現在真的很累，這份疲憊值得被好好看見。"
+            return "我聽見你剛才說的這件事了，先不替你的感受下結論。"
+        if display_language == "zh-Hans":
+            if overload:
+                return "一下子有这么多事压过来，确实很容易让人喘不过气。"
+            if fatigue:
+                return "听起来你现在真的很累，这份疲惫值得被好好看见。"
+            return "我听见你刚才说的这件事了，先不替你的感受下结论。"
+        if overload:
+            return "Having so many things land at once can feel genuinely overwhelming."
+        if fatigue:
+            return "You sound genuinely tired, and that exhaustion deserves to be noticed."
+        return "I hear what you just said without deciding what it means for you."
+
+    def _deleted_capture_reply(self, language: str) -> str:
+        normalized = (language or "").strip().lower().replace("_", "-")
+        if normalized.startswith("ja"):
+            return "このシグナルカードは削除されました。"
+        if normalized in {"zh-hant", "zh-tw", "zh-hk", "zh-mo"}:
+            return "這張信號卡已刪除。"
+        if normalized.startswith("zh"):
+            return "这张信号卡已删除。"
+        return "This Signal card was deleted."

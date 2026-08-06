@@ -1,6 +1,6 @@
 # iOS Native Schemes And Privacy Configuration
 
-Last updated: 2026-07-22
+Last updated: 2026-07-28
 
 Status: **current native configuration contract for device QA and release**.
 
@@ -31,7 +31,7 @@ Rules:
 The local product descriptions use the final Pro range:
 
 - This Week Deep Read;
-- Journey three-month change analysis;
+- Journey full-history change timeline since first use;
 - structured self-review;
 - L1 Attune short dialogue and expanded AI quota.
 

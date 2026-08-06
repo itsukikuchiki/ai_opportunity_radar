@@ -25,12 +25,99 @@ class SmallTryAttemptFeedbackDraft {
   bool get wasCompleted => completionStatus == 'completed';
 }
 
+/// One append-only completion record for a goal.
+///
+/// Weekly and Today use the same two completion states and optional factual
+/// note. Keeping the draft here prevents the Weekly sheet from silently
+/// dropping fields that are available in the Today flow.
+class GoalCompletionFeedbackDraft {
+  final String completionStatus;
+  final String? note;
+
+  const GoalCompletionFeedbackDraft({
+    required this.completionStatus,
+    this.note,
+  });
+}
+
+/// Shared bottom-sheet frame for attempt feedback surfaces.
+///
+/// The shell navigation is visually elevated over page content. The extra
+/// scroll tail makes the final control reachable even on a 390×844 device,
+/// at larger text sizes, and while the keyboard is open.
+class ExperimentFeedbackSheetFrame extends StatelessWidget {
+  final Widget child;
+  final Key? sheetKey;
+  final Key? scrollKey;
+  final double maxHeightFactor;
+
+  const ExperimentFeedbackSheetFrame({
+    super.key,
+    required this.child,
+    this.sheetKey,
+    this.scrollKey,
+    this.maxHeightFactor = 0.90,
+  });
+
+  static const double shellNavigationClearance = 96;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        key: sheetKey,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * maxHeightFactor,
+        ),
+        decoration: const BoxDecoration(
+          color: Color(0xFFFFFCFA),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 44,
+              height: 5,
+              decoration: BoxDecoration(
+                color: AuroraColors.line,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                key: scrollKey,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  18,
+                  20,
+                  24 + safeBottom + shellNavigationClearance,
+                ),
+                child: child,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 Future<SmallTryAttemptFeedbackDraft?> showSmallTryAttemptFeedbackSheet(
   BuildContext context, {
   required String title,
 }) {
   return showModalBottomSheet<SmallTryAttemptFeedbackDraft>(
     context: context,
+    useRootNavigator: true,
     useSafeArea: true,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
@@ -70,287 +157,261 @@ class _SmallTryAttemptFeedbackSheetState
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOut,
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: Container(
-        key: const ValueKey('small-try-feedback-sheet'),
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.88,
-        ),
-        decoration: const BoxDecoration(
-          color: Color(0xFFFFFCFA),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-        ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+    return ExperimentFeedbackSheetFrame(
+      sheetKey: const ValueKey('small-try-feedback-sheet'),
+      scrollKey: const ValueKey('small-try-feedback-scroll'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Record this Spot Try',
+              zhHans: '登记这次小实验',
+              zhHant: '登記這次小實驗',
+              ja: '今回の小実験を記録',
+            ),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            widget.title,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: AuroraColors.ink,
+                  height: 1.4,
+                ),
+          ),
+          const SizedBox(height: 18),
+          _SheetLabel(
+            text: AppLocaleText.tr(
+              context,
+              en: 'Did you try it?',
+              zhHans: '这次试了吗？',
+              zhHant: '這次試了嗎？',
+              ja: '今回は試しましたか？',
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
             children: [
-              Center(
-                child: Container(
-                  width: 44,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: AuroraColors.line,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                AppLocaleText.tr(
-                  context,
-                  en: 'Record this small experiment',
-                  zhHans: '登记这次小实验',
-                  zhHant: '登記這次小實驗',
-                  ja: '今回の小実験を記録',
-                ),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: AuroraColors.ink,
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                widget.title,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: AuroraColors.ink,
-                      height: 1.4,
-                    ),
-              ),
-              const SizedBox(height: 18),
-              _SheetLabel(
-                text: AppLocaleText.tr(
-                  context,
-                  en: 'Did you try it?',
-                  zhHans: '这次试了吗？',
-                  zhHant: '這次試了嗎？',
-                  ja: '今回は試しましたか？',
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _ChoiceButton(
-                      key: const ValueKey('small-try-completed-choice'),
-                      selected: _completionStatus == 'completed',
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'Tried it',
-                        zhHans: '试了',
-                        zhHant: '試了',
-                        ja: '試した',
-                      ),
-                      icon: Icons.check_rounded,
-                      color: AuroraColors.mint,
-                      onPressed: () => setState(() {
-                        _completionStatus = 'completed';
-                      }),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _ChoiceButton(
-                      key: const ValueKey('small-try-not-completed-choice'),
-                      selected: _completionStatus == 'not_completed',
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'Not this time',
-                        zhHans: '这次没试',
-                        zhHant: '這次沒試',
-                        ja: '今回は試さなかった',
-                      ),
-                      icon: Icons.remove_rounded,
-                      color: AuroraColors.orange,
-                      onPressed: () => setState(() {
-                        _completionStatus = 'not_completed';
-                        _effect = null;
-                        _difficulty = null;
-                      }),
-                    ),
-                  ),
-                ],
-              ),
-              if (_completionStatus == 'completed') ...[
-                const SizedBox(height: 20),
-                _SheetLabel(
-                  text: AppLocaleText.tr(
+              Expanded(
+                child: _ChoiceButton(
+                  key: const ValueKey('small-try-completed-choice'),
+                  selected: _completionStatus == 'completed',
+                  label: AppLocaleText.tr(
                     context,
-                    en: 'How did it feel right away?',
-                    zhHans: '当下有帮助吗？',
-                    zhHant: '當下有幫助嗎？',
-                    ja: 'すぐに役立ちましたか？',
+                    en: 'Tried it',
+                    zhHans: '试了',
+                    zhHant: '試了',
+                    ja: '試した',
                   ),
+                  icon: Icons.check_rounded,
+                  color: AuroraColors.mint,
+                  onPressed: () => setState(() {
+                    _completionStatus = 'completed';
+                  }),
                 ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _FeedbackChip(
-                      key: const ValueKey('small-try-effect-helpful'),
-                      selected: _effect == SmallTryEffect.helpful,
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'Helpful',
-                        zhHans: '有帮助',
-                        zhHant: '有幫助',
-                        ja: '役立った',
-                      ),
-                      onSelected: () =>
-                          setState(() => _effect = SmallTryEffect.helpful),
-                    ),
-                    _FeedbackChip(
-                      key: const ValueKey('small-try-effect-somewhat'),
-                      selected: _effect == SmallTryEffect.somewhatHelpful,
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'A little',
-                        zhHans: '有一点',
-                        zhHant: '有一點',
-                        ja: '少し',
-                      ),
-                      onSelected: () => setState(
-                        () => _effect = SmallTryEffect.somewhatHelpful,
-                      ),
-                    ),
-                    _FeedbackChip(
-                      key: const ValueKey('small-try-effect-none'),
-                      selected: _effect == SmallTryEffect.noEffect,
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'No difference',
-                        zhHans: '没感觉',
-                        zhHant: '沒感覺',
-                        ja: '変化なし',
-                      ),
-                      onSelected: () =>
-                          setState(() => _effect = SmallTryEffect.noEffect),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                _SheetLabel(
-                  text: AppLocaleText.tr(
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ChoiceButton(
+                  key: const ValueKey('small-try-not-completed-choice'),
+                  selected: _completionStatus == 'not_completed',
+                  label: AppLocaleText.tr(
                     context,
-                    en: 'How much effort did it take?',
-                    zhHans: '做起来费力吗？',
-                    zhHant: '做起來費力嗎？',
-                    ja: '負担はどのくらいでしたか？',
+                    en: 'Not this time',
+                    zhHans: '这次没试',
+                    zhHant: '這次沒試',
+                    ja: '今回は試さなかった',
                   ),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _FeedbackChip(
-                      key: const ValueKey('small-try-difficulty-easy'),
-                      selected: _difficulty == SmallTryDifficulty.easy,
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'Easy',
-                        zhHans: '轻松',
-                        zhHant: '輕鬆',
-                        ja: '軽い',
-                      ),
-                      onSelected: () => setState(
-                        () => _difficulty = SmallTryDifficulty.easy,
-                      ),
-                    ),
-                    _FeedbackChip(
-                      key: const ValueKey('small-try-difficulty-okay'),
-                      selected: _difficulty == SmallTryDifficulty.okay,
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'Okay',
-                        zhHans: '还好',
-                        zhHant: '還好',
-                        ja: '普通',
-                      ),
-                      onSelected: () => setState(
-                        () => _difficulty = SmallTryDifficulty.okay,
-                      ),
-                    ),
-                    _FeedbackChip(
-                      key: const ValueKey('small-try-difficulty-hard'),
-                      selected: _difficulty == SmallTryDifficulty.difficult,
-                      label: AppLocaleText.tr(
-                        context,
-                        en: 'Took effort',
-                        zhHans: '偏费力',
-                        zhHant: '偏費力',
-                        ja: 'やや重い',
-                      ),
-                      onSelected: () => setState(
-                        () => _difficulty = SmallTryDifficulty.difficult,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              if (_completionStatus != null) ...[
-                const SizedBox(height: 18),
-                TextField(
-                  key: const ValueKey('small-try-feedback-note'),
-                  controller: _noteController,
-                  minLines: 1,
-                  maxLines: 3,
-                  maxLength: 160,
-                  decoration: InputDecoration(
-                    hintText: AppLocaleText.tr(
-                      context,
-                      en: 'Add a note (optional)',
-                      zhHans: '补一句（可选）',
-                      zhHant: '補一句（可選）',
-                      ja: 'ひとこと追加（任意）',
-                    ),
-                    filled: true,
-                    fillColor: Colors.white.withValues(alpha: 0.72),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(18),
-                      borderSide: const BorderSide(color: AuroraColors.line),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(18),
-                      borderSide: const BorderSide(color: AuroraColors.line),
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  key: const ValueKey('small-try-feedback-save'),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(52),
-                    backgroundColor: AuroraColors.purple,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor:
-                        AuroraColors.purple.withValues(alpha: 0.22),
-                  ),
-                  onPressed: _canSave ? _save : null,
-                  icon: const Icon(Icons.check_rounded),
-                  label: Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'Save this attempt',
-                      zhHans: '保存这次尝试',
-                      zhHant: '儲存這次嘗試',
-                      ja: '今回の記録を保存',
-                    ),
-                  ),
+                  icon: Icons.remove_rounded,
+                  color: AuroraColors.orange,
+                  onPressed: () => setState(() {
+                    _completionStatus = 'not_completed';
+                    _effect = null;
+                    _difficulty = null;
+                  }),
                 ),
               ),
             ],
           ),
-        ),
+          if (_completionStatus == 'completed') ...[
+            const SizedBox(height: 20),
+            _SheetLabel(
+              text: AppLocaleText.tr(
+                context,
+                en: 'How did it feel right away?',
+                zhHans: '当下有帮助吗？',
+                zhHant: '當下有幫助嗎？',
+                ja: 'すぐに役立ちましたか？',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _FeedbackChip(
+                  key: const ValueKey('small-try-effect-helpful'),
+                  selected: _effect == SmallTryEffect.helpful,
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Helpful',
+                    zhHans: '有帮助',
+                    zhHant: '有幫助',
+                    ja: '役立った',
+                  ),
+                  onSelected: () =>
+                      setState(() => _effect = SmallTryEffect.helpful),
+                ),
+                _FeedbackChip(
+                  key: const ValueKey('small-try-effect-somewhat'),
+                  selected: _effect == SmallTryEffect.somewhatHelpful,
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'A little',
+                    zhHans: '有一点',
+                    zhHant: '有一點',
+                    ja: '少し',
+                  ),
+                  onSelected: () => setState(
+                    () => _effect = SmallTryEffect.somewhatHelpful,
+                  ),
+                ),
+                _FeedbackChip(
+                  key: const ValueKey('small-try-effect-none'),
+                  selected: _effect == SmallTryEffect.noEffect,
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'No difference',
+                    zhHans: '没感觉',
+                    zhHant: '沒感覺',
+                    ja: '変化なし',
+                  ),
+                  onSelected: () =>
+                      setState(() => _effect = SmallTryEffect.noEffect),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            _SheetLabel(
+              text: AppLocaleText.tr(
+                context,
+                en: 'How much effort did it take?',
+                zhHans: '做起来费力吗？',
+                zhHant: '做起來費力嗎？',
+                ja: '負担はどのくらいでしたか？',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _FeedbackChip(
+                  key: const ValueKey('small-try-difficulty-easy'),
+                  selected: _difficulty == SmallTryDifficulty.easy,
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Easy',
+                    zhHans: '轻松',
+                    zhHant: '輕鬆',
+                    ja: '軽い',
+                  ),
+                  onSelected: () => setState(
+                    () => _difficulty = SmallTryDifficulty.easy,
+                  ),
+                ),
+                _FeedbackChip(
+                  key: const ValueKey('small-try-difficulty-okay'),
+                  selected: _difficulty == SmallTryDifficulty.okay,
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Okay',
+                    zhHans: '还好',
+                    zhHant: '還好',
+                    ja: '普通',
+                  ),
+                  onSelected: () => setState(
+                    () => _difficulty = SmallTryDifficulty.okay,
+                  ),
+                ),
+                _FeedbackChip(
+                  key: const ValueKey('small-try-difficulty-hard'),
+                  selected: _difficulty == SmallTryDifficulty.difficult,
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Took effort',
+                    zhHans: '偏费力',
+                    zhHant: '偏費力',
+                    ja: 'やや重い',
+                  ),
+                  onSelected: () => setState(
+                    () => _difficulty = SmallTryDifficulty.difficult,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (_completionStatus != null) ...[
+            const SizedBox(height: 18),
+            TextField(
+              key: const ValueKey('small-try-feedback-note'),
+              controller: _noteController,
+              minLines: 1,
+              maxLines: 3,
+              maxLength: 160,
+              decoration: InputDecoration(
+                hintText: AppLocaleText.tr(
+                  context,
+                  en: 'Add a note (optional)',
+                  zhHans: '补一句（可选）',
+                  zhHant: '補一句（可選）',
+                  ja: 'ひとこと追加（任意）',
+                ),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.72),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: const BorderSide(color: AuroraColors.line),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: const BorderSide(color: AuroraColors.line),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: const ValueKey('small-try-feedback-save'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+                backgroundColor: AuroraColors.purple,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor:
+                    AuroraColors.purple.withValues(alpha: 0.22),
+              ),
+              onPressed: _canSave ? _save : null,
+              icon: const Icon(Icons.check_rounded),
+              label: Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'Save this attempt',
+                  zhHans: '保存这次尝试',
+                  zhHant: '儲存這次嘗試',
+                  ja: '今回の記録を保存',
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -364,6 +425,205 @@ class _SmallTryAttemptFeedbackSheetState
         completionStatus: completionStatus,
         effect: completionStatus == 'completed' ? _effect : null,
         difficulty: completionStatus == 'completed' ? _difficulty : null,
+        note: note.isEmpty ? null : note,
+      ),
+    );
+  }
+}
+
+Future<GoalCompletionFeedbackDraft?> showGoalCompletionFeedbackSheet(
+  BuildContext context, {
+  required String title,
+}) {
+  return showModalBottomSheet<GoalCompletionFeedbackDraft>(
+    context: context,
+    useRootNavigator: true,
+    useSafeArea: true,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => _GoalCompletionFeedbackSheet(title: title),
+  );
+}
+
+class _GoalCompletionFeedbackSheet extends StatefulWidget {
+  final String title;
+
+  const _GoalCompletionFeedbackSheet({required this.title});
+
+  @override
+  State<_GoalCompletionFeedbackSheet> createState() =>
+      _GoalCompletionFeedbackSheetState();
+}
+
+class _GoalCompletionFeedbackSheetState
+    extends State<_GoalCompletionFeedbackSheet> {
+  final _noteController = TextEditingController();
+  String? _completionStatus;
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ExperimentFeedbackSheetFrame(
+      sheetKey: const ValueKey('goal-feedback-sheet'),
+      scrollKey: const ValueKey('goal-feedback-scroll'),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Record today’s goal',
+              zhHans: '登记今天的目标',
+              zhHant: '登記今天的目標',
+              ja: '今日の目標を記録',
+            ),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            widget.title,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: AuroraColors.ink,
+                  height: 1.4,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Only today can be recorded here. Past and future days stay read-only.',
+              zhHans: '这里只登记今天。过去和未来的格子保持只读。',
+              zhHant: '這裡只登記今天。過去和未來的格子保持唯讀。',
+              ja: 'ここでは今日だけ記録できます。過去と未来のマスは読み取り専用です。',
+            ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AuroraColors.muted,
+                  height: 1.4,
+                ),
+          ),
+          const SizedBox(height: 18),
+          _SheetLabel(
+            text: AppLocaleText.tr(
+              context,
+              en: 'Did you complete it today?',
+              zhHans: '今天完成了吗？',
+              zhHant: '今天完成了嗎？',
+              ja: '今日は完了しましたか？',
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _ChoiceButton(
+                  key: const ValueKey('goal-completed-choice'),
+                  selected: _completionStatus == 'completed',
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Completed',
+                    zhHans: '已完成',
+                    zhHant: '已完成',
+                    ja: '完了',
+                  ),
+                  icon: Icons.check_rounded,
+                  color: AuroraColors.mint,
+                  onPressed: () =>
+                      setState(() => _completionStatus = 'completed'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ChoiceButton(
+                  key: const ValueKey('goal-not-completed-choice'),
+                  selected: _completionStatus == 'not_completed',
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Not completed',
+                    zhHans: '未完成',
+                    zhHant: '未完成',
+                    ja: '未完了',
+                  ),
+                  icon: Icons.close_rounded,
+                  color: AuroraColors.orange,
+                  onPressed: () =>
+                      setState(() => _completionStatus = 'not_completed'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          TextField(
+            key: const ValueKey('goal-feedback-note'),
+            controller: _noteController,
+            minLines: 1,
+            maxLines: 3,
+            maxLength: 160,
+            decoration: InputDecoration(
+              hintText: AppLocaleText.tr(
+                context,
+                en: 'Add one sentence if you want.',
+                zhHans: '如果愿意，可以补一句。',
+                zhHant: '如果願意，可以補一句。',
+                ja: '必要なら一言足せます。',
+              ),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.72),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: const BorderSide(color: AuroraColors.line),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: const BorderSide(color: AuroraColors.line),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: const ValueKey('goal-feedback-save'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+                backgroundColor: AuroraColors.purple,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor:
+                    AuroraColors.purple.withValues(alpha: 0.22),
+              ),
+              onPressed: _completionStatus == null ? null : _save,
+              icon: const Icon(Icons.check_rounded),
+              label: Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'Save today’s completion',
+                  zhHans: '保存今天的完成情况',
+                  zhHant: '儲存今天的完成情況',
+                  ja: '今日の完了状況を保存',
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _save() {
+    final status = _completionStatus;
+    if (status == null) return;
+    final note = _noteController.text.trim();
+    Navigator.of(context).pop(
+      GoalCompletionFeedbackDraft(
+        completionStatus: status,
         note: note.isEmpty ? null : note,
       ),
     );

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'experiment_creation_source.dart';
+
 class ScheduleSignalModel {
   final String id;
   final String title;
@@ -322,9 +324,11 @@ class MicroActionModel {
   final String? linkedScheduleSignalId;
   final String? linkedGoalId;
   final String? linkedLifeExperimentId;
+  final String? parentMicroActionId;
   final String status;
   final String feedbackStatus;
   final String localUserId;
+  final ExperimentCreationSource creationSource;
   final String? originCandidateId;
   final DateTime? adoptedAt;
   final String? progressStartDate;
@@ -348,9 +352,11 @@ class MicroActionModel {
     this.linkedScheduleSignalId,
     this.linkedGoalId,
     this.linkedLifeExperimentId,
+    this.parentMicroActionId,
     this.status = 'suggested',
     this.feedbackStatus = 'none',
     this.localUserId = 'local',
+    this.creationSource = ExperimentCreationSource.legacyUnknown,
     this.originCandidateId,
     this.adoptedAt,
     this.progressStartDate,
@@ -381,9 +387,11 @@ class MicroActionModel {
       'linked_schedule_signal_id': linkedScheduleSignalId,
       'linked_goal_id': linkedGoalId,
       'linked_life_experiment_id': linkedLifeExperimentId,
+      'parent_micro_action_id': parentMicroActionId,
       'status': status,
       'feedback_status': feedbackStatus,
       'local_user_id': localUserId,
+      'creation_source': creationSource.storageValue,
       'origin_candidate_id': originCandidateId,
       'adopted_at': adoptedAt?.toUtc().toIso8601String(),
       'progress_start_date': progressStartDate,
@@ -411,9 +419,13 @@ class MicroActionModel {
       linkedScheduleSignalId: row['linked_schedule_signal_id'] as String?,
       linkedGoalId: row['linked_goal_id'] as String?,
       linkedLifeExperimentId: row['linked_life_experiment_id'] as String?,
+      parentMicroActionId: row['parent_micro_action_id'] as String?,
       status: row['status'] as String? ?? 'suggested',
       feedbackStatus: row['feedback_status'] as String? ?? 'none',
       localUserId: row['local_user_id'] as String? ?? 'local',
+      creationSource: ExperimentCreationSource.fromStorage(
+        row['creation_source'],
+      ),
       originCandidateId: row['origin_candidate_id'] as String?,
       adoptedAt: ScheduleSignalModel._parseDate(row['adopted_at']),
       progressStartDate: row['progress_start_date'] as String?,

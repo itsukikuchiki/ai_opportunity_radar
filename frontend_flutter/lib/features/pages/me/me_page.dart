@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -22,10 +23,10 @@ class MePage extends StatelessWidget {
   const MePage({super.key});
 
   static final Uri _supportUri = Uri.parse(
-    'https://itsukikuchiki.github.io/signalpath-support/',
+    'https://signalpath-app-preview.itsukikuchiki.chatgpt.site/#guestbook',
   );
-  static final Uri _termsOfUseUri = Uri.parse(
-    'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/',
+  static final Uri _privacyUri = Uri.parse(
+    'https://signalpath-app-preview.itsukikuchiki.chatgpt.site/privacy',
   );
   static final Uri _subscriptionManagementUri = Uri.parse(
     'https://apps.apple.com/account/subscriptions',
@@ -60,10 +61,12 @@ class MePage extends StatelessWidget {
                     )
                   else ...[
                     _FocusDomainsCard(
+                      lifeDirection: vm.lifeDirection,
+                      createdAt: vm.lifeDirectionCreatedAt,
                       selectedIds: vm.selectedFocusDomainIds,
                       onTap: vm.saving
                           ? null
-                          : () => _showFocusAreaSheet(context, vm),
+                          : () => _showLifeDirectionPage(context, vm),
                     ),
                     const SizedBox(height: AuroraMainPageSpec.sectionGap),
                   ],
@@ -82,7 +85,7 @@ class MePage extends StatelessWidget {
                   ),
                   const SizedBox(height: AuroraMainPageSpec.sectionGap),
                   _MeDataSection(
-                    onOpenPrivacy: () => context.push(AppRoutes.dataPrivacy),
+                    onOpenPrivacy: () => _openPrivacy(context),
                     onDeleteData: vm.deletingData
                         ? null
                         : () => _confirmDeleteData(context, vm),
@@ -91,7 +94,6 @@ class MePage extends StatelessWidget {
                   const SizedBox(height: AuroraMainPageSpec.sectionGap),
                   _MeHelpSection(
                     onOpenSupport: () => _openSupport(context),
-                    onOpenTerms: () => _openTermsOfUse(context),
                   ),
                   if (kDebugMode) ...[
                     const SizedBox(height: AuroraMainPageSpec.sectionGap),
@@ -130,13 +132,12 @@ class MePage extends StatelessWidget {
       showDragHandle: true,
       builder: (_) => _ProfileEditSheet(
         displayName: vm.profileDisplayName ?? '',
-        direction: vm.lifeDirection ?? '',
       ),
     );
     if (draft == null) return;
     final success = await vm.updateProfile(
       displayName: draft.displayName,
-      direction: draft.direction,
+      direction: vm.lifeDirection ?? '',
     );
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -156,37 +157,46 @@ class MePage extends StatelessWidget {
     );
   }
 
-  Future<void> _showFocusAreaSheet(BuildContext context, MeViewModel vm) async {
-    final selected = await Navigator.of(context).push<List<String>>(
+  Future<void> _showLifeDirectionPage(
+    BuildContext context,
+    MeViewModel vm,
+  ) async {
+    final draft = await Navigator.of(context).push<_LifeDirectionDraft>(
       MaterialPageRoute(
-        builder: (_) => _FocusAreaSettingsPage(
+        builder: (_) => _LifeDirectionSettingsPage(
+          currentDirection: vm.lifeDirection ?? '',
           currentValues: vm.selectedFocusDomainIds,
         ),
       ),
     );
 
-    if (selected == null) return;
+    if (draft == null) return;
 
-    final success = await vm.updateFocusDomains(selected);
+    final profileUpdated = await vm.updateProfile(
+      displayName: vm.profileDisplayName ?? '',
+      direction: draft.direction,
+    );
+    final focusUpdated =
+        profileUpdated && await vm.updateFocusDomains(draft.focusDomainIds);
     if (!context.mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          success
+          focusUpdated
               ? AppLocaleText.tr(
                   context,
-                  en: 'Focus area updated.',
-                  zhHans: '关注方向已更新。',
-                  zhHant: '關注方向已更新。',
-                  ja: '注目方向を更新しました。',
+                  en: 'Life direction updated.',
+                  zhHans: '人生方向已更新。',
+                  zhHant: '人生方向已更新。',
+                  ja: '人生の方向を更新しました。',
                 )
               : AppLocaleText.tr(
                   context,
-                  en: 'Failed to update focus area.',
-                  zhHans: '更新关注方向失败。',
-                  zhHant: '更新關注方向失敗。',
-                  ja: '注目方向の更新に失敗しました。',
+                  en: 'Failed to update the life direction.',
+                  zhHans: '更新人生方向失败。',
+                  zhHant: '更新人生方向失敗。',
+                  ja: '人生の方向を更新できませんでした。',
                 ),
         ),
       ),
@@ -218,10 +228,10 @@ class MePage extends StatelessWidget {
     );
   }
 
-  Future<void> _openTermsOfUse(BuildContext context) async {
+  Future<void> _openPrivacy(BuildContext context) async {
     try {
       final opened = await launchUrl(
-        _termsOfUseUri,
+        _privacyUri,
         mode: LaunchMode.externalApplication,
       );
       if (opened || !context.mounted) return;
@@ -233,10 +243,10 @@ class MePage extends StatelessWidget {
         content: Text(
           AppLocaleText.tr(
             context,
-            en: 'Could not open the terms right now.',
-            zhHans: '暂时无法打开使用条款。',
-            zhHant: '暫時無法打開使用條款。',
-            ja: '利用規約を開けませんでした。',
+            en: 'Could not open the privacy policy right now.',
+            zhHans: '暂时无法打开隐私政策。',
+            zhHant: '暫時無法開啟隱私政策。',
+            ja: 'プライバシーポリシーを開けませんでした。',
           ),
         ),
       ),
@@ -296,9 +306,9 @@ class MePage extends StatelessWidget {
           AppLocaleText.tr(
             context,
             en: 'This cannot be undone. StoreKit purchase rights are managed separately by Apple.',
-            zhHans: '此操作无法撤销。StoreKit 购买权益仍由 Apple 单独管理。',
-            zhHant: '此操作無法撤銷。StoreKit 購買權益仍由 Apple 單獨管理。',
-            ja: 'この操作は取り消せません。StoreKit の購入権利は Apple が別途管理します。',
+            zhHans: '此操作无法撤销。购买权益仍由苹果单独管理。',
+            zhHant: '此操作無法撤銷。購買權益仍由蘋果單獨管理。',
+            ja: 'この操作は取り消せません。購入権利はアップルが別途管理します。',
           ),
         ),
         actions: [
@@ -365,72 +375,71 @@ class _MeHeroHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ConstrainedBox(
+    final compact = MediaQuery.sizeOf(context).width < 360;
+    return AuroraCard(
       key: const ValueKey('me-hero-header'),
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.textScalerOf(context).scale(14) > 20
-            ? double.infinity
-            : 196,
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(24),
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          const Color(0xFFFFFBF6).withValues(alpha: 0.94),
+          const Color(0xFFF7F1FF).withValues(alpha: 0.86),
+          const Color(0xFFEEF5FF).withValues(alpha: 0.80),
+        ],
       ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            right: -14,
-            top: -30,
-            child: IgnorePointer(
-              child: AuroraHeroEmblem(
-                size: MediaQuery.sizeOf(context).width <
-                        AuroraMainPageSpec.compactBreakpoint
-                    ? 116
-                    : 138,
-                opacity: 0.62,
-              ),
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(),
+          child: Stack(
             children: [
-              Padding(
-                padding: const EdgeInsets.only(right: 92),
-                child: ShaderMask(
-                  blendMode: BlendMode.srcIn,
-                  shaderCallback: (bounds) => const LinearGradient(
-                    colors: [
-                      Color(0xFF5487F4),
-                      Color(0xFF806AF4),
-                      Color(0xFF9A63E8),
-                    ],
-                  ).createShader(bounds),
-                  child: Text(
-                    AppLocaleText.tr(
-                      context,
-                      en: 'Me',
-                      zhHans: '我的',
-                      zhHant: '我的',
-                      ja: '私',
-                    ),
-                    key: const ValueKey('me-hero-title'),
-                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                          color: Colors.white,
-                          fontSize: AuroraMainPageSpec.responsiveHeroTitleSize(
-                              context),
-                          fontWeight: FontWeight.w700,
-                          height: 1,
-                          letterSpacing: -0.25,
-                        ),
-                  ),
+              Positioned(
+                key: const ValueKey('me-hero-direction-pattern'),
+                right: compact ? -36 : -28,
+                top: compact ? -34 : -40,
+                width: compact ? 164 : 188,
+                height: compact ? 164 : 188,
+                child: const IgnorePointer(
+                  child: AuroraJourneyHeroPattern(opacity: 0.54),
                 ),
               ),
-              const SizedBox(height: 10),
               Padding(
-                padding: const EdgeInsets.only(right: 30),
-                child: _MeProfileIntro(vm: vm, onEdit: onEdit),
+                padding: EdgeInsets.fromLTRB(
+                  compact ? 14 : 16,
+                  compact ? 13 : 15,
+                  compact ? 14 : 16,
+                  compact ? 14 : 16,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.only(right: compact ? 76 : 104),
+                      child: AuroraHeroTitle(
+                        key: const ValueKey('me-hero-title'),
+                        text: AppLocaleText.tr(
+                          context,
+                          en: 'Me',
+                          zhHans: '我的',
+                          zhHant: '我的',
+                          ja: '私',
+                        ),
+                        fontSize:
+                            AuroraMainPageSpec.responsiveHeroTitleSize(context),
+                        maxLines: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _MeProfileIntro(vm: vm, onEdit: onEdit),
+                  ],
+                ),
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -512,29 +521,57 @@ class _MeProfileIntro extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                vm.profileDisplayName == null
-                    ? AppLocaleText.tr(
-                        context,
-                        en: 'Hello',
-                        zhHans: '你好',
-                        zhHant: '你好',
-                        ja: 'こんにちは',
-                      )
-                    : AppLocaleText.tr(
-                        context,
-                        en: 'Hello, ${vm.profileDisplayName}',
-                        zhHans: '你好，${vm.profileDisplayName}',
-                        zhHant: '你好，${vm.profileDisplayName}',
-                        ja: 'こんにちは、${vm.profileDisplayName}',
-                      ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: const Color(0xFF071D5E),
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    fit: FlexFit.loose,
+                    child: Text(
+                      vm.profileDisplayName == null
+                          ? AppLocaleText.tr(
+                              context,
+                              en: 'Hello',
+                              zhHans: '你好',
+                              zhHant: '你好',
+                              ja: 'こんにちは',
+                            )
+                          : AppLocaleText.tr(
+                              context,
+                              en: 'Hello, ${vm.profileDisplayName}',
+                              zhHans: '你好，${vm.profileDisplayName}',
+                              zhHant: '你好，${vm.profileDisplayName}',
+                              ja: 'こんにちは、${vm.profileDisplayName}',
+                            ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                color: const Color(0xFF071D5E),
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
                     ),
+                  ),
+                  IconButton(
+                    key: const ValueKey('me-profile-edit-button'),
+                    tooltip: AppLocaleText.tr(
+                      context,
+                      en: 'Edit name',
+                      zhHans: '修改用户名',
+                      zhHant: '修改使用者名稱',
+                      ja: '名前を編集',
+                    ),
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_rounded, size: 17),
+                    color: AuroraColors.purple,
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white.withValues(alpha: 0.72),
+                      minimumSize: const Size(44, 44),
+                      padding: const EdgeInsets.all(10),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 4),
               Text(
@@ -552,80 +589,11 @@ class _MeProfileIntro extends StatelessWidget {
                       height: 1.3,
                       fontWeight: FontWeight.w600,
                     ),
-                maxLines: 2,
+                key: const ValueKey('me-life-direction'),
+                maxLines: 3,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.72),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: AuroraColors.purple.withValues(alpha: 0.14),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      vm.hasCloudAccount
-                          ? Icons.cloud_done_outlined
-                          : Icons.phone_iphone_rounded,
-                      size: 13,
-                      color: const Color(0xFF6E7FA9),
-                    ),
-                    const SizedBox(width: 5),
-                    Flexible(
-                      child: Text(
-                        vm.hasCloudAccount
-                            ? AppLocaleText.tr(
-                                context,
-                                en: 'Account connected',
-                                zhHans: '账户已连接',
-                                zhHant: '帳戶已連接',
-                                ja: 'アカウント接続済み',
-                              )
-                            : AppLocaleText.tr(
-                                context,
-                                en: 'Saved on this device',
-                                zhHans: '保存在本机',
-                                zhHant: '儲存在此裝置',
-                                ja: 'この端末に保存',
-                              ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            Theme.of(context).textTheme.labelMedium?.copyWith(
-                                  color: const Color(0xFF6E7FA9),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ],
-          ),
-        ),
-        IconButton(
-          key: const ValueKey('me-profile-edit-button'),
-          tooltip: AppLocaleText.tr(
-            context,
-            en: 'Edit profile',
-            zhHans: '编辑个人资料',
-            zhHant: '編輯個人資料',
-            ja: 'プロフィールを編集',
-          ),
-          onPressed: onEdit,
-          icon: const Icon(Icons.edit_rounded, size: 19),
-          color: AuroraColors.purple,
-          style: IconButton.styleFrom(
-            backgroundColor: Colors.white.withValues(alpha: 0.74),
-            minimumSize: const Size(44, 44),
           ),
         ),
       ],
@@ -652,9 +620,9 @@ class _MeProfileIntro extends StatelessWidget {
             AppLocaleText.tr(
               context,
               en: 'Photo is too large. Please choose one under 2 MB.',
-              zhHans: '照片太大了，请选择 2 MB 以下的图片。',
-              zhHant: '照片太大了，請選擇 2 MB 以下的圖片。',
-              ja: '写真が大きすぎます。2MB 未満の画像を選んでください。',
+              zhHans: '照片太大了，请选择 2 兆字节以下的图片。',
+              zhHant: '照片太大了，請選擇 2 兆位元組以下的圖片。',
+              ja: '写真が大きすぎます。2メガバイト未満の画像を選んでください。',
             ),
           ),
         ),
@@ -697,10 +665,14 @@ class _MeProfileIntro extends StatelessWidget {
 }
 
 class _FocusDomainsCard extends StatelessWidget {
+  final String? lifeDirection;
+  final DateTime? createdAt;
   final List<String> selectedIds;
   final VoidCallback? onTap;
 
   const _FocusDomainsCard({
+    required this.lifeDirection,
+    required this.createdAt,
     required this.selectedIds,
     required this.onTap,
   });
@@ -711,121 +683,248 @@ class _FocusDomainsCard extends StatelessWidget {
     final visibleIds = normalized.take(3).toList();
     final hiddenCount = normalized.length - visibleIds.length;
 
+    final direction = lifeDirection?.trim();
     return Container(
       key: const ValueKey('me-focus-domains-card'),
       decoration: _meCardDecoration(),
-      padding: AuroraMainPageSpec.comfortableCardPadding,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _MeRoundedIcon(
-                icon: Icons.tune_rounded,
-                color: AuroraColors.purple,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      AppLocaleText.tr(
-                        context,
-                        en: 'My focus areas',
-                        zhHans: '我的关注重点',
-                        zhHant: '我的關注重點',
-                        ja: '私の注目領域',
-                      ),
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: const Color(0xFF071D5E),
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      AppLocaleText.tr(
-                        context,
-                        en: 'These areas guide AI ranking; they never hide other records. Without an account, they stay on this device.',
-                        zhHans: '这些领域只影响 AI 的优先理解，不会隐藏其他记录。未登录账户时仅保存在本机。',
-                        zhHant: '這些領域只影響 AI 的優先理解，不會隱藏其他記錄。未登入帳戶時只保存在本機。',
-                        ja: 'これらは AI の優先順位だけに影響し、他の記録を隠しません。アカウント未設定時はこの端末だけに保存されます。',
-                      ),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF6E7FA9),
-                            fontSize: AuroraMainPageSpec.bodySize,
-                            fontWeight: FontWeight.w600,
-                            height: 1.35,
-                          ),
-                    ),
-                  ],
+          Positioned(
+            right: -28,
+            bottom: -22,
+            width: 210,
+            height: 150,
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: 0.20,
+                child: Image.asset(
+                  'assets/me/me-avatar-landscape.png',
+                  fit: BoxFit.cover,
+                  alignment: Alignment.centerRight,
                 ),
               ),
-              TextButton(
-                onPressed: onTap,
-                style: TextButton.styleFrom(
-                  foregroundColor: AuroraColors.purple,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  minimumSize: const Size(44, 44),
-                  tapTargetSize: MaterialTapTargetSize.padded,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      normalized.isEmpty
-                          ? AppLocaleText.tr(
-                              context,
-                              en: 'Set',
-                              zhHans: '去设置',
-                              zhHant: '去設定',
-                              ja: '設定',
-                            )
-                          : AppLocaleText.tr(
-                              context,
-                              en: 'Edit',
-                              zhHans: '调整',
-                              zhHant: '調整',
-                              ja: '調整',
-                            ),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AuroraColors.purple,
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const Icon(Icons.chevron_right_rounded, size: 20),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (normalized.isEmpty)
-            Text(
-              AppLocaleText.tr(
-                context,
-                en: 'No focus areas selected yet.',
-                zhHans: '还没有选择关注重点',
-                zhHant: '還沒有選擇關注重點',
-                ja: '注目領域はまだ選ばれていません。',
-              ),
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: const Color(0xFF7F8CB7),
-                    fontWeight: FontWeight.w700,
-                  ),
-            )
-          else
-            Wrap(
-              spacing: 9,
-              runSpacing: 10,
-              children: [
-                for (final id in visibleIds) _FocusDomainChip(id: id),
-                if (hiddenCount > 0)
-                  _FocusDomainMoreChip(totalCount: normalized.length),
-              ],
             ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  Colors.white.withValues(alpha: 0.94),
+                  Colors.white.withValues(alpha: 0.82),
+                  Colors.white.withValues(alpha: 0.38),
+                ],
+                stops: const [0, 0.62, 1],
+              ),
+            ),
+          ),
+          Padding(
+              padding: AuroraMainPageSpec.comfortableCardPadding,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          AppLocaleText.tr(
+                            context,
+                            en: 'My life direction',
+                            zhHans: '我的人生方向',
+                            zhHant: '我的人生方向',
+                            ja: '私の人生の方向',
+                          ),
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    color: const Color(0xFF071D5E),
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AuroraColors.purple.withValues(alpha: 0.09),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: AuroraColors.purple.withValues(alpha: 0.16),
+                          ),
+                        ),
+                        child: Text(
+                          AppLocaleText.tr(
+                            context,
+                            en: 'In progress',
+                            zhHans: '进行中',
+                            zhHant: '進行中',
+                            ja: '進行中',
+                          ),
+                          style:
+                              Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    color: AuroraColors.purple,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    direction?.isNotEmpty == true
+                        ? direction!
+                        : AppLocaleText.tr(
+                            context,
+                            en: 'Write down the kind of life you want to move toward.',
+                            zhHans: '写下你想慢慢靠近的生活。',
+                            zhHant: '寫下你想慢慢靠近的生活。',
+                            ja: '少しずつ近づきたい暮らしを書きましょう。',
+                          ),
+                    key: const ValueKey('me-life-direction-summary'),
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: const Color(0xFF071D5E),
+                          fontSize: 16,
+                          height: 1.45,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  if (createdAt != null) ...[
+                    const SizedBox(height: 9),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.calendar_month_outlined,
+                          color: Color(0xFF7F8CB7),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          AppLocaleText.tr(
+                            context,
+                            en: 'Created ${DateFormat.yMMMd(Localizations.localeOf(context).toLanguageTag()).format(createdAt!)}',
+                            zhHans:
+                                '创建于 ${DateFormat('yyyy年M月d日').format(createdAt!)}',
+                            zhHant:
+                                '建立於 ${DateFormat('yyyy年M月d日').format(createdAt!)}',
+                            ja: '${DateFormat('yyyy年M月d日').format(createdAt!)} に作成',
+                          ),
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF7F8CB7),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final useIconOnly = constraints.maxWidth < 280 ||
+                          MediaQuery.textScalerOf(context).scale(14) > 16;
+                      final label = AppLocaleText.tr(
+                        context,
+                        en: 'Focus areas',
+                        zhHans: '关注领域',
+                        zhHant: '關注領域',
+                        ja: '注目領域',
+                      );
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              label,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelLarge
+                                  ?.copyWith(
+                                    color: const Color(0xFF60749E),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (useIconOnly)
+                            IconButton(
+                              key: const ValueKey(
+                                'me-life-direction-edit-button',
+                              ),
+                              tooltip: AppLocaleText.tr(
+                                context,
+                                en: 'Edit life direction',
+                                zhHans: '调整人生方向',
+                                zhHant: '調整人生方向',
+                                ja: '人生の方向を調整',
+                              ),
+                              onPressed: onTap,
+                              icon: const Icon(Icons.edit_outlined, size: 18),
+                              color: AuroraColors.purple,
+                              style: IconButton.styleFrom(
+                                minimumSize: const Size(44, 44),
+                              ),
+                            )
+                          else
+                            TextButton.icon(
+                              key: const ValueKey(
+                                'me-life-direction-edit-button',
+                              ),
+                              onPressed: onTap,
+                              style: TextButton.styleFrom(
+                                foregroundColor: AuroraColors.purple,
+                                minimumSize: const Size(44, 44),
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                              ),
+                              icon: const Icon(Icons.edit_outlined, size: 17),
+                              label: Text(
+                                AppLocaleText.tr(
+                                  context,
+                                  en: 'Edit',
+                                  zhHans: '调整',
+                                  zhHant: '調整',
+                                  ja: '調整',
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                  if (normalized.isEmpty)
+                    Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'No focus areas selected yet.',
+                        zhHans: '还没有选择关注领域',
+                        zhHant: '還沒有選擇關注領域',
+                        ja: '注目領域はまだ選ばれていません。',
+                      ),
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            color: const Color(0xFF7F8CB7),
+                            fontWeight: FontWeight.w700,
+                          ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 9,
+                      runSpacing: 10,
+                      children: [
+                        for (final id in visibleIds) _FocusDomainChip(id: id),
+                        if (hiddenCount > 0)
+                          _FocusDomainMoreChip(totalCount: normalized.length),
+                      ],
+                    ),
+                ],
+              )),
         ],
       ),
     );
@@ -938,17 +1037,17 @@ class _MeDataSection extends StatelessWidget {
       subtitle: hasCloudAccount
           ? AppLocaleText.tr(
               context,
-              en: 'Your account and this device have separate data controls.',
-              zhHans: '账户数据与本机数据分别管理。',
-              zhHant: '帳戶資料與此裝置資料分開管理。',
-              ja: 'アカウントと端末のデータは別々に管理されます。',
+              en: 'Manage your account data and privacy choices.',
+              zhHans: '管理账户数据与隐私选择。',
+              zhHant: '管理帳戶資料與隱私選擇。',
+              ja: 'アカウントデータとプライバシー設定を管理します。',
             )
           : AppLocaleText.tr(
               context,
-              en: 'Your content and preferences are currently device-first.',
-              zhHans: '目前内容与偏好以本机保存为主。',
-              zhHant: '目前內容與偏好以此裝置儲存為主。',
-              ja: '現在、内容と設定はこの端末を優先して保存されます。',
+              en: 'Manage Signal Path data and privacy choices.',
+              zhHans: '管理 Signal Path 数据与隐私选择。',
+              zhHant: '管理 Signal Path 資料與隱私選擇。',
+              ja: 'Signal Path のデータとプライバシー設定を管理します。',
             ),
       rows: [
         _MeListRowData(
@@ -1017,10 +1116,10 @@ class _MeSignalsSection extends StatelessWidget {
       cardKey: const ValueKey('me-reminders-data-card'),
       title: AppLocaleText.tr(
         context,
-        en: 'Reminders and supporting data',
-        zhHans: '提醒与辅助数据',
-        zhHant: '提醒與輔助資料',
-        ja: 'リマインダーと補助データ',
+        en: 'Reminders and connected data',
+        zhHans: '提醒与联动',
+        zhHant: '提醒與聯動',
+        ja: 'リマインダーと連携',
       ),
       rows: [
         _MeListRowData(
@@ -1047,17 +1146,17 @@ class _MeSignalsSection extends StatelessWidget {
           iconColor: const Color(0xFF59BFA5),
           title: AppLocaleText.tr(
             context,
-            en: 'Advanced signals',
-            zhHans: '高级信号',
-            zhHant: '進階信號',
-            ja: '高度なシグナル',
+            en: 'Connected data',
+            zhHans: '联动',
+            zhHant: '聯動',
+            ja: '連携',
           ),
           subtitle: AppLocaleText.tr(
             context,
-            en: 'Manage abstract energy and recovery hints',
-            zhHans: '管理能量与恢复的抽象提示',
-            zhHant: '管理能量與恢復的抽象提示',
-            ja: 'エネルギーと回復の抽象ヒントを管理',
+            en: 'See how health data shapes energy, recovery, and suggestions',
+            zhHans: '查看健康数据如何影响精力、恢复与建议',
+            zhHant: '查看健康資料如何影響精力、恢復與建議',
+            ja: '健康データが精力・回復・提案に与える影響を確認',
           ),
           onTap: onOpenAdvancedSignals,
         ),
@@ -1068,11 +1167,9 @@ class _MeSignalsSection extends StatelessWidget {
 
 class _MeHelpSection extends StatelessWidget {
   final VoidCallback onOpenSupport;
-  final VoidCallback onOpenTerms;
 
   const _MeHelpSection({
     required this.onOpenSupport,
-    required this.onOpenTerms,
   });
 
   @override
@@ -1106,25 +1203,6 @@ class _MeHelpSection extends StatelessWidget {
           ),
           onTap: onOpenSupport,
         ),
-        _MeListRowData(
-          icon: Icons.description_outlined,
-          iconColor: const Color(0xFF8A76E8),
-          title: AppLocaleText.tr(
-            context,
-            en: 'Terms of use',
-            zhHans: '使用条款',
-            zhHant: '使用條款',
-            ja: '利用規約',
-          ),
-          subtitle: AppLocaleText.tr(
-            context,
-            en: 'Review the standard Apple terms',
-            zhHans: '查看 Apple 标准使用条款',
-            zhHant: '查看 Apple 標準使用條款',
-            ja: 'Apple 標準利用規約を確認',
-          ),
-          onTap: onOpenTerms,
-        ),
       ],
     );
   }
@@ -1136,13 +1214,31 @@ class _MeDebugSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _MeListCard(
-      title: 'Developer',
+      title: AppLocaleText.tr(
+        context,
+        en: 'Developer',
+        zhHans: '开发者',
+        zhHant: '開發者',
+        ja: '開発者',
+      ),
       rows: [
         _MeListRowData(
           icon: Icons.account_tree_rounded,
           iconColor: AuroraColors.purple,
-          title: 'Trace / Debug',
-          subtitle: 'Inspect Signal -> Weekly / Journey / Experiment',
+          title: AppLocaleText.tr(
+            context,
+            en: 'Trace / Debug',
+            zhHans: '追踪 / 调试',
+            zhHant: '追蹤 / 調試',
+            ja: '追跡 / デバッグ',
+          ),
+          subtitle: AppLocaleText.tr(
+            context,
+            en: 'Inspect Signal -> Weekly / Journey / Experiment',
+            zhHans: '检查 Signal → 每周复盘 / 旅程 / 生活实验',
+            zhHant: '檢查 Signal → 每週復盤 / 旅程 / 生活實驗',
+            ja: 'Signal → 週次振り返り / 旅程 / 生活実験を確認',
+          ),
           onTap: () => context.push(AppRoutes.debugTrace),
         ),
       ],
@@ -1319,6 +1415,7 @@ class _ProUsageCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _MeCrownBadge(active: isPremium),
                 const SizedBox(width: 12),
@@ -1331,24 +1428,24 @@ class _ProUsageCard extends StatelessWidget {
                             ? AppLocaleText.tr(
                                 context,
                                 en: 'Checking Pro status',
-                                zhHans: '正在确认 Pro 状态',
-                                zhHant: '正在確認 Pro 狀態',
-                                ja: 'Pro 状態を確認中',
+                                zhHans: '正在确认专业版状态',
+                                zhHant: '正在確認專業版狀態',
+                                ja: 'プロ版の状態を確認中',
                               )
                             : isPremium
                                 ? AppLocaleText.tr(
                                     context,
-                                    en: 'Signal Path Pro',
-                                    zhHans: 'Signal Path Pro',
-                                    zhHant: 'Signal Path Pro',
-                                    ja: 'Signal Path Pro',
+                                    en: 'Pro membership',
+                                    zhHans: '专业版会员',
+                                    zhHant: '專業版會員',
+                                    ja: 'プロ版メンバー',
                                   )
                                 : AppLocaleText.tr(
                                     context,
                                     en: 'Upgrade to Pro',
-                                    zhHans: '升级到 Pro',
-                                    zhHant: '升級到 Pro',
-                                    ja: 'Pro にアップグレード',
+                                    zhHans: '升级到专业版',
+                                    zhHant: '升級到專業版',
+                                    ja: 'プロ版にアップグレード',
                                   ),
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               color: const Color(0xFF071D5E),
@@ -1407,20 +1504,21 @@ class _ProUsageCard extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2.2),
                   )
                 else ...[
-                  Text(
-                    isPremium
-                        ? 'PRO'
-                        : AppLocaleText.tr(
-                            context,
-                            en: 'Benefits',
-                            zhHans: '查看权益',
-                            zhHant: '查看權益',
-                            ja: '特典',
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'Benefits',
+                        zhHans: '查看权益',
+                        zhHant: '查看權益',
+                        ja: '特典',
+                      ),
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            color: AuroraColors.purple,
+                            fontWeight: FontWeight.w700,
                           ),
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: AuroraColors.purple,
-                          fontWeight: FontWeight.w700,
-                        ),
+                    ),
                   ),
                   const Icon(
                     Icons.chevron_right_rounded,
@@ -1430,6 +1528,10 @@ class _ProUsageCard extends StatelessWidget {
                 ],
               ],
             ),
+            if (!usageNeedsAttention && visibleQuotas.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _MembershipQuotaSummary(quota: visibleQuotas.first),
+            ],
             if (usageNeedsAttention || visibleQuotas.isNotEmpty) ...[
               const SizedBox(height: 12),
               Divider(
@@ -1442,10 +1544,10 @@ class _ProUsageCard extends StatelessWidget {
               else
                 _MonthlyUsageInline(quotas: visibleQuotas),
             ],
-            const SizedBox(height: 6),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
                 key: const ValueKey('me-manage-subscription-button'),
                 onPressed: onManageSubscription,
                 icon: const Icon(Icons.open_in_new_rounded, size: 17),
@@ -1458,9 +1560,13 @@ class _ProUsageCard extends StatelessWidget {
                     ja: 'サブスクリプションを管理',
                   ),
                 ),
-                style: TextButton.styleFrom(
+                style: OutlinedButton.styleFrom(
                   foregroundColor: AuroraColors.purple,
-                  minimumSize: const Size(44, 44),
+                  minimumSize: const Size.fromHeight(44),
+                  side: BorderSide(
+                    color: AuroraColors.purple.withValues(alpha: 0.24),
+                  ),
+                  shape: const StadiumBorder(),
                 ),
               ),
             ),
@@ -1512,9 +1618,9 @@ class _UsageSyncInline extends StatelessWidget {
                         ? AppLocaleText.tr(
                             context,
                             en: 'Pro access is unlocked; usage is reconciling',
-                            zhHans: 'Pro 已解锁，用量正在对账',
-                            zhHant: 'Pro 已解鎖，用量正在對帳',
-                            ja: 'Pro は解除済み、利用状況を照合中',
+                            zhHans: '专业版已解锁，用量正在对账',
+                            zhHant: '專業版已解鎖，用量正在對帳',
+                            ja: 'プロ版は解除済み、利用状況を照合中',
                           )
                         : AppLocaleText.tr(
                             context,
@@ -1563,6 +1669,64 @@ class _UsageSyncInline extends StatelessWidget {
   }
 }
 
+class _MembershipQuotaSummary extends StatelessWidget {
+  final UsageQuotaViewData quota;
+
+  const _MembershipQuotaSummary({required this.quota});
+
+  @override
+  Widget build(BuildContext context) {
+    final limit = quota.limit;
+    final progress =
+        limit == null || limit <= 0 ? null : (quota.used / limit).clamp(0, 1);
+
+    return Column(
+      key: const ValueKey('me-membership-quota-summary'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                AppLocaleText.tr(
+                  context,
+                  en: 'Monthly allowance',
+                  zhHans: '本月额度',
+                  zhHant: '本月額度',
+                  ja: '今月の利用枠',
+                ),
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: const Color(0xFF60749E),
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+            Text(
+              quota.displayValue,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: AuroraColors.purple,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ],
+        ),
+        if (progress != null) ...[
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              minHeight: 7,
+              value: progress.toDouble(),
+              backgroundColor: AuroraColors.purple.withValues(alpha: 0.08),
+              valueColor: const AlwaysStoppedAnimation(AuroraColors.purple),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class _MonthlyUsageInline extends StatelessWidget {
   final List<UsageQuotaViewData> quotas;
 
@@ -1594,72 +1758,98 @@ class _MonthlyUsageInline extends StatelessWidget {
               ),
         ),
         const SizedBox(height: 10),
-        for (var index = 0; index < visibleQuotas.length; index++) ...[
-          _MonthlyUsageRow(quota: visibleQuotas[index]),
-          if (index < visibleQuotas.length - 1)
-            Divider(
-              height: 18,
-              color: const Color(0xFFE2E5F3).withValues(alpha: 0.72),
-            ),
-        ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final tileWidth = (constraints.maxWidth - 10) / 2;
+            return Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final quota in visibleQuotas)
+                  SizedBox(
+                    width: tileWidth,
+                    child: _MonthlyUsageTile(quota: quota),
+                  ),
+              ],
+            );
+          },
+        ),
       ],
     );
   }
 }
 
-class _MonthlyUsageRow extends StatelessWidget {
+class _MonthlyUsageTile extends StatelessWidget {
   final UsageQuotaViewData quota;
 
-  const _MonthlyUsageRow({required this.quota});
+  const _MonthlyUsageTile({required this.quota});
 
   @override
   Widget build(BuildContext context) {
-    final limit = quota.limit;
-    final progress =
-        limit == null || limit <= 0 ? null : (quota.used / limit).clamp(0, 1);
-
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _usageFeatureLabel(context, quota.featureKey),
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: const Color(0xFF071D5E),
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              if (progress != null) ...[
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    minHeight: 7,
-                    value: progress.toDouble(),
-                    backgroundColor:
-                        AuroraColors.purple.withValues(alpha: 0.08),
-                    valueColor: const AlwaysStoppedAnimation(
-                      AuroraColors.purple,
-                    ),
-                  ),
-                ),
-              ],
-            ],
+    final color = _usageFeatureColor(quota.featureKey);
+    return Container(
+      key: ValueKey('me-monthly-usage-${quota.featureKey}'),
+      constraints: const BoxConstraints(minHeight: 92),
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.62),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _MeRoundedIcon(
+            icon: _usageFeatureIcon(quota.featureKey),
+            color: color,
           ),
-        ),
-        const SizedBox(width: 14),
-        Text(
-          quota.displayValue,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: AuroraColors.purple,
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-      ],
+          const SizedBox(height: 8),
+          Text(
+            _usageFeatureLabel(context, quota.featureKey),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: const Color(0xFF60749E),
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            quota.displayValue,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: const Color(0xFF071D5E),
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+IconData _usageFeatureIcon(String featureKey) {
+  return switch (featureKey) {
+    'l1_assist' || 'l1_assist_daily_flow' => Icons.auto_awesome_rounded,
+    'l1_attune_dialogue' => Icons.chat_bubble_rounded,
+    'l2_reason' || 'l2_reason_pattern_check' => Icons.psychology_alt_rounded,
+    'l3_reflect' ||
+    'l3_reflect_weekly' ||
+    'l3_reflect_journey' =>
+      Icons.science_rounded,
+    _ => Icons.insights_rounded,
+  };
+}
+
+Color _usageFeatureColor(String featureKey) {
+  return switch (featureKey) {
+    'l1_attune_dialogue' => const Color(0xFFE887B9),
+    'l2_reason' || 'l2_reason_pattern_check' => const Color(0xFF7B6AF2),
+    'l3_reflect' ||
+    'l3_reflect_weekly' ||
+    'l3_reflect_journey' =>
+      const Color(0xFF59BFA5),
+    _ => const Color(0xFF5E8DF5),
+  };
 }
 
 String _usageFeatureLabel(BuildContext context, String featureKey) {
@@ -1681,9 +1871,9 @@ String _usageFeatureLabel(BuildContext context, String featureKey) {
     'l2_reason' || 'l2_reason_pattern_check' => AppLocaleText.tr(
         context,
         en: 'Reason AI',
-        zhHans: '判断 AI',
-        zhHant: '判斷 AI',
-        ja: '判断 AI',
+        zhHans: '智能助手判断',
+        zhHant: '智能助手判斷',
+        ja: 'アシスタントの判断',
       ),
     'l3_reflect' => AppLocaleText.tr(
         context,
@@ -1697,16 +1887,22 @@ String _usageFeatureLabel(BuildContext context, String featureKey) {
         en: 'Weekly Reflect',
         zhHans: '每周复盘深度分析',
         zhHant: '每週復盤深度分析',
-        ja: 'Weekly Reflect',
+        ja: '週次振り返り',
       ),
     'l3_reflect_journey' => AppLocaleText.tr(
         context,
         en: 'Journey Reflect',
         zhHans: '旅程深度分析',
         zhHant: '旅程深度分析',
-        ja: 'Journey Reflect',
+        ja: '旅程の振り返り',
       ),
-    _ => featureKey.replaceAll('_', ' '),
+    _ => AppLocaleText.tr(
+        context,
+        en: featureKey.replaceAll('_', ' '),
+        zhHans: '其他功能',
+        zhHant: '其他功能',
+        ja: 'その他の機能',
+      ),
   };
 }
 
@@ -1826,18 +2022,15 @@ BoxDecoration _meCardDecoration({Color accent = const Color(0xFFBEB7F7)}) {
 
 class _ProfileDraft {
   final String displayName;
-  final String direction;
 
-  const _ProfileDraft({required this.displayName, required this.direction});
+  const _ProfileDraft({required this.displayName});
 }
 
 class _ProfileEditSheet extends StatefulWidget {
   final String displayName;
-  final String direction;
 
   const _ProfileEditSheet({
     required this.displayName,
-    required this.direction,
   });
 
   @override
@@ -1846,19 +2039,16 @@ class _ProfileEditSheet extends StatefulWidget {
 
 class _ProfileEditSheetState extends State<_ProfileEditSheet> {
   late final TextEditingController _nameController;
-  late final TextEditingController _directionController;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.displayName);
-    _directionController = TextEditingController(text: widget.direction);
   }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _directionController.dispose();
     super.dispose();
   }
 
@@ -1879,10 +2069,10 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
               Text(
                 AppLocaleText.tr(
                   context,
-                  en: 'Your profile',
-                  zhHans: '你的资料',
-                  zhHant: '你的資料',
-                  ja: 'プロフィール',
+                  en: 'Edit your name',
+                  zhHans: '修改用户名',
+                  zhHant: '修改使用者名稱',
+                  ja: '名前を変更',
                 ),
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       color: const Color(0xFF071D5E),
@@ -1894,7 +2084,12 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
                 key: const ValueKey('me-profile-name-field'),
                 controller: _nameController,
                 maxLength: 40,
-                textInputAction: TextInputAction.next,
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => Navigator.pop(
+                  context,
+                  _ProfileDraft(displayName: _nameController.text),
+                ),
                 decoration: InputDecoration(
                   labelText: AppLocaleText.tr(
                     context,
@@ -1905,40 +2100,13 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-              TextField(
-                key: const ValueKey('me-life-direction-field'),
-                controller: _directionController,
-                maxLength: 180,
-                minLines: 3,
-                maxLines: 5,
-                decoration: InputDecoration(
-                  labelText: AppLocaleText.tr(
-                    context,
-                    en: 'Life direction (optional)',
-                    zhHans: '人生方向（可选）',
-                    zhHant: '人生方向（可選）',
-                    ja: '人生の方向（任意）',
-                  ),
-                  hintText: AppLocaleText.tr(
-                    context,
-                    en: 'What kind of life do you want to move toward?',
-                    zhHans: '你想慢慢靠近怎样的生活？',
-                    zhHant: '你想慢慢靠近怎樣的生活？',
-                    ja: 'どんな暮らしに近づきたいですか？',
-                  ),
-                ),
-              ),
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () => Navigator.pop(
                     context,
-                    _ProfileDraft(
-                      displayName: _nameController.text,
-                      direction: _directionController.text,
-                    ),
+                    _ProfileDraft(displayName: _nameController.text),
                   ),
                   child: Text(
                     AppLocaleText.tr(
@@ -1959,205 +2127,281 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
   }
 }
 
-class _FocusAreaSettingsPage extends StatelessWidget {
+class _LifeDirectionDraft {
+  final String direction;
+  final List<String> focusDomainIds;
+
+  const _LifeDirectionDraft({
+    required this.direction,
+    required this.focusDomainIds,
+  });
+}
+
+class _LifeDirectionSettingsPage extends StatefulWidget {
+  final String currentDirection;
   final List<String> currentValues;
 
-  const _FocusAreaSettingsPage({
+  const _LifeDirectionSettingsPage({
+    required this.currentDirection,
     required this.currentValues,
   });
 
   @override
+  State<_LifeDirectionSettingsPage> createState() =>
+      _LifeDirectionSettingsPageState();
+}
+
+class _LifeDirectionSettingsPageState
+    extends State<_LifeDirectionSettingsPage> {
+  late final TextEditingController _directionController;
+  late final Set<String> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _directionController = TextEditingController(text: widget.currentDirection);
+    _selected = FocusDomains.normalizeIds(widget.currentValues).toSet();
+  }
+
+  @override
+  void dispose() {
+    _directionController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final initial = FocusDomains.normalizeIds(currentValues);
+    final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
 
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       body: Stack(
         children: [
           AuroraPage(
             child: SafeArea(
               bottom: true,
-              child: StatefulBuilder(
-                builder: (context, setPageState) {
-                  final selected = initial.toSet();
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 10, 24, 28),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        IconButton.filled(
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.arrow_back_rounded),
-                          style: IconButton.styleFrom(
-                            backgroundColor:
-                                Colors.white.withValues(alpha: 0.86),
-                            foregroundColor: const Color(0xFF071D5E),
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        Text(
-                          AppLocaleText.tr(
-                            context,
-                            en: 'Change focus areas',
-                            zhHans: '修改关注重点',
-                            zhHant: '修改關注重點',
-                            ja: '注目領域を変更する',
-                          ),
-                          style: theme.textTheme.displaySmall?.copyWith(
-                            color: const Color(0xFF071D5E),
-                            fontSize: 34,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          AppLocaleText.tr(
-                            context,
-                            en: 'Choose the life areas you want AI to notice first. You can pick more than one.',
-                            zhHans: '选择你希望 AI 优先留意的生活领域，可以多选。',
-                            zhHant: '選擇你希望 AI 優先留意的生活領域，可以多選。',
-                            ja: 'AIに先に見てほしい生活領域を選べます。複数選択できます。',
-                          ),
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: const Color(0xFF60749E),
-                            fontWeight: FontWeight.w600,
-                            height: 1.45,
-                          ),
-                        ),
-                        const SizedBox(height: 22),
-                        Expanded(
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final textScale =
-                                  MediaQuery.textScalerOf(context).scale(14) /
-                                      14;
-                              final columns =
-                                  constraints.maxWidth < 330 || textScale > 1.35
-                                      ? 2
-                                      : 3;
-                              return GridView.builder(
-                                itemCount: FocusDomains.options.length,
-                                gridDelegate:
-                                    SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: columns,
-                                  crossAxisSpacing: 10,
-                                  mainAxisSpacing: 10,
-                                  mainAxisExtent: textScale > 1.35 ? 104 : 88,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 10, 24, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    IconButton.filled(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withValues(alpha: 0.86),
+                        foregroundColor: const Color(0xFF071D5E),
+                        minimumSize: const Size(44, 44),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'My life direction',
+                        zhHans: '我的人生方向',
+                        zhHant: '我的人生方向',
+                        ja: '私の人生の方向',
+                      ),
+                      style: theme.textTheme.displaySmall?.copyWith(
+                        color: const Color(0xFF071D5E),
+                        fontSize: 34,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'Describe the life you want to move toward, then choose the areas you want Signal Path to notice first.',
+                        zhHans: '写下你想靠近的生活，再选择希望 Signal Path 优先留意的领域。',
+                        zhHant: '寫下你想靠近的生活，再選擇希望 Signal Path 優先留意的領域。',
+                        ja: '近づきたい暮らしを書き、Signal Path に優先して見てほしい領域を選びます。',
+                      ),
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: const Color(0xFF60749E),
+                        fontWeight: FontWeight.w600,
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(
+                              key: const ValueKey(
+                                'me-life-direction-settings-field',
+                              ),
+                              controller: _directionController,
+                              maxLength: 180,
+                              minLines: 3,
+                              maxLines: 5,
+                              textInputAction: TextInputAction.newline,
+                              decoration: InputDecoration(
+                                labelText: AppLocaleText.tr(
+                                  context,
+                                  en: 'Life direction',
+                                  zhHans: '人生方向',
+                                  zhHant: '人生方向',
+                                  ja: '人生の方向',
                                 ),
-                                itemBuilder: (context, index) {
-                                  final option = FocusDomains.options[index];
-                                  final isSelected =
-                                      selected.contains(option.id);
-                                  return Semantics(
-                                    button: true,
-                                    selected: isSelected,
-                                    label: option.label(context),
-                                    child: InkWell(
-                                      borderRadius: BorderRadius.circular(16),
-                                      onTap: () {
-                                        setPageState(() {
-                                          if (isSelected) {
-                                            initial.remove(option.id);
-                                          } else {
-                                            initial.add(option.id);
-                                          }
-                                        });
-                                      },
-                                      child: AnimatedContainer(
-                                        duration:
-                                            const Duration(milliseconds: 160),
-                                        padding: const EdgeInsets.all(9),
-                                        decoration: BoxDecoration(
+                                hintText: AppLocaleText.tr(
+                                  context,
+                                  en: 'What kind of life do you want to move toward?',
+                                  zhHans: '你想慢慢靠近怎样的生活？',
+                                  zhHant: '你想慢慢靠近怎樣的生活？',
+                                  ja: 'どんな暮らしに近づきたいですか？',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              AppLocaleText.tr(
+                                context,
+                                en: 'Focus areas',
+                                zhHans: '关注领域',
+                                zhHant: '關注領域',
+                                ja: '注目領域',
+                              ),
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                color: const Color(0xFF071D5E),
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: FocusDomains.options.length,
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                crossAxisSpacing: 10,
+                                mainAxisSpacing: 10,
+                                mainAxisExtent: textScale > 1.25 ? 108 : 90,
+                              ),
+                              itemBuilder: (context, index) {
+                                final option = FocusDomains.options[index];
+                                final isSelected =
+                                    _selected.contains(option.id);
+                                return Semantics(
+                                  button: true,
+                                  selected: isSelected,
+                                  label: option.label(context),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(16),
+                                    onTap: () => setState(() {
+                                      if (isSelected) {
+                                        _selected.remove(option.id);
+                                      } else {
+                                        _selected.add(option.id);
+                                      }
+                                    }),
+                                    child: AnimatedContainer(
+                                      duration:
+                                          const Duration(milliseconds: 160),
+                                      padding: const EdgeInsets.all(9),
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? option.color
+                                                .withValues(alpha: 0.12)
+                                            : Colors.white
+                                                .withValues(alpha: 0.62),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
                                           color: isSelected
                                               ? option.color
-                                                  .withValues(alpha: 0.12)
                                               : Colors.white
-                                                  .withValues(alpha: 0.62),
-                                          borderRadius:
-                                              BorderRadius.circular(16),
-                                          border: Border.all(
-                                            color: isSelected
-                                                ? option.color
-                                                : Colors.white
-                                                    .withValues(alpha: 0.88),
-                                            width: isSelected ? 1.5 : 1,
-                                          ),
+                                                  .withValues(alpha: 0.88),
+                                          width: isSelected ? 1.5 : 1,
                                         ),
-                                        child: Stack(
-                                          children: [
-                                            Center(
-                                              child: Column(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    option.icon,
+                                      ),
+                                      child: Stack(
+                                        children: [
+                                          Center(
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  option.icon,
+                                                  color: isSelected
+                                                      ? option.color
+                                                      : const Color(0xFF7F8CB7),
+                                                  size: 24,
+                                                ),
+                                                const SizedBox(height: 7),
+                                                Text(
+                                                  option.label(context),
+                                                  maxLines: 2,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  textAlign: TextAlign.center,
+                                                  style: theme
+                                                      .textTheme.labelLarge
+                                                      ?.copyWith(
                                                     color: isSelected
                                                         ? option.color
                                                         : const Color(
-                                                            0xFF7F8CB7),
-                                                    size: 24,
+                                                            0xFF071D5E),
+                                                    fontWeight: FontWeight.w700,
                                                   ),
-                                                  const SizedBox(height: 7),
-                                                  Text(
-                                                    option.label(context),
-                                                    maxLines: 2,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    textAlign: TextAlign.center,
-                                                    style: theme
-                                                        .textTheme.labelLarge
-                                                        ?.copyWith(
-                                                      color: isSelected
-                                                          ? option.color
-                                                          : const Color(
-                                                              0xFF071D5E),
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                    ),
-                                                  ),
-                                                ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          if (isSelected)
+                                            Positioned(
+                                              top: 1,
+                                              right: 1,
+                                              child: Icon(
+                                                Icons.check_circle_rounded,
+                                                color: option.color,
+                                                size: 18,
                                               ),
                                             ),
-                                            if (isSelected)
-                                              Positioned(
-                                                top: 1,
-                                                right: 1,
-                                                child: Icon(
-                                                  Icons.check_circle_rounded,
-                                                  color: option.color,
-                                                  size: 18,
-                                                ),
-                                              ),
-                                          ],
-                                        ),
+                                        ],
                                       ),
                                     ),
-                                  );
-                                },
-                              );
-                            },
-                          ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton(
-                            onPressed: () => Navigator.of(context).pop(initial),
-                            child: Text(
-                              AppLocaleText.tr(
-                                context,
-                                en: 'Save focus areas',
-                                zhHans: '保存关注重点',
-                                zhHant: '保存關注重點',
-                                ja: '注目領域を保存',
-                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        key: const ValueKey('me-save-life-direction-button'),
+                        onPressed: () => Navigator.of(context).pop(
+                          _LifeDirectionDraft(
+                            direction: _directionController.text.trim(),
+                            focusDomainIds: FocusDomains.normalizeIds(
+                              _selected.toList(growable: false),
                             ),
                           ),
                         ),
-                      ],
+                        child: Text(
+                          AppLocaleText.tr(
+                            context,
+                            en: 'Save life direction',
+                            zhHans: '保存人生方向',
+                            zhHant: '儲存人生方向',
+                            ja: '人生の方向を保存',
+                          ),
+                        ),
+                      ),
                     ),
-                  );
-                },
+                  ],
+                ),
               ),
             ),
           ),
@@ -2187,9 +2431,9 @@ String _meErrorLabel(BuildContext context, String? code) {
     'profile_photo_too_large' => AppLocaleText.tr(
         context,
         en: 'Please choose a photo under 2 MB.',
-        zhHans: '请选择 2 MB 以下的图片。',
-        zhHant: '請選擇 2 MB 以下的圖片。',
-        ja: '2MB 未満の写真を選んでください。',
+        zhHans: '请选择 2 兆字节以下的图片。',
+        zhHant: '請選擇 2 兆位元組以下的圖片。',
+        ja: '2メガバイト未満の写真を選んでください。',
       ),
     _ => AppLocaleText.tr(
         context,

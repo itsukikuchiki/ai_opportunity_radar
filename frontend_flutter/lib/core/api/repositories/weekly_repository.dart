@@ -15,16 +15,20 @@ import '../../models/feedback_event_models.dart';
 import '../../models/phase3_plus_models.dart';
 import '../../models/today_models.dart';
 import '../../models/weekly_models.dart';
+import '../../i18n/runtime_locale_text.dart';
 import '../../preferences/focus_domains.dart';
 import '../../readiness/report_readiness.dart';
 import 'ai_repository.dart';
 import 'energy_budget_repository.dart';
+import 'weekly_attempt_feedback_projector.dart';
 
 typedef WeeklyFocusAreaLoader = Future<String?> Function();
 typedef InstallationDateLoader = Future<DateTime> Function();
 typedef WeeklyNowLoader = DateTime Function();
 
 class WeeklyRepository {
+  static const _generatedCopyCacheVersion = 'weekly_language_guard_v2';
+
   final LocalCaptureRepository localCaptureRepository;
   final LocalWeeklySnapshotRepository localWeeklySnapshotRepository;
   final LocalLifeExperimentRepository? localLifeExperimentRepository;
@@ -154,6 +158,8 @@ class WeeklyRepository {
       entries: sourceEntries,
       dayCounts: stats.dayCounts,
       topTokens: stats.topTokens,
+      language:
+          '${RuntimeLocaleText.normalize(aiRepository.languageLoader())}|$_generatedCopyCacheVersion',
     );
 
     final phase3ActionReview =
@@ -214,6 +220,15 @@ class WeeklyRepository {
         isLightWeekly: isLightWeekly,
         inclusionSummary: inclusionSummary,
       );
+      if (!_generatedWeeklyMatchesLanguage(generated)) {
+        generated = _buildFallbackWeeklyInsight(
+          weekStart: weekStartKey,
+          weekEnd: _dateKey(range.end),
+          stats: stats,
+          isLightWeekly: isLightWeekly,
+          inclusionSummary: inclusionSummary,
+        );
+      }
     } catch (error) {
       await _recordPipelineFailure(
         pipelineType: 'reflect_generation',
@@ -477,19 +492,14 @@ class WeeklyRepository {
   }
 
   Future<LifeExperimentModel?> skipLifeExperiment(String experimentId) async {
-    final lifeRepo = localLifeExperimentRepository;
-    if (lifeRepo == null) return null;
-
-    final experiment = experimentId.startsWith('cand_')
-        ? await _experimentCandidateRepository.updateStatus(
-            candidateId: experimentId,
-            status: 'skipped',
-          )
-        : await lifeRepo.updateStatus(
-            experimentId: experimentId,
-            status: 'skipped',
-            feedbackText: 'Skipped for now',
-          );
+    // This API is retained only for dismissing a not-yet-adopted candidate.
+    // An adopted goal has no manual stop/end path: at the week boundary it is
+    // continued when selected, otherwise its weekly projection completes.
+    if (!experimentId.startsWith('cand_')) return null;
+    final experiment = await _experimentCandidateRepository.updateStatus(
+      candidateId: experimentId,
+      status: 'skipped',
+    );
     if (experiment != null) cloudBackupSyncService?.markDataChanged();
     return experiment;
   }
@@ -678,15 +688,26 @@ class WeeklyRepository {
     final feedbackNote = previous?.feedbackText?.trim();
     final hypothesisSuffix = feedbackNote == null || feedbackNote.isEmpty
         ? ''
-        : ' 上一轮反馈会作为下次调整的背景：$feedbackNote';
+        : _copy(
+            en: ' Previous-round feedback will stay in the background for the next adjustment: $feedbackNote',
+            zhHans: ' 上一轮反馈会作为下次调整的背景：$feedbackNote',
+            zhHant: ' 上一輪回饋會作為下次調整的背景：$feedbackNote',
+            ja: ' 前回のフィードバックは、次の調整の背景として残します：$feedbackNote',
+          );
 
     await _experimentCandidateRepository.ensureWeeklyCandidate(
       localUserId: localUserId,
       weekStart: weekly.weekStart,
       weekEnd: weekly.weekEnd,
       title: structure.onePattern,
-      hypothesis:
-          '如果这周先轻轻调整“${structure.onePattern}”，可能会帮你省一点力。$hypothesisSuffix',
+      hypothesis: _copy(
+        en: 'Gently adjusting “${structure.onePattern}” this week may save you a little effort.$hypothesisSuffix',
+        zhHans:
+            '如果这周先轻轻调整“${structure.onePattern}”，可能会帮你省一点力。$hypothesisSuffix',
+        zhHant:
+            '如果這週先輕輕調整「${structure.onePattern}」，可能會幫你省一點力。$hypothesisSuffix',
+        ja: '今週「${structure.onePattern}」を少しだけ調整すると、負担を軽くできるかもしれません。$hypothesisSuffix',
+      ),
       suggestedAction: structure.oneExperiment,
       linkedSignalCardIds: linkedIds,
     );
@@ -757,6 +778,12 @@ class WeeklyRepository {
     required List<FeedbackEventModel> feedbackEvents,
   }) async {
     final previousSummary = await _buildPreviousWeekSummary(range);
+    final attemptFeedbackSummaries =
+        WeeklyAttemptFeedbackProjector.build(feedbackEvents);
+    // Chart points are factual projections of the current Signal rows. Never
+    // retain generated or cached chart points, which may be stale or may have
+    // been returned as illustrative values by an older model response.
+    final factualChartData = _buildWeeklyStats(currentSignals).chartData;
     return WeeklyInsightModel(
       weekStart: weekly.weekStart,
       weekEnd: weekly.weekEnd,
@@ -765,9 +792,14 @@ class WeeklyRepository {
       patterns: weekly.patterns,
       frictions: weekly.frictions,
       bestAction: weekly.bestAction,
-      opportunitySnapshot: weekly.opportunitySnapshot,
+      opportunitySnapshot: {
+        ...?weekly.opportunitySnapshot,
+        '_weekly_attempt_feedback_summaries': attemptFeedbackSummaries
+            .map((summary) => summary.toMap())
+            .toList(growable: false),
+      },
       feedbackSubmitted: weekly.feedbackSubmitted,
-      chartData: weekly.chartData,
+      chartData: factualChartData,
       previousWeekSummary: previousSummary,
       behaviorPatterns: _buildBehaviorPatterns(currentSignals),
       energyProjection: _buildEnergyProjection(
@@ -803,14 +835,35 @@ class WeeklyRepository {
       entries: stats.entries,
       dayCounts: stats.dayCounts,
       topTokens: stats.topTokens,
+      language: aiRepository.languageLoader(),
     );
     final recordedDays = stats.dayCounts.length;
     final factualSummary = signals.isEmpty
-        ? '上周还没有可回看的 Signal。'
-        : '上周记录了 ${signals.length} 条 Signal，分布在 $recordedDays 天。';
+        ? _copy(
+            en: 'There were no Signals to review last week.',
+            zhHans: '上周还没有可回看的 Signal。',
+            zhHant: '上週還沒有可回看的 Signal。',
+            ja: '先週は振り返れる Signal がありませんでした。',
+          )
+        : _copy(
+            en: 'Last week included ${signals.length} Signals across $recordedDays days.',
+            zhHans: '上周记录了 ${signals.length} 条 Signal，分布在 $recordedDays 天。',
+            zhHant: '上週記錄了 ${signals.length} 條 Signal，分布在 $recordedDays 天。',
+            ja: '先週は $recordedDays 日にわたり ${signals.length} 件の Signal を記録しました。',
+          );
     final watchpoint = readiness.isReady
-        ? '本周可留意：${_previousWeekWatchpoint(signals, stats)}'
-        : '本周可留意：记录还少，先继续观察。';
+        ? _copy(
+            en: 'This week, watch for: ${_previousWeekWatchpoint(signals, stats)}',
+            zhHans: '本周可留意：${_previousWeekWatchpoint(signals, stats)}',
+            zhHant: '本週可留意：${_previousWeekWatchpoint(signals, stats)}',
+            ja: '今週の注目点：${_previousWeekWatchpoint(signals, stats)}',
+          )
+        : _copy(
+            en: 'There are still few records; keep observing this week.',
+            zhHans: '本周可留意：记录还少，先继续观察。',
+            zhHant: '本週可留意：記錄還少，先繼續觀察。',
+            ja: '記録はまだ少ないため、今週も観察を続けましょう。',
+          );
     return PreviousWeekSummaryModel(
       weekStart: _dateKey(start),
       weekEnd: _dateKey(end),
@@ -848,18 +901,44 @@ class WeeklyRepository {
     final scene = mostCommon(sceneCounts);
     final friction = mostCommon(frictionCounts);
     if (scene != null && friction != null) {
-      return '“$scene”时的“$friction”是否再次出现。';
+      return _copy(
+        en: 'whether “$friction” returns during “$scene”.',
+        zhHans: '“$scene”时的“$friction”是否再次出现。',
+        zhHant: '「$scene」時的「$friction」是否再次出現。',
+        ja: '「$scene」のときに「$friction」が再び現れるか。',
+      );
     }
     if (scene != null) {
-      return '“$scene”这个场景是否再次出现。';
+      return _copy(
+        en: 'whether the “$scene” setting returns.',
+        zhHans: '“$scene”这个场景是否再次出现。',
+        zhHant: '「$scene」這個情境是否再次出現。',
+        ja: '「$scene」という場面が再び現れるか。',
+      );
     }
     if (friction != null) {
-      return '“$friction”是否再次出现。';
+      return _copy(
+        en: 'whether “$friction” returns.',
+        zhHans: '“$friction”是否再次出现。',
+        zhHant: '「$friction」是否再次出現。',
+        ja: '「$friction」が再び現れるか。',
+      );
     }
     if (stats.topTokens.isNotEmpty) {
-      return '“${stats.topTokens.first}”相关情况是否再次出现。';
+      final token = stats.topTokens.first;
+      return _copy(
+        en: 'whether situations related to “$token” return.',
+        zhHans: '“$token”相关情况是否再次出现。',
+        zhHant: '「$token」相關情況是否再次出現。',
+        ja: '「$token」に関する状況が再び現れるか。',
+      );
     }
-    return '哪些时刻让你感觉更费力或更轻松。';
+    return _copy(
+      en: 'which moments feel more draining or easier.',
+      zhHans: '哪些时刻让你感觉更费力或更轻松。',
+      zhHant: '哪些時刻讓你感覺更費力或更輕鬆。',
+      ja: 'どの瞬間に負担が増えたり軽くなったりするか。',
+    );
   }
 
   List<WeeklyBehaviorPatternModel> _buildBehaviorPatterns(
@@ -874,26 +953,13 @@ class WeeklyRepository {
         _addPatternSignal(
           buckets,
           key: 'pair:$scene|$friction',
-          label: '“$scene”的记录中，多次同时出现“$friction”',
+          label: _copy(
+            en: 'Records about “$scene” included “$friction” together more than once',
+            zhHans: '“$scene”的记录中，多次同时出现“$friction”',
+            zhHant: '「$scene」的記錄中，多次同時出現「$friction」',
+            ja: '「$scene」の記録で「$friction」が複数回一緒に現れた',
+          ),
           kind: 'context_response',
-          signal: signal,
-        );
-      }
-      if (scene != null) {
-        _addPatternSignal(
-          buckets,
-          key: 'scene:$scene',
-          label: '“$scene”是本周反复出现的场景',
-          kind: 'context',
-          signal: signal,
-        );
-      }
-      if (friction != null) {
-        _addPatternSignal(
-          buckets,
-          key: 'friction:$friction',
-          label: '“$friction”是本周反复出现的反应',
-          kind: 'response',
           signal: signal,
         );
       }
@@ -926,11 +992,10 @@ class WeeklyRepository {
           used.difference(ids.toSet()).isEmpty);
       if (duplicate) continue;
       final dates = entry.value.dates.toList()..sort();
-      final count = ids.length;
       selected.add(WeeklyBehaviorPatternModel(
         id: _stableWeeklyId('${entry.key}:${ids.join(',')}'),
         label: entry.value.label,
-        summary: '来自 $count 条 Signal，出现在 ${dates.join('、')}。',
+        summary: _behaviorPatternSummary(entry.value.kind),
         kind: entry.value.kind,
         sourceSignalCardIds: ids,
         supportDates: dates,
@@ -939,6 +1004,41 @@ class WeeklyRepository {
       usedSignalSets.add(ids.toSet());
     }
     return selected;
+  }
+
+  String _behaviorPatternSummary(String kind) {
+    return switch (kind) {
+      'context' => _copy(
+          en: 'This setting repeated across several record days and was a relatively stable backdrop this week.',
+          zhHans: '这个场景在多个记录日重复出现，是本周较稳定的行为背景。',
+          zhHant: '這個情境在多個記錄日重複出現，是本週較穩定的行為背景。',
+          ja: 'この場面は複数の記録日に繰り返し現れ、今週の比較的安定した背景になっていました。'),
+      'response' => _copy(
+          en: 'The same response appeared across several record days, rather than being a one-off feeling.',
+          zhHans: '相同反应跨多个记录日出现，不只是一次性的感受。',
+          zhHant: '相同反應跨多個記錄日出現，不只是一次性的感受。',
+          ja: '同じ反応が複数の記録日に現れており、一度きりの感覚ではありません。'),
+      'context_difference' => _copy(
+          en: 'The same response appeared in different settings, rather than being limited to one situation.',
+          zhHans: '相同反应出现在不同场景中，并不只局限于一种情境。',
+          zhHant: '相同反應出現在不同情境中，並不只局限於一種情境。',
+          ja: '同じ反応が異なる場面に現れ、一つの状況だけに限られていません。'),
+      'sequence' => _copy(
+          en: 'This order of events repeated across several record days.',
+          zhHans: '这一先后顺序在多个记录日重复出现。',
+          zhHant: '這一先後順序在多個記錄日重複出現。',
+          ja: 'この順序が複数の記録日で繰り返されました。'),
+      'tradeoff' => _copy(
+          en: 'The same setting had different energy states on different dates, so its outcome was not fixed.',
+          zhHans: '同一场景在不同日期呈现不同能量状态，结果并不固定。',
+          zhHant: '同一情境在不同日期呈現不同能量狀態，結果並不固定。',
+          ja: '同じ場面でも日によってエネルギー状態が異なり、結果は一定ではありません。'),
+      _ => _copy(
+          en: 'This setting and response appeared together across several record days, forming a recognizable combination.',
+          zhHans: '这个场景与反应在多个记录日同时出现，形成了可辨认的组合。',
+          zhHant: '這個情境與反應在多個記錄日同時出現，形成了可辨認的組合。',
+          ja: 'この場面と反応が複数の記録日に一緒に現れ、識別できる組み合わせになっています。'),
+    };
   }
 
   /// A context difference means the same explicitly recorded reaction was
@@ -971,7 +1071,12 @@ class WeeklyRepository {
         _addPatternSignal(
           buckets,
           key: 'context_difference:${entry.key}',
-          label: '“${labels[entry.key]}”出现在不同场景的记录中',
+          label: _copy(
+            en: '“${labels[entry.key]}” appeared in records from different settings',
+            zhHans: '“${labels[entry.key]}”出现在不同场景的记录中',
+            zhHant: '「${labels[entry.key]}」出現在不同情境的記錄中',
+            ja: '「${labels[entry.key]}」が異なる場面の記録に現れた',
+          ),
           kind: 'context_difference',
           signal: signal,
         );
@@ -1007,7 +1112,12 @@ class WeeklyRepository {
           continue;
         }
         final key = 'sequence:$firstLabel>$secondLabel';
-        final label = '记录中“$firstLabel”后出现“$secondLabel”的顺序跨日期重复出现';
+        final label = _copy(
+          en: 'The sequence “$firstLabel” followed by “$secondLabel” repeated across dates',
+          zhHans: '记录中“$firstLabel”后出现“$secondLabel”的顺序跨日期重复出现',
+          zhHant: '記錄中「$firstLabel」後出現「$secondLabel」的順序跨日期重複出現',
+          ja: '記録で「$firstLabel」の後に「$secondLabel」が現れる順序が別の日にも繰り返された',
+        );
         _addPatternSignal(
           buckets,
           key: key,
@@ -1059,7 +1169,12 @@ class WeeklyRepository {
       if (!hasCrossDateSupport) continue;
 
       final key = 'tradeoff:${entry.key}';
-      final label = '“${entry.key}”在不同日期既有偏耗力，也有有余力或恢复的记录';
+      final label = _copy(
+        en: '“${entry.key}” had both draining and easier or restorative records on different dates',
+        zhHans: '“${entry.key}”在不同日期既有偏耗力，也有有余力或恢复的记录',
+        zhHant: '「${entry.key}」在不同日期既有偏耗力，也有有餘力或恢復的記錄',
+        ja: '「${entry.key}」には、日によって消耗した記録と余力や回復の記録の両方があった',
+      );
       for (final signal in [...draining, ...easeOrRecovery]) {
         _addPatternSignal(
           buckets,
@@ -1178,9 +1293,21 @@ class WeeklyRepository {
             ? 'cautiously_increase'
             : 'maintain_load';
     final rationale = switch (recommendation) {
-      'reduce_load' => '本周偏耗力的 Signal 较多，下周候选会优先排低负荷内容。',
-      'cautiously_increase' => '本周轻松或恢复的 Signal 与正向反馈较多，下周可以小幅增加尝试。',
-      _ => '本周五类状态较为接近，下周先维持当前负荷。',
+      'reduce_load' => _copy(
+          en: 'More Signals felt draining this week, so next week’s candidates will prioritize lower-load options.',
+          zhHans: '本周偏耗力的 Signal 较多，下周候选会优先排低负荷内容。',
+          zhHant: '本週偏耗力的 Signal 較多，下週候選會優先安排低負荷內容。',
+          ja: '今週は消耗寄りの Signal が多かったため、来週の候補では負担の小さい内容を優先します。'),
+      'cautiously_increase' => _copy(
+          en: 'Easier or restorative Signals and positive feedback were more common this week, so next week can include a small increase.',
+          zhHans: '本周轻松或恢复的 Signal 与正向反馈较多，下周可以小幅增加尝试。',
+          zhHant: '本週輕鬆或恢復的 Signal 與正向回饋較多，下週可以小幅增加嘗試。',
+          ja: '今週は余力や回復の Signal、前向きなフィードバックが多かったため、来週は試す量を少しだけ増やせます。'),
+      _ => _copy(
+          en: 'The five energy states were relatively balanced this week, so keep the current load next week.',
+          zhHans: '本周五类状态较为接近，下周先维持当前负荷。',
+          zhHant: '本週五類狀態較為接近，下週先維持當前負荷。',
+          ja: '今週は5つのエネルギー状態が比較的近かったため、来週も現在の負荷を維持します。'),
     };
     return WeeklyEnergyProjectionModel(
       days: days,
@@ -1273,6 +1400,7 @@ class WeeklyRepository {
         'friction': signal.friction,
         'positive_signal': signal.positiveSignal,
         'energy_load': signal.energyLoad,
+        'focus_domain_id': signal.rawPayloadJson['focus_domain_id'],
         'scene_tags': signal.sceneTags,
         'intent_tags': signal.intentTags,
         'user_confirmation': signal.userConfirmation,
@@ -1408,13 +1536,33 @@ class WeeklyRepository {
         keyInsight: generated.keyInsight,
         patterns: _oneItem(
           generated.patterns,
-          fallbackName: '本周最消耗的一个模式',
-          fallbackSummary: '这周先只看一个最明显的重复方向，其他内容先放在观察区。',
+          fallbackName: _copy(
+            en: 'The clearest draining pattern this week',
+            zhHans: '本周最消耗的一个模式',
+            zhHant: '本週最消耗的一個模式',
+            ja: '今週もっとも消耗が目立ったパターン',
+          ),
+          fallbackSummary: _copy(
+            en: 'For now, focus on the clearest recurring direction and leave the rest in the observation area.',
+            zhHans: '这周先只看一个最明显的重复方向，其他内容先放在观察区。',
+            zhHant: '這週先只看一個最明顯的重複方向，其他內容先放在觀察區。',
+            ja: 'まずは最も明確に繰り返している方向だけを見て、その他は観察のまま残します。',
+          ),
         ),
         frictions: _oneItem(
           generated.frictions,
-          fallbackName: '本周先留意的消耗点',
-          fallbackSummary: '它不代表你哪里做错了，只是这周比较值得少量调整的地方。',
+          fallbackName: _copy(
+            en: 'A drain to notice this week',
+            zhHans: '本周先留意的消耗点',
+            zhHant: '本週先留意的消耗點',
+            ja: '今週まず注意したい消耗',
+          ),
+          fallbackSummary: _copy(
+            en: 'It does not mean you did anything wrong; it is simply the area most worth a small adjustment this week.',
+            zhHans: '它不代表你哪里做错了，只是这周比较值得少量调整的地方。',
+            zhHant: '它不代表你哪裡做錯了，只是這週比較值得少量調整的地方。',
+            ja: 'あなたが何かを間違えたという意味ではなく、今週少しだけ調整する価値がある箇所です。',
+          ),
         ),
         bestAction: _softExperimentText(generated.bestAction),
         opportunitySnapshot: _withWeeklyMetadata(
@@ -1422,9 +1570,7 @@ class WeeklyRepository {
           inclusionSummary: inclusionSummary,
         ),
         feedbackSubmitted: generated.feedbackSubmitted,
-        chartData: generated.chartData.isNotEmpty
-            ? generated.chartData
-            : stats.chartData,
+        chartData: stats.chartData,
       );
     }
 
@@ -1439,33 +1585,136 @@ class WeeklyRepository {
       patterns: _oneItem(
         _lightenItems(
           generated.patterns,
-          fallbackName: '这周先冒头的线索',
+          fallbackName: _copy(
+            en: 'An emerging Signal this week',
+            zhHans: '这周先冒头的线索',
+            zhHant: '這週剛冒頭的線索',
+            ja: '今週見え始めた Signal',
+          ),
         ),
-        fallbackName: '这周先冒头的线索',
-        fallbackSummary: '记录还不多，但已经能看见一个开始重复的方向。',
+        fallbackName: _copy(
+          en: 'An emerging Signal this week',
+          zhHans: '这周先冒头的线索',
+          zhHant: '這週剛冒頭的線索',
+          ja: '今週見え始めた Signal',
+        ),
+        fallbackSummary: _copy(
+          en: 'There are not many records yet, but one direction is beginning to repeat.',
+          zhHans: '记录还不多，但已经能看见一个开始重复的方向。',
+          zhHant: '記錄還不多，但已經能看見一個開始重複的方向。',
+          ja: '記録はまだ多くありませんが、繰り返し始めた方向が一つ見えています。',
+        ),
       ),
       frictions: _oneItem(
         _lightenItems(
           generated.frictions,
-          fallbackName: '这周先看到的消耗点',
+          fallbackName: _copy(
+            en: 'A possible drain this week',
+            zhHans: '这周先看到的消耗点',
+            zhHant: '這週先看到的消耗點',
+            ja: '今週見え始めた消耗',
+          ),
         ),
-        fallbackName: '这周先看到的消耗点',
-        fallbackSummary: '现在更适合先轻轻看着，还不急着下太重的判断。',
+        fallbackName: _copy(
+          en: 'A possible drain this week',
+          zhHans: '这周先看到的消耗点',
+          zhHant: '這週先看到的消耗點',
+          ja: '今週見え始めた消耗',
+        ),
+        fallbackSummary: _copy(
+          en: 'For now, it is better to observe gently rather than draw a strong conclusion.',
+          zhHans: '现在更适合先轻轻看着，还不急着下太重的判断。',
+          zhHant: '現在更適合先輕輕觀察，還不急著下太重的判斷。',
+          ja: '今は強い結論を出さず、軽く見守る段階です。',
+        ),
       ),
       bestAction: _softExperimentText(generated.bestAction),
       opportunitySnapshot: _withWeeklyMetadata(
         generated.opportunitySnapshot ??
-            const {
-              'name': '先把线索留住',
-              'summary': '现在更适合先继续收集线索，等轮廓再清楚一点，再判断值不值得进一步整理。',
+            {
+              'name': _copy(
+                en: 'Keep the Signal',
+                zhHans: '先把线索留住',
+                zhHant: '先把線索留住',
+                ja: 'Signal を残す',
+              ),
+              'summary': _copy(
+                en: 'Keep collecting Signals for now. When the outline is clearer, you can decide whether it is worth organizing further.',
+                zhHans: '现在更适合先继续收集线索，等轮廓再清楚一点，再判断值不值得进一步整理。',
+                zhHant: '現在更適合先繼續收集線索，等輪廓再清楚一點，再判斷是否值得進一步整理。',
+                ja: '今は Signal を集め続けましょう。輪郭がもう少し明確になったら、さらに整理する価値があるか判断できます。',
+              ),
             },
         inclusionSummary: inclusionSummary,
       ),
       feedbackSubmitted: generated.feedbackSubmitted,
-      chartData: generated.chartData.isNotEmpty
-          ? generated.chartData
-          : stats.chartData,
+      chartData: stats.chartData,
     );
+  }
+
+  bool _generatedWeeklyMatchesLanguage(WeeklyInsightModel weekly) {
+    final language = RuntimeLocaleText.normalize(
+      aiRepository.languageLoader(),
+    );
+    if (language != 'en' && language != 'ja') return true;
+    final prose = <String>[
+      weekly.keyInsight ?? '',
+      weekly.bestAction ?? '',
+      ...weekly.patterns.expand(_generatedWeeklyProseParts),
+      ...weekly.frictions.expand(_generatedWeeklyProseParts),
+      ..._generatedWeeklyProseParts(weekly.opportunitySnapshot),
+    ].where((value) => value.trim().isNotEmpty).toList(growable: false);
+    final text = <String>[
+      ...prose,
+      ...weekly.patterns.expand(_generatedWeeklyTextParts),
+      ...weekly.frictions.expand(_generatedWeeklyTextParts),
+      ..._generatedWeeklyTextParts(weekly.opportunitySnapshot),
+    ].join(' ');
+    final hasHan = RegExp(r'[\u3400-\u9fff]').hasMatch(text);
+    final hasKana = RegExp(r'[\u3040-\u30ff]').hasMatch(text);
+    if (language == 'en') {
+      return !hasHan && !hasKana && RegExp(r'[A-Za-z]').hasMatch(text);
+    }
+    final hasChineseOnlyForms = RegExp(
+      r'[这们么还没为个录复续觉验這們麼還沒]',
+    ).hasMatch(text);
+    final generatedNames = <String>[
+      ...weekly.patterns.expand(_generatedWeeklyNameParts),
+      ...weekly.frictions.expand(_generatedWeeklyNameParts),
+      ..._generatedWeeklyNameParts(weekly.opportunitySnapshot),
+    ].where((value) => value.trim().isNotEmpty).toList(growable: false);
+    return !hasChineseOnlyForms &&
+        prose.isNotEmpty &&
+        prose.every((value) => RegExp(r'[\u3040-\u30ff]').hasMatch(value)) &&
+        generatedNames
+            .every((value) => RegExp(r'[\u3040-\u30ff]').hasMatch(value));
+  }
+
+  Iterable<String> _generatedWeeklyTextParts(Object? value) sync* {
+    if (value is Map) {
+      for (final key in const ['name', 'title', 'summary', 'description']) {
+        final text = value[key]?.toString().trim();
+        if (text != null && text.isNotEmpty) yield text;
+      }
+    }
+  }
+
+  Iterable<String> _generatedWeeklyProseParts(Object? value) sync* {
+    if (value is Map) {
+      for (final key in const ['summary', 'description']) {
+        final text = value[key]?.toString().trim();
+        if (text != null && text.isNotEmpty) yield text;
+      }
+    }
+  }
+
+  Iterable<String> _generatedWeeklyNameParts(Object? value) sync* {
+    if (value is Map) {
+      for (final key in const ['name', 'title']) {
+        final text = value[key]?.toString().trim();
+        if (text != null && text.isNotEmpty) yield text;
+      }
+    }
   }
 
   Future<String?> _readFocusArea() async {
@@ -1540,12 +1789,24 @@ class WeeklyRepository {
     required bool isLightWeekly,
     required Map<String, int> inclusionSummary,
   }) {
-    final topToken = stats.topTokens.isEmpty ? '本周记录' : stats.topTokens.first;
+    final topToken = stats.topTokens.isEmpty
+        ? _copy(
+            en: 'this week’s records',
+            zhHans: '本周记录',
+            zhHant: '本週記錄',
+            ja: '今週の記録',
+          )
+        : stats.topTokens.first;
     final peakDay = _resolvePeakDay(stats.dayCounts);
     final patternHint = _deriveWeeklyIllustrationHint(topToken);
     final frictionHint = _deriveWeeklyIllustrationHint(
       '$topToken $peakDay 消耗 负担',
-      fallback: '任务堆积，开始变困难',
+      fallback: _copy(
+        en: 'Tasks accumulated and became harder to start',
+        zhHans: '任务堆积，开始变困难',
+        zhHant: '任務堆積，開始變得困難',
+        ja: 'タスクが重なり、始めにくくなった',
+      ),
     );
 
     if (isLightWeekly) {
@@ -1553,27 +1814,64 @@ class WeeklyRepository {
         weekStart: weekStart,
         weekEnd: weekEnd,
         status: 'light_ready',
-        keyInsight: '这周可以先轻轻看一个线索：目前最明显的是“$topToken”。',
+        keyInsight: _copy(
+          en: 'One Signal is starting to stand out this week: “$topToken”.',
+          zhHans: '这周可以先轻轻看一个 Signal：目前最明显的是“$topToken”。',
+          zhHant: '這週可以先輕輕看一個 Signal：目前最明顯的是「$topToken」。',
+          ja: '今週はまず一つの Signal を見てみましょう。今もっとも目立つのは「$topToken」です。',
+        ),
         patterns: [
           {
-            'name': '这周先冒头的线索',
-            'summary': '记录还不多，但已经能看见一个开始重复的方向。',
+            'name': _copy(
+                en: 'An emerging Signal',
+                zhHans: '这周先冒头的 Signal',
+                zhHant: '這週剛出現的 Signal',
+                ja: '今週見え始めた Signal'),
+            'summary': _copy(
+                en: 'There are not many records yet, but one direction is beginning to repeat.',
+                zhHans: '记录还不多，但已经能看见一个开始重复的方向。',
+                zhHant: '記錄還不多，但已經能看見一個開始重複的方向。',
+                ja: '記録はまだ多くありませんが、繰り返し始めた方向が見えています。'),
             'illustration_hint': patternHint,
           },
         ],
         frictions: [
           {
-            'name': '这周先看到的消耗点',
-            'summary': '现在更适合先轻轻看着，还不急着下太重的判断。',
+            'name': _copy(
+                en: 'A possible drain',
+                zhHans: '这周先看到的消耗点',
+                zhHant: '這週先看到的消耗點',
+                ja: '今週見え始めた消耗'),
+            'summary': _copy(
+                en: 'For now, it is better to observe gently rather than draw a strong conclusion.',
+                zhHans: '现在更适合先轻轻看着，还不急着下太重的判断。',
+                zhHant: '現在更適合先輕輕觀察，還不急著下太重的判斷。',
+                ja: '今は強い結論を出さず、軽く見守る段階です。'),
             'illustration_hint': frictionHint,
           },
         ],
-        bestAction: '下周先试一个很小的方向：同类场景再出现时，只补一句它发生在哪里。',
+        bestAction: _copy(
+            en: 'Next week, try one small step: when a similar situation returns, add one line about where it happened.',
+            zhHans: '下周先试一个很小的方向：同类场景再出现时，只补一句它发生在哪里。',
+            zhHant: '下週先試一個很小的方向：同類情境再次出現時，只補一句它發生在哪裡。',
+            ja: '来週は小さく試してみましょう。同じ場面が起きたら、どこで起きたかを一言足します。'),
         opportunitySnapshot: _withWeeklyMetadata(
-          const {
-            'name': '先把线索留住',
-            'summary': '也可以留意一下哪些时刻让你稍微恢复一点，它们可能是下周的小线索。',
-            'illustration_hint': '只是观察也有帮助',
+          {
+            'name': _copy(
+                en: 'Keep the Signal',
+                zhHans: '先把 Signal 留住',
+                zhHant: '先把 Signal 留住',
+                ja: 'Signal を残す'),
+            'summary': _copy(
+                en: 'Notice which moments restore you a little; they may become useful Signals next week.',
+                zhHans: '也可以留意一下哪些时刻让你稍微恢复一点，它们可能是下周的小 Signal。',
+                zhHant: '也可以留意哪些時刻讓你稍微恢復一點，它們可能是下週的小 Signal。',
+                ja: '少し回復できた瞬間にも目を向けると、来週の Signal になるかもしれません。'),
+            'illustration_hint': _copy(
+                en: 'Observation itself can help',
+                zhHans: '只是观察也有帮助',
+                zhHant: '只是觀察也有幫助',
+                ja: '観察するだけでも役立つ'),
           },
           inclusionSummary: inclusionSummary,
         ),
@@ -1586,27 +1884,63 @@ class WeeklyRepository {
       weekStart: weekStart,
       weekEnd: weekEnd,
       status: 'ready',
-      keyInsight: '这周最值得先看的，是围绕“$topToken”反复出现的一个消耗模式；$peakDay 的信号更密集。',
+      keyInsight: _copy(
+          en: 'A recurring drain around “$topToken” stands out this week; Signals were denser on $peakDay.',
+          zhHans: '这周最值得先看的，是围绕“$topToken”反复出现的一个消耗模式；$peakDay 的 Signal 更密集。',
+          zhHant: '這週最值得先看的，是圍繞「$topToken」反覆出現的消耗模式；$peakDay 的 Signal 更密集。',
+          ja: '今週は「$topToken」をめぐる消耗の繰り返しが目立ち、$peakDay に Signal が集中しました。'),
       patterns: [
         {
-          'name': '围绕“$topToken”的重复模式',
-          'summary': '这周先只看这个最明显的方向，其他线索可以继续留在时间线里。',
+          'name': _copy(
+              en: 'Recurring pattern around “$topToken”',
+              zhHans: '围绕“$topToken”的行为模式',
+              zhHant: '圍繞「$topToken」的行為模式',
+              ja: '「$topToken」をめぐる行動パターン'),
+          'summary': _copy(
+              en: 'This is the clearest direction this week; other Signals can remain on the timeline.',
+              zhHans: '这周先只看这个最明显的方向，其他 Signal 可以继续留在时间线里。',
+              zhHant: '這週先看這個最明顯的方向，其他 Signal 可以繼續留在時間線裡。',
+              ja: '今週はこの最も明確な方向を見て、ほかの Signal はタイムラインに残しておけます。'),
           'illustration_hint': patternHint,
         },
       ],
       frictions: [
         {
-          'name': '本周的主要消耗',
-          'summary': '当前最大的摩擦，更像是同类事情反复回来，而不是单次事件。',
+          'name': _copy(
+              en: 'Main drain this week',
+              zhHans: '本周的主要消耗',
+              zhHant: '本週的主要消耗',
+              ja: '今週の主な消耗'),
+          'summary': _copy(
+              en: 'The main burden looks more like similar events returning than one isolated event.',
+              zhHans: '当前最大的负担，更像是同类事情反复回来，而不是单次事件。',
+              zhHant: '目前最大的負擔，更像是同類事情反覆出現，而不是單次事件。',
+              ja: '大きな負担は、一度きりの出来事より、似たことが繰り返し戻ってくる形に見えます。'),
           'illustration_hint': frictionHint,
         },
       ],
-      bestAction: '下周先试一个生活小实验目标：同类情况出现时，用一句话补记它发生在什么场景。',
+      bestAction: _copy(
+          en: 'Next week, try a small experiment: when a similar situation appears, note the setting in one line.',
+          zhHans: '下周先试一个小实验：同类情况出现时，用一句话补记它发生在什么场景。',
+          zhHant: '下週先試一個小實驗：同類情況出現時，用一句話補記它發生在哪個情境。',
+          ja: '来週は小さな実験を一つ。似た状況が起きたら、どんな場面だったかを一言残します。'),
       opportunitySnapshot: _withWeeklyMetadata(
-        const {
-          'name': '把重复信号固定下来',
-          'summary': '也留意一下哪些时刻让状态稍微往回收一点，它们可能是恢复线索。',
-          'illustration_hint': '只是观察也有帮助',
+        {
+          'name': _copy(
+              en: 'Keep the recurring Signal',
+              zhHans: '把重复 Signal 留下来',
+              zhHant: '把重複 Signal 留下來',
+              ja: '繰り返す Signal を残す'),
+          'summary': _copy(
+              en: 'Also notice moments that restore you a little; they may be recovery Signals.',
+              zhHans: '也留意一下哪些时刻让状态稍微往回收一点，它们可能是恢复 Signal。',
+              zhHant: '也留意哪些時刻讓狀態稍微恢復，它們可能是恢復 Signal。',
+              ja: '少し状態が戻る瞬間にも注目すると、回復の Signal になるかもしれません。'),
+          'illustration_hint': _copy(
+              en: 'Observation itself can help',
+              zhHans: '只是观察也有帮助',
+              zhHant: '只是觀察也有幫助',
+              ja: '観察するだけでも役立つ'),
         },
         inclusionSummary: inclusionSummary,
       ),
@@ -1620,9 +1954,17 @@ class WeeklyRepository {
       return input;
     }
     if (topToken != null && topToken.trim().isNotEmpty) {
-      return '这周可以先轻轻看一个线索：目前最明显的是“$topToken”。';
+      return _copy(
+          en: 'One Signal is starting to stand out this week: “$topToken”.',
+          zhHans: '这周可以先轻轻看一个 Signal：目前最明显的是“$topToken”。',
+          zhHant: '這週可以先輕輕看一個 Signal：目前最明顯的是「$topToken」。',
+          ja: '今週はまず一つの Signal を見てみましょう。今もっとも目立つのは「$topToken」です。');
     }
-    return '这周已经开始有线索冒出来了，不过现在更适合先轻轻看着。';
+    return _copy(
+        en: 'Signals are beginning to emerge this week; for now, gentle observation is enough.',
+        zhHans: '这周已经开始有 Signal 冒出来了，不过现在更适合先轻轻看着。',
+        zhHant: '這週已經開始有 Signal 出現，不過現在更適合先輕輕觀察。',
+        ja: '今週は Signal が見え始めました。今はまだ軽く見守るだけで十分です。');
   }
 
   List<dynamic> _lightenItems(
@@ -1633,7 +1975,11 @@ class WeeklyRepository {
       return [
         {
           'name': fallbackName,
-          'summary': '记录还不多，但已经能看见一个开始重复的方向。',
+          'summary': _copy(
+              en: 'There are not many records yet, but one direction is beginning to repeat.',
+              zhHans: '记录还不多，但已经能看见一个开始重复的方向。',
+              zhHant: '記錄還不多，但已經能看見一個開始重複的方向。',
+              ja: '記録はまだ多くありませんが、繰り返し始めた方向が見えています。'),
           'illustration_hint': _deriveWeeklyIllustrationHint(fallbackName),
         },
       ];
@@ -1642,7 +1988,12 @@ class WeeklyRepository {
     return items.take(2).map((item) {
       if (item is Map<String, dynamic>) {
         final name = (item['name'] as String?) ?? fallbackName;
-        final summary = (item['summary'] as String?) ?? '线索已经出现了，但还不适合下太重的判断。';
+        final summary = (item['summary'] as String?) ??
+            _copy(
+                en: 'A Signal has appeared, but it is too early for a strong conclusion.',
+                zhHans: 'Signal 已经出现了，但还不适合下太重的判断。',
+                zhHant: 'Signal 已經出現，但還不適合下太重的判斷。',
+                ja: 'Signal は現れていますが、強い結論を出すにはまだ早い段階です。');
         return {
           ...item,
           'name': name,
@@ -1659,7 +2010,13 @@ class WeeklyRepository {
       if (item is Map) {
         final normalized = item.map((key, value) => MapEntry('$key', value));
         final name = item['name']?.toString() ?? fallbackName;
-        final summary = item['summary']?.toString() ?? '线索已经出现了，但还不适合下太重的判断。';
+        final summary = item['summary']?.toString() ??
+            _copy(
+              en: 'A Signal has appeared, but it is too early for a strong conclusion.',
+              zhHans: 'Signal 已经出现了，但还不适合下太重的判断。',
+              zhHant: 'Signal 已經出現，但還不適合下太重的判斷。',
+              ja: 'Signal は現れていますが、強い結論を出すにはまだ早い段階です。',
+            );
         return {
           ...normalized,
           'name': name,
@@ -1675,11 +2032,30 @@ class WeeklyRepository {
       }
       return {
         'name': fallbackName,
-        'summary': '线索已经出现了，但还不适合下太重的判断。',
+        'summary': _copy(
+          en: 'A Signal has appeared, but it is too early for a strong conclusion.',
+          zhHans: 'Signal 已经出现了，但还不适合下太重的判断。',
+          zhHant: 'Signal 已經出現，但還不適合下太重的判斷。',
+          ja: 'Signal は現れていますが、強い結論を出すにはまだ早い段階です。',
+        ),
         'illustration_hint': _deriveWeeklyIllustrationHint(fallbackName),
       };
     }).toList();
   }
+
+  String _copy({
+    required String en,
+    required String zhHans,
+    required String zhHant,
+    required String ja,
+  }) =>
+      RuntimeLocaleText.tr(
+        language: aiRepository.languageLoader(),
+        en: en,
+        zhHans: zhHans,
+        zhHant: zhHant,
+        ja: ja,
+      );
 
   List<dynamic> _oneItem(
     List<dynamic> items, {
@@ -1825,7 +2201,12 @@ class WeeklyRepository {
   String _softExperimentText(String? input) {
     final trimmed = input?.trim();
     if (trimmed == null || trimmed.isEmpty) {
-      return '下周可以先试一个生活小实验目标：同类场景出现时，只补一句它发生在哪里。';
+      return _copy(
+        en: 'Next week, try one small step: when a similar situation returns, add one line about where it happened.',
+        zhHans: '下周可以先试一个生活小实验目标：同类场景出现时，只补一句它发生在哪里。',
+        zhHant: '下週可以先試一個生活小實驗目標：同類情境出現時，只補一句它發生在哪裡。',
+        ja: '来週は小さな一歩を試しましょう。同じような場面が起きたら、どこで起きたかを一言残します。',
+      );
     }
 
     return trimmed
@@ -1846,7 +2227,14 @@ class WeeklyRepository {
   }
 
   String _resolvePeakDay(Map<String, int> dayCounts) {
-    if (dayCounts.isEmpty) return '这周';
+    if (dayCounts.isEmpty) {
+      return _copy(
+        en: 'this week',
+        zhHans: '这周',
+        zhHant: '這週',
+        ja: '今週',
+      );
+    }
     final entries = dayCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     return entries.first.key;

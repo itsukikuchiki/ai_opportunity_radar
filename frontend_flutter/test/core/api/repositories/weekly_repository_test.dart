@@ -711,6 +711,40 @@ void main() {
       await harness.close();
     });
 
+    test('11d) Weekly Signal entries 透傳顯式關注領域', () async {
+      final recordingAi = RecordingWeeklyAiRepository();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: recordingAi,
+        installationDate: _testNow.subtract(const Duration(days: 7)),
+      );
+
+      await harness.seedSignalCard(
+        id: 'traditional-domain-signal',
+        content: '任務切換後留兩分鐘緩衝。',
+        createdAt: _testNow,
+        rawPayloadJson: const {
+          'focus_domain_id': 'emotional_stability',
+        },
+      );
+      await harness.seedReadinessFillers(2);
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+      final rawEntries =
+          weekly.opportunitySnapshot?['_weekly_signal_entries'] as List;
+      final signalEntry = rawEntries.whereType<Map>().firstWhere(
+            (entry) => entry['signal_card_id'] == 'traditional-domain-signal',
+          );
+      final aiEntry = recordingAi.lastEntries.firstWhere(
+        (entry) => entry['signal_card_id'] == 'traditional-domain-signal',
+      );
+
+      expect(signalEntry['focus_domain_id'], 'emotional_stability');
+      expect(aiEntry['focus_domain_id'], 'emotional_stability');
+
+      await harness.close();
+    });
+
     test('12) Weekly 输出只保留一个 pattern 和一个小实验', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
@@ -1019,7 +1053,11 @@ void main() {
       expect(feedbackRows.single.feedbackText, 'Not helpful this time');
 
       final skipped = await harness.repository.skipLifeExperiment(saved.id);
-      expect(skipped?.status, 'skipped');
+      expect(skipped, isNull);
+      expect(
+        (await harness.localLifeExperimentRepository.getById(saved.id))?.status,
+        'active',
+      );
 
       await harness.close();
     });
@@ -1340,9 +1378,50 @@ void main() {
         weekly.behaviorPatterns.every(
           (pattern) =>
               pattern.sourceSignalCardIds.length >= 2 &&
-              pattern.supportDates.length >= 2,
+              pattern.supportDates.length >= 2 &&
+              pattern.summary.trim().isNotEmpty &&
+              !pattern.summary.startsWith('来自 '),
         ),
         isTrue,
+      );
+      await harness.close();
+    });
+
+    test('繁中上週回看不殘留簡體生成文案', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeWeeklyAiRepository(language: 'zh-Hant'),
+        installationDate: _testNow.subtract(const Duration(days: 30)),
+      );
+      await harness.seedSignalCard(
+        id: 'previous_hant_one',
+        content: '上週只有一條記錄',
+        createdAt: DateTime(2026, 7, 1, 9),
+        userConfirmation: 'accurate',
+      );
+      for (var offset = 0; offset < 3; offset++) {
+        await harness.seedSignalCard(
+          id: 'current_hant_$offset',
+          content: '本週工作中反覆切換',
+          createdAt: DateTime(2026, 7, 6 + offset, 9),
+          userConfirmation: 'accurate',
+        );
+      }
+
+      final weekly = await harness.repository.fetchCurrentWeekly();
+
+      expect(
+        weekly.previousWeekSummary?.factualSummary,
+        '上週記錄了 1 條 Signal，分布在 1 天。',
+      );
+      expect(
+        weekly.previousWeekSummary?.thisWeekWatchpoint,
+        '本週可留意：記錄還少，先繼續觀察。',
+      );
+      expect(
+        '${weekly.previousWeekSummary?.factualSummary}'
+        '${weekly.previousWeekSummary?.thisWeekWatchpoint}',
+        isNot(anyOf(contains('上周'), contains('记录'), contains('继续'))),
       );
       await harness.close();
     });
@@ -1436,14 +1515,16 @@ void main() {
         patterns.every(
           (pattern) =>
               pattern.sourceSignalCardIds.length >= 2 &&
-              pattern.supportDates.length >= 2,
+              pattern.supportDates.length >= 2 &&
+              pattern.summary.trim().isNotEmpty &&
+              !pattern.summary.startsWith('来自 '),
         ),
         isTrue,
       );
       await harness.close();
     });
 
-    test('行为模式缺少跨日依据时不生成场景差异、顺序或取舍', () async {
+    test('单纯场景或反应即使重复，也不冒充具体行为模式', () async {
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeWeeklyAiRepository(),
@@ -1467,14 +1548,117 @@ void main() {
         energyLoad: 'ease',
         userConfirmation: 'accurate',
       );
+      await harness.seedSignalCard(
+        id: 'scene-only-day-one',
+        content: '工作记录一',
+        createdAt: DateTime(2026, 7, 7, 9),
+        scene: '工作',
+        friction: '',
+        energyLoad: 'steady',
+        userConfirmation: 'accurate',
+      );
+      await harness.seedSignalCard(
+        id: 'scene-only-day-two',
+        content: '工作记录二',
+        createdAt: DateTime(2026, 7, 8, 9),
+        scene: '工作',
+        friction: '',
+        energyLoad: 'steady',
+        userConfirmation: 'accurate',
+      );
+      await harness.seedSignalCard(
+        id: 'response-only-day-one',
+        content: '出现同一种反应',
+        createdAt: DateTime(2026, 7, 7, 10),
+        scene: '',
+        friction: '身体紧绷',
+        energyLoad: 'draining',
+        userConfirmation: 'accurate',
+      );
+      await harness.seedSignalCard(
+        id: 'response-only-day-two',
+        content: '再次出现同一种反应',
+        createdAt: DateTime(2026, 7, 8, 10),
+        scene: '',
+        friction: '身体紧绷',
+        energyLoad: 'draining',
+        userConfirmation: 'accurate',
+      );
 
       final weekly = await harness.repository.fetchCurrentWeekly();
-      const derivedKinds = {'context_difference', 'sequence', 'tradeoff'};
       expect(
-        weekly.behaviorPatterns
-            .where((pattern) => derivedKinds.contains(pattern.kind)),
+        weekly.behaviorPatterns.where(
+          (pattern) => pattern.kind == 'context' || pattern.kind == 'response',
+        ),
         isEmpty,
       );
+      await harness.close();
+    });
+
+    test('Where it appeared 与能量柱只跟随底层真实 Signal 变化', () async {
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: StaticChartWeeklyAiRepository(),
+        installationDate: _testNow.subtract(const Duration(days: 30)),
+      );
+      await harness.seedSignalCard(
+        id: 'chart_monday',
+        content: '周一真实记录',
+        createdAt: DateTime(2026, 7, 6, 9),
+        energyLoad: 'draining',
+        userConfirmation: 'accurate',
+      );
+      await harness.seedSignalCard(
+        id: 'chart_tuesday',
+        content: '周二真实记录',
+        createdAt: DateTime(2026, 7, 7, 9),
+        energyLoad: 'ease',
+        userConfirmation: 'accurate',
+      );
+      await harness.seedSignalCard(
+        id: 'chart_wednesday',
+        content: '周三真实记录',
+        createdAt: DateTime(2026, 7, 8, 9),
+        energyLoad: 'recovery',
+        userConfirmation: 'accurate',
+      );
+
+      final first = await harness.repository.fetchCurrentWeekly();
+      final firstChart = {
+        for (final point in first.chartData) point.date: point.signalCount,
+      };
+      final firstEnergySequence = first.energyProjection!.days
+          .map((day) => day.signalCount)
+          .toList(growable: false);
+
+      expect(firstChart, {
+        '2026-07-06': 1,
+        '2026-07-07': 1,
+        '2026-07-08': 1,
+      });
+      expect(firstChart.values, isNot(contains(99)));
+      expect(firstEnergySequence, [1, 1, 1, 0, 0, 0, 0]);
+
+      await harness.seedSignalCard(
+        id: 'chart_monday_second',
+        content: '周一新增的第二条真实记录',
+        createdAt: DateTime(2026, 7, 6, 10),
+        energyLoad: 'steady',
+        userConfirmation: 'accurate',
+      );
+      final second = await harness.repository.fetchCurrentWeekly();
+      final secondChart = {
+        for (final point in second.chartData) point.date: point.signalCount,
+      };
+      final secondEnergySequence = second.energyProjection!.days
+          .map((day) => day.signalCount)
+          .toList(growable: false);
+
+      expect(secondChart['2026-07-06'], 2);
+      expect(secondChart.values, isNot(contains(99)));
+      expect(secondChart, isNot(firstChart));
+      expect(secondEnergySequence, [2, 1, 1, 0, 0, 0, 0]);
+      expect(secondEnergySequence, isNot(firstEnergySequence));
       await harness.close();
     });
 
@@ -1810,12 +1994,13 @@ Future<_Harness> _createHarness({
 }
 
 class FakeWeeklyAiRepository extends AiRepository {
-  FakeWeeklyAiRepository()
+  FakeWeeklyAiRepository({String language = 'zh-Hans'})
       : super(
           ApiClient(
             baseUrl: 'https://example.invalid',
             userId: 'test-user',
           ),
+          languageLoader: () => language,
         );
 
   @override
@@ -1896,6 +2081,47 @@ class CountingWeeklyAiRepository extends FakeWeeklyAiRepository {
       dayCounts: dayCounts,
       topTokens: topTokens,
       focusArea: focusArea,
+    );
+  }
+}
+
+class StaticChartWeeklyAiRepository extends FakeWeeklyAiRepository {
+  @override
+  Future<WeeklyInsightModel> generateWeeklySummary({
+    required String weekStart,
+    required String weekEnd,
+    required List<Map<String, dynamic>> entries,
+    required Map<String, int> dayCounts,
+    required List<String> topTokens,
+    String? focusArea,
+  }) async {
+    final generated = await super.generateWeeklySummary(
+      weekStart: weekStart,
+      weekEnd: weekEnd,
+      entries: entries,
+      dayCounts: dayCounts,
+      topTokens: topTokens,
+      focusArea: focusArea,
+    );
+    return WeeklyInsightModel(
+      weekStart: generated.weekStart,
+      weekEnd: generated.weekEnd,
+      status: generated.status,
+      keyInsight: generated.keyInsight,
+      patterns: generated.patterns,
+      frictions: generated.frictions,
+      bestAction: generated.bestAction,
+      opportunitySnapshot: generated.opportunitySnapshot,
+      feedbackSubmitted: generated.feedbackSubmitted,
+      chartData: const [
+        WeeklyChartPointModel(
+          date: '2026-07-06',
+          signalCount: 99,
+          moodScore: 1,
+          frictionScore: 1,
+          hasPositiveSignal: true,
+        ),
+      ],
     );
   }
 }

@@ -1,6 +1,9 @@
+import 'dart:ui' as ui;
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../eligibility/signal_eligibility_service.dart';
+import '../../i18n/app_locale_text.dart';
 import '../../local/local_capture_repository.dart';
 import '../../local/local_monthly_snapshot_repository.dart';
 import '../../models/monthly_models.dart';
@@ -10,6 +13,7 @@ import 'ai_repository.dart';
 
 typedef MonthlyFocusAreaLoader = Future<String?> Function();
 typedef MonthlyInstallationDateLoader = Future<DateTime> Function();
+typedef MonthlyLanguageLoader = AppLanguage Function();
 
 class MonthlyRepository {
   final LocalCaptureRepository localCaptureRepository;
@@ -17,6 +21,7 @@ class MonthlyRepository {
   final AiRepository aiRepository;
   final MonthlyFocusAreaLoader? focusAreaLoader;
   final MonthlyInstallationDateLoader? installationDateLoader;
+  final MonthlyLanguageLoader? languageLoader;
   final SignalEligibilityService eligibilityService;
 
   MonthlyRepository({
@@ -25,11 +30,13 @@ class MonthlyRepository {
     required this.aiRepository,
     this.focusAreaLoader,
     this.installationDateLoader,
+    this.languageLoader,
     SignalEligibilityService? eligibilityService,
   }) : eligibilityService =
             eligibilityService ?? const SignalEligibilityService();
 
   Future<MonthlyReviewModel> fetchCurrentMonthly() async {
+    final language = _readLanguage();
     final installationDate = await _readOrCreateInstallationDate();
     final today = _dateOnly(DateTime.now());
 
@@ -64,9 +71,12 @@ class MonthlyRepository {
       );
     }
 
-    final stats = _buildMonthlyStats(monthSignals);
+    final stats = _buildMonthlyStats(monthSignals, language: language);
     final sourceHash = localMonthlySnapshotRepository.buildSourceHash(
-      entries: stats.entries,
+      entries: [
+        ...stats.entries,
+        {'_display_language': _languageCode(language)},
+      ],
       weekCounts: stats.weekCounts,
       topTokens: stats.topTokens,
     );
@@ -97,10 +107,23 @@ class MonthlyRepository {
         generated: generated,
         range: range,
       );
+      if (!_monthlyMatchesLanguage(
+        generated,
+        language: language,
+        sourceEntries: stats.entries,
+        sourceTokens: stats.topTokens,
+      )) {
+        generated = _buildFallbackMonthlyReview(
+          range: range,
+          stats: stats,
+          language: language,
+        );
+      }
     } catch (_) {
       generated = _buildFallbackMonthlyReview(
         range: range,
         stats: stats,
+        language: language,
       );
     }
 
@@ -112,7 +135,10 @@ class MonthlyRepository {
     return generated;
   }
 
-  _MonthlyStats _buildMonthlyStats(List<RecentSignalModel> signals) {
+  _MonthlyStats _buildMonthlyStats(
+    List<RecentSignalModel> signals, {
+    required AppLanguage language,
+  }) {
     final entries = <Map<String, dynamic>>[];
     final tokenCounts = <String, int>{};
     final weekCounts = <String, int>{};
@@ -145,7 +171,7 @@ class MonthlyRepository {
         }
       }
 
-      final weekLabel = _weekLabelInMonth(createdAt);
+      final weekLabel = _weekLabelInMonth(createdAt, language);
       weekCounts[weekLabel] = (weekCounts[weekLabel] ?? 0) + 1;
     }
 
@@ -235,8 +261,17 @@ class MonthlyRepository {
   MonthlyReviewModel _buildFallbackMonthlyReview({
     required _MonthRange range,
     required _MonthlyStats stats,
+    required AppLanguage language,
   }) {
-    final topToken = stats.topTokens.isEmpty ? '这个月的记录' : stats.topTokens.first;
+    final topToken = stats.topTokens.isEmpty
+        ? _copy(
+            language,
+            en: 'this month’s entries',
+            zhHans: '这个月的记录',
+            zhHant: '這個月的記錄',
+            ja: '今月の記録',
+          )
+        : stats.topTokens.first;
 
     final bridgeItems = stats.weekCounts.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
@@ -245,31 +280,151 @@ class MonthlyRepository {
       monthStart: _dateKey(range.start),
       monthEnd: _dateKey(range.end),
       status: 'ready',
-      monthlySummary: '这个月反复回来的主题更接近“$topToken”，说明它已经不是零散的小片段了。',
-      repeatedThemes: stats.topTokens.take(3).map((e) => '“$e” 重复出现。').toList(),
-      improvingSignals: const [
-        '有些恢复方式正在慢慢变得更稳定。',
+      monthlySummary: _copy(
+        language,
+        en: '“$topToken” kept returning this month, so it is becoming more than an isolated moment.',
+        zhHans: '这个月反复回来的主题更接近“$topToken”，说明它已经不是零散的小片段了。',
+        zhHant: '這個月反覆出現的主題更接近「$topToken」，表示它已不只是零散片段。',
+        ja: '今月は「$topToken」が繰り返し現れ、単発の出来事ではなくなりつつあります。',
+      ),
+      repeatedThemes: stats.topTokens
+          .take(3)
+          .map(
+            (e) => _copy(
+              language,
+              en: '“$e” appeared repeatedly.',
+              zhHans: '“$e” 重复出现。',
+              zhHant: '「$e」反覆出現。',
+              ja: '「$e」が繰り返し現れました。',
+            ),
+          )
+          .toList(),
+      improvingSignals: [
+        _copy(
+          language,
+          en: 'Some ways of recovering are gradually becoming more stable.',
+          zhHans: '有些恢复方式正在慢慢变得更稳定。',
+          zhHant: '有些恢復方式正逐漸變得更穩定。',
+          ja: 'いくつかの回復方法が少しずつ安定してきています。',
+        ),
       ],
-      unresolvedPoints: const [
-        '高消耗场景还没有被完全拆开。',
+      unresolvedPoints: [
+        _copy(
+          language,
+          en: 'High-load situations have not been fully separated yet.',
+          zhHans: '高消耗场景还没有被完全拆开。',
+          zhHant: '高消耗情境還沒有被完全拆開。',
+          ja: '負担の大きい場面は、まだ十分に切り分けられていません。',
+        ),
       ],
-      nextMonthWatch: '下个月先继续看，哪类场景最容易触发第一下消耗。',
+      nextMonthWatch: _copy(
+        language,
+        en: 'Next month, keep watching which situations tend to trigger the first rise in load.',
+        zhHans: '下个月先继续看，哪类场景最容易触发第一下消耗。',
+        zhHant: '下個月先繼續觀察，哪類情境最容易引發最初的消耗。',
+        ja: '来月は、どの場面で最初の負担が生まれやすいかを見ていきましょう。',
+      ),
       weeklyBridges: bridgeItems.isEmpty
-          ? const [
+          ? [
               MonthlyBridgeWeekModel(
-                label: 'Week 1',
-                summary: '这个月已经开始形成可继续追踪的主题。',
+                label: _weekLabel(1, language),
+                summary: _copy(
+                  language,
+                  en: 'A theme worth continuing to follow has begun to form.',
+                  zhHans: '这个月已经开始形成可继续追踪的主题。',
+                  zhHant: '這個月已開始形成值得持續追蹤的主題。',
+                  ja: '今月は、引き続き見ていけるテーマが形になり始めています。',
+                ),
               ),
             ]
           : bridgeItems
               .map(
                 (e) => MonthlyBridgeWeekModel(
                   label: e.key,
-                  summary: '${e.value} entries landed here.',
+                  summary: _copy(
+                    language,
+                    en: '${e.value} Signal entries were recorded.',
+                    zhHans: '记录了 ${e.value} 条 Signal。',
+                    zhHant: '記錄了 ${e.value} 條 Signal。',
+                    ja: '${e.value}件のSignalを記録しました。',
+                  ),
                 ),
               )
               .toList(),
     );
+  }
+
+  bool _monthlyMatchesLanguage(
+    MonthlyReviewModel monthly, {
+    required AppLanguage language,
+    required List<Map<String, dynamic>> sourceEntries,
+    required List<String> sourceTokens,
+  }) {
+    final generated = <String>[
+      monthly.monthlySummary ?? '',
+      ...monthly.repeatedThemes,
+      ...monthly.improvingSignals,
+      ...monthly.unresolvedPoints,
+      monthly.nextMonthWatch ?? '',
+      ...monthly.weeklyBridges.expand((e) => [e.label, e.summary]),
+    ].join(' ');
+    final generatedProse = <String>[
+      monthly.monthlySummary ?? '',
+      monthly.nextMonthWatch ?? '',
+      ...monthly.weeklyBridges.map((e) => e.summary),
+    ].where((value) => value.trim().isNotEmpty).toList(growable: false);
+    final sourceText = <String>[
+      ...sourceTokens,
+      ...sourceEntries.map((e) => (e['content'] as String?) ?? ''),
+    ];
+    final generatedOnly = _withoutSourceText(generated, sourceText);
+    if (!_matchesDisplayLanguage(generatedOnly, language)) return false;
+    if (language != AppLanguage.japanese) return true;
+    if (RegExp(r'[这们么还没为个录复续觉验這們麼還沒]').hasMatch(generatedOnly)) {
+      return false;
+    }
+    return generatedProse.isNotEmpty &&
+        generatedProse.every(
+          (value) => RegExp(r'[\u3040-\u30ff]').hasMatch(value),
+        );
+  }
+
+  String _withoutSourceText(String generated, List<String> sourceText) {
+    var value = generated;
+    final sorted = sourceText
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    for (final source in sorted) {
+      value = value.replaceAll(source, '');
+    }
+    return value;
+  }
+
+  bool _matchesDisplayLanguage(String value, AppLanguage language) {
+    final hasHan = RegExp(r'[\u3400-\u9fff]').hasMatch(value);
+    final hasKana = RegExp(r'[\u3040-\u30ff]').hasMatch(value);
+    final hasSimplifiedOnly = RegExp(
+      r'[这复个让还会条录续变为进关现发后开门问时与类场稳观]',
+    ).hasMatch(value);
+    final hasTraditionalOnly = RegExp(
+      r'[這復個裡讓還會條錄續變為進關現發後開門問時與類場穩觀]',
+    ).hasMatch(value);
+    final withoutAllowedEnglish =
+        value.replaceAll('Signal Path', '').replaceAll('Signal', '');
+    final hasOtherEnglish = RegExp(r'[A-Za-z]').hasMatch(withoutAllowedEnglish);
+
+    return switch (language) {
+      AppLanguage.english =>
+        !hasHan && !hasKana && RegExp(r'[A-Za-z]').hasMatch(value),
+      AppLanguage.japanese => hasKana && !hasOtherEnglish,
+      AppLanguage.simplifiedChinese =>
+        hasHan && !hasKana && !hasTraditionalOnly && !hasOtherEnglish,
+      AppLanguage.traditionalChinese =>
+        hasHan && !hasKana && !hasSimplifiedOnly && !hasOtherEnglish,
+    };
   }
 
   Future<String?> _readFocusArea() async {
@@ -318,10 +473,46 @@ class MonthlyRepository {
     return DateTime(date.year, date.month + 1, 0);
   }
 
-  String _weekLabelInMonth(DateTime date) {
+  String _weekLabelInMonth(DateTime date, AppLanguage language) {
     final weekIndex = ((date.day - 1) ~/ 7) + 1;
-    return 'Week $weekIndex';
+    return _weekLabel(weekIndex, language);
   }
+
+  String _weekLabel(int weekIndex, AppLanguage language) => _copy(
+        language,
+        en: 'Week $weekIndex',
+        zhHans: '第$weekIndex周',
+        zhHant: '第$weekIndex週',
+        ja: '第$weekIndex週',
+      );
+
+  AppLanguage _readLanguage() {
+    if (languageLoader != null) return languageLoader!();
+    return AppLocaleText.resolveFromLocale(
+      ui.PlatformDispatcher.instance.locale,
+    );
+  }
+
+  String _languageCode(AppLanguage language) => switch (language) {
+        AppLanguage.simplifiedChinese => 'zh-Hans',
+        AppLanguage.traditionalChinese => 'zh-Hant',
+        AppLanguage.japanese => 'ja',
+        AppLanguage.english => 'en',
+      };
+
+  String _copy(
+    AppLanguage language, {
+    required String en,
+    required String zhHans,
+    required String zhHant,
+    required String ja,
+  }) =>
+      switch (language) {
+        AppLanguage.english => en,
+        AppLanguage.simplifiedChinese => zhHans,
+        AppLanguage.traditionalChinese => zhHant,
+        AppLanguage.japanese => ja,
+      };
 
   DateTime _dateOnly(DateTime date) {
     final local = date.toLocal();

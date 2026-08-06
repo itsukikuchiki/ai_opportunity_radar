@@ -35,7 +35,7 @@ class OnboardingLaunchPage extends StatelessWidget {
                       foregroundColor: const Color(0xFF7B8092),
                       textStyle: const TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                     child: Text(
@@ -76,62 +76,28 @@ _OnboardingScene _buildOpeningScene(BuildContext context) {
     step: 0,
     title: AppLocaleText.tr(
       context,
-      en: 'Record life signals',
-      zhHans: '记录生活信号',
-      zhHant: '記錄生活信號',
-      ja: '生活のシグナルを記録',
+      en: 'Start with\none Signal today',
+      zhHans: '今天，留下\n一条 Signal',
+      zhHant: '今天，留下\n一條 Signal',
+      ja: '今日、まず一つの\nSignal を残す',
     ),
     subtitle: AppLocaleText.tr(
       context,
-      en: 'Text, voice, state and confirmed AI predictions all become life signals.',
-      zhHans: '文字、语音、状态与经你确认的 AI 预判，都会成为生活信号。',
-      zhHant: '文字、語音、狀態與經你確認的 AI 預判，都會成為生活信號。',
-      ja: 'テキスト、音声、状態、確認した AI 予測が、暮らしのシグナルになります。',
+      en: 'Use text, voice, state, schedule, or the Signal Library to keep what is happening.\nOnce saved, it enters Today’s timeline. AI responds gently without deciding what it means for you.',
+      zhHans: '用文字、语音、状态、安排或信号库，留下正在发生的事。\n保存后进入今天时间线，智能助手只轻轻接住，不替你下结论。',
+      zhHant: '用文字、語音、狀態、安排或信號庫，留下正在發生的事。\n儲存後進入今天時間線，智能助手只輕輕接住，不替你下結論。',
+      ja: 'テキスト、音声、状態、予定、Signal ライブラリから、今起きていることを残します。\n保存後は今日のタイムラインへ。アシスタントは意味を決めつけず、そっと受け止めます。',
     ),
     footer: AppLocaleText.tr(
       context,
-      en: 'Let scattered feelings become visible signals.',
-      zhHans: '让零散感受，变成可被看见的信号。',
-      zhHant: '讓零散感受，變成可被看見的信號。',
-      ja: '散らばった感覚を、見えるシグナルへ。',
+      en: 'Real Signals slowly reveal your own rhythm.',
+      zhHans: '真实的 Signal，会慢慢连成你自己的生活节奏。',
+      zhHant: '真實的 Signal，會慢慢連成你自己的生活節奏。',
+      ja: '本当の Signal が、少しずつ自分の生活リズムを見せてくれます。',
     ),
-    orbitCards: const [
-      _OrbitCardData(
-        alignment: Alignment(-0.72, -0.08),
-        icon: Icons.chat_bubble_rounded,
-        title: '文字',
-        body: '灵感闪现\n随手记录',
-        color: Color(0xFF8D67F5),
-      ),
-      _OrbitCardData(
-        alignment: Alignment(-0.88, 0.42),
-        icon: Icons.mic_rounded,
-        title: '语音',
-        body: '说下此刻\n的想法',
-        color: Color(0xFF8D67F5),
-      ),
-      _OrbitCardData(
-        alignment: Alignment(-0.58, 0.76),
-        icon: Icons.sentiment_satisfied_alt_rounded,
-        title: '状态',
-        body: '此刻心情\n与感受',
-        color: Color(0xFFF5C966),
-      ),
-      _OrbitCardData(
-        alignment: Alignment(0.72, -0.18),
-        icon: Icons.graphic_eq_rounded,
-        title: '信号库',
-        body: '参考常见\n生活信号',
-        color: Color(0xFF7D6CF4),
-      ),
-      _OrbitCardData(
-        alignment: Alignment(0.8, 0.56),
-        icon: Icons.auto_awesome_rounded,
-        title: 'AI 预判',
-        body: '洞察趋势\n提前感知',
-        color: Color(0xFF5C8DFF),
-      ),
-    ],
+    orbitCards: const [],
+    artworkAsset: 'assets/hero_art/today-signal-points-v1.png',
+    foregroundArtwork: const _TodaySignalDesignPreview(),
   );
 }
 
@@ -205,55 +171,59 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   step: 1,
                   title: AppLocaleText.tr(
                     context,
-                    en: 'See one real pattern each week',
-                    zhHans: '每周看见一个真实模式',
-                    zhHant: '每週看見一個真實模式',
-                    ja: '毎週、ひとつの本当のパターンを見る',
+                    en: 'Turn one week\ninto a next step',
+                    zhHans: '把一周，\n整理成下一步',
+                    zhHant: '把一週，\n整理成下一步',
+                    ja: '一週間を、\n次の一歩に整える',
                   ),
                   subtitle: AppLocaleText.tr(
                     context,
-                    en: 'Weekly finds one pattern and suggests one goal. Once adopted, Life Experiment keeps its daily practice, real feedback, and adjustments.',
-                    zhHans: '每周复盘从本周信号里看见一个模式，提出一个下周目标。\n生活小实验保存每日做法、真实反馈与调整。',
-                    zhHant: '每週回顧從本週信號裡看見一個模式，提出一個下週目標。\n生活小實驗保存每日做法、真實回饋與調整。',
-                    ja: '週間レビューは今週のパターンから目標を提案し、生活実験が毎日の取り組み、反応、調整を残します。',
+                    en: 'Weekly Review brings together this week’s Signals, behavior patterns, and real experiment feedback.\nThen it offers Spot Tries and goals for next week. You decide what to adopt.',
+                    zhHans:
+                        '每周复盘把本周 Signal、行为模式和真实尝试反馈整理在一起。\n再给出下周可选择的小实验与目标，由你决定是否采纳。',
+                    zhHant:
+                        '每週復盤把本週 Signal、行為模式和真實嘗試回饋整理在一起。\n再給出下週可選擇的小實驗與目標，由你決定是否採納。',
+                    ja: '毎週の振り返りで、今週の Signal、行動パターン、実際の試行の反応を一緒に整理します。\n来週の小さな実験と目標は、自分で採用するか決められます。',
                   ),
                   footer: AppLocaleText.tr(
                     context,
-                    en: 'Weekly proposes goals; Life Experiment remembers what truly helps.',
-                    zhHans: '每周复盘负责提出目标。\n生活小实验负责记住什么真正有效。',
-                    zhHant: '每週回顧負責提出目標。\n生活小實驗負責記住什麼真正有效。',
-                    ja: '週間レビューが目標を提案し、生活実験が本当に役立つ方法を残します。',
+                    en: 'A Spot Try is something you can start right away. A goal uses feedback across days or weeks to observe change.',
+                    zhHans: '小实验是现在就能开始的简单尝试；目标通过跨天或跨周的反馈观察变化。',
+                    zhHant: '小實驗是現在就能開始的簡單嘗試；目標透過跨天或跨週的回饋觀察變化。',
+                    ja: '小実験は、今すぐ始められるスポットトライです。目標は、数日から数週間の反応を通して変化を見ます。',
                   ),
                   orbitCards: const [],
-                  foregroundArtwork: const _WeeklyDesignPreview(),
+                  artworkAsset: 'assets/hero_art/weekly-review-network-v1.png',
+                  foregroundArtwork: const _WeeklyFlowDesignPreview(),
                 ),
                 _OnboardingScene(
                   step: 2,
                   title: AppLocaleText.tr(
                     context,
-                    en: 'See the longer path taking shape',
-                    zhHans: '看见更长的生活轨迹',
-                    zhHant: '看見更長的生活軌跡',
-                    ja: 'より長い暮らしの軌跡を見る',
+                    en: 'See how life\nslowly changes',
+                    zhHans: '看见生活，\n怎样慢慢变化',
+                    zhHant: '看見生活，\n怎樣慢慢變化',
+                    ja: '生活が少しずつ\n変わる様子を見る',
                   ),
                   subtitle: AppLocaleText.tr(
                     context,
-                    en: 'Journey connects monthly observations and Signals into a long-term path. Pro L3 Reflect reads core insights and pattern links one layer deeper.',
+                    en: 'Journey organizes this month’s facts, theme changes, and a gentle look back into a path you have already walked.\nPro unlocks every month since you started using Signal Path and the longer changes across them.',
                     zhHans:
-                        '旅程把本月观察与 Signal 连成长期轨迹。\n深度分析会进一步拆解核心洞察、模式联系与调整方向。',
+                        '旅程用当月事实、主题变化和温柔回顾，整理已经走过的路径。\n专业版可查看使用 Signal Path 以来的历史月份与长期变化。',
                     zhHant:
-                        '旅程把本月觀察與 Signal 連成長期軌跡。\n深度分析會進一步拆解核心洞察、模式聯繫與調整方向。',
-                    ja: 'Journey は月ごとの観察と Signal を長期の軌跡につなぎ、Pro の L3 Reflect は関係をもう一段深く読みます。',
+                        '旅程用當月事實、主題變化和溫柔回顧，整理已經走過的路徑。\n專業版可查看使用 Signal Path 以來的歷史月份與長期變化。',
+                    ja: '旅程は今月の事実、テーマの変化、やさしい振り返りから、歩いてきた道を整えます。\nプロ版では Signal Path を始めてからの全ての月と長期的な変化を見られます。',
                   ),
                   footer: AppLocaleText.tr(
                     context,
-                    en: 'Every long-term observation can return to real signals and feedback.',
-                    zhHans: '每一条长期观察，都能回到真实信号与反馈。',
-                    zhHant: '每一條長期觀察，都能回到真實信號與回饋。',
-                    ja: '長期の観察は、いつでも実際のシグナルと反応に戻れます。',
+                    en: 'It is not a score for your life. It simply makes change easier to trace.',
+                    zhHans: '不是给生活打分，而是让变化有迹可循。',
+                    zhHant: '不是給生活打分，而是讓變化有跡可循。',
+                    ja: '暮らしを採点するのではなく、変化の跡を見つけやすくします。',
                   ),
                   orbitCards: const [],
-                  foregroundArtwork: const _JourneyProDesignPreview(),
+                  artworkAsset: 'assets/hero_art/journey-ring-path-v1.png',
+                  foregroundArtwork: const _JourneyTimelineDesignPreview(),
                 ),
                 _PreferenceScene(
                   selectedIds: vm.selectedFocusDomainIds,
@@ -284,7 +254,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     foregroundColor: const Color(0xFF7B8092),
                     textStyle: const TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                   child: Text(
@@ -324,6 +294,7 @@ class _OnboardingScene extends StatelessWidget {
   final String subtitle;
   final String footer;
   final List<_OrbitCardData> orbitCards;
+  final String? artworkAsset;
   final Widget? foregroundArtwork;
 
   const _OnboardingScene({
@@ -333,119 +304,143 @@ class _OnboardingScene extends StatelessWidget {
     required this.subtitle,
     required this.footer,
     required this.orbitCards,
+    this.artworkAsset,
     this.foregroundArtwork,
   });
 
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.sizeOf(context);
-    final compact = media.height < 720;
 
     return _AuroraOnboardingBackground(
       child: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            28,
-            compact ? 24 : 78,
-            28,
-            compact ? 56 : 72,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _GradientTitle(title, fontSize: compact ? 33 : 40),
-              SizedBox(height: compact ? 12 : 18),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  color: const Color(0xFF697083),
-                  fontSize: compact ? 16 : 21,
-                  height: 1.38,
-                  fontWeight: FontWeight.w400,
-                  letterSpacing: 0,
-                ),
+        child: LayoutBuilder(
+          builder: (context, viewport) {
+            final compact = viewport.maxHeight < 760;
+            final topPadding = compact ? 48.0 : 70.0;
+            final bottomPadding = compact ? 56.0 : 68.0;
+            final previewHeight = compact ? 280.0 : 360.0;
+            final minimumContentHeight = math.max(
+              0.0,
+              viewport.maxHeight - topPadding - bottomPadding,
+            );
+
+            // Longer translations and accessibility text should stay complete.
+            // A regular phone still shows one composed scene; when the copy
+            // genuinely needs more room, the page can be read vertically.
+            return SingleChildScrollView(
+              key: ValueKey('onboarding-scroll-scene-$step'),
+              physics: const BouncingScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                28,
+                topPadding,
+                28,
+                bottomPadding,
               ),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final pathWidth = math.min(
-                      media.width * (compact ? 0.7 : 0.74),
-                      constraints.maxHeight * 0.82,
-                    );
-                    final cardScale = media.width < 390
-                        ? 0.78
-                        : (media.width < 430 ? 0.84 : 0.9);
-                    final usesBrandBackdrop = step == 0;
-                    final artworkWidth =
-                        usesBrandBackdrop || foregroundArtwork != null
-                            ? pathWidth * 1.22
-                            : pathWidth;
-                    final backgroundKey = switch (step) {
-                      0 => 'onboarding-opening-icon-background',
-                      1 => 'onboarding-weekly-experiment-icon-background',
-                      2 => 'onboarding-journey-pro-icon-background',
-                      _ => 'onboarding-icon-background-$step',
-                    };
-                    return Stack(
-                      clipBehavior: Clip.hardEdge,
-                      children: [
-                        Align(
-                          alignment: compact
-                              ? const Alignment(0, 0.02)
-                              : const Alignment(0, -0.02),
-                          child: SizedBox(
-                            width: artworkWidth,
-                            height: usesBrandBackdrop
-                                ? artworkWidth
-                                : pathWidth * 1.12,
-                            child: Stack(
-                              fit: StackFit.expand,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: minimumContentHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _GradientTitle(title, fontSize: compact ? 33 : 40),
+                      SizedBox(height: compact ? 12 : 18),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          color: const Color(0xFF697083),
+                          fontSize: compact ? 16 : 21,
+                          height: 1.38,
+                          fontWeight: FontWeight.w400,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                      SizedBox(height: compact ? 8 : 12),
+                      SizedBox(
+                        height: previewHeight,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final pathWidth = math.min(
+                              media.width * (compact ? 0.7 : 0.74),
+                              constraints.maxHeight * 0.82,
+                            );
+                            final cardScale = media.width < 390
+                                ? 0.78
+                                : (media.width < 430 ? 0.84 : 0.9);
+                            final artworkWidth = foregroundArtwork != null
+                                ? pathWidth * 1.22
+                                : pathWidth;
+                            final backgroundKey = switch (step) {
+                              0 => 'onboarding-opening-icon-background',
+                              1 =>
+                                'onboarding-weekly-experiment-icon-background',
+                              2 => 'onboarding-journey-pro-icon-background',
+                              _ => 'onboarding-icon-background-$step',
+                            };
+                            return Stack(
+                              clipBehavior: Clip.hardEdge,
                               children: [
-                                if (usesBrandBackdrop ||
-                                    foregroundArtwork != null)
-                                  _BrandIconBackdrop(
-                                    imageKey: backgroundKey,
-                                    opacity: step == 0 ? 0.5 : 0.22,
-                                  ),
-                                CustomPaint(
-                                  painter: _SignalPathPainter(
-                                    phase: step,
-                                    minimal: false,
+                                Align(
+                                  alignment: compact
+                                      ? const Alignment(0, 0.02)
+                                      : const Alignment(0, -0.02),
+                                  child: SizedBox(
+                                    width: artworkWidth,
+                                    height: pathWidth * 1.12,
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        if (artworkAsset != null)
+                                          _SemanticArtworkBackdrop(
+                                            imageKey: backgroundKey,
+                                            asset: artworkAsset!,
+                                          ),
+                                        if (artworkAsset == null)
+                                          CustomPaint(
+                                            painter: _SignalPathPainter(
+                                              phase: step,
+                                              minimal: false,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ),
                                 ),
+                                if (foregroundArtwork != null)
+                                  Positioned.fill(child: foregroundArtwork!),
+                                for (final card in orbitCards)
+                                  Align(
+                                    alignment:
+                                        _sceneCardAlignment(card, compact),
+                                    child: Transform.scale(
+                                      scale: cardScale,
+                                      child: _FloatingOrbitCard(data: card),
+                                    ),
+                                  ),
                               ],
-                            ),
+                            );
+                          },
+                        ),
+                      ),
+                      const Spacer(),
+                      Center(
+                        child: Text(
+                          footer,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: const Color(0xFF666B79),
+                            fontSize: compact ? 14.5 : 19,
+                            height: 1.34,
+                            letterSpacing: 0,
                           ),
                         ),
-                        if (foregroundArtwork != null)
-                          Positioned.fill(child: foregroundArtwork!),
-                        for (final card in orbitCards)
-                          Align(
-                            alignment: _sceneCardAlignment(card, compact),
-                            child: Transform.scale(
-                              scale: cardScale,
-                              child: _FloatingOrbitCard(data: card),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-              Center(
-                child: Text(
-                  footer,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: const Color(0xFF666B79),
-                    fontSize: compact ? 14.5 : 19,
-                    height: 1.34,
-                    letterSpacing: 0,
+                      ),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -463,11 +458,9 @@ class _OnboardingScene extends StatelessWidget {
 
 class _BrandIconBackdrop extends StatelessWidget {
   final String imageKey;
-  final double opacity;
 
   const _BrandIconBackdrop({
     required this.imageKey,
-    this.opacity = 0.58,
   });
 
   @override
@@ -499,7 +492,7 @@ class _BrandIconBackdrop extends StatelessWidget {
               stops: [0, 0.68, 1],
             ).createShader(bounds),
             child: Opacity(
-              opacity: opacity,
+              opacity: 0.58,
               child: Image.asset(
                 'assets/brand-icon-display.png',
                 key: ValueKey(imageKey),
@@ -515,6 +508,1082 @@ class _BrandIconBackdrop extends StatelessWidget {
   }
 }
 
+class _SemanticArtworkBackdrop extends StatelessWidget {
+  final String imageKey;
+  final String asset;
+
+  const _SemanticArtworkBackdrop({
+    required this.imageKey,
+    required this.asset,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: ShaderMask(
+        blendMode: BlendMode.dstIn,
+        shaderCallback: (bounds) => const RadialGradient(
+          center: Alignment(0.24, 0),
+          radius: 0.82,
+          colors: [
+            Colors.white,
+            Colors.white,
+            Colors.transparent,
+          ],
+          stops: [0, 0.7, 1],
+        ).createShader(bounds),
+        child: Opacity(
+          opacity: 0.72,
+          child: Image.asset(
+            asset,
+            key: ValueKey(imageKey),
+            fit: BoxFit.cover,
+            alignment: Alignment.centerRight,
+            filterQuality: FilterQuality.high,
+            isAntiAlias: true,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TodaySignalDesignPreview extends StatelessWidget {
+  const _TodaySignalDesignPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    final methods = [
+      (
+        Icons.text_fields_rounded,
+        AppLocaleText.tr(
+          context,
+          en: 'Text',
+          zhHans: '文字',
+          zhHant: '文字',
+          ja: '文字',
+        ),
+        const Color(0xFF7C6CF5),
+      ),
+      (
+        Icons.mic_none_rounded,
+        AppLocaleText.tr(
+          context,
+          en: 'Voice',
+          zhHans: '语音',
+          zhHant: '語音',
+          ja: '音声',
+        ),
+        const Color(0xFFA469F2),
+      ),
+      (
+        Icons.sentiment_satisfied_alt_rounded,
+        AppLocaleText.tr(
+          context,
+          en: 'State',
+          zhHans: '状态',
+          zhHant: '狀態',
+          ja: '状態',
+        ),
+        const Color(0xFFF0B95D),
+      ),
+      (
+        Icons.calendar_today_rounded,
+        AppLocaleText.tr(
+          context,
+          en: 'Schedule',
+          zhHans: '安排',
+          zhHant: '安排',
+          ja: '予定',
+        ),
+        const Color(0xFF5C8DFF),
+      ),
+      (
+        Icons.graphic_eq_rounded,
+        AppLocaleText.tr(
+          context,
+          en: 'Library',
+          zhHans: '信号库',
+          zhHant: '信號庫',
+          ja: 'ライブラリ',
+        ),
+        const Color(0xFF56C9BE),
+      ),
+    ];
+
+    return IgnorePointer(
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(
+            key: const ValueKey('onboarding-today-signal-design-preview'),
+            width: 310,
+            child: _OnboardingPreviewPanel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const _PreviewIcon(
+                        icon: Icons.chat_bubble_rounded,
+                        color: Color(0xFF7767F5),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              AppLocaleText.tr(
+                                context,
+                                en: 'TODAY',
+                                zhHans: '今天',
+                                zhHant: '今天',
+                                ja: '今日',
+                              ),
+                              style: const TextStyle(
+                                color: Color(0xFF7767F5),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            Text(
+                              AppLocaleText.tr(
+                                context,
+                                en: 'How was today?',
+                                zhHans: '今天过得怎么样？',
+                                zhHant: '今天過得怎麼樣？',
+                                ja: '今日はどうでしたか？',
+                              ),
+                              style: const TextStyle(
+                                color: Color(0xFF29334D),
+                                fontSize: 16.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    height: 42,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.68),
+                      borderRadius: BorderRadius.circular(15),
+                      border: Border.all(
+                        color: const Color(0xFF7767F5).withValues(alpha: 0.12),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            AppLocaleText.tr(
+                              context,
+                              en: 'Leave one Signal from today…',
+                              zhHans: '留下一点今天的 Signal…',
+                              zhHant: '留下一點今天的 Signal…',
+                              ja: '今日の Signal を一つ残す…',
+                            ),
+                            style: const TextStyle(
+                              color: Color(0xFF7B8191),
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        const Icon(
+                          Icons.check_circle_rounded,
+                          color: Color(0xFF7767F5),
+                          size: 23,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      for (final method in methods)
+                        _OnboardingMethodChip(
+                          icon: method.$1,
+                          label: method.$2,
+                          color: method.$3,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Divider(
+                          color: Color(0xFFD9D6ED),
+                          height: 1,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          AppLocaleText.tr(
+                            context,
+                            en: 'save as Signal',
+                            zhHans: '保存为 Signal',
+                            zhHant: '儲存為 Signal',
+                            ja: 'Signal として保存',
+                          ),
+                          style: const TextStyle(
+                            color: Color(0xFF7767F5),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const Expanded(
+                        child: Divider(
+                          color: Color(0xFFD9D6ED),
+                          height: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 9),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F2FF).withValues(alpha: 0.78),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFF8B79F5).withValues(alpha: 0.13),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _PreviewSectionLabel(
+                          icon: Icons.schedule_rounded,
+                          text: AppLocaleText.tr(
+                            context,
+                            en: 'Today’s timeline',
+                            zhHans: '今天时间线',
+                            zhHant: '今天時間線',
+                            ja: '今日のタイムライン',
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.auto_awesome_rounded,
+                              color: Color(0xFF6FA0F5),
+                              size: 16,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                AppLocaleText.tr(
+                                  context,
+                                  en: 'I hear you. Let’s leave this moment here first.',
+                                  zhHans: '我听见了，这一刻先留在这里。',
+                                  zhHant: '我聽見了，這一刻先留在這裡。',
+                                  ja: '受け取りました。この瞬間を、まずここに残しましょう。',
+                                ),
+                                style: const TextStyle(
+                                  color: Color(0xFF545E78),
+                                  fontSize: 11,
+                                  height: 1.3,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.auto_awesome_rounded,
+                        color: Color(0xFF6FA0F5),
+                        size: 14,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          AppLocaleText.tr(
+                            context,
+                            en: 'A confirmable AI prediction appears only after a real Signal is saved.',
+                            zhHans: '保存真实 Signal 后，才会出现可确认的智能预判。',
+                            zhHant: '儲存真實 Signal 後，才會出現可確認的智能預判。',
+                            ja: '本当の Signal を保存した後にだけ、確認できるアシスタントの予測が現れます。',
+                          ),
+                          style: const TextStyle(
+                            color: Color(0xFF666F86),
+                            fontSize: 10.5,
+                            height: 1.3,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OnboardingMethodChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _OnboardingMethodChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 49,
+      child: Column(
+        children: [
+          Container(
+            width: 35,
+            height: 35,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF626A80),
+                fontSize: 9.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WeeklyFlowDesignPreview extends StatelessWidget {
+  const _WeeklyFlowDesignPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(
+            key: const ValueKey(
+              'onboarding-weekly-experiment-design-preview',
+            ),
+            width: 310,
+            child: _OnboardingPreviewPanel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const _PreviewIcon(
+                        icon: Icons.calendar_month_rounded,
+                        color: Color(0xFF7767F5),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Text(
+                          AppLocaleText.tr(
+                            context,
+                            en: 'Weekly Review',
+                            zhHans: '每周复盘',
+                            zhHant: '每週復盤',
+                            ja: '毎週の振り返り',
+                          ),
+                          style: const TextStyle(
+                            color: Color(0xFF29334D),
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      _PreviewPill(
+                        label: AppLocaleText.tr(
+                          context,
+                          en: 'This week',
+                          zhHans: '本周',
+                          zhHant: '本週',
+                          ja: '今週',
+                        ),
+                        color: const Color(0xFF7767F5),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _WeeklyFlowStep(
+                          number: '01',
+                          icon: Icons.bubble_chart_rounded,
+                          label: AppLocaleText.tr(
+                            context,
+                            en: 'Signal facts',
+                            zhHans: 'Signal 事实',
+                            zhHant: 'Signal 事實',
+                            ja: 'Signal の事実',
+                          ),
+                          color: const Color(0xFF6B9CF4),
+                        ),
+                      ),
+                      const _PreviewArrow(),
+                      Expanded(
+                        child: _WeeklyFlowStep(
+                          number: '02',
+                          icon: Icons.account_tree_rounded,
+                          label: AppLocaleText.tr(
+                            context,
+                            en: 'Pattern',
+                            zhHans: '行为模式',
+                            zhHant: '行為模式',
+                            ja: '行動パターン',
+                          ),
+                          color: const Color(0xFF8A70F5),
+                        ),
+                      ),
+                      const _PreviewArrow(),
+                      Expanded(
+                        child: _WeeklyFlowStep(
+                          number: '03',
+                          icon: Icons.fact_check_outlined,
+                          label: AppLocaleText.tr(
+                            context,
+                            en: 'Feedback',
+                            zhHans: '尝试反馈',
+                            zhHant: '嘗試回饋',
+                            ja: '試行の反応',
+                          ),
+                          color: const Color(0xFF56BFA7),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 9),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.62),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFF8A70F5).withValues(alpha: 0.14),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.link_rounded,
+                          color: Color(0xFF8A70F5),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            AppLocaleText.tr(
+                              context,
+                              en: 'Back-to-back tasks → more switching → recovery gets squeezed',
+                              zhHans: '任务接得太紧 → 切换变多 → 恢复空间被压缩',
+                              zhHant: '任務接得太緊 → 切換變多 → 恢復空間被壓縮',
+                              ja: '予定が詰まる → 切替が増える → 回復の余白が減る',
+                            ),
+                            style: const TextStyle(
+                              color: Color(0xFF4E5872),
+                              fontSize: 10.5,
+                              height: 1.28,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Choose for next week',
+                      zhHans: '选择下周想继续的方向',
+                      zhHant: '選擇下週想繼續的方向',
+                      ja: '来週続けたい方向を選ぶ',
+                    ),
+                    style: const TextStyle(
+                      color: Color(0xFF343D58),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: _NextWeekChoiceCard(
+                            icon: Icons.spa_rounded,
+                            color: const Color(0xFF55C6A3),
+                            title: AppLocaleText.tr(
+                              context,
+                              en: 'Spot Try',
+                              zhHans: '小实验',
+                              zhHant: '小實驗',
+                              ja: '小さな実験',
+                            ),
+                            body: AppLocaleText.tr(
+                              context,
+                              en: 'Pause for 2 minutes before switching',
+                              zhHans: '切换前停两分钟',
+                              zhHant: '切換前停兩分鐘',
+                              ja: '切替前に2分休む',
+                            ),
+                            note: AppLocaleText.tr(
+                              context,
+                              en: 'Spot Try',
+                              zhHans: '简单尝试',
+                              zhHant: '簡單嘗試',
+                              ja: 'スポットトライ',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _NextWeekChoiceCard(
+                            icon: Icons.flag_rounded,
+                            color: const Color(0xFF668FEF),
+                            title: AppLocaleText.tr(
+                              context,
+                              en: 'Goal',
+                              zhHans: '目标',
+                              zhHant: '目標',
+                              ja: '目標',
+                            ),
+                            body: AppLocaleText.tr(
+                              context,
+                              en: 'Keep one recovery window',
+                              zhHans: '保留一个恢复时段',
+                              zhHant: '保留一個恢復時段',
+                              ja: '回復の時間を一つ残す',
+                            ),
+                            note: AppLocaleText.tr(
+                              context,
+                              en: 'Multi-day feedback',
+                              zhHans: '连续多日反馈',
+                              zhHant: '連續多日回饋',
+                              ja: '複数日の反応',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WeeklyFlowStep extends StatelessWidget {
+  final String number;
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _WeeklyFlowStep({
+    required this.number,
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(13),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                number,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 3),
+              Icon(icon, color: color, size: 13),
+            ],
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF4D5670),
+                fontSize: 9.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NextWeekChoiceCard extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String body;
+  final String note;
+
+  const _NextWeekChoiceCard({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.body,
+    required this.note,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // This is a miniature, non-interactive preview inside the onboarding
+    // illustration. The surrounding title and description retain the user's
+    // text scale; keeping this mock UI at its designed scale prevents long
+    // English labels from being clipped inside the fixed preview card.
+    return MediaQuery.withNoTextScaling(
+      child: Container(
+        padding: const EdgeInsets.all(9),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: 0.17)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 16),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              body,
+              style: const TextStyle(
+                color: Color(0xFF343D58),
+                fontSize: 10.5,
+                height: 1.2,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              note,
+              style: TextStyle(
+                color: color.withValues(alpha: 0.9),
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _JourneyTimelineDesignPreview extends StatelessWidget {
+  const _JourneyTimelineDesignPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(
+            key: const ValueKey('onboarding-journey-pro-design-preview'),
+            width: 310,
+            child: _OnboardingPreviewPanel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const _PreviewIcon(
+                        icon: Icons.route_rounded,
+                        color: Color(0xFF7767F5),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Text(
+                          AppLocaleText.tr(
+                            context,
+                            en: 'Journey · This month',
+                            zhHans: '旅程 · 当月',
+                            zhHant: '旅程 · 當月',
+                            ja: '旅程 · 今月',
+                          ),
+                          style: const TextStyle(
+                            color: Color(0xFF29334D),
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      _JourneyFactTile(
+                        value: '12',
+                        label: AppLocaleText.tr(
+                          context,
+                          en: 'days',
+                          zhHans: '记录日',
+                          zhHant: '記錄日',
+                          ja: '記録日',
+                        ),
+                        color: const Color(0xFF7B6AF5),
+                      ),
+                      const SizedBox(width: 7),
+                      const _JourneyFactTile(
+                        value: '28',
+                        label: 'Signal',
+                        color: Color(0xFF5D98F4),
+                      ),
+                      const SizedBox(width: 7),
+                      _JourneyFactTile(
+                        value: '9',
+                        label: AppLocaleText.tr(
+                          context,
+                          en: 'feedback',
+                          zhHans: '反馈',
+                          zhHant: '回饋',
+                          ja: '反応',
+                        ),
+                        color: const Color(0xFF55C1A4),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 9),
+                  Container(
+                    height: 82,
+                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 7),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFF7767F5).withValues(alpha: 0.13),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          AppLocaleText.tr(
+                            context,
+                            en: 'Theme changes',
+                            zhHans: '主题变化',
+                            zhHant: '主題變化',
+                            ja: 'テーマの変化',
+                          ),
+                          style: const TextStyle(
+                            color: Color(0xFF4A5470),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        const Expanded(
+                          child: CustomPaint(
+                            painter: _JourneyThemeLinePainter(),
+                            size: Size.infinite,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF8EE).withValues(alpha: 0.72),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFFF0BE7E).withValues(alpha: 0.28),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.nights_stay_rounded,
+                          color: Color(0xFF8A71F5),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                AppLocaleText.tr(
+                                  context,
+                                  en: 'A gentle look back',
+                                  zhHans: '温柔回顾',
+                                  zhHant: '溫柔回顧',
+                                  ja: 'やさしい振り返り',
+                                ),
+                                style: const TextStyle(
+                                  color: Color(0xFF4B536B),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                AppLocaleText.tr(
+                                  context,
+                                  en: 'You began leaving more room after busy stretches.',
+                                  zhHans: '忙碌之后，你开始为自己留出更多余地。',
+                                  zhHant: '忙碌之後，你開始為自己留出更多餘地。',
+                                  ja: '忙しさの後に、自分の余白を少しずつ残せるようになりました。',
+                                ),
+                                style: const TextStyle(
+                                  color: Color(0xFF626B80),
+                                  fontSize: 10.5,
+                                  height: 1.3,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF7767F5).withValues(alpha: 0.13),
+                          const Color(0xFF5D9AF4).withValues(alpha: 0.1),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.workspace_premium_rounded,
+                          color: Color(0xFF7767F5),
+                          size: 17,
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            AppLocaleText.tr(
+                              context,
+                              en: 'Pro · Every historical month and long-term change',
+                              zhHans: '专业版 · 全部历史月份与长期变化',
+                              zhHant: '專業版 · 全部歷史月份與長期變化',
+                              ja: 'プロ版 · すべての過去月と長期的な変化',
+                            ),
+                            style: const TextStyle(
+                              color: Color(0xFF514A88),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _JourneyFactTile extends StatelessWidget {
+  final String value;
+  final String label;
+  final Color color;
+
+  const _JourneyFactTile({
+    required this.value,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(13),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: Color(0xFF59627A),
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _JourneyThemeLinePainter extends CustomPainter {
+  const _JourneyThemeLinePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final grid = Paint()
+      ..color = const Color(0xFFDAD8EA).withValues(alpha: 0.55)
+      ..strokeWidth = 0.7;
+    for (var i = 1; i <= 2; i++) {
+      final y = size.height * i / 3;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+    }
+
+    void drawSeries(List<double> values, Color color) {
+      final path = Path();
+      for (var i = 0; i < values.length; i++) {
+        final point = Offset(
+          size.width * i / (values.length - 1),
+          size.height * (1 - values[i]),
+        );
+        if (i == 0) {
+          path.moveTo(point.dx, point.dy);
+        } else {
+          path.lineTo(point.dx, point.dy);
+        }
+      }
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = color
+          ..strokeWidth = 2.2
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..style = PaintingStyle.stroke,
+      );
+    }
+
+    drawSeries(
+      const [0.32, 0.48, 0.4, 0.67, 0.58, 0.76],
+      const Color(0xFF7C6CF5),
+    );
+    drawSeries(
+      const [0.62, 0.5, 0.55, 0.39, 0.47, 0.3],
+      const Color(0xFF58BFA8),
+    );
+    drawSeries(
+      const [0.46, 0.35, 0.58, 0.49, 0.65, 0.54],
+      const Color(0xFFF1B45E),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// Legacy visual kept temporarily for snapshot comparison while the new
+// Weekly flow preview is being rolled out.
+// ignore: unused_element
 class _WeeklyDesignPreview extends StatelessWidget {
   const _WeeklyDesignPreview();
 
@@ -550,7 +1619,7 @@ class _WeeklyDesignPreview extends StatelessWidget {
                                 en: 'Weekly',
                                 zhHans: '每周复盘',
                                 zhHant: '每週復盤',
-                                ja: 'Weekly',
+                                ja: '週次振り返り',
                               ),
                               style: const TextStyle(
                                 color: Color(0xFF7767F5),
@@ -1083,6 +2152,9 @@ class _LifeExperimentDesignPreview extends StatelessWidget {
   }
 }
 
+// Legacy visual kept temporarily for snapshot comparison while the new
+// Journey timeline preview is being rolled out.
+// ignore: unused_element
 class _JourneyProDesignPreview extends StatelessWidget {
   const _JourneyProDesignPreview();
 
@@ -1116,7 +2188,7 @@ class _JourneyProDesignPreview extends StatelessWidget {
                                 en: 'Journey',
                                 zhHans: '旅程',
                                 zhHant: '旅程',
-                                ja: 'Journey',
+                                ja: '旅程',
                               ),
                               style: const TextStyle(
                                 color: Color(0xFF7B63E8),
@@ -1127,10 +2199,10 @@ class _JourneyProDesignPreview extends StatelessWidget {
                             Text(
                               AppLocaleText.tr(
                                 context,
-                                en: 'Monthly path and Signals',
-                                zhHans: '本月轨迹与 Signal',
-                                zhHant: '本月軌跡與 Signal',
-                                ja: '今月の軌跡と Signal',
+                                en: 'Monthly themes and Signals',
+                                zhHans: '本月主题变化与 Signal',
+                                zhHant: '本月主題變化與 Signal',
+                                ja: '今月のテーマ変化と Signal',
                               ),
                               style: const TextStyle(
                                 color: Color(0xFF29334D),
@@ -1330,9 +2402,15 @@ class _JourneyProDesignPreview extends StatelessWidget {
                                 color: const Color(0xFFFFB956),
                                 borderRadius: BorderRadius.circular(99),
                               ),
-                              child: const Text(
-                                'PRO',
-                                style: TextStyle(
+                              child: Text(
+                                AppLocaleText.tr(
+                                  context,
+                                  en: 'PRO',
+                                  zhHans: '专业版',
+                                  zhHant: '專業版',
+                                  ja: 'プロ版',
+                                ),
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 9.5,
                                   fontWeight: FontWeight.w800,
@@ -1347,7 +2425,7 @@ class _JourneyProDesignPreview extends StatelessWidget {
                                   en: 'Weekly Deep Review',
                                   zhHans: '每周复盘 · 深度分析',
                                   zhHant: '每週復盤 · 深度分析',
-                                  ja: 'Weekly 深掘りレビュー',
+                                  ja: '週次振り返り · 深掘りレビュー',
                                 ),
                                 style: const TextStyle(
                                   color: Color(0xFF3B356E),
@@ -1730,7 +2808,7 @@ class _PreviewAction extends StatelessWidget {
         style: const TextStyle(
           color: Colors.white,
           fontSize: 10.5,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -1805,9 +2883,9 @@ class _PreferenceScene extends StatelessWidget {
                 AppLocaleText.tr(
                   context,
                   en: 'Tell AI which life areas you want it to notice first. You can adjust this anytime later.',
-                  zhHans: '先告诉 AI 你更希望它关注哪些生活领域，之后也可以随时调整。',
-                  zhHant: '先告訴 AI 你更希望它關注哪些生活領域，之後也可以隨時調整。',
-                  ja: 'AIに見てほしい生活領域を先に伝えます。あとからいつでも調整できます。',
+                  zhHans: '先告诉智能助手你更希望它关注哪些生活领域，之后也可以随时调整。',
+                  zhHant: '先告訴智能助手你更希望它關注哪些生活領域，之後也可以隨時調整。',
+                  ja: 'アシスタントに見てほしい生活領域を先に伝えます。あとからいつでも調整できます。',
                 ),
                 style: TextStyle(
                   color: const Color(0xFF697083),
@@ -1886,7 +2964,7 @@ class _GradientTitle extends StatelessWidget {
         style: const TextStyle(
           color: Colors.white,
           height: 1.08,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w700,
           letterSpacing: 0,
         ).copyWith(fontSize: fontSize),
       ),

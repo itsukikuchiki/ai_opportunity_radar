@@ -171,6 +171,7 @@ void main() {
               _event(
                 status: 'completed',
                 at: '2026-07-16T09:00:00Z',
+                subjectId: 'action-16',
                 metadata: {
                   'feedback_pattern_id': 'review.interrupted_by_emotion',
                 },
@@ -181,6 +182,7 @@ void main() {
       );
 
       expect(selection?.definition.id, 'review.interrupted_by_emotion');
+      expect(selection?.subjectId, 'action-16');
     });
 
     test('legacy action review is used only after a real attempt occurred', () {
@@ -203,11 +205,13 @@ Map<String, dynamic> _event({
   required String status,
   required String at,
   String? effect,
+  String? subjectId,
   Map<String, dynamic> metadata = const {},
 }) {
   return {
     'source_type': 'micro_action_feedback',
     'subject_type': 'micro_action',
+    if (subjectId != null) 'subject_id': subjectId,
     'status': status,
     if (effect != null) 'effect': effect,
     'created_at': at,

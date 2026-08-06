@@ -14,6 +14,7 @@ import '../api/repositories/self_review_repository.dart';
 import '../api/repositories/signal_library_repository.dart';
 import '../api/repositories/today_repository.dart';
 import '../api/repositories/weekly_repository.dart';
+import '../config/build_environment.dart';
 import '../local/external_energy_hint_store.dart';
 import '../local/local_capture_repository.dart';
 import '../local/local_candidate_planning_repository.dart';
@@ -146,6 +147,7 @@ class AppDependencies {
       localUserId: localUserId,
     );
     final signalLibraryRepository = SignalLibraryRepository(localDatabase);
+    DateTime qaNowLoader() => BuildEnvironment.effectiveNow;
 
     final aiRepository = AiRepository(apiClient);
 
@@ -179,6 +181,7 @@ class AppDependencies {
         apiClient: apiClient,
         analyticsRepository: analyticsRepository,
         localUserId: localUserId,
+        nowLoader: qaNowLoader,
       ),
       weeklyRepository: WeeklyRepository(
         localCaptureRepository: localCaptureRepository,
@@ -187,6 +190,7 @@ class AppDependencies {
         localPhase3PlusRepository: localPhase3PlusRepository,
         aiRepository: aiRepository,
         localUserId: localUserId,
+        nowLoader: qaNowLoader,
       ),
       memoryRepository: MemoryRepository(
         localCaptureRepository: localCaptureRepository,
@@ -197,6 +201,7 @@ class AppDependencies {
         aiRepository: aiRepository,
         monthlyRepository: monthlyRepository,
         localUserId: localUserId,
+        nowLoader: qaNowLoader,
       ),
       journeyProRepository: JourneyProRepository(
         localCaptureRepository: localCaptureRepository,
@@ -210,7 +215,15 @@ class AppDependencies {
         installationDateLoader: () async {
           final raw = prefs.getString('local_app_started_date') ??
               prefs.getString('installation_date');
-          return DateTime.tryParse(raw ?? '') ?? DateTime(2000, 1, 1);
+          final parsed = DateTime.tryParse(raw ?? '');
+          if (parsed != null) return parsed;
+          final now = DateTime.now().toLocal();
+          final today = DateTime(now.year, now.month, now.day);
+          await prefs.setString(
+            'local_app_started_date',
+            today.toIso8601String(),
+          );
+          return today;
         },
       ),
       energyBudgetRepository: energyBudgetRepository,

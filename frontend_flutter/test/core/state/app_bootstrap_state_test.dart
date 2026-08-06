@@ -33,6 +33,53 @@ void main() {
     state.dispose();
   });
 
+  test('production launch clears QA-owned routing preferences before routing',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      'qa_showcase_seed_signature_v2': '2026-07-31|en|localized_v5',
+      'profile_display_name': 'Signal Path QA',
+      'onboarding_completed': true,
+      'onboardingCompleted': true,
+      'local_app_started_date': '2026-07-10T00:00:00.000',
+    });
+    final state = AppBootstrapState();
+
+    await state.prepareLaunch();
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(state.onboardingCompleted, isFalse);
+    expect(prefs.getString('qa_showcase_seed_signature_v2'), isNull);
+    expect(prefs.getString('profile_display_name'), isNull);
+    expect(prefs.getBool('onboarding_completed'), isNull);
+    expect(prefs.getBool('onboardingCompleted'), isNull);
+    expect(prefs.getString('local_app_started_date'), isNull);
+    state.dispose();
+  });
+
+  test('production launch preserves ordinary user routing preferences',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      'profile_display_name': 'A real profile name',
+      'onboarding_completed': true,
+      'onboardingCompleted': true,
+      'local_app_started_date': '2026-06-01T00:00:00.000',
+    });
+    final state = AppBootstrapState();
+
+    await state.prepareLaunch();
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(state.onboardingCompleted, isTrue);
+    expect(prefs.getString('profile_display_name'), 'A real profile name');
+    expect(prefs.getBool('onboarding_completed'), isTrue);
+    expect(prefs.getBool('onboardingCompleted'), isTrue);
+    expect(
+      prefs.getString('local_app_started_date'),
+      '2026-06-01T00:00:00.000',
+    );
+    state.dispose();
+  });
+
   test('data deletion rebuilds dependencies with a new anonymous identity',
       () async {
     SharedPreferences.setMockInitialValues({

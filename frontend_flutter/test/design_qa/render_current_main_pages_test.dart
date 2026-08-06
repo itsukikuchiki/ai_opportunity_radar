@@ -12,6 +12,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:ai_opportunity_radar/core/api/repositories/memory_repository.dart';
 import 'package:ai_opportunity_radar/core/di/app_dependencies.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
+import 'package:ai_opportunity_radar/core/models/candidate_models.dart';
 import 'package:ai_opportunity_radar/core/models/energy_budget_models.dart';
 import 'package:ai_opportunity_radar/core/models/memory_models.dart';
 import 'package:ai_opportunity_radar/core/models/monthly_models.dart';
@@ -28,6 +29,7 @@ import 'package:ai_opportunity_radar/features/pages/today/today_experiment_feedb
 import 'package:ai_opportunity_radar/features/pages/today/today_view_model.dart';
 import 'package:ai_opportunity_radar/features/pages/weekly/weekly_page.dart';
 import 'package:ai_opportunity_radar/features/pages/weekly/weekly_view_model.dart';
+import 'package:ai_opportunity_radar/features/shell/main_tab_bottom_navigation.dart';
 
 import '../helpers/design_qa_font_loader.dart';
 import '../helpers/widget_test_helpers.dart';
@@ -205,6 +207,89 @@ void main() {
             'excluded_count': 0,
             'legacy_reference_count': 0,
           },
+          '_weekly_signal_entries': [
+            {
+              'id': 'signal-1',
+              'content': '任务切换后重新集中注意力很费力。',
+              'focus_domain_id': 'growth_plan',
+            },
+            {
+              'id': 'signal-2',
+              'content': '会议之间没有空隙，身体有点紧。',
+              'focus_domain_id': 'self_boundary',
+            },
+            {
+              'id': 'signal-3',
+              'content': '散步十分钟后比较容易重新开始。',
+              'focus_domain_id': 'diet_sleep',
+            },
+            {
+              'id': 'signal-4',
+              'content': '连续回复消息后很难进入原来的任务。',
+              'focus_domain_id': 'growth_plan',
+            },
+            {
+              'id': 'signal-5',
+              'content': '留出恢复空隙后状态更稳定。',
+              'focus_domain_id': 'emotional_stability',
+            },
+            {
+              'id': 'signal-6',
+              'content': '晚上停止刷手机后更容易休息。',
+              'focus_domain_id': 'diet_sleep',
+            },
+          ],
+          '_feedback_event_summary': {
+            'total_count': 1,
+            'events': [
+              {
+                'source_type': 'micro_action_feedback',
+                'subject_type': 'micro_action',
+                'subject_id': 'design-small-try',
+                'status': 'completed',
+                'created_at': '2026-07-17T18:00:00+09:00',
+                'metadata': {
+                  'feedback_pattern_id': 'review.helpful',
+                },
+              },
+            ],
+          },
+          '_weekly_action_review': {
+            'tried_action_count': 2,
+            'helpful_action_count': 1,
+            'most_helpful_action': '任务切换前留两分钟缓冲',
+            'hardest_action': '午后十分钟离屏恢复',
+            'next_adjustment': '继续保留切换缓冲，目标先维持原强度。',
+            'linked_micro_action_ids': ['design-small-try'],
+          },
+          '_weekly_attempt_feedback_summaries': [
+            {
+              'subject_type': 'micro_action',
+              'subject_id': 'design-small-try',
+              'recorded_count': 3,
+              'recorded_day_count': 3,
+              'completed_count': 2,
+              'not_completed_count': 1,
+              'helpful_count': 2,
+              'somewhat_helpful_count': 1,
+              'easy_count': 2,
+              'okay_count': 1,
+              'latest_round_result': 'helpful',
+              'latest_round_effort': 'easy',
+            },
+            {
+              'subject_type': 'life_experiment',
+              'subject_id': 'design-goal',
+              'recorded_count': 3,
+              'recorded_day_count': 3,
+              'completed_count': 2,
+              'not_completed_count': 1,
+              'latest_weekly_outcome': 'appeared',
+              'latest_weekly_burden': 'acceptable',
+              'completed_days_at_weekly_review': 2,
+              'minimum_observation_days': 3,
+            },
+          ],
         },
         feedbackSubmitted: false,
         chartData: const [
@@ -282,6 +367,121 @@ void main() {
       ),
     );
     final meViewModel = await buildMeViewModel(repeatArea: 'work_tasks');
+    final weeklyViewModel = WeeklyViewModel(
+      repository,
+      energyBudgetRepository: energyRepository,
+    );
+    await tester.runAsync(() async {
+      for (var attempt = 0; attempt < 50; attempt++) {
+        if (weeklyViewModel.weeklyInsight != null &&
+            weeklyViewModel.energyBudget != null) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    weeklyViewModel.activeMicroActions = const [
+      AdoptedMicroActionProgress(
+        action: MicroActionModel(
+          id: 'design-small-try',
+          judgementId: 'design-judgement',
+          title: '任务切换前留两分钟缓冲',
+          reason: '现在就能开始的一次简单尝试。',
+          status: 'active',
+          progressStartDate: '2026-07-13',
+          progressEndDate: '2026-07-19',
+          linkedSignalCardIds: ['signal-1', 'signal-2'],
+        ),
+        progress: SevenDayProgressModel(
+          subjectId: 'design-small-try',
+          startDate: '2026-07-13',
+          endDate: '2026-07-19',
+          cells: [
+            SevenDayProgressCell(
+              localDate: '2026-07-13',
+              state: ProgressCellState.completed,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-14',
+              state: ProgressCellState.notCompleted,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-15',
+              state: ProgressCellState.completed,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-16',
+              state: ProgressCellState.empty,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-17',
+              state: ProgressCellState.empty,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-18',
+              state: ProgressCellState.empty,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-19',
+              state: ProgressCellState.empty,
+            ),
+          ],
+        ),
+      ),
+    ];
+    weeklyViewModel.activeExperiments = const [
+      AdoptedLifeExperimentProgress(
+        experiment: LifeExperimentModel(
+          id: 'design-goal',
+          localUserId: 'design-review',
+          sourceWeekStart: '2026-07-13',
+          sourceWeekEnd: '2026-07-19',
+          title: '午后十分钟离屏恢复',
+          hypothesis: '在疲惫刚出现时离屏，可能更容易恢复。',
+          suggestedAction: '午后第一次明显疲惫时，离开屏幕十分钟。',
+          linkedSignalCardIds: ['signal-3', 'signal-5'],
+          status: 'active',
+          progressStartDate: '2026-07-13',
+          progressEndDate: '2026-07-19',
+        ),
+        progress: SevenDayProgressModel(
+          subjectId: 'design-goal',
+          startDate: '2026-07-13',
+          endDate: '2026-07-19',
+          cells: [
+            SevenDayProgressCell(
+              localDate: '2026-07-13',
+              state: ProgressCellState.completed,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-14',
+              state: ProgressCellState.completed,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-15',
+              state: ProgressCellState.notCompleted,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-16',
+              state: ProgressCellState.empty,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-17',
+              state: ProgressCellState.empty,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-18',
+              state: ProgressCellState.empty,
+            ),
+            SevenDayProgressCell(
+              localDate: '2026-07-19',
+              state: ProgressCellState.empty,
+            ),
+          ],
+        ),
+      ),
+    ];
+    addTearDown(weeklyViewModel.dispose);
     final captureKey = GlobalKey();
 
     await tester.pumpWidget(
@@ -290,11 +490,8 @@ void main() {
         child: _DesignReviewApp(
           child: MultiProvider(
             providers: [
-              ChangeNotifierProvider<WeeklyViewModel>(
-                create: (_) => WeeklyViewModel(
-                  repository,
-                  energyBudgetRepository: energyRepository,
-                ),
+              ChangeNotifierProvider<WeeklyViewModel>.value(
+                value: weeklyViewModel,
               ),
               ChangeNotifierProvider<MeViewModel>.value(value: meViewModel),
             ],
@@ -309,10 +506,44 @@ void main() {
       'assets/hero_art/weekly-review-network-v1.png',
     );
     await tester.pumpAndSettle();
+    await _precacheVisibleAssetImages(tester, captureKey);
     await _capture(
       tester,
       captureKey,
       'design_qa/weekly-current-2026-07-17.png',
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('weekly-pattern-block-0')),
+    );
+    await tester.pumpAndSettle();
+    await _precacheVisibleAssetImages(tester, captureKey);
+    await _capture(
+      tester,
+      captureKey,
+      'design_qa/weekly-patterns-current-2026-07-28.png',
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('weekly-attempt-row-design-small-try')),
+    );
+    await tester.pumpAndSettle();
+    await _precacheVisibleAssetImages(tester, captureKey);
+    await _capture(
+      tester,
+      captureKey,
+      'design_qa/weekly-attempts-current-2026-07-28.png',
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('weekly-attempt-review-panel')),
+    );
+    await tester.pumpAndSettle();
+    await _precacheVisibleAssetImages(tester, captureKey);
+    await _capture(
+      tester,
+      captureKey,
+      'design_qa/weekly-attempt-review-current-2026-07-28.png',
     );
   });
 
@@ -419,15 +650,12 @@ void main() {
       'assets/experiment/life-experiment-branching-v2.png',
     );
     await tester.pump();
-    for (var attempt = 0; attempt < 20; attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 40)),
-      );
-      await tester.pump(const Duration(milliseconds: 40));
-      if (find.text('任务切换前留两分钟缓冲').evaluate().isNotEmpty) {
-        break;
-      }
-    }
+    await _waitForWidget(
+      tester,
+      find.byKey(
+        const ValueKey('life-experiment-small-try-design-small-try'),
+      ),
+    );
     await _capture(
       tester,
       captureKey,
@@ -435,11 +663,16 @@ void main() {
     );
 
     tester.view.physicalSize = const Size(390, 844);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 350));
     final smallTry = find.byKey(
       const ValueKey('life-experiment-small-try-design-small-try'),
     );
     await tester.ensureVisible(smallTry);
+    await tester.drag(
+      find.byKey(const ValueKey('experiment-scroll-view')),
+      const Offset(0, -140),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(smallTry);
     await tester.pumpAndSettle();
     expect(find.text('小实验详情'), findsOneWidget);
@@ -453,6 +686,7 @@ void main() {
   testWidgets('renders the current Journey page for design review',
       (tester) async {
     _configureViewport(tester);
+    tester.view.physicalSize = const Size(390, 844);
     final repository = StubMemoryRepository(
       result: MemoryFetchResult(
         isFirstDayGate: false,
@@ -535,20 +769,29 @@ void main() {
       ),
     );
     final meViewModel = await buildMeViewModel(repeatArea: 'time_rhythm');
+    final memoryViewModel = MemoryViewModel(repository);
+    memoryViewModel.selectedMonth = DateTime(2026, 7);
+    await memoryViewModel.load();
+    addTearDown(memoryViewModel.dispose);
     final captureKey = GlobalKey();
 
     await tester.pumpWidget(
       RepaintBoundary(
         key: captureKey,
         child: _DesignReviewApp(
-          child: MultiProvider(
-            providers: [
-              ChangeNotifierProvider<MemoryViewModel>(
-                create: (_) => MemoryViewModel(repository),
-              ),
-              ChangeNotifierProvider<MeViewModel>.value(value: meViewModel),
-            ],
-            child: const MemoryPage(),
+          child: Scaffold(
+            extendBody: true,
+            body: MultiProvider(
+              providers: [
+                ChangeNotifierProvider<MemoryViewModel>.value(
+                  value: memoryViewModel,
+                ),
+                ChangeNotifierProvider<MeViewModel>.value(value: meViewModel),
+              ],
+              child: const MemoryPage(),
+            ),
+            bottomNavigationBar:
+                const MainTabBottomNavigation(selectedIndex: 3),
           ),
         ),
       ),
@@ -559,10 +802,41 @@ void main() {
       'assets/hero_art/journey-ring-path-v1.png',
     );
     await tester.pumpAndSettle();
+    final journeyScroll = find.byKey(const ValueKey('journey-scroll-view'));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('journey-calendar-card')),
+      260,
+      scrollable: find
+          .descendant(
+            of: journeyScroll,
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    final calendarTop = tester
+        .getTopLeft(find.byKey(const ValueKey('journey-calendar-card')))
+        .dy;
+    await tester.drag(journeyScroll, Offset(0, 24 - calendarTop));
+    await tester.pumpAndSettle();
     await _capture(
       tester,
       captureKey,
-      'design_qa/journey-current-2026-07-17.png',
+      'design_qa/spacing-2026-08-01/journey-calendar-final.png',
+    );
+    final scrollableState = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: journeyScroll,
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    scrollableState.position.jumpTo(scrollableState.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    await _capture(
+      tester,
+      captureKey,
+      'design_qa/spacing-2026-08-01/journey-bottom-final.png',
     );
   });
 
@@ -665,6 +939,37 @@ Future<void> _precacheHero(
   await tester.pump();
 }
 
+Future<void> _waitForWidget(
+  WidgetTester tester,
+  Finder target,
+) async {
+  for (var attempt = 0; attempt < 200; attempt++) {
+    if (target.evaluate().isNotEmpty) return;
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump(const Duration(milliseconds: 30));
+  }
+  expect(target, findsWidgets);
+}
+
+Future<void> _precacheVisibleAssetImages(
+  WidgetTester tester,
+  GlobalKey captureKey,
+) async {
+  final images = tester
+      .widgetList<Image>(find.byType(Image))
+      .map((widget) => widget.image)
+      .whereType<AssetImage>()
+      .toSet();
+  for (final image in images) {
+    await tester.runAsync(
+      () => precacheImage(image, captureKey.currentContext!),
+    );
+  }
+  await tester.pump();
+}
+
 Future<void> _capture(
   WidgetTester tester,
   GlobalKey captureKey,
@@ -675,7 +980,9 @@ Future<void> _capture(
         captureKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
     final image = await boundary.toImage(pixelRatio: 2);
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    await File(path).writeAsBytes(bytes!.buffer.asUint8List(), flush: true);
+    final output = File(path);
+    await output.parent.create(recursive: true);
+    await output.writeAsBytes(bytes!.buffer.asUint8List(), flush: true);
     image.dispose();
   });
 }

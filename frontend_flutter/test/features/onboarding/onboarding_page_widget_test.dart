@@ -83,10 +83,24 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('今天，留下\n一条 Signal'), findsOneWidget);
+    expect(
+      find.byKey(
+        const ValueKey('onboarding-today-signal-design-preview'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('文字'), findsOneWidget);
+    expect(find.text('语音'), findsOneWidget);
+    expect(find.text('状态'), findsOneWidget);
+    expect(find.text('安排'), findsOneWidget);
+    expect(find.text('信号库'), findsOneWidget);
+    expect(find.text('智能预判'), findsNothing);
+
     await tester.drag(find.byType(PageView), const Offset(-390, 0));
     await tester.pumpAndSettle();
 
-    expect(find.text('每周看见一个真实模式'), findsOneWidget);
+    expect(find.text('把一周，\n整理成下一步'), findsOneWidget);
     expect(
       find.byKey(
         const ValueKey('onboarding-weekly-experiment-design-preview'),
@@ -103,22 +117,24 @@ void main() {
       find.byKey(
         const ValueKey('onboarding-life-experiment-bridge-preview'),
       ),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('本周行为模式'), findsOneWidget);
-    expect(find.text('下周目标'), findsOneWidget);
-    expect(find.text('加入下周'), findsOneWidget);
     expect(find.text('每周复盘'), findsOneWidget);
-    expect(find.textContaining('采纳后进入生活小实验'), findsOneWidget);
-    expect(find.text('生活小实验 · 目标'), findsOneWidget);
-    expect(find.textContaining('已完成'), findsWidgets);
-    expect(find.textContaining('未完成'), findsWidgets);
-    expect(find.textContaining('Life Experiment'), findsNothing);
+    expect(find.text('Signal 事实'), findsOneWidget);
+    expect(find.text('行为模式'), findsOneWidget);
+    expect(find.text('尝试反馈'), findsOneWidget);
+    expect(find.text('小实验'), findsOneWidget);
+    expect(find.text('目标'), findsOneWidget);
+    expect(find.text('简单尝试'), findsOneWidget);
+    expect(find.text('轻量尝试'), findsNothing);
+    expect(find.text('10 分钟以内'), findsNothing);
+    expect(find.text('连续多日反馈'), findsOneWidget);
+    expect(find.text('每周看见一个真实模式'), findsNothing);
 
     await tester.drag(find.byType(PageView), const Offset(-390, 0));
     await tester.pumpAndSettle();
 
-    expect(find.text('看见更长的生活轨迹'), findsOneWidget);
+    expect(find.text('看见生活，\n怎样慢慢变化'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('onboarding-journey-pro-design-preview')),
       findsOneWidget,
@@ -127,13 +143,12 @@ void main() {
       find.byKey(const ValueKey('onboarding-journey-pro-icon-background')),
       findsOneWidget,
     );
-    expect(find.text('本月反复出现的观察'), findsOneWidget);
-    expect(find.text('查看 Signal'), findsOneWidget);
-    expect(find.text('旅程'), findsOneWidget);
-    expect(find.text('每周复盘 · 深度分析'), findsOneWidget);
-    expect(find.text('PRO'), findsOneWidget);
-    expect(find.textContaining('Weekly 本周深读'), findsNothing);
-    expect(find.textContaining('Pro 的 L3'), findsNothing);
+    expect(find.text('旅程 · 当月'), findsOneWidget);
+    expect(find.text('主题变化'), findsOneWidget);
+    expect(find.text('温柔回顾'), findsOneWidget);
+    expect(find.text('专业版 · 全部历史月份与长期变化'), findsOneWidget);
+    expect(find.text('看见更长的生活轨迹'), findsNothing);
+    expect(find.text('每周复盘 · 深度分析'), findsNothing);
 
     await tester.drag(find.byType(PageView), const Offset(-390, 0));
     await tester.pumpAndSettle();

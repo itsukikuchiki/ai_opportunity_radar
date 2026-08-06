@@ -67,6 +67,40 @@ def test_capture_reply_contract(client):
     assert isinstance(data["intent_tags"], list)
 
 
+def test_capture_reply_uses_requested_ui_language_for_generated_copy(client):
+    for index, (language, expected_fragment) in enumerate([
+        ("zh-Hans", "模型用量"),
+        ("zh-Hant", "模型用量"),
+        ("ja", "モデル利用量"),
+    ]):
+        original = "token cost is expensive, but this is my original wording"
+        response = client.post(
+            "/api/v1/ai/capture-reply",
+            headers=_headers(f"capture-language-{index}"),
+            json={
+                "content": original,
+                "recent_assistant_texts": [],
+                "language": language,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        data = response.json()["data"]
+        generated = " ".join([
+            data["acknowledgement"],
+            data["observation"],
+            data["try_next"],
+        ])
+        assert expected_fragment in generated
+        without_allowed_names = generated.replace("Signal Path", "").replace(
+            "Signal", ""
+        )
+        assert not any(
+            "a" <= char.lower() <= "z"
+            for char in without_allowed_names
+        ), generated
+
+
 def test_today_summary_contract(client):
     resp = client.post(
         "/api/v1/ai/today-summary",
@@ -219,6 +253,59 @@ def test_journey_generate_contract(client):
 
     expected_keys = {"patterns", "frictions", "desires", "experiments"}
     assert expected_keys.issubset(data.keys())
+
+
+def test_report_endpoints_generate_copy_in_the_requested_language(client):
+    cases = [
+        ("zh-Hans", "今天工作很累", "工作", "正在形成", "这个月", "你最烦的是"),
+        ("zh-Hant", "今天工作很累", "工作", "正在形成", "這個月", "你最困擾的是"),
+        ("ja", "今日は仕事で疲れた", "仕事", "形になり始めた", "今月", "いちばん負担"),
+        ("en", "Work felt tiring today", "work", "emerging", "This month", "What is more frustrating"),
+    ]
+    for index, (language, content, token, journey_term, monthly_term, followup_term) in enumerate(cases):
+        common_entry = {
+            "id": "1",
+            "content": content,
+            "created_at": "2026-04-14T01:00:00Z",
+        }
+        journey = client.post(
+            "/api/v1/ai/journey-generate",
+            headers=_headers(f"journey-language-{index}"),
+            json={
+                "snapshot_date": "2026-04-14",
+                "entry_count": 1,
+                "entries": [common_entry],
+                "top_tokens": [token],
+                "total_days": 1,
+                "language": language,
+            },
+        )
+        assert journey.status_code == 200, journey.text
+        assert journey_term in journey.json()["data"]["patterns"][0]["name"]
+
+        monthly = client.post(
+            "/api/v1/ai/monthly-generate",
+            headers=_headers(f"monthly-language-{index}"),
+            json={
+                "month_start": "2026-04-01",
+                "month_end": "2026-04-30",
+                "entry_count": 1,
+                "entries": [common_entry],
+                "top_tokens": [token],
+                "total_days": 1,
+                "language": language,
+            },
+        )
+        assert monthly.status_code == 200, monthly.text
+        assert monthly_term in monthly.json()["data"]["monthly_summary"]
+
+        followup = client.post(
+            "/api/v1/ai/followup-question",
+            headers=_headers(f"followup-language-{index}"),
+            json={"language": language},
+        )
+        assert followup.status_code == 200, followup.text
+        assert followup_term in followup.json()["data"]["question_text"]
 
 
 def test_light_dialog_contract(client):
@@ -388,7 +475,7 @@ def test_light_dialog_share_turn_only_acknowledges_without_prompting_or_advice(c
             "language": "zh-Hans",
             "capture_content": "今天一直在来回切换，很累。",
             "user_message": "下午也一直没停下来。",
-            "expected": "你刚补充的这一句，我也接住了。",
+            "expected_terms": ["没能停下来", "喘口气", "没有停"],
             "forbidden": ["如果愿意", "可以再说", "？"],
         },
         {
@@ -396,7 +483,7 @@ def test_light_dialog_share_turn_only_acknowledges_without_prompting_or_advice(c
             "language": "zh-Hant",
             "capture_content": "今天一直在來回切換，很累。",
             "user_message": "下午也一直沒有停下來。",
-            "expected": "你剛補充的這一句，我也接住了。",
+            "expected_terms": ["沒能停下來", "喘口氣", "沒有停"],
             "forbidden": ["如果願意", "可以再說", "？"],
         },
         {
@@ -404,7 +491,7 @@ def test_light_dialog_share_turn_only_acknowledges_without_prompting_or_advice(c
             "language": "ja",
             "capture_content": "今日は切り替えが多くて疲れた。",
             "user_message": "午後もずっと止まれなかった。",
-            "expected": "今付け加えてくれた一言も、そのまま受け取りました。",
+            "expected_terms": ["立ち止まる", "息をつく", "止まれなかった"],
             "forbidden": ["よければ", "聞かせて", "？"],
         },
         {
@@ -412,7 +499,7 @@ def test_light_dialog_share_turn_only_acknowledges_without_prompting_or_advice(c
             "language": "en",
             "capture_content": "Context switching all day was exhausting.",
             "user_message": "I never really got a break this afternoon either.",
-            "expected": "I hear what you just added, too.",
+            "expected_terms": ["without a chance to stop", "catch your breath", "break"],
             "forbidden": ["If you want", "say a little more", "?"],
         },
     ]
@@ -431,8 +518,9 @@ def test_light_dialog_share_turn_only_acknowledges_without_prompting_or_advice(c
 
         assert response.status_code == 200, response.text
         data = response.json()["data"]
-        assert case["expected"] in data["reply"]
+        assert any(term in data["reply"] for term in case["expected_terms"])
         assert all(token not in data["reply"] for token in case["forbidden"])
+        assert "你刚补充的这一句，我也接住了。" not in data["reply"]
         assert data["suggested_prompts"] == []
 
 
@@ -489,11 +577,59 @@ def test_light_dialog_clarification_only_acknowledges_without_invitation(client)
 
     assert response.status_code == 200, response.text
     data = response.json()["data"]
-    assert "重点更清楚了一点" in data["reply"]
+    assert any(term in data["reply"] for term in ["打断", "切断"])
     assert "如果愿意" not in data["reply"]
     assert "继续说" not in data["reply"]
     assert "？" not in data["reply"]
     assert data["suggested_prompts"] == []
+
+
+def test_timeline_acknowledgement_attunes_to_terse_emotional_input(client):
+    cases = [
+        ("事情太多了", ["压", "重", "累", "喘不过气"]),
+        ("我好累", ["累", "疲惫", "撑"]),
+        ("今天很开心", ["开心", "真切", "真好"]),
+    ]
+    for index, (content, expected_terms) in enumerate(cases):
+        response = client.post(
+            "/api/v1/ai/capture-reply",
+            headers=_headers(f"attune-terse-{index}"),
+            json={"content": content, "recent_assistant_texts": []},
+        )
+        assert response.status_code == 200, response.text
+        acknowledgement = response.json()["data"]["acknowledgement"]
+        assert any(term in acknowledgement for term in expected_terms), acknowledgement
+        assert all(token not in acknowledgement for token in [
+            "已经被你记下", "已经记下来", "已记录", "如果愿意", "你可以",
+            "？", "?",
+        ])
+
+
+def test_light_dialog_repairs_a_cold_reply_using_the_current_turn(client):
+    response = client.post(
+        "/api/v1/ai/light-dialog",
+        headers=_headers("attune-repair-cold-reply"),
+        json={
+            "capture_content": "事情太多了",
+            "capture_acknowledgement": "这条内容已从 AI 预判确认并加入时间线。",
+            "history": [
+                {
+                    "role": "assistant",
+                    "text": "这条内容已从 AI 预判确认并加入时间线。",
+                },
+            ],
+            "user_message": "你的回复太无情了",
+            "language": "zh-Hans",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    reply = response.json()["data"]["reply"]
+    assert any(term in reply for term in ["没有接住", "太像在处理", "你说得对"])
+    assert any(term in reply for term in ["很多事", "压着", "感受"])
+    assert all(token not in reply for token in [
+        "AI 预判", "加入时间线", "如果愿意", "你可以", "继续说", "？", "?",
+    ])
 
 
 def test_reflect_weekly_contract(client):

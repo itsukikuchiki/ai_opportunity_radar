@@ -1,27 +1,29 @@
 // ignore_for_file: unused_element, unused_field, prefer_const_constructors, prefer_const_literals_to_create_immutables
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../../app/app_router.dart';
 import '../../../core/di/app_dependencies.dart';
 import '../../../core/i18n/app_locale_text.dart';
-import '../../../core/local/local_plan_content_version_repository.dart';
+import '../../../core/local/local_cache_invalidation_repository.dart';
+import '../../../core/local/local_database.dart';
 import '../../../core/models/candidate_models.dart';
+import '../../../core/models/experiment_creation_source.dart';
 import '../../../core/models/experiment_evaluation_models.dart';
 import '../../../core/models/phase3_plus_models.dart';
 import '../../../core/models/today_models.dart';
 import '../../../core/models/weekly_models.dart';
 import '../../../core/purchases/purchase_controller.dart';
 import '../../../shared/states/load_state.dart';
+import '../../../shared/utils/user_visible_text_sanitizer.dart';
 import '../../../shared/widgets/aurora_ui.dart';
-import '../../../shared/widgets/experiment_feedback_sheets.dart';
 import '../../paywall/paywall_sheet.dart';
 import '../weekly/weekly_view_model.dart';
+import 'experiment_action_preference_report.dart';
 
 class ExperimentPage extends StatefulWidget {
   final int archivePageSize;
@@ -33,6 +35,11 @@ class ExperimentPage extends StatefulWidget {
 
   @override
   State<ExperimentPage> createState() => _ExperimentPageState();
+}
+
+enum _ExperimentHomeTrack {
+  smallExperiments,
+  goals,
 }
 
 class _ExperimentPageState extends State<ExperimentPage> {
@@ -50,7 +57,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
   List<AdoptedMicroActionProgress> _smallTries = const [];
   List<MicroActionCandidateModel> _consideringSmallTries = const [];
   List<ExperimentCandidateRecord> _consideringGoals = const [];
-  final Set<String> _savingSmallTryIds = <String>{};
   bool _smallTriesHasMore = false;
   bool _goalsHaveMore = false;
   bool _smallTriesLoadingMore = false;
@@ -58,12 +64,14 @@ class _ExperimentPageState extends State<ExperimentPage> {
   bool _expandingGoalArchive = false;
   bool _historyLoaded = false;
   bool _historyLoading = false;
+  bool _historyReloadRequested = false;
+  bool _historyReloadResetRequested = false;
+  StreamSubscription<CandidateInvalidationNotice>?
+      _candidateInvalidationSubscription;
   Map<String, List<LifeExperimentFeedbackModel>> _feedbacksByExperiment =
       const {};
   Map<String, List<RecentSignalModel>> _signalsByExperiment = const {};
   Map<String, List<RecentSignalModel>> _signalsBySmallTry = const {};
-  Map<String, List<PlanContentVersion>> _smallTryPlanVersions = const {};
-  Map<String, List<PlanContentVersion>> _goalPlanVersions = const {};
   Map<String, _ExperimentRollup> _rollupsByExperiment = const {};
   Map<String, List<_ExperimentLifecycleEvent>> _lifecycleByExperiment =
       const {};
@@ -74,6 +82,7 @@ class _ExperimentPageState extends State<ExperimentPage> {
   Map<String, List<LifeExperimentOutcomeReviewModel>>
       _outcomeReviewsByExperiment = const {};
   _ExperimentFilter _filter = _ExperimentFilter.all;
+  _ExperimentHomeTrack _homeTrack = _ExperimentHomeTrack.smallExperiments;
   AdoptedMicroActionProgress? _selectedSmallTry;
   MicroActionCandidateModel? _selectedSmallTryCandidate;
   ExperimentCandidateRecord? _selectedGoalCandidate;
@@ -81,6 +90,7 @@ class _ExperimentPageState extends State<ExperimentPage> {
   // Legacy aggregate scaffold stays unreachable for compatibility while its
   // former entry point is removed from the Life Experiment home page.
   bool _showStatsDetail = false;
+  bool _openingActionPreferenceReport = false;
   _ExperimentDetailTab _detailTab = _ExperimentDetailTab.overview;
 
   @override
@@ -94,12 +104,15 @@ class _ExperimentPageState extends State<ExperimentPage> {
         _ensureAllGoalsLoaded();
       }
     });
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _loadExperimentHistory(reset: true));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _watchCandidateInvalidations();
+      _loadExperimentHistory(reset: true);
+    });
   }
 
   @override
   void dispose() {
+    _candidateInvalidationSubscription?.cancel();
     _titleController.dispose();
     _actionController.dispose();
     _reasonController.dispose();
@@ -107,9 +120,107 @@ class _ExperimentPageState extends State<ExperimentPage> {
     super.dispose();
   }
 
+  void _watchCandidateInvalidations() {
+    if (_candidateInvalidationSubscription != null || !mounted) return;
+    late final LocalDatabase localDatabase;
+    try {
+      localDatabase = context.read<AppDependencies>().localDatabase;
+    } on ProviderNotFoundException {
+      // Some lightweight previews render this page from WeeklyViewModel only.
+      // The invalidation stream is an enhancement, not a page dependency.
+      return;
+    }
+    _candidateInvalidationSubscription = CandidateInvalidationBus.stream
+        .where((notice) => identical(notice.localDatabase, localDatabase))
+        .listen((_) {
+      if (mounted) unawaited(_loadExperimentHistory(reset: true));
+    });
+  }
+
+  void _showHomeTrack(_ExperimentHomeTrack track) {
+    if (_homeTrack == track) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _homeTrack = track;
+    });
+  }
+
+  Future<void> _openCreateSmallExperiment() async {
+    final deps = context.read<AppDependencies>();
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => _CreateSmallExperimentPage(
+          onSubmit: (draft) async {
+            await deps.localPhase3PlusRepository.createUserSmallExperiment(
+              title: draft.title,
+              description: draft.description,
+              durationMinutes: draft.durationMinutes,
+              startDate: DateTime.now(),
+            );
+          },
+        ),
+      ),
+    );
+    if (created != true || !mounted) return;
+    await _loadExperimentHistory(reset: true);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocaleText.tr(
+            context,
+            en: 'Spot Try created.',
+            zhHans: '小实验已创建。',
+            zhHant: '小實驗已建立。',
+            ja: '小実験を作成しました。',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openCreateGoal() async {
+    final deps = context.read<AppDependencies>();
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => _CreateGoalPage(
+          onSubmit: (draft) async {
+            await deps.localLifeExperimentRepository.createUserGoal(
+              localUserId: deps.localUserId,
+              title: draft.title,
+              hypothesis: draft.hypothesis,
+              suggestedAction: draft.suggestedAction,
+              startDate: DateTime.now(),
+              plannedFrequency: draft.plannedFrequency,
+              plannedTotalDays: draft.observationDays,
+              minimumObservationDays: draft.observationDays,
+            );
+          },
+        ),
+      ),
+    );
+    if (created != true || !mounted) return;
+    await _loadExperimentHistory(reset: true);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocaleText.tr(
+            context,
+            en: 'Goal created.',
+            zhHans: '目标已创建。',
+            zhHant: '目標已建立。',
+            ja: '目標を作成しました。',
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<WeeklyViewModel>();
+    final purchase = context.watch<PurchaseController?>();
     final weekly = vm.weeklyInsight;
     final experiments = _experimentArchive(weekly);
     final selectedSmallTryCandidate = _selectedSmallTryCandidate;
@@ -132,7 +243,7 @@ class _ExperimentPageState extends State<ExperimentPage> {
     }
     final selected = _selectedExperiment;
     if (selected != null) {
-      return _buildDetailScaffold(context, vm, selected, experiments);
+      return _buildDetailScaffold(context, selected);
     }
     final hasAnyExperiments = experiments.isNotEmpty;
     final visibleSmallTries = _visibleSmallTries(_smallTries);
@@ -145,6 +256,37 @@ class _ExperimentPageState extends State<ExperimentPage> {
         visibleConsideringSmallTries.isNotEmpty ||
         visibleExperiments.isNotEmpty ||
         visibleConsideringGoals.isNotEmpty;
+    final activeCount = _smallTries
+            .where(
+              (item) =>
+                  _smallTryLifecycleStage(item.action) ==
+                  _ExperimentLifecycleStage.active,
+            )
+            .length +
+        experiments
+            .where(
+              (experiment) =>
+                  _experimentLifecycleStage(
+                    experiment,
+                    _rollupFor(experiment),
+                  ) ==
+                  _ExperimentLifecycleStage.active,
+            )
+            .length;
+    final feedbackCount = _smallTryFeedbacksByAction.values
+            .expand((feedbacks) => feedbacks)
+            .where((feedback) => feedback.isValid)
+            .length +
+        _feedbacksByExperiment.values.fold<int>(
+          0,
+          (count, feedbacks) => count + feedbacks.length,
+        );
+    final conclusionCount = _smallTryReviewsByAction.values
+            .where((reviews) => reviews.isNotEmpty)
+            .length +
+        _outcomeReviewsByExperiment.values
+            .where((reviews) => reviews.isNotEmpty)
+            .length;
 
     return Scaffold(
       body: Stack(
@@ -156,14 +298,30 @@ class _ExperimentPageState extends State<ExperimentPage> {
                   bottom: false,
                   child: ListView(
                     key: const ValueKey('experiment-scroll-view'),
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
                     padding: AuroraMainPageSpec.scrollPadding(context),
                     children: [
                       _ExperimentArchiveHeroHeader(
                         canPop: Navigator.of(context).canPop(),
                         onBack: () => Navigator.of(context).maybePop(),
+                        activeCount: activeCount,
+                        feedbackCount: feedbackCount,
+                        conclusionCount: conclusionCount,
                       ),
                       const SizedBox(height: AuroraMainPageSpec.heroGap),
                       _ExperimentSearchBar(controller: _searchController),
+                      const SizedBox(height: 10),
+                      _ExperimentCreateEntryCard(
+                        onCreateSmallExperiment: _openCreateSmallExperiment,
+                        onCreateGoal: _openCreateGoal,
+                      ),
+                      const SizedBox(height: 12),
+                      ExperimentActionPreferenceEntryCard(
+                        isPremium: purchase?.isPremium ?? false,
+                        isLoading: _openingActionPreferenceReport,
+                        onTap: () => _openActionPreferenceReport(purchase),
+                      ),
                       const SizedBox(height: AuroraMainPageSpec.sectionGap),
                       if ((_historyLoading ||
                               vm.loadState == LoadState.loading) &&
@@ -177,83 +335,115 @@ class _ExperimentPageState extends State<ExperimentPage> {
                         _ExperimentSearchEmptyState(
                           onClear: _searchController.clear,
                         )
-                      else ...[
-                        _SmallTryBranchChart(
-                          items: visibleSmallTries,
-                          consideringCandidates: visibleConsideringSmallTries,
-                          feedbacksFor: (item) =>
-                              _smallTryFeedbacksByAction[item.action.id] ??
-                              const [],
-                          latestReviewFor: (item) {
-                            final reviews =
-                                _smallTryReviewsByAction[item.action.id] ??
-                                    const <MicroActionReviewEventModel>[];
-                            return reviews.isEmpty ? null : reviews.last;
-                          },
-                          onOpenDetail: (item) => setState(() {
-                            _selectedSmallTry = item;
-                          }),
-                          onOpenCandidateDetail: (candidate) => setState(() {
-                            _selectedSmallTryCandidate = candidate;
-                          }),
-                          onRecordToday: (item) =>
-                              _openSmallTryFeedback(context, item),
-                        ),
-                        if (_smallTriesHasMore || _smallTriesLoadingMore) ...[
-                          const SizedBox(height: 10),
-                          _ArchiveLoadMoreButton(
-                            key: const ValueKey(
-                              'life-experiment-small-tries-load-more',
-                            ),
-                            isLoading: _smallTriesLoadingMore,
-                            onPressed: _smallTriesLoadingMore
-                                ? null
-                                : _loadMoreSmallTries,
+                      else
+                        _ExperimentTrackPager(
+                          track: _homeTrack,
+                          onShowSmallExperiments: () => _showHomeTrack(
+                            _ExperimentHomeTrack.smallExperiments,
                           ),
-                        ],
-                        const SizedBox(height: AuroraMainPageSpec.sectionGap),
-                        _GoalTimelineMatrix(
-                          experiments: visibleExperiments,
-                          consideringCandidates: visibleConsideringGoals,
-                          evidenceFor: _evidenceFor,
-                          rollupFor: _rollupFor,
-                          latestOutcomeFor: (experiment) {
-                            final reviews =
-                                _outcomeReviewsByExperiment[experiment.id] ??
-                                    const <LifeExperimentOutcomeReviewModel>[];
-                            return reviews.isEmpty ? null : reviews.last;
-                          },
-                          onOpenDetail: (experiment) => setState(() {
-                            _selectedExperiment = experiment;
-                            _detailTab = _ExperimentDetailTab.overview;
-                          }),
-                          onOpenCandidateDetail: (candidate) => setState(() {
-                            _selectedGoalCandidate = candidate;
-                          }),
-                          onRecordToday: (experiment) =>
-                              _openExperimentFeedback(context, experiment),
-                          onSummarize: (experiment) =>
-                              _openGoalOutcomeReview(context, experiment),
-                        ),
-                      ],
-                      if (_goalsHaveMore || _goalsLoadingMore) ...[
-                        const SizedBox(height: 2),
-                        _ArchiveLoadMoreButton(
-                          key: const ValueKey(
-                            'life-experiment-goals-load-more',
+                          onShowGoals: () => _showHomeTrack(
+                            _ExperimentHomeTrack.goals,
                           ),
-                          isLoading: _goalsLoadingMore,
-                          onPressed: _goalsLoadingMore ? null : _loadMoreGoals,
+                          child: _homeTrack ==
+                                  _ExperimentHomeTrack.smallExperiments
+                              ? Column(
+                                  key: const ValueKey(
+                                    'experiment-track-small-experiments',
+                                  ),
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _SmallTryBranchChart(
+                                      items: visibleSmallTries,
+                                      consideringCandidates:
+                                          visibleConsideringSmallTries,
+                                      feedbacksFor: (item) =>
+                                          _smallTryFeedbacksByAction[
+                                              item.action.id] ??
+                                          const [],
+                                      latestReviewFor: (item) {
+                                        final reviews = _smallTryReviewsByAction[
+                                                item.action.id] ??
+                                            const <MicroActionReviewEventModel>[];
+                                        return reviews.isEmpty
+                                            ? null
+                                            : reviews.last;
+                                      },
+                                      onOpenDetail: (item) => setState(() {
+                                        _selectedSmallTry = item;
+                                      }),
+                                      onOpenCandidateDetail: (candidate) =>
+                                          setState(() {
+                                        _selectedSmallTryCandidate = candidate;
+                                      }),
+                                    ),
+                                    if (_smallTriesHasMore ||
+                                        _smallTriesLoadingMore) ...[
+                                      const SizedBox(height: 10),
+                                      _ArchiveLoadMoreButton(
+                                        key: const ValueKey(
+                                          'life-experiment-small-tries-load-more',
+                                        ),
+                                        isLoading: _smallTriesLoadingMore,
+                                        onPressed: _smallTriesLoadingMore
+                                            ? null
+                                            : _loadMoreSmallTries,
+                                      ),
+                                    ],
+                                  ],
+                                )
+                              : Column(
+                                  key: const ValueKey(
+                                    'experiment-track-goals',
+                                  ),
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _GoalTimelineMatrix(
+                                      experiments: visibleExperiments,
+                                      consideringCandidates:
+                                          visibleConsideringGoals,
+                                      evidenceFor: _evidenceFor,
+                                      rollupFor: _rollupFor,
+                                      latestOutcomeFor: (experiment) {
+                                        final reviews = _outcomeReviewsByExperiment[
+                                                experiment.id] ??
+                                            const <LifeExperimentOutcomeReviewModel>[];
+                                        return reviews.isEmpty
+                                            ? null
+                                            : reviews.last;
+                                      },
+                                      onOpenDetail: (experiment) =>
+                                          setState(() {
+                                        _selectedExperiment = experiment;
+                                        _detailTab =
+                                            _ExperimentDetailTab.overview;
+                                      }),
+                                      onOpenCandidateDetail: (candidate) =>
+                                          setState(() {
+                                        _selectedGoalCandidate = candidate;
+                                      }),
+                                    ),
+                                    if (_goalsHaveMore ||
+                                        _goalsLoadingMore) ...[
+                                      const SizedBox(height: 2),
+                                      _ArchiveLoadMoreButton(
+                                        key: const ValueKey(
+                                          'life-experiment-goals-load-more',
+                                        ),
+                                        isLoading: _goalsLoadingMore,
+                                        onPressed: _goalsLoadingMore
+                                            ? null
+                                            : _loadMoreGoals,
+                                      ),
+                                    ],
+                                  ],
+                                ),
                         ),
-                      ],
                       if (!hasAnyExperiments &&
                           _smallTries.isEmpty &&
                           _consideringSmallTries.isEmpty &&
                           _consideringGoals.isEmpty) ...[
                         const SizedBox(height: AuroraMainPageSpec.sectionGap),
-                        _ExperimentUnifiedEmptyCta(
-                          onRecordToday: () => context.go(AppRoutes.today),
-                        ),
+                        const _ExperimentUnifiedEmptyState(),
                       ],
                     ],
                   ),
@@ -267,11 +457,48 @@ class _ExperimentPageState extends State<ExperimentPage> {
     );
   }
 
+  Future<void> _openActionPreferenceReport(
+    PurchaseController? purchase,
+  ) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (!(purchase?.isPremium ?? false)) {
+      await showPremiumPaywall(
+        context,
+        source: 'life_experiment_action_preferences',
+      );
+      return;
+    }
+    if (_openingActionPreferenceReport) return;
+    setState(() => _openingActionPreferenceReport = true);
+    try {
+      await Future.wait([
+        _ensureAllSmallTriesLoaded(),
+        _ensureAllGoalsLoaded(),
+      ]);
+      if (!mounted) return;
+      final report = buildExperimentActionPreferenceReport(
+        smallExperiments: _smallTries,
+        smallExperimentFeedbacks: _smallTryFeedbacksByAction,
+        goals: _history,
+        goalReviews: _outcomeReviewsByExperiment,
+      );
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => ExperimentActionPreferenceReportPage(
+            report: report,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _openingActionPreferenceReport = false);
+      }
+    }
+  }
+
   Widget _buildDetailScaffold(
     BuildContext context,
-    WeeklyViewModel vm,
     LifeExperimentModel experiment,
-    List<LifeExperimentModel> experiments,
   ) {
     final evidence = _evidenceFor(experiment);
     final rollup = _rollupFor(experiment);
@@ -284,16 +511,9 @@ class _ExperimentPageState extends State<ExperimentPage> {
     final overallOutcomeReviews = outcomeReviews
         .where((review) => review.reviewType != GoalReviewType.weekly)
         .toList(growable: false);
-    final latestOutcome = overallOutcomeReviews.isNotEmpty
-        ? overallOutcomeReviews.last
-        : (outcomeReviews.isEmpty ? null : outcomeReviews.last);
+    final latestOutcome =
+        overallOutcomeReviews.isEmpty ? null : overallOutcomeReviews.last;
     final lifecycleStage = _experimentLifecycleStage(experiment, rollup);
-    final recordAvailability = _goalRecordAvailability(
-      experiment,
-      lifecycleStatus: rollup?.currentStatus,
-    );
-    final purchase = context.watch<PurchaseController?>();
-    final canViewFullHistory = purchase == null || purchase.isPremium;
     return Scaffold(
       body: Stack(
         children: [
@@ -356,72 +576,29 @@ class _ExperimentPageState extends State<ExperimentPage> {
                       const SizedBox(height: 16),
                       _GoalDefinitionCard(experiment: experiment),
                       const SizedBox(height: 14),
-                      _SourceSignalHistoryCard(
-                        key: const ValueKey('goal-source-signal-history'),
-                        signals:
-                            _signalsByExperiment[experiment.id] ?? const [],
-                        expectedCount: experiment.linkedSignalCardIds.length,
+                      _ExperimentOriginCard(
+                        creationSource: experiment.creationSource,
+                        adoptedAt: experiment.adoptedAt,
                       ),
                       const SizedBox(height: 14),
-                      _PlanVersionHistoryCard(
-                        key: const ValueKey('goal-plan-version-history'),
-                        versions: _goalPlanVersions[experiment.id] ?? const [],
-                        kind: PlanContentObjectKind.goal,
+                      _ExperimentContentChangeGuide(
+                        kind: _ExperimentContentKind.goal,
+                        onCreateNew: _openCreateGoal,
                       ),
                       const SizedBox(height: 14),
-                      _GoalProgressDetailCard(
+                      _GoalWeeklySummaryCard(
                         experiment: experiment,
                         evidence: evidence,
-                        latestOutcome: latestOutcome,
+                        reviews: weeklyOutcomeReviews,
                       ),
                       const SizedBox(height: 14),
-                      _GoalDailyHistoryCard(feedbacks: evidence.feedbacks),
-                      const SizedBox(height: 14),
-                      if (canViewFullHistory)
-                        Column(
-                          children: [
-                            _GoalReviewHistoryCard(
-                              kind: _GoalReviewHistoryKind.weekly,
-                              reviews: weeklyOutcomeReviews,
-                            ),
-                            const SizedBox(height: 14),
-                            _GoalReviewHistoryCard(
-                              kind: _GoalReviewHistoryKind.overall,
-                              reviews: overallOutcomeReviews,
-                            ),
-                          ],
-                        )
-                      else
-                        _ProHistoryLockedCard(
-                          kind: _ProHistoryKind.goalSummary,
-                          onUnlock: () => showPremiumPaywall(
-                            context,
-                            source: 'goal_summary_history',
-                          ),
-                        ),
+                      _GoalFeedbackOverviewCard(
+                        feedbacks: evidence.feedbacks,
+                        reviews: overallOutcomeReviews,
+                      ),
                       const SizedBox(height: 18),
-                      if (lifecycleStage !=
-                          _ExperimentLifecycleStage.completed) ...[
-                        if (recordAvailability ==
-                            _SevenDayRecordAvailability.active) ...[
-                          _ExperimentPrimaryButton(
-                            label: AppLocaleText.tr(
-                              context,
-                              en: 'Record today\'s completion',
-                              zhHans: '登记今天的完成情况',
-                              zhHant: '登記今天的完成情況',
-                              ja: '今日の完了状況を記録',
-                            ),
-                            onTap: () =>
-                                _openExperimentFeedback(context, experiment),
-                          ),
-                          const SizedBox(height: 10),
-                        ] else ...[
-                          _RecordAvailabilityNotice(
-                            availability: recordAvailability,
-                          ),
-                          const SizedBox(height: 10),
-                        ],
+                      if (lifecycleStage ==
+                          _ExperimentLifecycleStage.active) ...[
                         if (completedObservationDays >=
                                 experiment.minimumObservationDays ||
                             latestOutcome != null) ...[
@@ -454,40 +631,9 @@ class _ExperimentPageState extends State<ExperimentPage> {
                           ),
                           const SizedBox(height: 10),
                         ],
-                        OutlinedButton.icon(
-                          key: const ValueKey('goal-complete-action'),
-                          onPressed: () =>
-                              _confirmCompleteExperiment(experiment),
-                          icon: const Icon(Icons.flag_circle_outlined),
-                          label: Text(
-                            AppLocaleText.tr(
-                              context,
-                              en: 'Complete this goal',
-                              zhHans: '完成这个目标',
-                              zhHant: '完成這個目標',
-                              ja: 'この目標を完了',
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(48),
-                            foregroundColor: AuroraColors.purple,
-                          ),
-                        ),
                       ] else ...[
-                        const _RecordAvailabilityNotice(
-                          availability: _SevenDayRecordAvailability.ended,
-                        ),
-                        const SizedBox(height: 10),
-                        _ExperimentPrimaryButton(
-                          label: AppLocaleText.tr(
-                            context,
-                            en: 'Try again this week',
-                            zhHans: '本周再试一次',
-                            zhHant: '本週再試一次',
-                            ja: '今週もう一度試す',
-                          ),
-                          onTap: () =>
-                              _reuseExperiment(context, vm, experiment),
+                        _ExperimentArchiveReadOnlyNotice(
+                          stage: lifecycleStage,
                         ),
                       ],
                     ],
@@ -507,10 +653,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
     AdoptedMicroActionProgress item,
   ) {
     final stage = _smallTryLifecycleStage(item.action);
-    final canRecord = _smallTryRecordAvailability(item.action) ==
-        _SevenDayRecordAvailability.active;
-    final purchase = context.watch<PurchaseController?>();
-    final canViewFullHistory = purchase == null || purchase.isPremium;
     final roundReviews = _smallTryReviewsByAction[item.action.id] ?? const [];
     return Scaffold(
       body: Stack(
@@ -547,7 +689,7 @@ class _ExperimentPageState extends State<ExperimentPage> {
                             child: Text(
                               AppLocaleText.tr(
                                 context,
-                                en: 'Small experiment detail',
+                                en: 'Spot Try details',
                                 zhHans: '小实验详情',
                                 zhHant: '小實驗詳情',
                                 ja: '小実験の詳細',
@@ -578,59 +720,31 @@ class _ExperimentPageState extends State<ExperimentPage> {
                         }(),
                       ),
                       const SizedBox(height: 14),
-                      _SourceSignalHistoryCard(
-                        key: const ValueKey(
-                          'small-experiment-source-signal-history',
-                        ),
-                        signals: _signalsBySmallTry[item.action.id] ?? const [],
-                        expectedCount: item.action.linkedSignalCardIds.length,
-                      ),
-                      const SizedBox(height: 14),
-                      _PlanVersionHistoryCard(
-                        key: const ValueKey(
-                          'small-experiment-plan-version-history',
-                        ),
-                        versions:
-                            _smallTryPlanVersions[item.action.id] ?? const [],
-                        kind: PlanContentObjectKind.quickTry,
-                      ),
-                      const SizedBox(height: 14),
-                      _SmallTryAttemptHistoryCard(
+                      _SmallExperimentOverviewCard(
+                        action: item.action,
+                        canonicalAttemptCount: item.progress.completedAttempts,
                         feedbacks: _smallTryFeedbacksByAction[item.action.id] ??
                             const [],
+                        reviews: roundReviews,
                       ),
                       const SizedBox(height: 14),
-                      if (canViewFullHistory)
-                        _SmallTryRoundReviewHistoryCard(reviews: roundReviews)
-                      else
-                        _ProHistoryLockedCard(
-                          kind: _ProHistoryKind.smallExperimentSummary,
-                          onUnlock: () => showPremiumPaywall(
-                            context,
-                            source: 'small_experiment_summary_history',
-                          ),
-                        ),
+                      _ExperimentOriginCard(
+                        creationSource: item.action.creationSource,
+                        adoptedAt: item.action.adoptedAt,
+                      ),
                       const SizedBox(height: 14),
-                      if (canRecord) ...[
-                        _ExperimentPrimaryButton(
-                          label: AppLocaleText.tr(
-                            context,
-                            en: 'Record one try',
-                            zhHans: '登记一次',
-                            zhHant: '登記一次',
-                            ja: '1 回記録',
-                          ),
-                          onTap: () => _openSmallTryFeedback(context, item),
-                        ),
-                        const SizedBox(height: 10),
-                      ] else ...[
-                        _RecordAvailabilityNotice(
-                          availability:
-                              _smallTryRecordAvailability(item.action),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                      if (stage != _ExperimentLifecycleStage.completed)
+                      _ExperimentContentChangeGuide(
+                        kind: _ExperimentContentKind.smallExperiment,
+                        onCreateNew: _openCreateSmallExperiment,
+                      ),
+                      const SizedBox(height: 14),
+                      _SmallExperimentFeedbackOverviewCard(
+                        feedbacks: _smallTryFeedbacksByAction[item.action.id] ??
+                            const [],
+                        reviews: roundReviews,
+                      ),
+                      const SizedBox(height: 14),
+                      if (stage == _ExperimentLifecycleStage.active)
                         OutlinedButton.icon(
                           key: const ValueKey(
                             'small-experiment-round-review-action',
@@ -657,29 +771,8 @@ class _ExperimentPageState extends State<ExperimentPage> {
                             ),
                           ),
                         ),
-                      if (stage != _ExperimentLifecycleStage.completed) ...[
-                        const SizedBox(height: 10),
-                        OutlinedButton.icon(
-                          key: const ValueKey(
-                            'small-experiment-complete-action',
-                          ),
-                          onPressed: () => _confirmCompleteSmallTry(item),
-                          icon: const Icon(Icons.flag_circle_outlined),
-                          label: Text(
-                            AppLocaleText.tr(
-                              context,
-                              en: 'Complete this small experiment',
-                              zhHans: '完成这个小实验',
-                              zhHant: '完成這個小實驗',
-                              ja: 'この小実験を完了',
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(48),
-                            foregroundColor: AuroraColors.purple,
-                          ),
-                        ),
-                      ],
+                      if (stage != _ExperimentLifecycleStage.active)
+                        _ExperimentArchiveReadOnlyNotice(stage: stage),
                     ],
                   ),
                 ),
@@ -700,7 +793,7 @@ class _ExperimentPageState extends State<ExperimentPage> {
       context,
       pageTitle: AppLocaleText.tr(
         context,
-        en: 'Small experiment detail',
+        en: 'Spot Try details',
         zhHans: '小实验详情',
         zhHant: '小實驗詳情',
         ja: '小実験の詳細',
@@ -708,7 +801,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
       title: candidate.title,
       description: candidate.reason,
       actionText: '',
-      signalCount: candidate.linkedSignalCardIds.length,
       isStale: candidate.isStale,
       staleReason: candidate.staleReason,
       onBack: () => setState(() => _selectedSmallTryCandidate = null),
@@ -733,7 +825,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
       title: candidate.title,
       description: candidate.hypothesis,
       actionText: candidate.suggestedAction,
-      signalCount: candidate.linkedSignalCardIds.length,
       isStale: candidate.isStale,
       staleReason: candidate.staleReason,
       onBack: () => setState(() => _selectedGoalCandidate = null),
@@ -748,7 +839,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
     required String title,
     required String description,
     required String actionText,
-    required int signalCount,
     required bool isStale,
     required String? staleReason,
     required VoidCallback onBack,
@@ -879,17 +969,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
                                     ),
                               ),
                             ],
-                            const SizedBox(height: 14),
-                            _SmallTryMetadataLabel(
-                              icon: Icons.hub_outlined,
-                              label: AppLocaleText.tr(
-                                context,
-                                en: 'Source Signals: $signalCount',
-                                zhHans: '来源 Signal：$signalCount 条',
-                                zhHant: '來源 Signal：$signalCount 條',
-                                ja: 'ソース Signal：$signalCount 件',
-                              ),
-                            ),
                             if (isStale) ...[
                               const SizedBox(height: 12),
                               const _ExperimentSourceChangedBadge(),
@@ -1072,10 +1151,16 @@ class _ExperimentPageState extends State<ExperimentPage> {
   }
 
   Future<void> _loadExperimentHistory({bool reset = false}) async {
-    if (_historyLoading) return;
+    if (_historyLoading) {
+      _historyReloadRequested = true;
+      _historyReloadResetRequested = _historyReloadResetRequested || reset;
+      return;
+    }
     setState(() => _historyLoading = true);
     try {
       final deps = context.read<AppDependencies>();
+      final selectedSmallTryId = _selectedSmallTry?.action.id;
+      final selectedGoalId = _selectedExperiment?.id;
       final smallTryTarget =
           reset || _smallTries.isEmpty ? _archivePageSize : _smallTries.length;
       final goalTarget =
@@ -1093,21 +1178,63 @@ class _ExperimentPageState extends State<ExperimentPage> {
       );
       final smallTries = smallTryRows.take(smallTryTarget).toList();
       final rows = goalRows.take(goalTarget).toList();
-      final artifacts = await _loadGoalArtifacts(deps, rows);
-      final smallTryFeedbacks = await _loadSmallTryFeedbacks(deps, smallTries);
-      final smallTryReviews = await _loadSmallTryReviews(deps, smallTries);
-      final outcomeReviews = await _loadGoalOutcomeReviews(deps, rows);
-      final smallTrySignals = await _loadSmallTrySignals(deps, smallTries);
-      final smallTryVersions = await _loadPlanVersions(
-        deps,
-        objectKind: PlanContentObjectKind.quickTry,
-        objectIds: smallTries.map((item) => item.action.id),
-      );
-      final goalVersions = await _loadPlanVersions(
-        deps,
-        objectKind: PlanContentObjectKind.goal,
-        objectIds: rows.map((item) => item.id),
-      );
+
+      AdoptedMicroActionProgress? refreshedSelectedSmallTry;
+      if (selectedSmallTryId != null) {
+        for (final item in smallTries) {
+          if (item.action.id == selectedSmallTryId) {
+            refreshedSelectedSmallTry = item;
+            break;
+          }
+        }
+        if (refreshedSelectedSmallTry == null) {
+          final action = await deps.localPhase3PlusRepository
+              .getMicroActionById(selectedSmallTryId);
+          if (action != null) {
+            refreshedSelectedSmallTry = AdoptedMicroActionProgress(
+              action: action,
+              progress: await deps.localCandidatePlanningRepository
+                  .microActionProgress(selectedSmallTryId),
+            );
+          }
+        }
+      }
+
+      LifeExperimentModel? refreshedSelectedGoal;
+      if (selectedGoalId != null) {
+        for (final item in rows) {
+          if (item.id == selectedGoalId) {
+            refreshedSelectedGoal = item;
+            break;
+          }
+        }
+        refreshedSelectedGoal ??=
+            await deps.localLifeExperimentRepository.getById(selectedGoalId);
+      }
+
+      final smallTriesForArtifacts = <AdoptedMicroActionProgress>[
+        ...smallTries,
+        if (refreshedSelectedSmallTry != null &&
+            !smallTries.any(
+              (item) => item.action.id == refreshedSelectedSmallTry!.action.id,
+            ))
+          refreshedSelectedSmallTry,
+      ];
+      final goalsForArtifacts = <LifeExperimentModel>[
+        ...rows,
+        if (refreshedSelectedGoal != null &&
+            !rows.any((item) => item.id == refreshedSelectedGoal!.id))
+          refreshedSelectedGoal,
+      ];
+      final artifacts = await _loadGoalArtifacts(deps, goalsForArtifacts);
+      final smallTryFeedbacks =
+          await _loadSmallTryFeedbacks(deps, smallTriesForArtifacts);
+      final smallTryReviews =
+          await _loadSmallTryReviews(deps, smallTriesForArtifacts);
+      final outcomeReviews =
+          await _loadGoalOutcomeReviews(deps, goalsForArtifacts);
+      final smallTrySignals =
+          await _loadSmallTrySignals(deps, smallTriesForArtifacts);
       if (!mounted) return;
       setState(() {
         _smallTries = smallTries;
@@ -1119,23 +1246,37 @@ class _ExperimentPageState extends State<ExperimentPage> {
         _feedbacksByExperiment = artifacts.feedbacks;
         _signalsByExperiment = artifacts.signals;
         _signalsBySmallTry = smallTrySignals;
-        _smallTryPlanVersions = smallTryVersions;
-        _goalPlanVersions = goalVersions;
         _rollupsByExperiment = artifacts.rollups;
         _lifecycleByExperiment = artifacts.lifecycle;
         _smallTryFeedbacksByAction = smallTryFeedbacks;
         _smallTryReviewsByAction = smallTryReviews;
         _outcomeReviewsByExperiment = outcomeReviews;
+        if (selectedSmallTryId != null) {
+          _selectedSmallTry = refreshedSelectedSmallTry;
+        }
+        if (selectedGoalId != null) {
+          _selectedExperiment = refreshedSelectedGoal;
+        }
         _historyLoaded = true;
         _historyLoading = false;
       });
+      _drainQueuedHistoryReload();
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _historyLoaded = true;
         _historyLoading = false;
       });
+      _drainQueuedHistoryReload();
     }
+  }
+
+  void _drainQueuedHistoryReload() {
+    if (!_historyReloadRequested || !mounted) return;
+    final reset = _historyReloadResetRequested;
+    _historyReloadRequested = false;
+    _historyReloadResetRequested = false;
+    unawaited(_loadExperimentHistory(reset: reset));
   }
 
   Future<void> _loadMoreSmallTries() async {
@@ -1161,11 +1302,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
         deps,
         page.toList(growable: false),
       );
-      final versions = await _loadPlanVersions(
-        deps,
-        objectKind: PlanContentObjectKind.quickTry,
-        objectIds: page.map((item) => item.action.id),
-      );
       final byId = {
         for (final item in _smallTries) item.action.id: item,
         for (final item in page) item.action.id: item,
@@ -1183,7 +1319,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
           ...reviews,
         };
         _signalsBySmallTry = {..._signalsBySmallTry, ...signals};
-        _smallTryPlanVersions = {..._smallTryPlanVersions, ...versions};
         _smallTriesLoadingMore = false;
       });
     } catch (_) {
@@ -1204,11 +1339,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
       final page = rows.take(_archivePageSize).toList(growable: false);
       final artifacts = await _loadGoalArtifacts(deps, page);
       final outcomeReviews = await _loadGoalOutcomeReviews(deps, page);
-      final versions = await _loadPlanVersions(
-        deps,
-        objectKind: PlanContentObjectKind.goal,
-        objectIds: page.map((item) => item.id),
-      );
       final byId = {
         for (final experiment in _history) experiment.id: experiment,
         for (final experiment in page) experiment.id: experiment,
@@ -1237,7 +1367,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
           ..._outcomeReviewsByExperiment,
           ...outcomeReviews,
         };
-        _goalPlanVersions = {..._goalPlanVersions, ...versions};
         _goalsLoadingMore = false;
       });
     } catch (_) {
@@ -1364,28 +1493,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
     };
   }
 
-  Future<Map<String, List<PlanContentVersion>>> _loadPlanVersions(
-    AppDependencies deps, {
-    required PlanContentObjectKind objectKind,
-    required Iterable<String> objectIds,
-  }) async {
-    final repository = LocalPlanContentVersionRepository(deps.localDatabase);
-    final result = <String, List<PlanContentVersion>>{};
-    for (final objectId in objectIds.toSet()) {
-      try {
-        result[objectId] = await repository.listForObject(
-          localUserId: deps.localUserId,
-          objectKind: objectKind,
-          objectId: objectId,
-        );
-      } catch (_) {
-        // Older local fixtures may not have the append-only version table yet.
-        result[objectId] = const [];
-      }
-    }
-    return result;
-  }
-
   Future<Map<String, List<LifeExperimentOutcomeReviewModel>>>
       _loadGoalOutcomeReviews(
     AppDependencies deps,
@@ -1416,44 +1523,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
   void _selectFilter(_ExperimentFilter value) {
     setState(() => _filter = value);
     _ensureAllGoalsLoaded();
-  }
-
-  Future<void> _recordSmallTryFeedback(
-    AdoptedMicroActionProgress item,
-    SmallTryAttemptFeedbackDraft input,
-  ) async {
-    final actionId = item.action.id;
-    if (_savingSmallTryIds.contains(actionId)) return;
-    setState(() => _savingSmallTryIds.add(actionId));
-    try {
-      final deps = context.read<AppDependencies>();
-      await deps.todayRepository.submitMicroActionFeedback(
-        microActionId: actionId,
-        feedback: input.completionStatus,
-        effect: input.effect,
-        difficulty: input.difficulty,
-        userNote: input.note,
-      );
-      await _loadExperimentHistory();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            AppLocaleText.tr(
-              context,
-              en: 'This small experiment feedback is saved.',
-              zhHans: '这次小实验反馈已保存。',
-              zhHant: '這次小實驗回饋已保存。',
-              ja: '今回の小実験の記録を保存しました。',
-            ),
-          ),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _savingSmallTryIds.remove(actionId));
-      }
-    }
   }
 
   _ExperimentEvidence _evidenceFor(LifeExperimentModel experiment) {
@@ -1600,58 +1669,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
     }
   }
 
-  Future<void> _openSmallTryFeedback(
-    BuildContext context,
-    AdoptedMicroActionProgress item,
-  ) async {
-    final feedback = await showSmallTryAttemptFeedbackSheet(
-      context,
-      title: item.action.title,
-    );
-    if (feedback == null || !mounted) return;
-    await _recordSmallTryFeedback(item, feedback);
-  }
-
-  Future<bool> _confirmLifecycleCompletion({
-    required String title,
-    required String body,
-  }) async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: Text(title),
-            content: Text(body),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Keep going',
-                    zhHans: '继续进行',
-                    zhHant: '繼續進行',
-                    ja: '続ける',
-                  ),
-                ),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Confirm completion',
-                    zhHans: '确认完成',
-                    zhHant: '確認完成',
-                    ja: '完了を確認',
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-  }
-
   Future<void> _openSmallTryRoundReview(
     BuildContext context,
     AdoptedMicroActionProgress item,
@@ -1681,7 +1698,7 @@ class _ExperimentPageState extends State<ExperimentPage> {
                   Text(
                     AppLocaleText.tr(
                       context,
-                      en: 'Summarize this small-experiment round',
+                      en: 'Summarize this Spot Try round',
                       zhHans: '总结这一轮小实验',
                       zhHant: '總結這一輪小實驗',
                       ja: '今回の小実験をまとめる',
@@ -1720,16 +1737,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
                           zhHans: '调轻再试',
                           zhHant: '調輕再試',
                           ja: '軽くして再試行',
-                        ),
-                      ),
-                      _FeedbackChoice(
-                        value: SmallTryRoundResult.noHelpObserved,
-                        label: AppLocaleText.tr(
-                          context,
-                          en: 'End it',
-                          zhHans: '结束',
-                          zhHant: '結束',
-                          ja: '終了',
                         ),
                       ),
                     ],
@@ -1832,7 +1839,7 @@ class _ExperimentPageState extends State<ExperimentPage> {
     final nextAdjustment = switch (review.result) {
       SmallTryRoundResult.worthKeeping => SmallTryNextAdjustment.keep,
       SmallTryRoundResult.adjustAndRetry => SmallTryNextAdjustment.makeLighter,
-      _ => SmallTryNextAdjustment.end,
+      _ => SmallTryNextAdjustment.keep,
     };
     final deps = context.read<AppDependencies>();
     await deps.localPhase3PlusRepository.recordMicroActionRoundReview(
@@ -1919,10 +1926,10 @@ class _ExperimentPageState extends State<ExperimentPage> {
                       child: Text(
                         AppLocaleText.tr(
                           context,
-                          en: 'This goal has not reached its minimum observation period. You can close the round now, but the result can only be recorded as “Too early to tell”.',
-                          zhHans: '这个目标还没达到最低观察天数。你可以现在结束这一轮，但结果只能记录为“还看不出”。',
-                          zhHant: '這個目標還沒達到最低觀察天數。你可以現在結束這一輪，但結果只能記錄為「還看不出」。',
-                          ja: 'この目標は最低観察日数に達していません。今回を終了できますが、結果は「まだ不明」としてのみ記録できます。',
+                          en: 'This goal has not reached its minimum observation period. The summary can only be saved as “Too early to tell” and will not change its in-progress status.',
+                          zhHans: '这个目标还没达到最低观察天数。目前只能总结为“还看不出”，不会改变进行中状态。',
+                          zhHant: '這個目標還沒達到最低觀察天數。目前只能總結為「還看不出」，不會改變進行中狀態。',
+                          ja: 'この目標は最低観察日数に達していません。現時点では「まだ不明」とだけまとめられ、進行中の状態は変わりません。',
                         ),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: AuroraColors.ink,
@@ -2080,7 +2087,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
         experimentId: experiment.id,
         outcomeResult: review.outcome,
         burden: review.burden,
-        userConfirmedRoundEnd: true,
         reviewNote: review.note,
       );
     } on StateError {
@@ -2103,64 +2109,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
     await _loadExperimentHistory(reset: true);
   }
 
-  Future<void> _confirmCompleteSmallTry(
-    AdoptedMicroActionProgress item,
-  ) async {
-    final confirmed = await _confirmLifecycleCompletion(
-      title: AppLocaleText.tr(
-        context,
-        en: 'Complete this small experiment?',
-        zhHans: '完成这个小实验？',
-        zhHant: '完成這個小實驗？',
-        ja: 'この小実験を完了しますか？',
-      ),
-      body: AppLocaleText.tr(
-        context,
-        en: 'Past daily records stay unchanged. Completing ends this run.',
-        zhHans: '过去的每日记录会保留不变，确认后结束这个小实验。',
-        zhHant: '過去的每日記錄會保留不變，確認後結束這個小實驗。',
-        ja: '過去の日別記録はそのまま残り、この実施期間を終了します。',
-      ),
-    );
-    if (!confirmed || !mounted) return;
-    await context
-        .read<AppDependencies>()
-        .localCandidatePlanningRepository
-        .completeMicroAction(item.action.id);
-    if (!mounted) return;
-    setState(() => _selectedSmallTry = null);
-    await _loadExperimentHistory(reset: true);
-  }
-
-  Future<void> _confirmCompleteExperiment(
-    LifeExperimentModel experiment,
-  ) async {
-    final confirmed = await _confirmLifecycleCompletion(
-      title: AppLocaleText.tr(
-        context,
-        en: 'Complete this goal?',
-        zhHans: '完成这个目标？',
-        zhHant: '完成這個目標？',
-        ja: 'この目標を完了しますか？',
-      ),
-      body: AppLocaleText.tr(
-        context,
-        en: 'Past feedback stays unchanged. Completing ends this goal cycle.',
-        zhHans: '过去的反馈会保留不变，确认后结束本轮目标。',
-        zhHant: '過去的回饋會保留不變，確認後結束本輪目標。',
-        ja: '過去のフィードバックはそのまま残り、この目標期間を終了します。',
-      ),
-    );
-    if (!confirmed || !mounted) return;
-    await context
-        .read<AppDependencies>()
-        .localLifeExperimentRepository
-        .updateStatus(experimentId: experiment.id, status: 'completed');
-    if (!mounted) return;
-    setState(() => _selectedExperiment = null);
-    await _loadExperimentHistory(reset: true);
-  }
-
   Future<void> _adoptConsideringSmallTry(
     MicroActionCandidateModel candidate,
   ) async {
@@ -2176,7 +2124,7 @@ class _ExperimentPageState extends State<ExperimentPage> {
       context,
       AppLocaleText.tr(
         context,
-        en: 'Small experiment adopted. Progress starts from its planned day.',
+        en: 'Spot Try adopted. Progress starts from its planned day.',
         zhHans: '已采纳小实验，进度从计划开始日计算。',
         zhHant: '已採納小實驗，進度從計劃開始日計算。',
         ja: '小実験を採用しました。進捗は予定開始日から数えます。',
@@ -2205,40 +2153,6 @@ class _ExperimentPageState extends State<ExperimentPage> {
         ja: '目標を採用しました。予定開始日に「今日」へ表示されます。',
       ),
     );
-  }
-
-  Future<void> _reuseExperiment(
-    BuildContext context,
-    WeeklyViewModel vm,
-    LifeExperimentModel experiment,
-  ) async {
-    try {
-      final deps = context.read<AppDependencies>();
-      await deps.localLifeExperimentRepository.appendToCurrentWeek(
-        experiment: experiment,
-      );
-      await _loadExperimentHistory();
-    } catch (_) {
-      // The archive page can be opened before weekly data is ready.
-    }
-    if (!context.mounted) return;
-    _showExperimentHint(
-      context,
-      AppLocaleText.tr(
-        context,
-        en: 'This goal has been added to this week.',
-        zhHans: '已追加到本周，不会覆盖原有目标。',
-        zhHant: '已追加到本週，不會覆蓋原有目標。',
-        ja: '今週に追加しました。既存の目標は上書きしません。',
-      ),
-    );
-  }
-
-  void _openExperimentFeedback(
-    BuildContext context,
-    LifeExperimentModel experiment,
-  ) {
-    context.push('${AppRoutes.todayExperimentFeedback}/${experiment.id}');
   }
 
   void _syncControllers(
@@ -3035,7 +2949,10 @@ Color _experimentColor(LifeExperimentModel experiment) {
   return AuroraColors.mint;
 }
 
-List<_KeywordData> _keywordsFor(LifeExperimentModel experiment) {
+List<_KeywordData> _keywordsFor(
+  BuildContext context,
+  LifeExperimentModel experiment,
+) {
   final source = [
     experiment.title,
     experiment.hypothesis,
@@ -3049,25 +2966,95 @@ List<_KeywordData> _keywordsFor(LifeExperimentModel experiment) {
   }
 
   if (source.contains('睡') || source.toLowerCase().contains('sleep')) {
-    add('Sleep improved', Icons.nights_stay_rounded, AuroraColors.blue);
+    add(
+      AppLocaleText.tr(
+        context,
+        en: 'Sleep improved',
+        zhHans: '睡眠改善',
+        zhHant: '睡眠改善',
+        ja: '睡眠の改善',
+      ),
+      Icons.nights_stay_rounded,
+      AuroraColors.blue,
+    );
   }
   if (source.contains('放松') ||
       source.contains('恢复') ||
       source.toLowerCase().contains('relax')) {
-    add('Relaxation', Icons.spa_rounded, AuroraColors.mint);
+    add(
+      AppLocaleText.tr(
+        context,
+        en: 'Relaxation',
+        zhHans: '更放松',
+        zhHant: '更放鬆',
+        ja: 'リラックス',
+      ),
+      Icons.spa_rounded,
+      AuroraColors.mint,
+    );
   }
   if (source.contains('情绪') || source.toLowerCase().contains('mood')) {
-    add('Mood steadier', Icons.favorite_rounded, AuroraColors.gold);
+    add(
+      AppLocaleText.tr(
+        context,
+        en: 'Mood steadier',
+        zhHans: '情绪更稳定',
+        zhHant: '情緒更穩定',
+        ja: '気分が安定',
+      ),
+      Icons.favorite_rounded,
+      AuroraColors.gold,
+    );
   }
   if (source.contains('压力') || source.toLowerCase().contains('pressure')) {
-    add('Pressure lower', Icons.cloud_queue_rounded, AuroraColors.orange);
+    add(
+      AppLocaleText.tr(
+        context,
+        en: 'Pressure lower',
+        zhHans: '负担降低',
+        zhHant: '負擔降低',
+        ja: '負担が軽減',
+      ),
+      Icons.cloud_queue_rounded,
+      AuroraColors.orange,
+    );
   }
   if (source.contains('记录') || source.toLowerCase().contains('record')) {
-    add('Observation', Icons.edit_rounded, AuroraColors.blue);
+    add(
+      AppLocaleText.tr(
+        context,
+        en: 'Observation',
+        zhHans: '观察记录',
+        zhHant: '觀察記錄',
+        ja: '観察記録',
+      ),
+      Icons.edit_rounded,
+      AuroraColors.blue,
+    );
   }
   if (keywords.isEmpty) {
-    add('Rhythm clearer', Icons.auto_awesome_rounded, AuroraColors.purple);
-    add('Easier to start', Icons.trending_up_rounded, AuroraColors.mint);
+    add(
+      AppLocaleText.tr(
+        context,
+        en: 'Rhythm clearer',
+        zhHans: '节奏更清晰',
+        zhHant: '節奏更清晰',
+        ja: 'リズムが明確',
+      ),
+      Icons.auto_awesome_rounded,
+      AuroraColors.purple,
+    );
+    add(
+      AppLocaleText.tr(
+        context,
+        en: 'Easier to start',
+        zhHans: '更容易开始',
+        zhHant: '更容易開始',
+        ja: '始めやすい',
+      ),
+      Icons.trending_up_rounded,
+      AuroraColors.mint,
+    );
   }
   return keywords.take(4).toList();
 }
@@ -3182,7 +3169,10 @@ class _ExperimentEvidence {
     return 3.4;
   }
 
-  List<_KeywordData> keywordsFor(LifeExperimentModel experiment) {
+  List<_KeywordData> keywordsFor(
+    BuildContext context,
+    LifeExperimentModel experiment,
+  ) {
     final counts = <String, int>{};
     void add(String? value) {
       final normalized = value?.trim();
@@ -3212,15 +3202,15 @@ class _ExperimentEvidence {
     final keywords = sorted.take(4).map((entry) {
       final text = entry.key;
       return _KeywordData(
-        _readableEvidenceLabel(text),
+        _readableEvidenceLabel(context, text),
         _evidenceIcon(text),
         _evidenceColor(text),
       );
     }).toList();
-    return keywords.isNotEmpty ? keywords : _keywordsFor(experiment);
+    return keywords.isNotEmpty ? keywords : _keywordsFor(context, experiment);
   }
 
-  List<_KeywordData> conditionKeywords() {
+  List<_KeywordData> conditionKeywords(BuildContext context) {
     final source = <_KeywordData>[];
     final slots =
         feedbacks.map((f) => f.timeSlot ?? '').where((e) => e.isNotEmpty);
@@ -3229,11 +3219,12 @@ class _ExperimentEvidence {
         .whereType<String>()
         .where((e) => e.trim().isNotEmpty);
     for (final value in [...slots, ...scenes]) {
-      if (source.any((item) => item.label == _readableEvidenceLabel(value))) {
+      if (source.any(
+          (item) => item.label == _readableEvidenceLabel(context, value))) {
         continue;
       }
       source.add(_KeywordData(
-        _readableEvidenceLabel(value),
+        _readableEvidenceLabel(context, value),
         _evidenceIcon(value),
         _evidenceColor(value),
       ));
@@ -3241,22 +3232,41 @@ class _ExperimentEvidence {
     }
     if (source.isEmpty) {
       source.addAll([
-        const _KeywordData('More feedback needed', Icons.edit_note_rounded,
-            AuroraColors.muted),
+        _KeywordData(
+          AppLocaleText.tr(
+            context,
+            en: 'More feedback needed',
+            zhHans: '还需要更多反馈',
+            zhHant: '還需要更多回饋',
+            ja: 'もう少し反応が必要',
+          ),
+          Icons.edit_note_rounded,
+          AuroraColors.muted,
+        ),
       ]);
     }
     return source;
   }
 
-  List<_DurationBucket> durationBuckets() {
+  List<_DurationBucket> durationBuckets(BuildContext context) {
     final durations = feedbacks
         .map((feedback) => feedback.durationMinutes)
         .whereType<int>()
         .where((value) => value > 0)
         .toList();
     if (durations.isEmpty) {
-      return const [
-        _DurationBucket('No duration yet', 1, AuroraColors.muted),
+      return [
+        _DurationBucket(
+          AppLocaleText.tr(
+            context,
+            en: 'No duration yet',
+            zhHans: '还没有时长记录',
+            zhHant: '還沒有時長記錄',
+            ja: '時間記録はまだありません',
+          ),
+          1,
+          AuroraColors.muted,
+        ),
       ];
     }
     final underTen = durations.where((value) => value <= 10).length;
@@ -3264,9 +3274,39 @@ class _ExperimentEvidence {
         durations.where((value) => value > 10 && value <= 20).length;
     final overTwenty = durations.where((value) => value > 20).length;
     return [
-      _DurationBucket('Under 10 min', underTen, AuroraColors.purple),
-      _DurationBucket('10-20 min', tenToTwenty, AuroraColors.orange),
-      _DurationBucket('Over 20 min', overTwenty, AuroraColors.mint),
+      _DurationBucket(
+        AppLocaleText.tr(
+          context,
+          en: 'Under 10 min',
+          zhHans: '10 分钟以内',
+          zhHant: '10 分鐘以內',
+          ja: '10分以内',
+        ),
+        underTen,
+        AuroraColors.purple,
+      ),
+      _DurationBucket(
+        AppLocaleText.tr(
+          context,
+          en: '10–20 min',
+          zhHans: '10–20 分钟',
+          zhHant: '10–20 分鐘',
+          ja: '10〜20分',
+        ),
+        tenToTwenty,
+        AuroraColors.orange,
+      ),
+      _DurationBucket(
+        AppLocaleText.tr(
+          context,
+          en: 'Over 20 min',
+          zhHans: '20 分钟以上',
+          zhHant: '20 分鐘以上',
+          ja: '20分以上',
+        ),
+        overTwenty,
+        AuroraColors.mint,
+      ),
     ].where((bucket) => bucket.count > 0).toList();
   }
 
@@ -3516,22 +3556,8 @@ class _DurationBucket {
   const _DurationBucket(this.label, this.count, this.color);
 }
 
-String _readableEvidenceLabel(String value) {
-  final normalized = value.trim();
-  const labels = {
-    'completed': 'Completed',
-    'not_completed': 'Not completed',
-    'tried': 'Happened',
-    'helpful': 'Helpful',
-    'too_hard': 'Want to adjust',
-    'adjusted': 'Want to adjust',
-    'not_today': 'Not today',
-    'high_draining': 'High drain',
-    'restoring': 'Recovery',
-    'recovery': 'Recovery',
-  };
-  return labels[normalized] ?? normalized;
-}
+String _readableEvidenceLabel(BuildContext context, String value) =>
+    localizeUserVisibleDynamicText(context, value);
 
 IconData _evidenceIcon(String value) {
   final text = value.toLowerCase();
@@ -3570,6 +3596,330 @@ Color _evidenceColor(String value) {
   return AuroraColors.purple;
 }
 
+class _ExperimentTrackPager extends StatefulWidget {
+  final _ExperimentHomeTrack track;
+  final VoidCallback onShowSmallExperiments;
+  final VoidCallback onShowGoals;
+  final Widget child;
+
+  const _ExperimentTrackPager({
+    required this.track,
+    required this.onShowSmallExperiments,
+    required this.onShowGoals,
+    required this.child,
+  });
+
+  @override
+  State<_ExperimentTrackPager> createState() => _ExperimentTrackPagerState();
+}
+
+class _ExperimentTrackPagerState extends State<_ExperimentTrackPager> {
+  static const _switchThreshold = 48.0;
+  static const _flingThreshold = 360.0;
+
+  double _horizontalDragDistance = 0;
+
+  void _handleHorizontalDragStart(DragStartDetails details) {
+    _horizontalDragDistance = 0;
+  }
+
+  void _handleHorizontalDragUpdate(DragUpdateDetails details) {
+    _horizontalDragDistance += details.primaryDelta ?? 0;
+  }
+
+  void _handleHorizontalDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final swipedLeft = _horizontalDragDistance <= -_switchThreshold ||
+        velocity <= -_flingThreshold;
+    final swipedRight = _horizontalDragDistance >= _switchThreshold ||
+        velocity >= _flingThreshold;
+    _horizontalDragDistance = 0;
+
+    if (widget.track == _ExperimentHomeTrack.smallExperiments && swipedLeft) {
+      widget.onShowGoals();
+    } else if (widget.track == _ExperimentHomeTrack.goals && swipedRight) {
+      widget.onShowSmallExperiments();
+    }
+  }
+
+  void _handleHorizontalDragCancel() {
+    _horizontalDragDistance = 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isSmallExperiment =
+        widget.track == _ExperimentHomeTrack.smallExperiments;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ExperimentTrackSwitcher(
+          track: widget.track,
+          onShowSmallExperiments: widget.onShowSmallExperiments,
+          onShowGoals: widget.onShowGoals,
+        ),
+        const SizedBox(height: 14),
+        Semantics(
+          container: true,
+          label: AppLocaleText.tr(
+            context,
+            en: isSmallExperiment
+                ? 'Page 1 of 2, Spot Tries. Swipe left for goals.'
+                : 'Page 2 of 2, goals. Swipe right for Spot Tries.',
+            zhHans: isSmallExperiment
+                ? '第1页，共2页：小实验。向左滑查看目标。'
+                : '第2页，共2页：目标。向右滑查看小实验。',
+            zhHant: isSmallExperiment
+                ? '第1頁，共2頁：小實驗。向左滑查看目標。'
+                : '第2頁，共2頁：目標。向右滑查看小實驗。',
+            ja: isSmallExperiment
+                ? '全2ページ中1ページ目、小実験。左へスワイプすると目標を表示します。'
+                : '全2ページ中2ページ目、目標。右へスワイプすると小実験を表示します。',
+          ),
+          child: GestureDetector(
+            key: const ValueKey('experiment-track-pager'),
+            behavior: HitTestBehavior.translucent,
+            onHorizontalDragStart: _handleHorizontalDragStart,
+            onHorizontalDragUpdate: _handleHorizontalDragUpdate,
+            onHorizontalDragEnd: _handleHorizontalDragEnd,
+            onHorizontalDragCancel: _handleHorizontalDragCancel,
+            child: widget.child,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ExperimentTrackSwitcher extends StatelessWidget {
+  final _ExperimentHomeTrack track;
+  final VoidCallback onShowSmallExperiments;
+  final VoidCallback onShowGoals;
+
+  const _ExperimentTrackSwitcher({
+    required this.track,
+    required this.onShowSmallExperiments,
+    required this.onShowGoals,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('experiment-track-switcher'),
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.80),
+            const Color(0xFFF6F3FF).withValues(alpha: 0.88),
+            const Color(0xFFF1FBF8).withValues(alpha: 0.76),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.88),
+        ),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+            color: AuroraColors.purple.withValues(alpha: 0.10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _ExperimentTrackSwitchSegment(
+              key: const ValueKey(
+                'experiment-track-switch-small-experiments',
+              ),
+              selected: track == _ExperimentHomeTrack.smallExperiments,
+              icon: Icons.spa_rounded,
+              color: AuroraColors.mint,
+              title: AppLocaleText.tr(
+                context,
+                en: 'Spot Try',
+                zhHans: '小实验',
+                zhHant: '小實驗',
+                ja: '小実験',
+              ),
+              subtitle: AppLocaleText.tr(
+                context,
+                en: 'Quick & simple',
+                zhHans: '简单尝试',
+                zhHant: '簡單嘗試',
+                ja: 'スポットトライ',
+              ),
+              onTap: onShowSmallExperiments,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: _ExperimentTrackSwitchSegment(
+              key: const ValueKey('experiment-track-switch-goals'),
+              selected: track == _ExperimentHomeTrack.goals,
+              icon: Icons.flag_rounded,
+              color: AuroraColors.purple,
+              title: AppLocaleText.tr(
+                context,
+                en: 'Goals',
+                zhHans: '目标',
+                zhHant: '目標',
+                ja: '目標',
+              ),
+              subtitle: AppLocaleText.tr(
+                context,
+                en: 'Longer term',
+                zhHans: '中长期',
+                zhHant: '中長期',
+                ja: '中長期',
+              ),
+              onTap: onShowGoals,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExperimentTrackSwitchSegment extends StatelessWidget {
+  final bool selected;
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _ExperimentTrackSwitchSegment({
+    super.key,
+    required this.selected,
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = '$title${_experimentListSeparator(context)}$subtitle';
+    final hint = AppLocaleText.tr(
+      context,
+      en: selected ? 'Currently shown' : 'Double tap to switch',
+      zhHans: selected ? '当前显示' : '双击切换',
+      zhHant: selected ? '目前顯示' : '點兩下切換',
+      ja: selected ? '現在表示中' : 'ダブルタップして切り替え',
+    );
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      hint: hint,
+      onTap: onTap,
+      child: ExcludeSemantics(
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(19),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              constraints: const BoxConstraints(minHeight: 58),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                gradient: selected
+                    ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          color.withValues(alpha: 0.22),
+                          Colors.white.withValues(alpha: 0.92),
+                        ],
+                      )
+                    : null,
+                borderRadius: BorderRadius.circular(19),
+                border: Border.all(
+                  color: selected
+                      ? color.withValues(alpha: 0.58)
+                      : Colors.transparent,
+                ),
+                boxShadow: selected
+                    ? [
+                        BoxShadow(
+                          blurRadius: 18,
+                          offset: const Offset(0, 7),
+                          color: color.withValues(alpha: 0.16),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: selected
+                          ? color.withValues(alpha: 0.18)
+                          : const Color(0xFFEFEFF7),
+                    ),
+                    child: Icon(
+                      icon,
+                      size: 19,
+                      color: selected ? color : AuroraColors.muted,
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Flexible(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    color: selected
+                                        ? AuroraColors.ink
+                                        : AuroraColors.muted,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(
+                                color: selected ? color : AuroraColors.muted,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SmallTryBranchChart extends StatelessWidget {
   final List<AdoptedMicroActionProgress> items;
   final List<MicroActionCandidateModel> consideringCandidates;
@@ -3579,7 +3929,6 @@ class _SmallTryBranchChart extends StatelessWidget {
       latestReviewFor;
   final ValueChanged<AdoptedMicroActionProgress> onOpenDetail;
   final ValueChanged<MicroActionCandidateModel> onOpenCandidateDetail;
-  final ValueChanged<AdoptedMicroActionProgress> onRecordToday;
 
   const _SmallTryBranchChart({
     required this.items,
@@ -3588,7 +3937,6 @@ class _SmallTryBranchChart extends StatelessWidget {
     required this.latestReviewFor,
     required this.onOpenDetail,
     required this.onOpenCandidateDetail,
-    required this.onRecordToday,
   });
 
   @override
@@ -3600,6 +3948,14 @@ class _SmallTryBranchChart extends StatelessWidget {
     for (final item in items) {
       grouped[_smallTryLifecycleStage(item.action)]!.add(item);
     }
+    final visibleStages = _ExperimentLifecycleStage.values
+        .where(
+          (stage) =>
+              grouped[stage]!.isNotEmpty ||
+              (stage == _ExperimentLifecycleStage.considering &&
+                  consideringCandidates.isNotEmpty),
+        )
+        .toList(growable: false);
     return Column(
       key: const ValueKey('life-experiment-small-tries-section'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3609,17 +3965,17 @@ class _SmallTryBranchChart extends StatelessWidget {
           color: AuroraColors.mint,
           title: AppLocaleText.tr(
             context,
-            en: 'Small experiments · within 10 minutes',
-            zhHans: '小实验 · 10分钟以内',
-            zhHant: '小實驗 · 10分鐘以內',
-            ja: '小実験 · 10 分以内',
+            en: 'Spot Tries · quick and simple',
+            zhHans: '小实验 · 简单尝试',
+            zhHant: '小實驗 · 簡單嘗試',
+            ja: '小実験 · スポットトライ',
           ),
           description: AppLocaleText.tr(
             context,
-            en: 'Try it now, then record whether it helped and how demanding it felt.',
-            zhHans: '现在就能试，完成后记录有没有帮助，以及做起来是否费力。',
-            zhHant: '現在就能試，完成後記錄有沒有幫助，以及做起來是否費力。',
-            ja: '今すぐ試し、役立ったか・負担だったかを記録します。',
+            en: 'Review attempts, helpfulness, and effort collected from Today and Weekly.',
+            zhHans: '汇总今天与每周复盘中的尝试次数、帮助程度和负担感。',
+            zhHant: '彙總今天與每週復盤中的嘗試次數、幫助程度和負擔感。',
+            ja: '「今日」と週次レビューから、試行回数・役立ち方・負担感をまとめます。',
           ),
           count: items.length + consideringCandidates.length,
         ),
@@ -3636,14 +3992,14 @@ class _SmallTryBranchChart extends StatelessWidget {
                   color: AuroraColors.mint,
                   title: AppLocaleText.tr(
                     context,
-                    en: 'No small experiments yet',
+                    en: 'No Spot Tries yet',
                     zhHans: '还没有小实验',
                     zhHant: '還沒有小實驗',
                     ja: '小実験はまだありません',
                   ),
                   body: AppLocaleText.tr(
                     context,
-                    en: 'Adopted small experiments will branch into observing, in progress, and completed here.',
+                    en: 'Adopted Spot Tries will branch into observing, in progress, and ended here.',
                     zhHans: '采纳或暂时观察的小实验，会在这里按状态展开。',
                     zhHant: '採納或暫時觀察的小實驗，會在這裡按狀態展開。',
                     ja: '採用または観察中の小実験が、状態ごとにここへ広がります。',
@@ -3652,24 +4008,21 @@ class _SmallTryBranchChart extends StatelessWidget {
               : Column(
                   children: [
                     for (var index = 0;
-                        index < _ExperimentLifecycleStage.values.length;
+                        index < visibleStages.length;
                         index++) ...[
                       _SmallTryLifecycleLane(
-                        stage: _ExperimentLifecycleStage.values[index],
-                        items:
-                            grouped[_ExperimentLifecycleStage.values[index]]!,
-                        consideringCandidates:
-                            _ExperimentLifecycleStage.values[index] ==
-                                    _ExperimentLifecycleStage.considering
-                                ? consideringCandidates
-                                : const [],
+                        stage: visibleStages[index],
+                        items: grouped[visibleStages[index]]!,
+                        consideringCandidates: visibleStages[index] ==
+                                _ExperimentLifecycleStage.considering
+                            ? consideringCandidates
+                            : const [],
                         onOpenDetail: onOpenDetail,
                         onOpenCandidateDetail: onOpenCandidateDetail,
-                        onRecordToday: onRecordToday,
                         feedbacksFor: feedbacksFor,
                         latestReviewFor: latestReviewFor,
                       ),
-                      if (index != _ExperimentLifecycleStage.values.length - 1)
+                      if (index != visibleStages.length - 1)
                         const SizedBox(height: 12),
                     ],
                   ],
@@ -3686,7 +4039,6 @@ class _SmallTryLifecycleLane extends StatelessWidget {
   final List<MicroActionCandidateModel> consideringCandidates;
   final ValueChanged<AdoptedMicroActionProgress> onOpenDetail;
   final ValueChanged<MicroActionCandidateModel> onOpenCandidateDetail;
-  final ValueChanged<AdoptedMicroActionProgress> onRecordToday;
   final List<MicroActionFeedbackModel> Function(AdoptedMicroActionProgress)
       feedbacksFor;
   final MicroActionReviewEventModel? Function(AdoptedMicroActionProgress)
@@ -3698,7 +4050,6 @@ class _SmallTryLifecycleLane extends StatelessWidget {
     required this.consideringCandidates,
     required this.onOpenDetail,
     required this.onOpenCandidateDetail,
-    required this.onRecordToday,
     required this.feedbacksFor,
     required this.latestReviewFor,
   });
@@ -3767,37 +4118,37 @@ class _SmallTryLifecycleLane extends StatelessWidget {
           else
             LayoutBuilder(
               builder: (context, constraints) {
-                final scaled = MediaQuery.textScalerOf(context).scale(1) > 1.15;
-                final oneColumn = constraints.maxWidth < 300 || scaled;
-                final width = oneColumn
-                    ? constraints.maxWidth
-                    : (constraints.maxWidth - 9) / 2;
-                return Wrap(
-                  spacing: 9,
-                  runSpacing: 9,
+                return Column(
                   children: [
-                    for (final candidate in consideringCandidates)
+                    for (var index = 0;
+                        index < consideringCandidates.length;
+                        index++) ...[
                       SizedBox(
-                        width: width,
+                        width: constraints.maxWidth,
                         child: _ConsideringSmallTryNode(
-                          candidate: candidate,
-                          onTap: () => onOpenCandidateDetail(candidate),
+                          candidate: consideringCandidates[index],
+                          onTap: () => onOpenCandidateDetail(
+                            consideringCandidates[index],
+                          ),
                         ),
                       ),
-                    for (final item in items)
+                      if (index != consideringCandidates.length - 1 ||
+                          items.isNotEmpty)
+                        const SizedBox(height: 9),
+                    ],
+                    for (var index = 0; index < items.length; index++) ...[
                       SizedBox(
-                        width: width,
+                        width: constraints.maxWidth,
                         child: _SmallTryBranchNode(
-                          item: item,
+                          item: items[index],
                           stage: stage,
-                          feedbacks: feedbacksFor(item),
-                          latestReview: latestReviewFor(item),
-                          onTap: () => onOpenDetail(item),
-                          onRecord: stage == _ExperimentLifecycleStage.active
-                              ? () => onRecordToday(item)
-                              : null,
+                          feedbacks: feedbacksFor(items[index]),
+                          latestReview: latestReviewFor(items[index]),
+                          onTap: () => onOpenDetail(items[index]),
                         ),
                       ),
+                      if (index != items.length - 1) const SizedBox(height: 9),
+                    ],
                   ],
                 );
               },
@@ -3814,7 +4165,6 @@ class _SmallTryBranchNode extends StatelessWidget {
   final List<MicroActionFeedbackModel> feedbacks;
   final MicroActionReviewEventModel? latestReview;
   final VoidCallback onTap;
-  final VoidCallback? onRecord;
 
   const _SmallTryBranchNode({
     required this.item,
@@ -3822,27 +4172,34 @@ class _SmallTryBranchNode extends StatelessWidget {
     required this.feedbacks,
     required this.latestReview,
     required this.onTap,
-    this.onRecord,
   });
 
   @override
   Widget build(BuildContext context) {
     final color = _lifecycleStageColor(stage);
-    final attempts = feedbacks
-        .where((feedback) =>
-            feedback.isValid &&
-            (feedback.happened == 'completed' ||
-                normalizeSmallTryEffect(feedback.effect).isNotEmpty))
-        .toList(growable: false);
+    final attempts = _completedSmallTryAttemptFeedbacks(feedbacks);
+    final attemptCount = item.progress.completedAttempts;
     final effectSummary = _smallTryEffectSummary(context, attempts);
     final effortSummary = _smallTryEffortSummary(context, attempts);
     final reviewLabel = latestReview == null
         ? null
         : _smallTryRoundResultLabel(context, latestReview!.result);
+    final separator = _experimentListSeparator(context);
     return Semantics(
       button: true,
-      label: '${item.action.title}，${_lifecycleStageLabel(context, stage)}，'
-          '${AppLocaleText.tr(context, en: '${attempts.length} attempts', zhHans: '尝试 ${attempts.length} 次', zhHant: '嘗試 ${attempts.length} 次', ja: '${attempts.length} 回試行')}，$effectSummary，$effortSummary',
+      label: [
+        item.action.title,
+        _lifecycleStageLabel(context, stage),
+        AppLocaleText.tr(
+          context,
+          en: '$attemptCount attempts',
+          zhHans: '尝试 $attemptCount 次',
+          zhHant: '嘗試 $attemptCount 次',
+          ja: '$attemptCount 回試行',
+        ),
+        effectSummary,
+        effortSummary,
+      ].join(separator),
       child: Material(
         color: Colors.white.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(16),
@@ -3885,10 +4242,10 @@ class _SmallTryBranchNode extends StatelessWidget {
                       child: Text(
                         AppLocaleText.tr(
                           context,
-                          en: '${attempts.length} attempts this round',
-                          zhHans: '本轮尝试 ${attempts.length} 次',
-                          zhHant: '本輪嘗試 ${attempts.length} 次',
-                          ja: '今回 ${attempts.length} 回試行',
+                          en: '$attemptCount attempts this round',
+                          zhHans: '本轮尝试 $attemptCount 次',
+                          zhHant: '本輪嘗試 $attemptCount 次',
+                          ja: '今回 $attemptCount 回試行',
                         ),
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
                               color: color,
@@ -3921,34 +4278,6 @@ class _SmallTryBranchNode extends StatelessWidget {
                       ),
                   ],
                 ),
-                if (onRecord != null) ...[
-                  const SizedBox(height: 9),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 44,
-                    child: OutlinedButton.icon(
-                      key: ValueKey(
-                        'life-experiment-record-small-try-${item.action.id}',
-                      ),
-                      onPressed: onRecord,
-                      icon: const Icon(Icons.add_rounded, size: 18),
-                      label: Text(
-                        AppLocaleText.tr(
-                          context,
-                          en: 'Record one try',
-                          zhHans: '登记一次',
-                          zhHant: '登記一次',
-                          ja: '1 回記録',
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: color,
-                        side: BorderSide(color: color.withValues(alpha: 0.38)),
-                        minimumSize: const Size.fromHeight(44),
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -4138,17 +4467,23 @@ Color _smallTryEffectColor(String raw) =>
       _ => const Color(0xFFC8CEDA),
     };
 
-List<MicroActionFeedbackModel> _completedStructuredSmallTryFeedbacks(
+List<MicroActionFeedbackModel> _completedSmallTryAttemptFeedbacks(
   Iterable<MicroActionFeedbackModel> feedbacks,
 ) {
+  const completedAliases = {
+    'yes',
+    'happened',
+    'occurred',
+    'done',
+    'completed',
+    'true',
+    'tried',
+  };
   return feedbacks
       .where(
         (feedback) =>
-            feedback.happened == 'completed' &&
-            SmallTryEffect.values
-                .contains(normalizeSmallTryEffect(feedback.effect)) &&
-            SmallTryDifficulty.values
-                .contains(normalizeSmallTryDifficulty(feedback.difficulty)),
+            feedback.isValid &&
+            completedAliases.contains(feedback.happened.trim().toLowerCase()),
       )
       .toList(growable: false);
 }
@@ -4358,8 +4693,13 @@ class _ConsideringSmallTryNode extends StatelessWidget {
     const color = AuroraColors.gold;
     return Semantics(
       button: true,
-      label:
-          '${candidate.title}，${_lifecycleStageLabel(context, _ExperimentLifecycleStage.considering)}',
+      label: [
+        candidate.title,
+        _lifecycleStageLabel(
+          context,
+          _ExperimentLifecycleStage.considering,
+        ),
+      ].join(_experimentListSeparator(context)),
       child: Material(
         color: Colors.white.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(16),
@@ -4413,10 +4753,10 @@ class _ConsideringSmallTryNode extends StatelessWidget {
                         Text(
                           AppLocaleText.tr(
                             context,
-                            en: 'Within 10 min · not started',
-                            zhHans: '10分钟以内 · 尚未开始',
-                            zhHant: '10分鐘以內 · 尚未開始',
-                            ja: '10 分以内 · 開始前',
+                            en: 'Spot Try · not started',
+                            zhHans: '简单尝试 · 尚未开始',
+                            zhHant: '簡單嘗試 · 尚未開始',
+                            ja: 'スポットトライ · 開始前',
                           ),
                           style:
                               Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -4450,8 +4790,6 @@ class _GoalTimelineMatrix extends StatelessWidget {
       latestOutcomeFor;
   final ValueChanged<LifeExperimentModel> onOpenDetail;
   final ValueChanged<ExperimentCandidateRecord> onOpenCandidateDetail;
-  final ValueChanged<LifeExperimentModel> onRecordToday;
-  final ValueChanged<LifeExperimentModel> onSummarize;
 
   const _GoalTimelineMatrix({
     required this.experiments,
@@ -4461,8 +4799,6 @@ class _GoalTimelineMatrix extends StatelessWidget {
     required this.latestOutcomeFor,
     required this.onOpenDetail,
     required this.onOpenCandidateDetail,
-    required this.onRecordToday,
-    required this.onSummarize,
   });
 
   @override
@@ -4500,10 +4836,10 @@ class _GoalTimelineMatrix extends StatelessWidget {
           ),
           description: AppLocaleText.tr(
             context,
-            en: 'Observe a change over time. Goals can continue beyond one week.',
-            zhHans: '持续一段时间，观察想看到的变化；目标不限制为七天。',
-            zhHant: '持續一段時間，觀察想看到的變化；目標不限制為七天。',
-            ja: '時間をかけて変化を観察します。期間は 7 日に限定しません。',
+            en: 'Review longer-term progress and the feedback collected over time.',
+            zhHans: '查看中长期进展，以及连续多日留下的真实反馈。',
+            zhHant: '查看中長期進展，以及連續多日留下的真實回饋。',
+            ja: '中長期の進み方と、日々積み重なった反応を見返します。',
           ),
           count: experiments.length + consideringCandidates.length,
         ),
@@ -4558,8 +4894,6 @@ class _GoalTimelineMatrix extends StatelessWidget {
                     rollup: rollupFor(ordered[index]),
                     latestOutcome: latestOutcomeFor(ordered[index]),
                     onTap: () => onOpenDetail(ordered[index]),
-                    onRecord: () => onRecordToday(ordered[index]),
-                    onSummarize: () => onSummarize(ordered[index]),
                   ),
                   if (index != ordered.length - 1) const SizedBox(height: 10),
                 ],
@@ -4584,38 +4918,39 @@ class _LifecycleLegend extends StatelessWidget {
       runSpacing: 7,
       children: [
         for (final stage in _ExperimentLifecycleStage.values)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-            decoration: BoxDecoration(
-              color: _lifecycleStageColor(stage).withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  WidgetSpan(
-                    alignment: PlaceholderAlignment.middle,
-                    child: Icon(
-                      _lifecycleStageIcon(stage),
-                      color: _lifecycleStageColor(stage),
-                      size: 14,
-                    ),
-                  ),
-                  const WidgetSpan(child: SizedBox(width: 4)),
-                  TextSpan(
-                    text:
-                        '${_lifecycleStageLabel(context, stage)} ${counts[stage] ?? 0}',
-                  ),
-                ],
+          if ((counts[stage] ?? 0) > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+              decoration: BoxDecoration(
+                color: _lifecycleStageColor(stage).withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(999),
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AuroraColors.ink,
-                    fontWeight: FontWeight.w700,
-                  ),
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    WidgetSpan(
+                      alignment: PlaceholderAlignment.middle,
+                      child: Icon(
+                        _lifecycleStageIcon(stage),
+                        color: _lifecycleStageColor(stage),
+                        size: 14,
+                      ),
+                    ),
+                    const WidgetSpan(child: SizedBox(width: 4)),
+                    TextSpan(
+                      text:
+                          '${_lifecycleStageLabel(context, stage)} ${counts[stage] ?? 0}',
+                    ),
+                  ],
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: AuroraColors.ink,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
             ),
-          ),
       ],
     );
   }
@@ -4635,8 +4970,13 @@ class _ConsideringGoalTimelineRow extends StatelessWidget {
     const color = AuroraColors.gold;
     return Semantics(
       button: true,
-      label:
-          '${candidate.title}，${_lifecycleStageLabel(context, _ExperimentLifecycleStage.considering)}',
+      label: [
+        candidate.title,
+        _lifecycleStageLabel(
+          context,
+          _ExperimentLifecycleStage.considering,
+        ),
+      ].join(_experimentListSeparator(context)),
       child: Material(
         color: color.withValues(alpha: 0.055),
         borderRadius: BorderRadius.circular(18),
@@ -4686,8 +5026,9 @@ class _ConsideringGoalTimelineRow extends StatelessWidget {
                     zhHant: '想觀察：${candidate.hypothesis}',
                     ja: '観察したい変化：${candidate.hypothesis}',
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                  key: ValueKey(
+                    'considering-goal-${candidate.id}-hypothesis',
+                  ),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AuroraColors.muted,
                         height: 1.35,
@@ -4737,8 +5078,6 @@ class _GoalTimelineRow extends StatelessWidget {
   final _ExperimentRollup? rollup;
   final LifeExperimentOutcomeReviewModel? latestOutcome;
   final VoidCallback onTap;
-  final VoidCallback onRecord;
-  final VoidCallback onSummarize;
 
   const _GoalTimelineRow({
     required this.experiment,
@@ -4746,8 +5085,6 @@ class _GoalTimelineRow extends StatelessWidget {
     required this.rollup,
     required this.latestOutcome,
     required this.onTap,
-    required this.onRecord,
-    required this.onSummarize,
   });
 
   @override
@@ -4756,17 +5093,19 @@ class _GoalTimelineRow extends StatelessWidget {
     final color = _lifecycleStageColor(stage);
     final completed = _completedGoalObservationDays(evidence);
     final window = _goalObservationWindow(experiment);
-    final canSummarize = completed >= experiment.minimumObservationDays ||
-        latestOutcome != null ||
-        stage == _ExperimentLifecycleStage.completed;
-    final availability = _goalRecordAvailability(
-      experiment,
-      lifecycleStatus: rollup?.currentStatus,
-    );
     return Semantics(
       button: true,
-      label:
-          '${experiment.title}，${_lifecycleStageLabel(context, stage)}，${AppLocaleText.tr(context, en: '$completed completed days', zhHans: '已完成 $completed 天', zhHant: '已完成 $completed 天', ja: '$completed 日完了')}',
+      label: [
+        experiment.title,
+        _lifecycleStageLabel(context, stage),
+        AppLocaleText.tr(
+          context,
+          en: '$completed completed days',
+          zhHans: '已完成 $completed 天',
+          zhHant: '已完成 $completed 天',
+          ja: '$completed 日完了',
+        ),
+      ].join(_experimentListSeparator(context)),
       child: Material(
         color: color.withValues(alpha: 0.055),
         borderRadius: BorderRadius.circular(18),
@@ -4813,8 +5152,9 @@ class _GoalTimelineRow extends StatelessWidget {
                     zhHant: '想觀察：${experiment.hypothesis}',
                     ja: '観察したい変化：${experiment.hypothesis}',
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                  key: ValueKey(
+                    'experiment-${experiment.id}-hypothesis',
+                  ),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AuroraColors.muted,
                         height: 1.4,
@@ -4864,59 +5204,6 @@ class _GoalTimelineRow extends StatelessWidget {
                   experiment: experiment,
                   evidence: evidence,
                 ),
-                if (availability == _SevenDayRecordAvailability.active ||
-                    canSummarize) ...[
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      if (availability == _SevenDayRecordAvailability.active)
-                        SizedBox(
-                          height: 44,
-                          child: FilledButton.tonalIcon(
-                            key: ValueKey(
-                              'life-experiment-record-goal-${experiment.id}',
-                            ),
-                            onPressed: onRecord,
-                            icon: const Icon(Icons.add_task_rounded, size: 18),
-                            label: Text(
-                              AppLocaleText.tr(
-                                context,
-                                en: 'Record today',
-                                zhHans: '登记今天',
-                                zhHant: '登記今天',
-                                ja: '今日を記録',
-                              ),
-                            ),
-                          ),
-                        ),
-                      if (canSummarize)
-                        SizedBox(
-                          height: 44,
-                          child: OutlinedButton.icon(
-                            key: ValueKey(
-                              'life-experiment-review-goal-${experiment.id}',
-                            ),
-                            onPressed: onSummarize,
-                            icon: const Icon(Icons.insights_rounded, size: 18),
-                            label: Text(
-                              AppLocaleText.tr(
-                                context,
-                                en: 'Review this round',
-                                zhHans: '总结这一轮',
-                                zhHant: '總結這一輪',
-                                ja: '今回を振り返る',
-                              ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: color,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
               ],
             ),
           ),
@@ -5021,8 +5308,32 @@ class _GoalObservationTimeline extends StatelessWidget {
                     ? AuroraColors.orange
                     : const Color(0xFFDCE2EC);
             return Semantics(
-              label:
-                  '${_localDateKey(date)}，${completed ? AppLocaleText.tr(context, en: 'completed', zhHans: '已完成', zhHant: '已完成', ja: '完了') : recorded ? AppLocaleText.tr(context, en: 'not completed', zhHans: '未完成', zhHant: '未完成', ja: '未完了') : AppLocaleText.tr(context, en: 'not recorded', zhHans: '未登记', zhHant: '未登記', ja: '未記録')}',
+              label: [
+                _localDateKey(date),
+                completed
+                    ? AppLocaleText.tr(
+                        context,
+                        en: 'completed',
+                        zhHans: '已完成',
+                        zhHant: '已完成',
+                        ja: '完了',
+                      )
+                    : recorded
+                        ? AppLocaleText.tr(
+                            context,
+                            en: 'not completed',
+                            zhHans: '未完成',
+                            zhHant: '未完成',
+                            ja: '未完了',
+                          )
+                        : AppLocaleText.tr(
+                            context,
+                            en: 'not recorded',
+                            zhHans: '未登记',
+                            zhHant: '未登記',
+                            ja: '未記録',
+                          ),
+              ].join(_experimentListSeparator(context)),
               child: Container(
                 width: cellWidth,
                 padding: const EdgeInsets.symmetric(vertical: 3),
@@ -5221,7 +5532,7 @@ class _ExperimentSearchEmptyState extends StatelessWidget {
           Text(
             AppLocaleText.tr(
               context,
-              en: 'No matching small experiments or goals',
+              en: 'No matching Spot Tries or goals',
               zhHans: '没有匹配的小实验或目标',
               zhHant: '沒有匹配的小實驗或目標',
               ja: '一致する小実験や目標はありません',
@@ -5251,209 +5562,403 @@ class _ExperimentSearchEmptyState extends StatelessWidget {
   }
 }
 
-class _ExperimentUnifiedEmptyCta extends StatelessWidget {
-  final VoidCallback onRecordToday;
-
-  const _ExperimentUnifiedEmptyCta({required this.onRecordToday});
+class _ExperimentUnifiedEmptyState extends StatelessWidget {
+  const _ExperimentUnifiedEmptyState();
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton.icon(
-      key: const ValueKey('life-experiment-empty-record-today'),
-      onPressed: onRecordToday,
-      icon: const Icon(Icons.add_comment_outlined),
-      label: Text(
-        AppLocaleText.tr(
-          context,
-          en: 'Record today',
-          zhHans: '去记录今天',
-          zhHant: '去記錄今天',
-          ja: '今日を記録',
-        ),
-      ),
-    );
-  }
-}
-
-class _SourceSignalHistoryCard extends StatelessWidget {
-  final List<RecentSignalModel> signals;
-  final int expectedCount;
-
-  const _SourceSignalHistoryCard({
-    super.key,
-    required this.signals,
-    required this.expectedCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final missingCount = math.max(0, expectedCount - signals.length);
-    return _ExperimentGlassCard(
-      title: AppLocaleText.tr(
-        context,
-        en: 'Source Signals',
-        zhHans: '来源 Signal',
-        zhHant: '來源 Signal',
-        ja: '元になった Signal',
-      ),
-      trailing: _StatusPill(
-        label: '$expectedCount',
-        color: AuroraColors.blue,
-      ),
-      child: Column(
+    return AuroraCard(
+      key: const ValueKey('life-experiment-empty-state'),
+      padding: const EdgeInsets.all(18),
+      borderRadius: BorderRadius.circular(22),
+      color: Colors.white.withValues(alpha: 0.68),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (signals.isEmpty)
-            Text(
-              expectedCount == 0
-                  ? AppLocaleText.tr(
-                      context,
-                      en: 'No source Signal is linked.',
-                      zhHans: '没有关联的来源 Signal。',
-                      zhHant: '沒有關聯的來源 Signal。',
-                      ja: '関連する Signal はありません。',
-                    )
-                  : AppLocaleText.tr(
-                      context,
-                      en: 'The linked source has changed or is no longer available.',
-                      zhHans: '来源已变化，原始 Signal 暂时不可用。',
-                      zhHant: '來源已變化，原始 Signal 暫時不可用。',
-                      ja: '元の Signal が変更されたか、現在利用できません。',
-                    ),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AuroraColors.muted,
-                    height: 1.42,
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: AuroraColors.mint.withValues(alpha: 0.14),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.auto_awesome_rounded,
+              color: AuroraColors.mint,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Nothing to review yet',
+                    zhHans: '还没有可回看的内容',
+                    zhHant: '還沒有可回看的內容',
+                    ja: '振り返る内容はまだありません',
                   ),
-            )
-          else ...[
-            for (var index = 0; index < signals.length; index++) ...[
-              _SourceSignalHistoryRow(signal: signals[index]),
-              if (index != signals.length - 1) const Divider(height: 18),
-            ],
-            if (missingCount > 0) ...[
-              const Divider(height: 18),
-              Text(
-                AppLocaleText.tr(
-                  context,
-                  en: '$missingCount linked source(s) changed or are unavailable.',
-                  zhHans: '$missingCount 条来源已变化或不可用。',
-                  zhHant: '$missingCount 條來源已變化或不可用。',
-                  ja: '$missingCount 件の元データが変更されたか利用できません。',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: AuroraColors.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AuroraColors.orange,
-                      height: 1.4,
-                    ),
-              ),
-            ],
-          ],
+                const SizedBox(height: 5),
+                Text(
+                  AppLocaleText.tr(
+                    context,
+                    en: 'Spot Tries or goals you adopt elsewhere will be collected here.',
+                    zhHans: '在今天或每周复盘中采纳的小实验与目标，会汇总到这里。',
+                    zhHant: '在今天或每週復盤中採納的小實驗與目標，會彙總到這裡。',
+                    ja: '「今日」や週次レビューで採用した小実験と目標が、ここにまとまります。',
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AuroraColors.muted,
+                        height: 1.4,
+                      ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _SourceSignalHistoryRow extends StatelessWidget {
-  final RecentSignalModel signal;
+class _ExperimentArchiveReadOnlyNotice extends StatelessWidget {
+  final _ExperimentLifecycleStage stage;
 
-  const _SourceSignalHistoryRow({required this.signal});
-
-  @override
-  Widget build(BuildContext context) {
-    final date = signal.localDate?.trim().isNotEmpty == true
-        ? signal.localDate!.trim()
-        : _localDateKey(signal.createdAt?.toLocal() ?? DateTime.now());
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const AuroraSoftIconCircle(
-          icon: Icons.auto_awesome_rounded,
-          color: AuroraColors.blue,
-          size: 34,
-          iconSize: 17,
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                signal.content.trim().isEmpty
-                    ? AppLocaleText.tr(
-                        context,
-                        en: 'Signal content unavailable',
-                        zhHans: 'Signal 内容不可用',
-                        zhHant: 'Signal 內容不可用',
-                        ja: 'Signal の内容を表示できません',
-                      )
-                    : signal.content.trim(),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AuroraColors.ink,
-                      height: 1.42,
-                    ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                date,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: AuroraColors.muted,
-                    ),
-              ),
-            ],
-          ),
-        ),
-        const Icon(Icons.lock_outline_rounded,
-            size: 16, color: AuroraColors.muted),
-      ],
-    );
-  }
-}
-
-class _PlanVersionHistoryCard extends StatelessWidget {
-  final List<PlanContentVersion> versions;
-  final PlanContentObjectKind kind;
-
-  const _PlanVersionHistoryCard({
-    super.key,
-    required this.versions,
-    required this.kind,
+  const _ExperimentArchiveReadOnlyNotice({
+    required this.stage,
   });
 
   @override
   Widget build(BuildContext context) {
-    final rows = [...versions]
-      ..sort((a, b) => b.versionNo.compareTo(a.versionNo));
+    final isEnded = stage == _ExperimentLifecycleStage.completed;
+    return Container(
+      key: const ValueKey('experiment-archive-read-only-notice'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AuroraColors.mint.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AuroraColors.mint.withValues(alpha: 0.22),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.lock_outline_rounded,
+            size: 19,
+            color: AuroraColors.mint,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              isEnded
+                  ? AppLocaleText.tr(
+                      context,
+                      en: 'This item is complete. Past records remain read-only.',
+                      zhHans: '这个项目已完成，过去的记录保持只读。',
+                      zhHant: '這個項目已完成，過去的記錄保持唯讀。',
+                      ja: 'この項目は完了しました。過去の記録は読み取り専用です。',
+                    )
+                  : AppLocaleText.tr(
+                      context,
+                      en: 'This has not started yet. The plan stays read-only until it begins.',
+                      zhHans: '这项观察还没有开始；开始前计划保持只读。',
+                      zhHant: '這項觀察還沒有開始；開始前計劃保持唯讀。',
+                      ja: 'この観察はまだ始まっていません。開始までは計画を読み取り専用で表示します。',
+                    ),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AuroraColors.ink.withValues(alpha: 0.72),
+                    height: 1.4,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExperimentOriginCard extends StatelessWidget {
+  final ExperimentCreationSource creationSource;
+  final DateTime? adoptedAt;
+
+  const _ExperimentOriginCard({
+    required this.creationSource,
+    required this.adoptedAt,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isUserCreated =
+        creationSource == ExperimentCreationSource.userCreated;
+    final color = isUserCreated ? AuroraColors.mint : AuroraColors.purple;
+    final date = adoptedAt?.toLocal();
+    final dateLabel =
+        date == null ? null : '${date.year}/${date.month}/${date.day}';
     return _ExperimentGlassCard(
+      key: const ValueKey('experiment-creation-origin'),
       title: AppLocaleText.tr(
         context,
-        en: 'Plan versions',
-        zhHans: '计划版本',
-        zhHant: '計劃版本',
-        ja: '計画バージョン',
+        en: 'How this started',
+        zhHans: '创建方式',
+        zhHant: '建立方式',
+        ja: '始め方',
+      ),
+      trailing: _StatusPill(
+        label: _experimentCreationSourceLabel(context, creationSource),
+        color: color,
+      ),
+      child: Text(
+        isUserCreated
+            ? AppLocaleText.tr(
+                context,
+                en: dateLabel == null
+                    ? 'Created by you.'
+                    : 'Created by you on $dateLabel.',
+                zhHans: dateLabel == null ? '由你自己设定。' : '由你在 $dateLabel 自己设定。',
+                zhHant: dateLabel == null ? '由你自己設定。' : '由你在 $dateLabel 自己設定。',
+                ja: dateLabel == null ? '自分で設定しました。' : '$dateLabel に自分で設定しました。',
+              )
+            : creationSource == ExperimentCreationSource.legacyUnknown
+                ? AppLocaleText.tr(
+                    context,
+                    en: 'This is an earlier saved plan. Its creation path was not recorded.',
+                    zhHans: '这是较早保存的计划，当时没有记录创建方式。',
+                    zhHant: '這是較早儲存的計劃，當時沒有記錄建立方式。',
+                    ja: '以前保存した計画です。作成経路は記録されていません。',
+                  )
+                : AppLocaleText.tr(
+                    context,
+                    en: dateLabel == null
+                        ? 'You adopted an AI suggestion.'
+                        : 'You adopted an AI suggestion on $dateLabel.',
+                    zhHans: dateLabel == null
+                        ? '由智能助手提议，你确认采纳。'
+                        : '智能助手提议后，由你在 $dateLabel 确认采纳。',
+                    zhHant: dateLabel == null
+                        ? '由智慧助手提議，你確認採納。'
+                        : '智慧助手提議後，由你在 $dateLabel 確認採納。',
+                    ja: dateLabel == null
+                        ? '人工知能の提案をあなたが採用しました。'
+                        : '$dateLabel に人工知能の提案を採用しました。',
+                  ),
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: AuroraColors.muted,
+              height: 1.45,
+            ),
+      ),
+    );
+  }
+}
+
+String _experimentCreationSourceLabel(
+  BuildContext context,
+  ExperimentCreationSource source,
+) {
+  return switch (source) {
+    ExperimentCreationSource.userCreated => AppLocaleText.tr(
+        context,
+        en: 'Created by you',
+        zhHans: '用户自建',
+        zhHant: '使用者自建',
+        ja: '自分で作成',
+      ),
+    ExperimentCreationSource.legacyUnknown => AppLocaleText.tr(
+        context,
+        en: 'Earlier record',
+        zhHans: '历史记录',
+        zhHant: '歷史記錄',
+        ja: '以前の記録',
+      ),
+    _ => AppLocaleText.tr(
+        context,
+        en: 'AI suggestion · adopted',
+        zhHans: '智能提议 · 已采纳',
+        zhHant: '智慧提議 · 已採納',
+        ja: '人工知能の提案・採用済み',
+      ),
+  };
+}
+
+enum _ExperimentContentKind { smallExperiment, goal }
+
+class _ExperimentContentChangeGuide extends StatelessWidget {
+  final _ExperimentContentKind kind;
+  final Future<void> Function() onCreateNew;
+
+  const _ExperimentContentChangeGuide({
+    required this.kind,
+    required this.onCreateNew,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isSmallExperiment = kind == _ExperimentContentKind.smallExperiment;
+    return _ExperimentGlassCard(
+      key: ValueKey('experiment-content-change-guide-${kind.name}'),
+      title: AppLocaleText.tr(
+        context,
+        en: 'Want to change the content?',
+        zhHans: '想调整内容？',
+        zhHant: '想調整內容？',
+        ja: '内容を変えたいとき',
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isSmallExperiment
+                ? AppLocaleText.tr(
+                    context,
+                    en: 'This Spot Try stays read-only so its feedback remains tied to the same action. Create a new Spot Try for a different approach.',
+                    zhHans: '这条小实验保持只读，反馈才会一直对应同一种做法。想换一种做法时，请登记为新的小实验。',
+                    zhHant: '這條小實驗保持唯讀，回饋才會一直對應同一種做法。想換一種做法時，請登記為新的小實驗。',
+                    ja: 'この小実験は同じやり方のフィードバックを保つため読み取り専用です。別のやり方は新しい小実験として登録してください。',
+                  )
+                : AppLocaleText.tr(
+                    context,
+                    en: 'This goal stays read-only so its feedback remains tied to the same direction. Create a new goal when the direction or expected change is different.',
+                    zhHans: '这条目标保持只读，反馈才会一直对应同一个观察方向。方向或想观察的变化不同，请登记为新的目标。',
+                    zhHant: '這條目標保持唯讀，回饋才會一直對應同一個觀察方向。方向或想觀察的變化不同，請登記為新的目標。',
+                    ja: 'この目標は同じ観察方向のフィードバックを保つため読み取り専用です。方向や見たい変化が違う場合は、新しい目標として登録してください。',
+                  ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AuroraColors.muted,
+                  height: 1.45,
+                ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            key: ValueKey('create-new-${kind.name}-from-detail'),
+            onPressed: () => unawaited(onCreateNew()),
+            icon: const Icon(Icons.add_rounded),
+            label: Text(
+              isSmallExperiment
+                  ? AppLocaleText.tr(
+                      context,
+                      en: 'Create a new Spot Try',
+                      zhHans: '新建小实验',
+                      zhHant: '新增小實驗',
+                      ja: '新しい小実験を作る',
+                    )
+                  : AppLocaleText.tr(
+                      context,
+                      en: 'Create a new goal',
+                      zhHans: '新建目标',
+                      zhHant: '新增目標',
+                      ja: '新しい目標を作る',
+                    ),
+            ),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(46),
+              foregroundColor:
+                  isSmallExperiment ? AuroraColors.mint : AuroraColors.blue,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeedbackOverviewEntry {
+  final String id;
+  final String kindLabel;
+  final String overallLabel;
+  final String localDate;
+  final String content;
+  final Color color;
+  final IconData icon;
+  final DateTime sortAt;
+
+  const _FeedbackOverviewEntry({
+    required this.id,
+    required this.kindLabel,
+    required this.overallLabel,
+    required this.localDate,
+    required this.content,
+    required this.color,
+    required this.icon,
+    required this.sortAt,
+  });
+}
+
+DateTime _feedbackSortTime(
+  String localDate, {
+  DateTime? recordedAt,
+}) {
+  return recordedAt ??
+      DateTime.tryParse(localDate) ??
+      DateTime.fromMillisecondsSinceEpoch(0);
+}
+
+String _feedbackContentOrPlaceholder(BuildContext context, String? value) {
+  final content = value?.trim() ?? '';
+  if (content.isNotEmpty) return content;
+  return AppLocaleText.tr(
+    context,
+    en: 'No additional note.',
+    zhHans: '未补充内容。',
+    zhHant: '未補充內容。',
+    ja: '追加内容はありません。',
+  );
+}
+
+class _ExperimentFeedbackOverviewCard extends StatelessWidget {
+  final Key overviewKey;
+  final List<_FeedbackOverviewEntry> entries;
+  final String emptyText;
+
+  const _ExperimentFeedbackOverviewCard({
+    required this.overviewKey,
+    required this.entries,
+    required this.emptyText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = [...entries]..sort((a, b) => b.sortAt.compareTo(a.sortAt));
+    return _ExperimentGlassCard(
+      key: overviewKey,
+      title: AppLocaleText.tr(
+        context,
+        en: 'Feedback',
+        zhHans: '反馈内容',
+        zhHant: '回饋內容',
+        ja: 'フィードバック',
       ),
       trailing: rows.isEmpty
           ? null
           : _StatusPill(
-              label: 'v${rows.first.versionNo}',
+              label: AppLocaleText.tr(
+                context,
+                en: '${rows.length} item(s)',
+                zhHans: '${rows.length} 条',
+                zhHant: '${rows.length} 條',
+                ja: '${rows.length} 件',
+              ),
               color: AuroraColors.purple,
             ),
       child: rows.isEmpty
           ? Text(
-              AppLocaleText.tr(
-                context,
-                en: 'No saved version history yet.',
-                zhHans: '还没有保存的计划版本。',
-                zhHant: '還沒有儲存的計劃版本。',
-                ja: '保存された計画バージョンはまだありません。',
-              ),
+              emptyText,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: AuroraColors.muted,
+                    height: 1.42,
                   ),
             )
           : Column(
               children: [
                 for (var index = 0; index < rows.length; index++) ...[
-                  _PlanVersionHistoryRow(version: rows[index], kind: kind),
+                  _ExperimentFeedbackOverviewRow(entry: rows[index]),
                   if (index != rows.length - 1) const Divider(height: 18),
                 ],
               ],
@@ -5462,153 +5967,522 @@ class _PlanVersionHistoryCard extends StatelessWidget {
   }
 }
 
-class _PlanVersionHistoryRow extends StatelessWidget {
-  final PlanContentVersion version;
-  final PlanContentObjectKind kind;
+class _ExperimentFeedbackOverviewRow extends StatelessWidget {
+  final _FeedbackOverviewEntry entry;
 
-  const _PlanVersionHistoryRow({required this.version, required this.kind});
+  const _ExperimentFeedbackOverviewRow({required this.entry});
 
   @override
   Widget build(BuildContext context) {
-    final content = version.content;
-    final title = '${content['title'] ?? ''}'.trim();
-    final detail = kind == PlanContentObjectKind.quickTry
-        ? '${content['reason'] ?? ''}'.trim()
-        : '${content['suggested_action'] ?? content['hypothesis'] ?? ''}'
-            .trim();
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AuroraSoftIconCircle(
-          icon: version.versionNo == 1
-              ? Icons.bookmark_outline_rounded
-              : Icons.edit_note_rounded,
-          color: AuroraColors.purple,
-          size: 34,
-          iconSize: 17,
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'v${version.versionNo} · ${version.effectiveFromLocalDate}',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: AuroraColors.ink,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              if (title.isNotEmpty) ...[
-                const SizedBox(height: 3),
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AuroraColors.ink,
-                        height: 1.35,
-                      ),
-                ),
-              ],
-              if (detail.isNotEmpty && detail != title) ...[
-                const SizedBox(height: 3),
-                Text(
-                  detail,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AuroraColors.muted,
-                        height: 1.4,
-                      ),
-                ),
-              ],
-            ],
+    return Semantics(
+      label: [
+        entry.kindLabel,
+        entry.overallLabel,
+        entry.localDate,
+        entry.content,
+      ].join(_experimentListSeparator(context)),
+      child: Row(
+        key: ValueKey('feedback-overview-entry-${entry.id}'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AuroraSoftIconCircle(
+            icon: entry.icon,
+            color: entry.color,
+            size: 38,
+            iconSize: 19,
           ),
-        ),
-        const Icon(Icons.lock_outline_rounded,
-            size: 16, color: AuroraColors.muted),
-      ],
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _StatusPill(label: entry.kindLabel, color: entry.color),
+                const SizedBox(height: 8),
+                _FeedbackField(
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Overall',
+                    zhHans: '总评',
+                    zhHant: '總評',
+                    ja: '総評',
+                  ),
+                  value: entry.overallLabel,
+                ),
+                const SizedBox(height: 5),
+                _FeedbackField(
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Registered',
+                    zhHans: '登记日期',
+                    zhHant: '登記日期',
+                    ja: '登録日',
+                  ),
+                  value: entry.localDate,
+                ),
+                const SizedBox(height: 5),
+                _FeedbackField(
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Content',
+                    zhHans: '内容',
+                    zhHant: '內容',
+                    ja: '内容',
+                  ),
+                  value: entry.content,
+                  multiline: true,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-enum _ProHistoryKind { smallExperimentSummary, goalSummary }
+class _FeedbackField extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool multiline;
 
-class _ProHistoryLockedCard extends StatelessWidget {
-  final _ProHistoryKind kind;
-  final VoidCallback onUnlock;
-
-  const _ProHistoryLockedCard({
-    required this.kind,
-    required this.onUnlock,
+  const _FeedbackField({
+    required this.label,
+    required this.value,
+    this.multiline = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isSmallExperiment = kind == _ProHistoryKind.smallExperimentSummary;
-    return AuroraCard(
-      key: ValueKey('pro-history-lock-${kind.name}'),
-      padding: AuroraMainPageSpec.cardPadding,
-      color: Colors.white.withValues(alpha: 0.74),
+    final separator =
+        AppLocaleText.resolve(context) == AppLanguage.english ? ': ' : '：';
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: '$label$separator',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          TextSpan(text: value),
+        ],
+      ),
+      maxLines: multiline ? null : 2,
+      overflow: multiline ? TextOverflow.visible : TextOverflow.ellipsis,
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: AuroraColors.ink,
+            height: 1.42,
+          ),
+    );
+  }
+}
+
+class _SmallExperimentOverviewCard extends StatelessWidget {
+  final MicroActionModel action;
+  final int canonicalAttemptCount;
+  final List<MicroActionFeedbackModel> feedbacks;
+  final List<MicroActionReviewEventModel> reviews;
+
+  const _SmallExperimentOverviewCard({
+    required this.action,
+    required this.canonicalAttemptCount,
+    required this.feedbacks,
+    required this.reviews,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final completed = _completedSmallTryAttemptFeedbacks(feedbacks);
+    final attemptedCount = math.max(canonicalAttemptCount, completed.length);
+    final notAttemptedCount = _notAttemptedSmallTryFeedbacks(feedbacks).length;
+    final rated = completed
+        .where(
+          (item) => SmallTryEffect.values.contains(
+            normalizeSmallTryEffect(item.effect),
+          ),
+        )
+        .toList()
+      ..sort(
+        (a, b) => _feedbackSortTime(
+          a.localDate,
+          recordedAt: a.updatedAt ?? a.createdAt,
+        ).compareTo(
+          _feedbackSortTime(
+            b.localDate,
+            recordedAt: b.updatedAt ?? b.createdAt,
+          ),
+        ),
+      );
+    final trendPoints = rated.skip(math.max(0, rated.length - 7)).map((item) {
+      final date = _feedbackSortTime(
+        item.localDate,
+        recordedAt: item.updatedAt ?? item.createdAt,
+      );
+      return _TrendPoint(
+        label: _dateLabel(date),
+        value: _smallTryEffectChartValue(item.effect),
+        date: date,
+      );
+    }).toList(growable: false);
+    final helpful = rated
+        .where(
+          (item) =>
+              normalizeSmallTryEffect(item.effect) == SmallTryEffect.helpful,
+        )
+        .length;
+    final somewhat = rated
+        .where(
+          (item) =>
+              normalizeSmallTryEffect(item.effect) ==
+              SmallTryEffect.somewhatHelpful,
+        )
+        .length;
+    final noEffect = rated
+        .where(
+          (item) =>
+              normalizeSmallTryEffect(item.effect) == SmallTryEffect.noEffect,
+        )
+        .length;
+    final keywords = _smallExperimentKeywords(
+      context,
+      action: action,
+      completed: completed,
+      reviews: reviews,
+    );
+    final summary = _smallExperimentFactualSummary(
+      context,
+      attemptedCount: attemptedCount,
+      completed: completed,
+      reviews: reviews,
+    );
+
+    return _ExperimentGlassCard(
+      key: const ValueKey('small-experiment-detail-overview'),
+      title: AppLocaleText.tr(
+        context,
+        en: 'Overview',
+        zhHans: '概览',
+        zhHant: '概覽',
+        ja: '概要',
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SmallExperimentOverviewPanel(
+            key: const ValueKey('small-experiment-completion-chart'),
+            title: AppLocaleText.tr(
+              context,
+              en: 'Attempts',
+              zhHans: '完成情况',
+              zhHant: '完成情況',
+              ja: '実行状況',
+            ),
+            icon: Icons.donut_large_rounded,
+            color: AuroraColors.mint,
+            child: _SmallExperimentCompletionChart(
+              attemptedCount: attemptedCount,
+              notAttemptedCount: notAttemptedCount,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _SmallExperimentOverviewPanel(
+            key: const ValueKey('small-experiment-feedback-chart'),
+            title: AppLocaleText.tr(
+              context,
+              en: 'Feedback',
+              zhHans: '反馈情况',
+              zhHant: '回饋情況',
+              ja: 'フィードバック',
+            ),
+            icon: Icons.insights_rounded,
+            color: AuroraColors.purple,
+            child: rated.isEmpty
+                ? _SmallExperimentOverviewEmpty(
+                    text: AppLocaleText.tr(
+                      context,
+                      en: 'No effect rating has been registered yet. A chart will appear after your first rated attempt.',
+                      zhHans: '还没有效果评价。完成第一次带评价的尝试后，这里会显示真实反馈图。',
+                      zhHant: '還沒有效果評價。完成第一次帶評價的嘗試後，這裡會顯示真實回饋圖。',
+                      ja: '効果の評価はまだありません。評価付きの試行後に、実際のフィードバック図が表示されます。',
+                    ),
+                  )
+                : Column(
+                    children: [
+                      _TrendLineChart(points: trendPoints, height: 148),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        key: const ValueKey(
+                          'small-experiment-feedback-count',
+                        ),
+                        spacing: 7,
+                        runSpacing: 7,
+                        children: [
+                          _CompactSummaryPill(
+                            icon: Icons.sentiment_satisfied_alt_rounded,
+                            label: AppLocaleText.tr(
+                              context,
+                              en: '$helpful helpful',
+                              zhHans: '有帮助 $helpful',
+                              zhHant: '有幫助 $helpful',
+                              ja: '役立った $helpful',
+                            ),
+                            color: AuroraColors.mint,
+                          ),
+                          _CompactSummaryPill(
+                            icon: Icons.sentiment_neutral_rounded,
+                            label: AppLocaleText.tr(
+                              context,
+                              en: '$somewhat a little',
+                              zhHans: '有一点 $somewhat',
+                              zhHant: '有一點 $somewhat',
+                              ja: '少し $somewhat',
+                            ),
+                            color: AuroraColors.gold,
+                          ),
+                          _CompactSummaryPill(
+                            icon: Icons.remove_circle_outline_rounded,
+                            label: AppLocaleText.tr(
+                              context,
+                              en: '$noEffect no difference',
+                              zhHans: '没感觉 $noEffect',
+                              zhHant: '沒感覺 $noEffect',
+                              ja: '変化なし $noEffect',
+                            ),
+                            color: AuroraColors.orange,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        AppLocaleText.tr(
+                          context,
+                          en: 'The three feedback choices are placed at high, middle, and low positions only for this chart; they are not an AI score.',
+                          zhHans: '图中只把三档评价放在高、中、低位置，便于查看变化；不是智能评分。',
+                          zhHant: '圖中只把三檔評價放在高、中、低位置，便於查看變化；不是智慧評分。',
+                          ja: '3段階の評価を高・中・低の位置に置いて変化を示しています。人工知能による点数ではありません。',
+                        ),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AuroraColors.muted,
+                              height: 1.4,
+                            ),
+                      ),
+                    ],
+                  ),
+          ),
+          const SizedBox(height: 12),
+          _SmallExperimentOverviewPanel(
+            key: const ValueKey('small-experiment-overview-keywords'),
+            title: AppLocaleText.tr(
+              context,
+              en: 'Keywords',
+              zhHans: '关键词',
+              zhHant: '關鍵詞',
+              ja: 'キーワード',
+            ),
+            icon: Icons.auto_awesome_rounded,
+            color: AuroraColors.gold,
+            child: keywords.isEmpty
+                ? _SmallExperimentOverviewEmpty(
+                    text: AppLocaleText.tr(
+                      context,
+                      en: 'Keywords are still forming from the experiment content and your explicit feedback.',
+                      zhHans: '关键词仍在形成，会从实验内容和你明确登记的反馈中提取。',
+                      zhHant: '關鍵詞仍在形成，會從實驗內容和你明確登記的回饋中提取。',
+                      ja: 'キーワードは、小実験の内容と明示的なフィードバックから形成されます。',
+                    ),
+                  )
+                : Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final keyword in keywords)
+                        _KeywordPill(
+                          label: keyword.label,
+                          icon: keyword.icon,
+                          color: keyword.color,
+                        ),
+                    ],
+                  ),
+          ),
+          const SizedBox(height: 12),
+          _SmallExperimentOverviewPanel(
+            key: const ValueKey('small-experiment-overview-summary'),
+            title: AppLocaleText.tr(
+              context,
+              en: 'Summary',
+              zhHans: '总结',
+              zhHant: '總結',
+              ja: 'まとめ',
+            ),
+            icon: Icons.notes_rounded,
+            color: AuroraColors.blue,
+            child: Text(
+              summary,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AuroraColors.ink,
+                    height: 1.55,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SmallExperimentOverviewPanel extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final Widget child;
+
+  const _SmallExperimentOverviewPanel({
+    super.key,
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.54),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const AuroraSoftIconCircle(
-                icon: Icons.lock_outline_rounded,
-                color: AuroraColors.purple,
+              AuroraSoftIconCircle(
+                icon: icon,
+                color: color,
+                size: 34,
+                iconSize: 17,
+              ),
+              const SizedBox(width: 9),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: AuroraColors.ink,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _SmallExperimentCompletionChart extends StatelessWidget {
+  final int attemptedCount;
+  final int notAttemptedCount;
+
+  const _SmallExperimentCompletionChart({
+    required this.attemptedCount,
+    required this.notAttemptedCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final total = attemptedCount + notAttemptedCount;
+    if (total == 0) {
+      return _SmallExperimentOverviewEmpty(
+        text: AppLocaleText.tr(
+          context,
+          en: 'No attempt has been registered yet.',
+          zhHans: '还没有登记尝试。',
+          zhHant: '還沒有登記嘗試。',
+          ja: '試行の登録はまだありません。',
+        ),
+      );
+    }
+    return Semantics(
+      label: AppLocaleText.tr(
+        context,
+        en: '$attemptedCount tried, $notAttemptedCount not tried',
+        zhHans: '已尝试 $attemptedCount 次，未尝试 $notAttemptedCount 次',
+        zhHant: '已嘗試 $attemptedCount 次，未嘗試 $notAttemptedCount 次',
+        ja: '試した $attemptedCount 回、試さなかった $notAttemptedCount 回',
+      ),
+      child: Column(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: SizedBox(
+              height: 18,
+              child: Row(
+                children: [
+                  if (attemptedCount > 0)
+                    Expanded(
+                      flex: attemptedCount,
+                      child: Container(color: AuroraColors.mint),
+                    ),
+                  if (notAttemptedCount > 0)
+                    Expanded(
+                      flex: notAttemptedCount,
+                      child: Container(
+                        color: AuroraColors.orange.withValues(alpha: 0.48),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 11),
+          Row(
+            children: [
+              Expanded(
+                child: _SmallExperimentChartLegend(
+                  color: AuroraColors.mint,
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Tried',
+                    zhHans: '已尝试',
+                    zhHant: '已嘗試',
+                    ja: '試した',
+                  ),
+                  value: attemptedCount,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  isSmallExperiment
-                      ? AppLocaleText.tr(
-                          context,
-                          en: 'Full round-summary history',
-                          zhHans: '完整轮次总结历史',
-                          zhHant: '完整輪次總結歷史',
-                          ja: '全ラウンドまとめ履歴',
-                        )
-                      : AppLocaleText.tr(
-                          context,
-                          en: 'Full goal-summary history',
-                          zhHans: '完整目标总结历史',
-                          zhHant: '完整目標總結歷史',
-                          ja: '目標まとめの全履歴',
-                        ),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AuroraColors.ink,
-                        fontWeight: FontWeight.w700,
-                      ),
+                child: _SmallExperimentChartLegend(
+                  color: AuroraColors.orange,
+                  label: AppLocaleText.tr(
+                    context,
+                    en: 'Not tried',
+                    zhHans: '未尝试',
+                    zhHant: '未嘗試',
+                    ja: '試さなかった',
+                  ),
+                  value: notAttemptedCount,
                 ),
               ),
-              const _StatusPill(label: 'Pro', color: AuroraColors.purple),
             ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Pro keeps every read-only summary so you can compare how the plan changed over time.',
-              zhHans: 'Pro 会保留每次只读总结，方便比较计划与结果如何变化。',
-              zhHant: 'Pro 會保留每次唯讀總結，方便比較計劃與結果如何變化。',
-              ja: 'Pro では読み取り専用のまとめをすべて残し、計画と結果の変化を比較できます。',
-            ),
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AuroraColors.muted,
-                  height: 1.42,
-                ),
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: onUnlock,
-            icon: const Icon(Icons.workspace_premium_outlined),
-            label: Text(
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
               AppLocaleText.tr(
                 context,
-                en: 'View Pro benefits',
-                zhHans: '查看 Pro 权益',
-                zhHant: '查看 Pro 權益',
-                ja: 'Pro 特典を見る',
+                en: 'Based on $total explicit registration(s); no seven-day denominator is added.',
+                zhHans: '基于 $total 条明确登记，不再套用固定七日分母。',
+                zhHant: '基於 $total 條明確登記，不再套用固定七日分母。',
+                ja: '$total 件の明示的な登録に基づき、固定の7日分母は使いません。',
               ),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AuroraColors.muted,
+                    height: 1.4,
+                  ),
             ),
           ),
         ],
@@ -5617,264 +6491,450 @@ class _ProHistoryLockedCard extends StatelessWidget {
   }
 }
 
-class _SmallTryRoundReviewHistoryCard extends StatelessWidget {
-  final List<MicroActionReviewEventModel> reviews;
+class _SmallExperimentChartLegend extends StatelessWidget {
+  final Color color;
+  final String label;
+  final int value;
 
-  const _SmallTryRoundReviewHistoryCard({required this.reviews});
+  const _SmallExperimentChartLegend({
+    required this.color,
+    required this.label,
+    required this.value,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final rows = [...reviews]
-      ..sort((a, b) => b.reviewedAt.compareTo(a.reviewedAt));
-    return _ExperimentGlassCard(
-      key: const ValueKey('small-experiment-round-review-history'),
-      title: AppLocaleText.tr(
-        context,
-        en: 'Round-summary history',
-        zhHans: '轮次总结历史',
-        zhHant: '輪次總結歷史',
-        ja: 'ラウンドまとめ履歴',
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: rows.isEmpty
-          ? Text(
-              AppLocaleText.tr(
-                context,
-                en: 'No round summary yet. Saving a summary will not complete the small experiment.',
-                zhHans: '还没有轮次总结；保存总结不会自动完成小实验。',
-                zhHant: '還沒有輪次總結；儲存總結不會自動完成小實驗。',
-                ja: 'ラウンドまとめはまだありません。保存しても小実験は自動完了しません。',
-              ),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AuroraColors.muted,
-                    height: 1.42,
-                  ),
-            )
-          : Column(
-              children: [
-                for (var index = 0; index < rows.length; index++) ...[
-                  _SmallTryRoundReviewHistoryRow(review: rows[index]),
-                  if (index != rows.length - 1) const Divider(height: 18),
-                ],
-              ],
-            ),
-    );
-  }
-}
-
-class _SmallTryRoundReviewHistoryRow extends StatelessWidget {
-  final MicroActionReviewEventModel review;
-
-  const _SmallTryRoundReviewHistoryRow({required this.review});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const AuroraSoftIconCircle(
-          icon: Icons.fact_check_outlined,
-          color: AuroraColors.mint,
-          size: 34,
-          iconSize: 17,
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${review.localDate} · ${_smallTryRoundResultLabel(context, review.result)}',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: AuroraColors.ink,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                AppLocaleText.tr(
-                  context,
-                  en: '${review.completedDaysAtReview} completed day(s)',
-                  zhHans: '总结时已完成 ${review.completedDaysAtReview} 天',
-                  zhHant: '總結時已完成 ${review.completedDaysAtReview} 天',
-                  ja: 'まとめ時点で ${review.completedDaysAtReview} 日完了',
-                ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AuroraColors.muted,
-                    ),
-              ),
-              if (review.note?.trim().isNotEmpty == true) ...[
-                const SizedBox(height: 3),
-                Text(
-                  review.note!.trim(),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AuroraColors.muted,
-                        height: 1.4,
-                      ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        const Icon(Icons.lock_outline_rounded,
-            size: 16, color: AuroraColors.muted),
-      ],
-    );
-  }
-}
-
-class _SmallTryAttemptHistoryCard extends StatelessWidget {
-  final List<MicroActionFeedbackModel> feedbacks;
-
-  const _SmallTryAttemptHistoryCard({required this.feedbacks});
-
-  @override
-  Widget build(BuildContext context) {
-    final rows = [...feedbacks]..sort((a, b) {
-        final date = b.localDate.compareTo(a.localDate);
-        if (date != 0) return date;
-        return (b.createdAt ?? DateTime(0))
-            .compareTo(a.createdAt ?? DateTime(0));
-      });
-    return AuroraCard(
-      key: const ValueKey('small-try-attempt-history'),
-      padding: AuroraMainPageSpec.cardPadding,
-      borderRadius: BorderRadius.circular(AuroraMainPageSpec.cardRadiusLarge),
-      color: Colors.white.withValues(alpha: 0.74),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Attempt history',
-              zhHans: '每次尝试',
-              zhHant: '每次嘗試',
-              ja: '試した履歴',
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: AuroraColors.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
             ),
+          ),
+          Text(
+            '$value',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: AuroraColors.ink,
                   fontWeight: FontWeight.w800,
                 ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            AppLocaleText.tr(
-              context,
-              en: 'Each saved record is read-only. Effect is judged only when you actually tried it.',
-              zhHans: '每条已保存记录都只读；只有实际尝试后才判断即时效果。',
-              zhHant: '每條已儲存記錄都唯讀；只有實際嘗試後才判斷即時效果。',
-              ja: '保存済み記録は読み取り専用です。実際に試した時だけ効果を評価します。',
-            ),
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AuroraColors.muted,
-                  height: 1.4,
-                ),
-          ),
-          const SizedBox(height: 10),
-          if (rows.isEmpty)
-            Text(
-              AppLocaleText.tr(
-                context,
-                en: 'No attempts recorded yet.',
-                zhHans: '还没有尝试记录。',
-                zhHant: '還沒有嘗試記錄。',
-                ja: '試した記録はまだありません。',
-              ),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AuroraColors.muted,
-                  ),
-            )
-          else
-            for (var index = 0; index < rows.length; index++)
-              _SmallTryAttemptHistoryRow(
-                feedback: rows[index],
-                showDivider: index != rows.length - 1,
-              ),
         ],
       ),
     );
   }
 }
 
-class _SmallTryAttemptHistoryRow extends StatelessWidget {
-  final MicroActionFeedbackModel feedback;
-  final bool showDivider;
+class _SmallExperimentOverviewEmpty extends StatelessWidget {
+  final String text;
 
-  const _SmallTryAttemptHistoryRow({
-    required this.feedback,
-    required this.showDivider,
+  const _SmallExperimentOverviewEmpty({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: AuroraColors.muted,
+            height: 1.45,
+          ),
+    );
+  }
+}
+
+List<MicroActionFeedbackModel> _notAttemptedSmallTryFeedbacks(
+  Iterable<MicroActionFeedbackModel> feedbacks,
+) {
+  const aliases = {
+    'no',
+    'not_happened',
+    'not_done',
+    'not_completed',
+    'not_attempted',
+    'false',
+    'skipped',
+  };
+  return feedbacks
+      .where(
+        (feedback) =>
+            feedback.isValid &&
+            aliases.contains(feedback.happened.trim().toLowerCase()),
+      )
+      .toList(growable: false);
+}
+
+double _smallTryEffectChartValue(String raw) {
+  return switch (normalizeSmallTryEffect(raw)) {
+    SmallTryEffect.helpful => 5,
+    SmallTryEffect.somewhatHelpful => 3,
+    SmallTryEffect.noEffect => 1,
+    _ => 3,
+  };
+}
+
+List<_KeywordData> _smallExperimentKeywords(
+  BuildContext context, {
+  required MicroActionModel action,
+  required List<MicroActionFeedbackModel> completed,
+  required List<MicroActionReviewEventModel> reviews,
+}) {
+  final keywords = <_KeywordData>[];
+  void add(String label, IconData icon, Color color) {
+    if (keywords.any((item) => item.label == label)) return;
+    keywords.add(_KeywordData(label, icon, color));
+  }
+
+  final source = [
+    action.title,
+    action.reason,
+    ...completed.map((item) => item.userNote ?? ''),
+    ...reviews.map((item) => item.note ?? ''),
+  ].join(' ').toLowerCase();
+
+  void addSemantic({
+    required List<String> matches,
+    required String Function() label,
+    required IconData icon,
+    required Color color,
+  }) {
+    if (matches.any(source.contains)) add(label(), icon, color);
+  }
+
+  addSemantic(
+    matches: const ['睡', 'sleep', '眠り', '睡眠'],
+    label: () => AppLocaleText.tr(
+      context,
+      en: 'Sleep',
+      zhHans: '睡眠',
+      zhHant: '睡眠',
+      ja: '睡眠',
+    ),
+    icon: Icons.nights_stay_rounded,
+    color: AuroraColors.blue,
+  );
+  addSemantic(
+    matches: const ['放松', '放鬆', '恢复', '恢復', '缓冲', '緩衝', 'relax', 'recover'],
+    label: () => AppLocaleText.tr(
+      context,
+      en: 'Recovery',
+      zhHans: '恢复',
+      zhHant: '恢復',
+      ja: '回復',
+    ),
+    icon: Icons.spa_rounded,
+    color: AuroraColors.mint,
+  );
+  addSemantic(
+    matches: const ['切换', '切換', 'switch', '转场', '轉場'],
+    label: () => AppLocaleText.tr(
+      context,
+      en: 'Transition',
+      zhHans: '切换缓冲',
+      zhHant: '切換緩衝',
+      ja: '切り替え',
+    ),
+    icon: Icons.swap_horiz_rounded,
+    color: AuroraColors.purple,
+  );
+  addSemantic(
+    matches: const ['开始', '開始', 'start', '着手', '始め'],
+    label: () => AppLocaleText.tr(
+      context,
+      en: 'Easier to start',
+      zhHans: '更容易开始',
+      zhHant: '更容易開始',
+      ja: '始めやすい',
+    ),
+    icon: Icons.play_arrow_rounded,
+    color: AuroraColors.blue,
+  );
+  addSemantic(
+    matches: const ['压力', '壓力', '负担', '負擔', 'pressure', 'stress'],
+    label: () => AppLocaleText.tr(
+      context,
+      en: 'Effort',
+      zhHans: '负担变化',
+      zhHant: '負擔變化',
+      ja: '負担の変化',
+    ),
+    icon: Icons.speed_rounded,
+    color: AuroraColors.orange,
+  );
+
+  final helpful = completed.where(
+    (item) => normalizeSmallTryEffect(item.effect) == SmallTryEffect.helpful,
+  );
+  final easy = completed.where(
+    (item) =>
+        normalizeSmallTryDifficulty(item.difficulty) == SmallTryDifficulty.easy,
+  );
+  if (helpful.isNotEmpty) {
+    add(
+      AppLocaleText.tr(
+        context,
+        en: 'Helpful',
+        zhHans: '有帮助',
+        zhHant: '有幫助',
+        ja: '役立った',
+      ),
+      Icons.auto_awesome_rounded,
+      AuroraColors.mint,
+    );
+  }
+  if (easy.isNotEmpty) {
+    add(
+      AppLocaleText.tr(
+        context,
+        en: 'Light effort',
+        zhHans: '负担较轻',
+        zhHant: '負擔較輕',
+        ja: '負担が軽い',
+      ),
+      Icons.air_rounded,
+      AuroraColors.gold,
+    );
+  }
+  return keywords.take(4).toList(growable: false);
+}
+
+String _smallExperimentFactualSummary(
+  BuildContext context, {
+  required int attemptedCount,
+  required List<MicroActionFeedbackModel> completed,
+  required List<MicroActionReviewEventModel> reviews,
+}) {
+  if (attemptedCount == 0) {
+    return AppLocaleText.tr(
+      context,
+      en: 'There is no real attempt yet, so no result is inferred.',
+      zhHans: '还没有真实尝试记录，暂时不推断结果。',
+      zhHant: '還沒有真實嘗試記錄，暫時不推斷結果。',
+      ja: '実際の試行記録がないため、結果はまだ推測しません。',
+    );
+  }
+
+  final helpful = completed
+      .where(
+        (item) =>
+            normalizeSmallTryEffect(item.effect) == SmallTryEffect.helpful,
+      )
+      .length;
+  final somewhat = completed
+      .where(
+        (item) =>
+            normalizeSmallTryEffect(item.effect) ==
+            SmallTryEffect.somewhatHelpful,
+      )
+      .length;
+  final noEffect = completed
+      .where(
+        (item) =>
+            normalizeSmallTryEffect(item.effect) == SmallTryEffect.noEffect,
+      )
+      .length;
+  final ratedCount = helpful + somewhat + noEffect;
+  final difficultyCounts = <String, int>{
+    SmallTryDifficulty.easy: 0,
+    SmallTryDifficulty.okay: 0,
+    SmallTryDifficulty.difficult: 0,
+  };
+  for (final item in completed.where(
+    (entry) => SmallTryEffect.values.contains(
+      normalizeSmallTryEffect(entry.effect),
+    ),
+  )) {
+    final normalized = normalizeSmallTryDifficulty(item.difficulty);
+    if (difficultyCounts.containsKey(normalized)) {
+      difficultyCounts[normalized] = difficultyCounts[normalized]! + 1;
+    }
+  }
+  final parts = <String>[
+    AppLocaleText.tr(
+      context,
+      en: '$attemptedCount real attempt(s) have been recorded.',
+      zhHans: '已记录 $attemptedCount 次真实尝试。',
+      zhHant: '已記錄 $attemptedCount 次真實嘗試。',
+      ja: '実際の試行を $attemptedCount 回記録しました。',
+    ),
+  ];
+  if (ratedCount > 0) {
+    parts.add(
+      AppLocaleText.tr(
+        context,
+        en: 'Among explicit ratings: $helpful helpful, $somewhat a little helpful, and $noEffect no difference.',
+        zhHans: '明确评价中：有帮助 $helpful 次、有一点 $somewhat 次、没感觉 $noEffect 次。',
+        zhHant: '明確評價中：有幫助 $helpful 次、有一點 $somewhat 次、沒感覺 $noEffect 次。',
+        ja: '明示的な評価は、役立った $helpful 回、少し役立った $somewhat 回、変化なし $noEffect 回です。',
+      ),
+    );
+  } else {
+    parts.add(
+      AppLocaleText.tr(
+        context,
+        en: 'There is not enough explicit effect feedback to summarize the result.',
+        zhHans: '明确的效果反馈还不足，暂不判断是否有效。',
+        zhHant: '明確的效果回饋還不足，暫不判斷是否有效。',
+        ja: '効果についての明示的なフィードバックが不足しているため、有効性はまだ判断しません。',
+      ),
+    );
+  }
+  if (difficultyCounts.values.any((count) => count > 0)) {
+    final leading = difficultyCounts.entries.reduce(
+      (a, b) => a.value >= b.value ? a : b,
+    );
+    parts.add(
+      switch (leading.key) {
+        SmallTryDifficulty.easy => AppLocaleText.tr(
+            context,
+            en: 'Most recorded effort ratings were easy.',
+            zhHans: '已登记的负担反馈以轻松为主。',
+            zhHant: '已登記的負擔回饋以輕鬆為主。',
+            ja: '登録された負担評価は「軽い」が中心です。',
+          ),
+        SmallTryDifficulty.difficult => AppLocaleText.tr(
+            context,
+            en: 'Most recorded effort ratings were demanding.',
+            zhHans: '已登记的负担反馈以偏费力为主。',
+            zhHant: '已登記的負擔回饋以偏費力為主。',
+            ja: '登録された負担評価は「やや重い」が中心です。',
+          ),
+        _ => AppLocaleText.tr(
+            context,
+            en: 'Most recorded effort ratings were manageable.',
+            zhHans: '已登记的负担反馈以还好为主。',
+            zhHant: '已登記的負擔回饋以還好為主。',
+            ja: '登録された負担評価は「普通」が中心です。',
+          ),
+      },
+    );
+  }
+
+  final reviewsByTime = [...reviews]
+    ..sort((a, b) => a.reviewedAt.compareTo(b.reviewedAt));
+  final latestReviewNote =
+      reviewsByTime.isEmpty ? '' : (reviewsByTime.last.note?.trim() ?? '');
+  if (latestReviewNote.isNotEmpty) {
+    parts.add(
+      AppLocaleText.tr(
+        context,
+        en: 'Latest round summary: $latestReviewNote',
+        zhHans: '最近一轮总结：$latestReviewNote',
+        zhHant: '最近一輪總結：$latestReviewNote',
+        ja: '最新のラウンドまとめ：$latestReviewNote',
+      ),
+    );
+  }
+  return parts.join(' ');
+}
+
+class _SmallExperimentFeedbackOverviewCard extends StatelessWidget {
+  final List<MicroActionFeedbackModel> feedbacks;
+  final List<MicroActionReviewEventModel> reviews;
+
+  const _SmallExperimentFeedbackOverviewCard({
+    required this.feedbacks,
+    required this.reviews,
   });
 
   @override
   Widget build(BuildContext context) {
-    final tried = feedback.happened == 'completed';
-    final effect = normalizeSmallTryEffect(feedback.effect);
-    final difficulty = normalizeSmallTryDifficulty(feedback.difficulty);
-    final color = tried ? _smallTryEffectColor(effect) : AuroraColors.muted;
-    final effectLabel = tried && SmallTryEffect.values.contains(effect)
-        ? _smallTryEffectLabel(context, effect)
-        : AppLocaleText.tr(
+    final entries = <_FeedbackOverviewEntry>[];
+    for (final feedback in _completedSmallTryAttemptFeedbacks(feedbacks)) {
+      final effect = normalizeSmallTryEffect(feedback.effect);
+      final hasEffect = SmallTryEffect.values.contains(effect);
+      final hasNote = feedback.userNote?.trim().isNotEmpty == true;
+      if (!hasEffect && !hasNote) continue;
+      final difficulty = normalizeSmallTryDifficulty(feedback.difficulty);
+      final difficultyLabel = SmallTryDifficulty.values.contains(difficulty)
+          ? _smallTryDifficultyLabel(context, difficulty)
+          : AppLocaleText.tr(
+              context,
+              en: 'Effort not recorded',
+              zhHans: '负担未记录',
+              zhHant: '負擔未記錄',
+              ja: '負担は未記録',
+            );
+      final effectLabel = hasEffect
+          ? _smallTryEffectLabel(context, effect)
+          : AppLocaleText.tr(
+              context,
+              en: 'No overall rating yet',
+              zhHans: '尚未形成总评',
+              zhHant: '尚未形成總評',
+              ja: '総評はまだありません',
+            );
+      entries.add(
+        _FeedbackOverviewEntry(
+          id: 'attempt-${feedback.id}',
+          kindLabel: AppLocaleText.tr(
             context,
-            en: 'Not tried',
-            zhHans: '这次没试',
-            zhHant: '這次沒試',
-            ja: '今回は試さなかった',
-          );
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AuroraSoftIconCircle(
-                icon: tried ? Icons.bolt_rounded : Icons.remove_rounded,
-                color: color,
-                size: 34,
-                iconSize: 17,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${feedback.localDate} · $effectLabel',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: AuroraColors.ink,
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    if (tried &&
-                        SmallTryDifficulty.values.contains(difficulty)) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        _smallTryDifficultyLabel(context, difficulty),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AuroraColors.muted,
-                            ),
-                      ),
-                    ],
-                    if (feedback.userNote?.trim().isNotEmpty == true) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        feedback.userNote!.trim(),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AuroraColors.muted,
-                              height: 1.35,
-                            ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const Icon(Icons.lock_outline_rounded,
-                  size: 16, color: AuroraColors.muted),
-            ],
+            en: 'Immediate feedback',
+            zhHans: '即时反馈',
+            zhHant: '即時回饋',
+            ja: 'その場のフィードバック',
+          ),
+          overallLabel: '$effectLabel · $difficultyLabel',
+          localDate: feedback.localDate,
+          content: _feedbackContentOrPlaceholder(context, feedback.userNote),
+          color: hasEffect ? _smallTryEffectColor(effect) : AuroraColors.blue,
+          icon: Icons.bolt_rounded,
+          sortAt: _feedbackSortTime(
+            feedback.localDate,
+            recordedAt: feedback.updatedAt ?? feedback.createdAt,
           ),
         ),
-        if (showDivider) const Divider(height: 1),
-      ],
+      );
+    }
+    for (final review in reviews) {
+      entries.add(
+        _FeedbackOverviewEntry(
+          id: 'review-${review.id}',
+          kindLabel: AppLocaleText.tr(
+            context,
+            en: 'Round summary',
+            zhHans: '轮次总评',
+            zhHant: '輪次總評',
+            ja: 'ラウンド総評',
+          ),
+          overallLabel:
+              '${_smallTryRoundResultLabel(context, review.result)} · '
+              '${_goalBurdenLabel(context, review.effort)}',
+          localDate: review.localDate,
+          content: _feedbackContentOrPlaceholder(context, review.note),
+          color: AuroraColors.mint,
+          icon: Icons.fact_check_outlined,
+          sortAt: _feedbackSortTime(
+            review.localDate,
+            recordedAt: review.reviewedAt,
+          ),
+        ),
+      );
+    }
+    return _ExperimentFeedbackOverviewCard(
+      overviewKey: const ValueKey('small-experiment-feedback-overview'),
+      entries: entries,
+      emptyText: AppLocaleText.tr(
+        context,
+        en: 'No feedback has been registered yet. Daily progress without a rating remains in Today and Weekly Review.',
+        zhHans: '还没有登记反馈。只有完成情况、没有评价的日常进度仍保留在今天和每周复盘。',
+        zhHant: '還沒有登記回饋。只有完成情況、沒有評價的日常進度仍保留在今天和每週回顧。',
+        ja: 'フィードバックはまだありません。評価のない日々の進捗は「今日」と「毎週の振り返り」に残ります。',
+      ),
     );
   }
 }
@@ -5896,7 +6956,8 @@ class _SmallTryDetailCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final action = item.action;
     final color = _lifecycleStageColor(stage);
-    final attempts = _completedStructuredSmallTryFeedbacks(feedbacks);
+    final attempts = _completedSmallTryAttemptFeedbacks(feedbacks);
+    final attemptCount = item.progress.completedAttempts;
     return AuroraCard(
       key: ValueKey('small-try-detail-${action.id}'),
       padding: AuroraMainPageSpec.cardPadding,
@@ -5942,10 +7003,10 @@ class _SmallTryDetailCard extends StatelessWidget {
           Text(
             AppLocaleText.tr(
               context,
-              en: 'Within 10 minutes · try it now',
-              zhHans: '10分钟以内 · 现在就能试',
-              zhHant: '10分鐘以內 · 現在就能試',
-              ja: '10 分以内 · 今すぐ試せる',
+              en: 'Spot Try · start anytime',
+              zhHans: '简单尝试 · 随时可试',
+              zhHant: '簡單嘗試 · 隨時可試',
+              ja: 'スポットトライ · いつでも始められる',
             ),
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: AuroraColors.mint,
@@ -5961,10 +7022,10 @@ class _SmallTryDetailCard extends StatelessWidget {
                 child: Text(
                   AppLocaleText.tr(
                     context,
-                    en: '${attempts.length} attempts this round',
-                    zhHans: '本轮尝试 ${attempts.length} 次',
-                    zhHant: '本輪嘗試 ${attempts.length} 次',
-                    ja: '今回 ${attempts.length} 回試行',
+                    en: '$attemptCount attempts this round',
+                    zhHans: '本轮尝试 $attemptCount 次',
+                    zhHant: '本輪嘗試 $attemptCount 次',
+                    ja: '今回 $attemptCount 回試行',
                   ),
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: color,
@@ -6000,22 +7061,6 @@ class _SmallTryDetailCard extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 12),
-          _SmallTryOriginMetadata(action: action),
-          if (action.sourceChanged) ...[
-            const SizedBox(height: 10),
-            const _ExperimentSourceChangedBadge(),
-            if (action.sourceChangeReason?.trim().isNotEmpty == true) ...[
-              const SizedBox(height: 5),
-              Text(
-                action.sourceChangeReason!.trim(),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AuroraColors.orange,
-                      height: 1.4,
-                    ),
-              ),
-            ],
-          ],
         ],
       ),
     );
@@ -6024,19 +7069,12 @@ class _SmallTryDetailCard extends StatelessWidget {
 
 class _SmallTryArchiveSection extends StatelessWidget {
   final List<AdoptedMicroActionProgress> items;
-  final Set<String> savingIds;
   final bool hasMore;
   final bool isLoadingMore;
   final VoidCallback onLoadMore;
-  final Future<void> Function(
-    AdoptedMicroActionProgress item,
-    String feedback,
-  ) onFeedback;
 
   const _SmallTryArchiveSection({
     required this.items,
-    required this.savingIds,
-    required this.onFeedback,
     required this.hasMore,
     required this.isLoadingMore,
     required this.onLoadMore,
@@ -6053,17 +7091,17 @@ class _SmallTryArchiveSection extends StatelessWidget {
           color: AuroraColors.mint,
           title: AppLocaleText.tr(
             context,
-            en: 'Small experiments',
+            en: 'Spot Tries',
             zhHans: '小实验',
             zhHant: '小實驗',
             ja: '小実験',
           ),
           description: AppLocaleText.tr(
             context,
-            en: 'Immediate, low-cost behaviors that can be paused at any time.',
-            zhHans: '现在就能开始、成本很低、随时可以暂停的轻行为。',
-            zhHant: '現在就能開始、成本很低、隨時可以暫停的輕行為。',
-            ja: '今すぐ始められ、負担が少なく、いつでも止められる行動です。',
+            en: 'Spot Tries can start right away, stay low-cost, and pause at any time.',
+            zhHans: '简单尝试现在就能开始、成本很低，也可以随时暂停。',
+            zhHant: '簡單嘗試現在就能開始、成本很低，也可以隨時暫停。',
+            ja: 'スポットトライは今すぐ始められ、負担が少なく、いつでも止められます。',
           ),
           count: items.length,
         ),
@@ -6087,7 +7125,7 @@ class _SmallTryArchiveSection extends StatelessWidget {
                   child: Text(
                     AppLocaleText.tr(
                       context,
-                      en: 'No adopted small experiments yet. After 3 eligible signals today, you can choose one that fits.',
+                      en: 'No adopted Spot Tries yet. After 3 eligible signals today, you can choose one that fits.',
                       zhHans: '还没有采纳的小实验。今天积累 3 条有效信号后，可以选择适合当下的一项。',
                       zhHant: '還沒有採納的小實驗。今天累積 3 條有效信號後，可以選擇適合當下的一項。',
                       ja: '採用した小実験はまだありません。今日の有効なシグナルが3件になると、合うものを選べます。',
@@ -6105,8 +7143,6 @@ class _SmallTryArchiveSection extends StatelessWidget {
           for (var index = 0; index < items.length; index++) ...[
             _SmallTryArchiveCard(
               item: items[index],
-              isSaving: savingIds.contains(items[index].action.id),
-              onFeedback: (feedback) => onFeedback(items[index], feedback),
             ),
             if (index != items.length - 1)
               const SizedBox(height: AuroraMainPageSpec.sectionGap),
@@ -6259,19 +7295,14 @@ class _LifeExperimentTrackHeading extends StatelessWidget {
 
 class _SmallTryArchiveCard extends StatelessWidget {
   final AdoptedMicroActionProgress item;
-  final bool isSaving;
-  final ValueChanged<String> onFeedback;
 
   const _SmallTryArchiveCard({
     required this.item,
-    required this.isSaving,
-    required this.onFeedback,
   });
 
   @override
   Widget build(BuildContext context) {
     final action = item.action;
-    final recordAvailability = _smallTryRecordAvailability(action);
     return AuroraCard(
       key: ValueKey('life-experiment-small-try-${action.id}'),
       padding: AuroraMainPageSpec.cardPadding,
@@ -6315,71 +7346,15 @@ class _SmallTryArchiveCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               action.reason,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
+              key: ValueKey('life-experiment-small-try-${action.id}-reason'),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AuroraColors.muted,
                     height: 1.4,
                   ),
             ),
           ],
-          if (action.sourceChanged) ...[
-            const SizedBox(height: 8),
-            const _ExperimentSourceChangedBadge(),
-            if (action.sourceChangeReason?.trim().isNotEmpty == true) ...[
-              const SizedBox(height: 3),
-              Text(
-                action.sourceChangeReason!.trim(),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AuroraColors.orange,
-                      height: 1.35,
-                    ),
-              ),
-            ],
-          ],
           const SizedBox(height: 8),
           _SmallTryOriginMetadata(action: action),
-          const SizedBox(height: 10),
-          if (recordAvailability == _SevenDayRecordAvailability.active)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _SmallTryFeedbackButton(
-                  key: ValueKey(
-                    'life-experiment-small-try-${action.id}-feedback-completed',
-                  ),
-                  icon: Icons.check_rounded,
-                  label: AppLocaleText.tr(
-                    context,
-                    en: 'Completed',
-                    zhHans: '已完成',
-                    zhHant: '已完成',
-                    ja: '完了',
-                  ),
-                  color: AuroraColors.mint,
-                  onPressed: isSaving ? null : () => onFeedback('completed'),
-                ),
-                _SmallTryFeedbackButton(
-                  key: ValueKey(
-                    'life-experiment-small-try-${action.id}-feedback-not-completed',
-                  ),
-                  icon: Icons.close_rounded,
-                  label: AppLocaleText.tr(
-                    context,
-                    en: 'Not completed',
-                    zhHans: '未完成',
-                    zhHant: '未完成',
-                    ja: '未完了',
-                  ),
-                  color: AuroraColors.orange,
-                  onPressed:
-                      isSaving ? null : () => onFeedback('not_completed'),
-                ),
-              ],
-            )
-          else
-            _RecordAvailabilityNotice(availability: recordAvailability),
         ],
       ),
     );
@@ -6411,38 +7386,8 @@ class _SmallTryOriginMetadata extends StatelessWidget {
                 '採納於 ${adoptedAt.toLocal().year}/${adoptedAt.toLocal().month}/${adoptedAt.toLocal().day}',
             ja: '${adoptedAt.toLocal().year}/${adoptedAt.toLocal().month}/${adoptedAt.toLocal().day} に採用',
           );
-    final signalCount = action.linkedSignalCardIds.toSet().length;
-    final sourceLabel = signalCount > 0
-        ? AppLocaleText.tr(
-            context,
-            en: 'Source Signals: $signalCount',
-            zhHans: '来源 Signal：$signalCount 条',
-            zhHant: '來源 Signal：$signalCount 條',
-            ja: 'ソース Signal：$signalCount 件',
-          )
-        : action.judgementId.trim().isNotEmpty
-            ? AppLocaleText.tr(
-                context,
-                en: 'Source Signal: confirmed AI prediction',
-                zhHans: '来源 Signal：已确认的 AI 预判',
-                zhHant: '來源 Signal：已確認的 AI 預判',
-                ja: 'ソース Signal：確認済みの AI 予測',
-              )
-            : action.originCandidateId?.trim().isNotEmpty == true
-                ? AppLocaleText.tr(
-                    context,
-                    en: 'Source Signal: adopted candidate',
-                    zhHans: '来源 Signal：已采纳候选',
-                    zhHant: '來源 Signal：已採納候選',
-                    ja: 'ソース Signal：採用した候補',
-                  )
-                : AppLocaleText.tr(
-                    context,
-                    en: 'Source Signal: adoption record',
-                    zhHans: '来源 Signal：采纳记录',
-                    zhHant: '來源 Signal：採納記錄',
-                    ja: 'ソース Signal：採用記録',
-                  );
+    final sourceLabel =
+        _experimentCreationSourceLabel(context, action.creationSource);
     return Wrap(
       spacing: 12,
       runSpacing: 5,
@@ -6452,7 +7397,9 @@ class _SmallTryOriginMetadata extends StatelessWidget {
           label: adoptedLabel,
         ),
         _SmallTryMetadataLabel(
-          icon: Icons.hub_outlined,
+          icon: action.creationSource == ExperimentCreationSource.userCreated
+              ? Icons.edit_note_rounded
+              : Icons.auto_awesome_rounded,
           label: sourceLabel,
         ),
       ],
@@ -6489,36 +7436,6 @@ class _SmallTryMetadataLabel extends StatelessWidget {
   }
 }
 
-class _SmallTryFeedbackButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback? onPressed;
-
-  const _SmallTryFeedbackButton({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 17),
-      label: Text(label),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: color,
-        minimumSize: const Size(112, 44),
-        side: BorderSide(color: color.withValues(alpha: 0.38)),
-        shape: const StadiumBorder(),
-      ),
-    );
-  }
-}
-
 String _smallTryStatusLabel(
   BuildContext context,
   MicroActionModel action,
@@ -6530,26 +7447,33 @@ String _smallTryStatusLabel(
       status.contains('stop');
   return AppLocaleText.tr(
     context,
-    en: isEnded ? 'Finished small experiment' : 'Small experiment in progress',
-    zhHans: isEnded ? '已结束的小实验' : '进行中的小实验',
-    zhHant: isEnded ? '已結束的小實驗' : '進行中的小實驗',
-    ja: isEnded ? '終了した小実験' : '進行中の小実験',
+    en: isEnded ? 'Completed Spot Try' : 'Spot Try in progress',
+    zhHans: isEnded ? '已完成的小实验' : '进行中的小实验',
+    zhHant: isEnded ? '已完成的小實驗' : '進行中的小實驗',
+    ja: isEnded ? '完了した小実験' : '進行中の小実験',
   );
 }
 
 class _ExperimentArchiveHeroHeader extends StatelessWidget {
   final bool canPop;
   final VoidCallback onBack;
+  final int activeCount;
+  final int feedbackCount;
+  final int conclusionCount;
 
   const _ExperimentArchiveHeroHeader({
     required this.canPop,
     required this.onBack,
+    required this.activeCount,
+    required this.feedbackCount,
+    required this.conclusionCount,
   });
 
   @override
   Widget build(BuildContext context) {
     final compact =
         MediaQuery.sizeOf(context).width < AuroraMainPageSpec.compactBreakpoint;
+    final isEnglish = Localizations.localeOf(context).languageCode == 'en';
     final contentTop = canPop ? 46.0 : 0.0;
 
     return AuroraCard(
@@ -6569,8 +7493,7 @@ class _ExperimentArchiveHeroHeader extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            minHeight: canPop ? 184 : 146,
-            maxHeight: canPop ? 190 : 152,
+            minHeight: canPop ? 232 : 200,
           ),
           child: Stack(
             children: [
@@ -6604,42 +7527,112 @@ class _ExperimentArchiveHeroHeader extends StatelessWidget {
                 padding: EdgeInsets.fromLTRB(
                   compact ? 14 : 16,
                   contentTop + (compact ? 13 : 15),
-                  compact ? 90 : 116,
+                  compact ? 14 : 16,
                   compact ? 12 : 14,
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    AuroraHeroTitle(
-                      text: AppLocaleText.tr(
-                        context,
-                        en: 'Life Experiment',
-                        zhHans: '生活小实验',
-                        zhHant: '生活小實驗',
-                        ja: '生活実験',
+                    Padding(
+                      padding: EdgeInsets.only(
+                        right: isEnglish
+                            ? (compact ? 40 : 56)
+                            : (compact ? 78 : 108),
                       ),
-                      fontSize:
-                          AuroraMainPageSpec.responsiveHeroTitleSize(context),
-                      maxLines: 1,
+                      child: AuroraHeroTitle(
+                        text: AppLocaleText.tr(
+                          context,
+                          en: 'Life Experiment',
+                          zhHans: '生活小实验',
+                          zhHant: '生活小實驗',
+                          ja: '生活実験',
+                        ),
+                        fontSize:
+                            AuroraMainPageSpec.responsiveHeroTitleSize(context),
+                        maxLines: 1,
+                      ),
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      AppLocaleText.tr(
-                        context,
-                        en: 'Small experiments for now; goals for changes that need time.',
-                        zhHans: '小实验回应当下；目标用连续多日的真实反馈验证效果。',
-                        zhHant: '小實驗回應當下；目標用連續多日的真實回饋驗證效果。',
-                        ja: '小実験は今に、目標は数日かけて効果を確かめます。',
+                    Padding(
+                      padding: EdgeInsets.only(
+                        right: compact ? 82 : 116,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AuroraColors.ink.withValues(alpha: 0.72),
-                            fontSize: AuroraMainPageSpec.heroSubtitleSize,
-                            height: 1.4,
-                            fontWeight: FontWeight.w500,
+                      child: Text(
+                        AppLocaleText.tr(
+                          context,
+                          en: 'See how Spot Tries and longer goals are unfolding.',
+                          zhHans: '查看小实验与目标正在怎样展开，以及真实反馈留下了什么。',
+                          zhHant: '查看小實驗與目標正在怎樣展開，以及真實回饋留下了什麼。',
+                          ja: '小実験と目標の進み方、実際の反応を見返します。',
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: AuroraColors.ink.withValues(alpha: 0.72),
+                              fontSize: AuroraMainPageSpec.heroSubtitleSize,
+                              height: 1.4,
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ExperimentHeroMetric(
+                            key: const ValueKey(
+                              'experiment-hero-active-count',
+                            ),
+                            icon: Icons.play_arrow_rounded,
+                            label: AppLocaleText.tr(
+                              context,
+                              en: 'Active',
+                              zhHans: '进行中',
+                              zhHant: '進行中',
+                              ja: '進行中',
+                            ),
+                            value: '$activeCount',
+                            color: AuroraColors.purple,
                           ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _ExperimentHeroMetric(
+                            key: const ValueKey(
+                              'experiment-hero-feedback-count',
+                            ),
+                            icon: Icons.bubble_chart_outlined,
+                            label: AppLocaleText.tr(
+                              context,
+                              en: 'Feedback',
+                              zhHans: '真实反馈',
+                              zhHant: '真實回饋',
+                              ja: '実際の反応',
+                            ),
+                            value: '$feedbackCount',
+                            color: AuroraColors.mint,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _ExperimentHeroMetric(
+                            key: const ValueKey(
+                              'experiment-hero-conclusion-count',
+                            ),
+                            icon: Icons.auto_awesome_rounded,
+                            label: AppLocaleText.tr(
+                              context,
+                              en: 'Results',
+                              zhHans: '已有结论',
+                              zhHant: '已有結論',
+                              ja: '結論あり',
+                            ),
+                            value: '$conclusionCount',
+                            color: AuroraColors.gold,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -6647,6 +7640,101 @@ class _ExperimentArchiveHeroHeader extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ExperimentHeroMetric extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _ExperimentHeroMetric({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final languageCode = Localizations.localeOf(context).languageCode;
+    final isEnglish = languageCode == 'en';
+    final isJapanese = languageCode == 'ja';
+    return Container(
+      constraints: const BoxConstraints(minHeight: 52),
+      padding: EdgeInsets.symmetric(
+        horizontal: isEnglish
+            ? 6
+            : isJapanese
+                ? 7
+                : 9,
+        vertical: 8,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.07),
+            blurRadius: 16,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: isEnglish ? 24 : 28,
+            height: isEnglish ? 24 : 28,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.14),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: isEnglish ? 14 : 16, color: color),
+          ),
+          SizedBox(
+            width: isEnglish
+                ? 4
+                : isJapanese
+                    ? 5
+                    : 7,
+          ),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AuroraColors.muted,
+                        fontSize: isEnglish
+                            ? 9.2
+                            : isJapanese
+                                ? 9.5
+                                : 10.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: color,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -6684,10 +7772,16 @@ class _ExperimentSearchBar extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
+              textInputAction: TextInputAction.search,
+              onEditingComplete: () =>
+                  FocusManager.instance.primaryFocus?.unfocus(),
+              onSubmitted: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+              onTapOutside: (_) =>
+                  FocusManager.instance.primaryFocus?.unfocus(),
               decoration: InputDecoration(
                 hintText: AppLocaleText.tr(
                   context,
-                  en: 'Search small experiments or goals...',
+                  en: 'Search Spot Tries or goals...',
                   zhHans: '搜索小实验或目标...',
                   zhHant: '搜尋小實驗或目標...',
                   ja: '小実験や目標を検索...',
@@ -6717,6 +7811,894 @@ class _ExperimentSearchBar extends StatelessWidget {
           else
             const SizedBox(width: 14),
         ],
+      ),
+    );
+  }
+}
+
+class _ExperimentCreateEntryCard extends StatelessWidget {
+  final VoidCallback onCreateSmallExperiment;
+  final VoidCallback onCreateGoal;
+
+  const _ExperimentCreateEntryCard({
+    required this.onCreateSmallExperiment,
+    required this.onCreateGoal,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AuroraCard(
+      key: const ValueKey('experiment-create-entry-card'),
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 14),
+      borderRadius: BorderRadius.circular(18),
+      color: Colors.white.withValues(alpha: 0.64),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Start with your own idea',
+              zhHans: '也可以从自己的想法开始',
+              zhHant: '也可以從自己的想法開始',
+              ja: '自分のアイデアから始める',
+            ),
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              Widget smallExperimentButton() => FilledButton.tonalIcon(
+                    key: const ValueKey('create-small-experiment-entry'),
+                    onPressed: onCreateSmallExperiment,
+                    icon: const Icon(Icons.spa_rounded, size: 18),
+                    label: Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'New Spot Try',
+                        zhHans: '新建小实验',
+                        zhHant: '新增小實驗',
+                        ja: '小実験を作る',
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(46),
+                      foregroundColor: AuroraColors.mint,
+                      backgroundColor:
+                          AuroraColors.mint.withValues(alpha: 0.11),
+                    ),
+                  );
+              Widget goalButton() => FilledButton.tonalIcon(
+                    key: const ValueKey('create-goal-entry'),
+                    onPressed: onCreateGoal,
+                    icon: const Icon(Icons.flag_rounded, size: 18),
+                    label: Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'New goal',
+                        zhHans: '新建目标',
+                        zhHant: '新增目標',
+                        ja: '目標を作る',
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(46),
+                      foregroundColor: AuroraColors.purple,
+                      backgroundColor:
+                          AuroraColors.purple.withValues(alpha: 0.10),
+                    ),
+                  );
+              if (constraints.maxWidth < 330) {
+                return Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: smallExperimentButton(),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(width: double.infinity, child: goalButton()),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: smallExperimentButton()),
+                  const SizedBox(width: 8),
+                  Expanded(child: goalButton()),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UserSmallExperimentDraft {
+  final String title;
+  final String description;
+  final int durationMinutes;
+
+  const _UserSmallExperimentDraft({
+    required this.title,
+    required this.description,
+    required this.durationMinutes,
+  });
+}
+
+class _UserGoalDraft {
+  final String title;
+  final String hypothesis;
+  final String suggestedAction;
+  final String plannedFrequency;
+  final int observationDays;
+
+  const _UserGoalDraft({
+    required this.title,
+    required this.hypothesis,
+    required this.suggestedAction,
+    required this.plannedFrequency,
+    required this.observationDays,
+  });
+}
+
+class _CreateSmallExperimentPage extends StatefulWidget {
+  final Future<void> Function(_UserSmallExperimentDraft draft) onSubmit;
+
+  const _CreateSmallExperimentPage({required this.onSubmit});
+
+  @override
+  State<_CreateSmallExperimentPage> createState() =>
+      _CreateSmallExperimentPageState();
+}
+
+class _CreateSmallExperimentPageState
+    extends State<_CreateSmallExperimentPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _titleController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  var _durationMinutes = 5;
+  var _saving = false;
+  String? _saveError;
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (!(_formKey.currentState?.validate() ?? false) || _saving) return;
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
+    try {
+      await widget.onSubmit(
+        _UserSmallExperimentDraft(
+          title: _titleController.text.trim(),
+          description: _descriptionController.text.trim(),
+          durationMinutes: _durationMinutes,
+        ),
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _saveError = AppLocaleText.tr(
+          context,
+          en: 'Could not create this Spot Try. Please try again.',
+          zhHans: '暂时无法创建这个小实验，请再试一次。',
+          zhHant: '暫時無法建立這個小實驗，請再試一次。',
+          ja: '小実験を作成できませんでした。もう一度お試しください。',
+        );
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _ExperimentCreationScaffold(
+      title: AppLocaleText.tr(
+        context,
+        en: 'New Spot Try',
+        zhHans: '新建小实验',
+        zhHant: '新增小實驗',
+        ja: '小実験を作る',
+      ),
+      subtitle: AppLocaleText.tr(
+        context,
+        en: 'Define one Spot Try you can start right away.',
+        zhHans: '设定一个现在就能开始的简单尝试。',
+        zhHant: '設定一個現在就能開始的簡單嘗試。',
+        ja: '今すぐ始められるスポットトライを設定します。',
+      ),
+      icon: Icons.spa_rounded,
+      accent: AuroraColors.mint,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ExperimentCreationField(
+              controller: _titleController,
+              label: AppLocaleText.tr(
+                context,
+                en: 'What will you try?',
+                zhHans: '想试什么？',
+                zhHant: '想試什麼？',
+                ja: '何を試しますか？',
+              ),
+              hint: AppLocaleText.tr(
+                context,
+                en: 'For example: pause for two minutes before switching tasks',
+                zhHans: '例如：切换任务前停两分钟',
+                zhHant: '例如：切換任務前停兩分鐘',
+                ja: '例：タスクを切り替える前に2分休む',
+              ),
+              maxLength: 80,
+              validator: (value) => value == null || value.trim().isEmpty
+                  ? AppLocaleText.tr(
+                      context,
+                      en: 'Enter a name for this Spot Try.',
+                      zhHans: '请填写小实验名称。',
+                      zhHant: '請填寫小實驗名稱。',
+                      ja: '小実験の名前を入力してください。',
+                    )
+                  : null,
+            ),
+            const SizedBox(height: 16),
+            _ExperimentCreationField(
+              controller: _descriptionController,
+              label: AppLocaleText.tr(
+                context,
+                en: 'What do you want to notice? (optional)',
+                zhHans: '想留意什么？（可选）',
+                zhHant: '想留意什麼？（可選）',
+                ja: '何に注目しますか？（任意）',
+              ),
+              hint: AppLocaleText.tr(
+                context,
+                en: 'Add the situation or change you want to notice',
+                zhHans: '补充想尝试的场景或想留意的变化',
+                zhHant: '補充想嘗試的場景或想留意的變化',
+                ja: '試す場面や、見ておきたい変化を追加',
+              ),
+              maxLength: 160,
+              maxLines: 3,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Time for one attempt',
+                zhHans: '单次所需时间',
+                zhHant: '單次所需時間',
+                ja: '1回にかかる時間',
+              ),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: AuroraColors.ink,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<int>(
+              key: const ValueKey('small-experiment-duration'),
+              initialValue: _durationMinutes,
+              decoration: _experimentCreationInputDecoration(context),
+              items: [
+                for (var minutes = 1; minutes <= 10; minutes++)
+                  DropdownMenuItem(
+                    value: minutes,
+                    child: Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: '$minutes min',
+                        zhHans: '$minutes 分钟',
+                        zhHant: '$minutes 分鐘',
+                        ja: '$minutes 分',
+                      ),
+                    ),
+                  ),
+              ],
+              onChanged: _saving
+                  ? null
+                  : (value) {
+                      if (value != null) {
+                        setState(() => _durationMinutes = value);
+                      }
+                    },
+            ),
+            const SizedBox(height: 8),
+            _CreationBoundaryNote(
+              text: AppLocaleText.tr(
+                context,
+                en: 'A Spot Try must stay between 1 and 10 minutes per attempt.',
+                zhHans: '小实验每次必须控制在 1–10 分钟内。',
+                zhHant: '小實驗每次必須控制在 1–10 分鐘內。',
+                ja: '小実験は1回1〜10分の範囲で設定します。',
+              ),
+              color: AuroraColors.mint,
+            ),
+            if (_saveError != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _saveError!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AuroraColors.orange,
+                    ),
+              ),
+            ],
+            const SizedBox(height: 22),
+            _ExperimentCreationSubmitButton(
+              key: const ValueKey('save-user-small-experiment'),
+              isSaving: _saving,
+              color: AuroraColors.mint,
+              label: AppLocaleText.tr(
+                context,
+                en: 'Create Spot Try',
+                zhHans: '创建小实验',
+                zhHant: '建立小實驗',
+                ja: '小実験を作成',
+              ),
+              onPressed: _save,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateGoalPage extends StatefulWidget {
+  final Future<void> Function(_UserGoalDraft draft) onSubmit;
+
+  const _CreateGoalPage({required this.onSubmit});
+
+  @override
+  State<_CreateGoalPage> createState() => _CreateGoalPageState();
+}
+
+class _CreateGoalPageState extends State<_CreateGoalPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _titleController = TextEditingController();
+  final _hypothesisController = TextEditingController();
+  final _actionController = TextEditingController();
+  final _daysController = TextEditingController(text: '14');
+  var _frequency = 'flexible';
+  var _saving = false;
+  String? _saveError;
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _hypothesisController.dispose();
+    _actionController.dispose();
+    _daysController.dispose();
+    super.dispose();
+  }
+
+  String? _requiredValidator(BuildContext context, String? value) {
+    if (value?.trim().isNotEmpty == true) return null;
+    return AppLocaleText.tr(
+      context,
+      en: 'This field is required.',
+      zhHans: '请填写这一项。',
+      zhHant: '請填寫這一項。',
+      ja: 'この項目を入力してください。',
+    );
+  }
+
+  Future<void> _save() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (!(_formKey.currentState?.validate() ?? false) || _saving) return;
+    final observationDays = int.parse(_daysController.text.trim());
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
+    try {
+      await widget.onSubmit(
+        _UserGoalDraft(
+          title: _titleController.text.trim(),
+          hypothesis: _hypothesisController.text.trim(),
+          suggestedAction: _actionController.text.trim(),
+          plannedFrequency: _frequency,
+          observationDays: observationDays,
+        ),
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _saveError = AppLocaleText.tr(
+          context,
+          en: 'Could not create this goal. Please try again.',
+          zhHans: '暂时无法创建这个目标，请再试一次。',
+          zhHant: '暫時無法建立這個目標，請再試一次。',
+          ja: '目標を作成できませんでした。もう一度お試しください。',
+        );
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _ExperimentCreationScaffold(
+      title: AppLocaleText.tr(
+        context,
+        en: 'New goal',
+        zhHans: '新建目标',
+        zhHant: '新增目標',
+        ja: '目標を作る',
+      ),
+      subtitle: AppLocaleText.tr(
+        context,
+        en: 'Set a longer observation that can continue across days or weeks.',
+        zhHans: '设定一个可以跨天或跨周持续观察的中长期项目。',
+        zhHant: '設定一個可以跨天或跨週持續觀察的中長期項目。',
+        ja: '数日から数週間続けて観察する中長期の取り組みを設定します。',
+      ),
+      icon: Icons.flag_rounded,
+      accent: AuroraColors.purple,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ExperimentCreationField(
+              controller: _titleController,
+              label: AppLocaleText.tr(
+                context,
+                en: 'Goal name',
+                zhHans: '目标名称',
+                zhHant: '目標名稱',
+                ja: '目標名',
+              ),
+              hint: AppLocaleText.tr(
+                context,
+                en: 'For example: protect a recovery break in the afternoon',
+                zhHans: '例如：保留午后的恢复时间',
+                zhHant: '例如：保留午後的恢復時間',
+                ja: '例：午後の回復時間を確保する',
+              ),
+              maxLength: 80,
+              validator: (value) => _requiredValidator(context, value),
+            ),
+            const SizedBox(height: 16),
+            _ExperimentCreationField(
+              controller: _hypothesisController,
+              label: AppLocaleText.tr(
+                context,
+                en: 'What change do you want to observe?',
+                zhHans: '想观察什么变化？',
+                zhHant: '想觀察什麼變化？',
+                ja: 'どんな変化を観察しますか？',
+              ),
+              hint: AppLocaleText.tr(
+                context,
+                en: 'Describe the change you hope to notice over time',
+                zhHans: '写下希望经过一段时间后看到的变化',
+                zhHant: '寫下希望經過一段時間後看到的變化',
+                ja: '続けた先で確認したい変化を書きます',
+              ),
+              maxLength: 180,
+              maxLines: 3,
+              validator: (value) => _requiredValidator(context, value),
+            ),
+            const SizedBox(height: 16),
+            _ExperimentCreationField(
+              controller: _actionController,
+              label: AppLocaleText.tr(
+                context,
+                en: 'How will you do it?',
+                zhHans: '准备怎么做？',
+                zhHant: '準備怎麼做？',
+                ja: 'どのように続けますか？',
+              ),
+              hint: AppLocaleText.tr(
+                context,
+                en: 'Write a concrete action you can repeat',
+                zhHans: '填写可以持续执行的具体做法',
+                zhHant: '填寫可以持續執行的具體做法',
+                ja: '繰り返せる具体的な行動を書きます',
+              ),
+              maxLength: 180,
+              maxLines: 3,
+              validator: (value) => _requiredValidator(context, value),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Rhythm',
+                zhHans: '执行节奏',
+                zhHant: '執行節奏',
+                ja: '実行ペース',
+              ),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: AuroraColors.ink,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              key: const ValueKey('goal-frequency'),
+              initialValue: _frequency,
+              decoration: _experimentCreationInputDecoration(context),
+              items: [
+                DropdownMenuItem(
+                  value: 'daily',
+                  child: Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Every day',
+                      zhHans: '每天',
+                      zhHant: '每天',
+                      ja: '毎日',
+                    ),
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: 'weekdays',
+                  child: Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Weekdays',
+                      zhHans: '工作日',
+                      zhHant: '平日',
+                      ja: '平日',
+                    ),
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: 'weekly',
+                  child: Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Once a week',
+                      zhHans: '每周一次',
+                      zhHant: '每週一次',
+                      ja: '週1回',
+                    ),
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: 'flexible',
+                  child: Text(
+                    AppLocaleText.tr(
+                      context,
+                      en: 'Flexible',
+                      zhHans: '灵活安排',
+                      zhHant: '彈性安排',
+                      ja: '柔軟に',
+                    ),
+                  ),
+                ),
+              ],
+              onChanged: _saving
+                  ? null
+                  : (value) {
+                      if (value != null) setState(() => _frequency = value);
+                    },
+            ),
+            const SizedBox(height: 16),
+            _ExperimentCreationField(
+              controller: _daysController,
+              label: AppLocaleText.tr(
+                context,
+                en: 'Minimum observation days',
+                zhHans: '最少观察天数',
+                zhHant: '最少觀察天數',
+                ja: '最低観察日数',
+              ),
+              hint: '14',
+              keyboardType: TextInputType.number,
+              validator: (value) {
+                final days = int.tryParse(value?.trim() ?? '');
+                if (days == null || days < 3 || days > 3650) {
+                  return AppLocaleText.tr(
+                    context,
+                    en: 'Enter a number from 3 to 3650.',
+                    zhHans: '请输入 3–3650 之间的天数。',
+                    zhHant: '請輸入 3–3650 之間的天數。',
+                    ja: '3〜3650の日数を入力してください。',
+                  );
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 8),
+            _CreationBoundaryNote(
+              text: AppLocaleText.tr(
+                context,
+                en: 'Goals can continue across days or weeks. You decide the observation period.',
+                zhHans: '目标可以跨天或跨周持续观察，观察周期由你设定。',
+                zhHant: '目標可以跨天或跨週持續觀察，觀察週期由你設定。',
+                ja: '目標は数日から数週間続けられます。観察期間は自分で設定できます。',
+              ),
+              color: AuroraColors.purple,
+            ),
+            if (_saveError != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _saveError!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AuroraColors.orange,
+                    ),
+              ),
+            ],
+            const SizedBox(height: 22),
+            _ExperimentCreationSubmitButton(
+              key: const ValueKey('save-user-goal'),
+              isSaving: _saving,
+              color: AuroraColors.purple,
+              label: AppLocaleText.tr(
+                context,
+                en: 'Create goal',
+                zhHans: '创建目标',
+                zhHant: '建立目標',
+                ja: '目標を作成',
+              ),
+              onPressed: _save,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExperimentCreationScaffold extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color accent;
+  final Widget child;
+
+  const _ExperimentCreationScaffold({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      body: Stack(
+        children: [
+          AuroraPage(
+            child: Stack(
+              children: [
+                const Positioned(
+                  right: -14,
+                  top: 12,
+                  width: 210,
+                  height: 150,
+                  child: IgnorePointer(
+                    child: AuroraExperimentHeroPattern(opacity: 0.72),
+                  ),
+                ),
+                SafeArea(
+                  bottom: false,
+                  child: ListView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: EdgeInsets.fromLTRB(
+                      22,
+                      12,
+                      22,
+                      MediaQuery.paddingOf(context).bottom + 42,
+                    ),
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _BackBubble(
+                          onTap: () => Navigator.of(context).maybePop(),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          AuroraSectionIcon(
+                            icon: icon,
+                            color: accent,
+                            size: 48,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineMedium
+                                      ?.copyWith(
+                                        color: AuroraColors.ink,
+                                        fontWeight: FontWeight.w700,
+                                        height: 1.15,
+                                      ),
+                                ),
+                                const SizedBox(height: 7),
+                                Text(
+                                  subtitle,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color: AuroraColors.muted,
+                                        height: 1.48,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 22),
+                      AuroraCard(
+                        padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
+                        borderRadius: BorderRadius.circular(24),
+                        color: Colors.white.withValues(alpha: 0.76),
+                        child: child,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const AuroraSafeTopMask(extraHeight: 6),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExperimentCreationField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final String hint;
+  final int? maxLength;
+  final int maxLines;
+  final TextInputType? keyboardType;
+  final String? Function(String?)? validator;
+
+  const _ExperimentCreationField({
+    required this.controller,
+    required this.label,
+    required this.hint,
+    this.maxLength,
+    this.maxLines = 1,
+    this.keyboardType,
+    this.validator,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      maxLength: maxLength,
+      maxLines: maxLines,
+      keyboardType: keyboardType,
+      textInputAction:
+          maxLines > 1 ? TextInputAction.newline : TextInputAction.next,
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+      validator: validator,
+      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: AuroraColors.ink,
+          ),
+      decoration: _experimentCreationInputDecoration(context).copyWith(
+        labelText: label,
+        hintText: hint,
+        alignLabelWithHint: maxLines > 1,
+      ),
+    );
+  }
+}
+
+InputDecoration _experimentCreationInputDecoration(BuildContext context) {
+  return InputDecoration(
+    filled: true,
+    fillColor: Colors.white.withValues(alpha: 0.68),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: BorderSide(color: AuroraColors.line.withValues(alpha: 0.5)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: BorderSide(color: AuroraColors.line.withValues(alpha: 0.5)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: const BorderSide(color: AuroraColors.purple, width: 1.4),
+    ),
+  );
+}
+
+class _CreationBoundaryNote extends StatelessWidget {
+  final String text;
+  final Color color;
+
+  const _CreationBoundaryNote({required this.text, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, size: 18, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AuroraColors.muted,
+                    height: 1.4,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExperimentCreationSubmitButton extends StatelessWidget {
+  final bool isSaving;
+  final Color color;
+  final String label;
+  final VoidCallback onPressed;
+
+  const _ExperimentCreationSubmitButton({
+    super.key,
+    required this.isSaving,
+    required this.color,
+    required this.label,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: FilledButton.icon(
+        onPressed: isSaving ? null : onPressed,
+        icon: isSaving
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.add_circle_outline_rounded),
+        label: Text(label),
+        style: FilledButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: color.withValues(alpha: 0.45),
+        ),
       ),
     );
   }
@@ -7028,6 +9010,16 @@ String _localDateKey(DateTime date) {
   return '${date.year}-${two(date.month)}-${two(date.day)}';
 }
 
+String _experimentListSeparator(BuildContext context) {
+  return AppLocaleText.tr(
+    context,
+    en: ', ',
+    zhHans: '，',
+    zhHant: '，',
+    ja: '、',
+  );
+}
+
 enum _SevenDayRecordAvailability { active, notStarted, ended }
 
 DateTime _dateOnly(DateTime value) =>
@@ -7102,9 +9094,9 @@ String _recordAvailabilityLabel(
       : AppLocaleText.tr(
           context,
           en: 'This completed cycle is read-only.',
-          zhHans: '这一轮已结束，历史记录为只读。',
-          zhHant: '這一輪已結束，歷史記錄為唯讀。',
-          ja: 'このサイクルは終了し、履歴は読み取り専用です。',
+          zhHans: '这一轮已完成，历史记录为只读。',
+          zhHant: '這一輪已完成，歷史記錄為唯讀。',
+          ja: 'このサイクルは完了し、履歴は読み取り専用です。',
         );
 }
 
@@ -7208,8 +9200,8 @@ String _experimentSourceLabel(
       context,
       en: 'From Weekly',
       zhHans: '来自每周复盘',
-      zhHant: '來自 Weekly',
-      ja: 'Weekly から',
+      zhHant: '來自每週回顧',
+      ja: '週間レビューから',
     );
   }
   final range = '${start.month}/${start.day}–${end.month}/${end.day}';
@@ -7217,8 +9209,8 @@ String _experimentSourceLabel(
     context,
     en: 'From $range Weekly',
     zhHans: '来自 $range 每周复盘',
-    zhHant: '來自 $range Weekly',
-    ja: '$range の Weekly から',
+    zhHant: '來自 $range 每週回顧',
+    ja: '$range の週間レビューから',
   );
 }
 
@@ -7227,7 +9219,6 @@ class _ActiveExperimentCard extends StatelessWidget {
   final LifeExperimentModel experiment;
   final _ExperimentEvidence evidence;
   final _ExperimentRollup? rollup;
-  final VoidCallback onRecordToday;
   final VoidCallback onOpenDetail;
 
   const _ActiveExperimentCard({
@@ -7235,24 +9226,15 @@ class _ActiveExperimentCard extends StatelessWidget {
     required this.experiment,
     required this.evidence,
     required this.rollup,
-    required this.onRecordToday,
     required this.onOpenDetail,
   });
 
   @override
   Widget build(BuildContext context) {
     final days = _experimentProgressDays(experiment, evidence);
-    final recordAvailability = _goalRecordAvailability(
-      experiment,
-      lifecycleStatus: rollup?.currentStatus,
-    );
     final completed = days
         .where((day) => day.state == _ExperimentProgressState.completed)
         .length;
-    final todayKey = _localDateKey(DateTime.now());
-    final todayRecorded = evidence.feedbacks.any(
-      (feedback) => feedback.localDate == todayKey,
-    );
     return _ExperimentGlassCard(
       key: ValueKey('experiment-archive-card-${experiment.id}'),
       mainPageDensity: true,
@@ -7262,17 +9244,11 @@ class _ActiveExperimentCard extends StatelessWidget {
               experiment: experiment,
               days: days,
               completed: completed,
-              todayRecorded: todayRecorded,
-              recordAvailability: recordAvailability,
-              onRecordToday: onRecordToday,
               onOpenDetail: onOpenDetail,
             )
           : _CompactExperimentContent(
               experiment: experiment,
               completed: completed,
-              todayRecorded: todayRecorded,
-              recordAvailability: recordAvailability,
-              onRecordToday: onRecordToday,
               onOpenDetail: onOpenDetail,
             ),
     );
@@ -7283,18 +9259,12 @@ class _ExpandedExperimentContent extends StatelessWidget {
   final LifeExperimentModel experiment;
   final List<_ExperimentProgressDay> days;
   final int completed;
-  final bool todayRecorded;
-  final _SevenDayRecordAvailability recordAvailability;
-  final VoidCallback onRecordToday;
   final VoidCallback onOpenDetail;
 
   const _ExpandedExperimentContent({
     required this.experiment,
     required this.days,
     required this.completed,
-    required this.todayRecorded,
-    required this.recordAvailability,
-    required this.onRecordToday,
     required this.onOpenDetail,
   });
 
@@ -7320,8 +9290,9 @@ class _ExpandedExperimentContent extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             experiment.hypothesis.trim(),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+            key: ValueKey(
+              'experiment-${experiment.id}-archive-hypothesis',
+            ),
             style: const TextStyle(
               color: AuroraColors.muted,
               fontSize: 13.5,
@@ -7350,10 +9321,6 @@ class _ExpandedExperimentContent extends StatelessWidget {
             ),
           ],
         ),
-        if (experiment.sourceChanged) ...[
-          const SizedBox(height: 6),
-          const _ExperimentSourceChangedBadge(),
-        ],
         const Divider(height: 18),
         Row(
           children: [
@@ -7388,51 +9355,15 @@ class _ExpandedExperimentContent extends StatelessWidget {
         const SizedBox(height: 9),
         const _ExperimentProgressLegend(),
         const Divider(height: 18),
-        if (recordAvailability != _SevenDayRecordAvailability.active) ...[
-          _RecordAvailabilityNotice(availability: recordAvailability),
-          const SizedBox(height: 8),
-        ],
-        Row(
-          children: [
-            if (recordAvailability == _SevenDayRecordAvailability.active) ...[
-              Expanded(
-                flex: 5,
-                child: _ExperimentActionButton(
-                  filled: true,
-                  label: todayRecorded
-                      ? AppLocaleText.tr(
-                          context,
-                          en: 'Record today again',
-                          zhHans: '重新登记今天',
-                          zhHant: '重新登記今天',
-                          ja: '今日をもう一度記録',
-                        )
-                      : AppLocaleText.tr(
-                          context,
-                          en: 'Record today',
-                          zhHans: '登记今天',
-                          zhHant: '登記今天',
-                          ja: '今日を記録',
-                        ),
-                  onTap: onRecordToday,
-                ),
-              ),
-              const SizedBox(width: 8),
-            ],
-            Expanded(
-              flex: 4,
-              child: _ExperimentActionButton(
-                label: AppLocaleText.tr(
-                  context,
-                  en: 'View details',
-                  zhHans: '查看详情',
-                  zhHant: '查看詳情',
-                  ja: '詳細を見る',
-                ),
-                onTap: onOpenDetail,
-              ),
-            ),
-          ],
+        _ExperimentActionButton(
+          label: AppLocaleText.tr(
+            context,
+            en: 'View details',
+            zhHans: '查看详情',
+            zhHant: '查看詳情',
+            ja: '詳細を見る',
+          ),
+          onTap: onOpenDetail,
         ),
       ],
     );
@@ -7442,17 +9373,11 @@ class _ExpandedExperimentContent extends StatelessWidget {
 class _CompactExperimentContent extends StatelessWidget {
   final LifeExperimentModel experiment;
   final int completed;
-  final bool todayRecorded;
-  final _SevenDayRecordAvailability recordAvailability;
-  final VoidCallback onRecordToday;
   final VoidCallback onOpenDetail;
 
   const _CompactExperimentContent({
     required this.experiment,
     required this.completed,
-    required this.todayRecorded,
-    required this.recordAvailability,
-    required this.onRecordToday,
     required this.onOpenDetail,
   });
 
@@ -7486,77 +9411,22 @@ class _CompactExperimentContent extends StatelessWidget {
               ),
             ),
             const Spacer(),
-            Text(
-              todayRecorded
-                  ? AppLocaleText.tr(
-                      context,
-                      en: 'Recorded today',
-                      zhHans: '今天已登记',
-                      zhHant: '今天已登記',
-                      ja: '今日は記録済み',
-                    )
-                  : AppLocaleText.tr(
-                      context,
-                      en: 'Not recorded yet',
-                      zhHans: '尚未登记',
-                      zhHant: '尚未登記',
-                      ja: '未記録',
-                    ),
-              style: const TextStyle(
-                color: AuroraColors.muted,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-        if (experiment.sourceChanged) ...[
-          const SizedBox(height: 6),
-          const _ExperimentSourceChangedBadge(),
-        ],
-        const Divider(height: 16),
-        if (recordAvailability != _SevenDayRecordAvailability.active) ...[
-          _RecordAvailabilityNotice(availability: recordAvailability),
-          const SizedBox(height: 8),
-        ],
-        Row(
-          children: [
-            if (recordAvailability == _SevenDayRecordAvailability.active)
-              Expanded(
-                child: _ExperimentActionButton(
-                  label: todayRecorded
-                      ? AppLocaleText.tr(
-                          context,
-                          en: 'Record today again',
-                          zhHans: '重新登记今天',
-                          zhHant: '重新登記今天',
-                          ja: '今日をもう一度記録',
-                        )
-                      : AppLocaleText.tr(
-                          context,
-                          en: 'Record today',
-                          zhHans: '登记今天',
-                          zhHant: '登記今天',
-                          ja: '今日を記録',
-                        ),
-                  onTap: onRecordToday,
-                ),
-              ),
-            if (recordAvailability != _SevenDayRecordAvailability.active)
-              const Spacer(),
-            IconButton(
-              onPressed: onOpenDetail,
-              tooltip: AppLocaleText.tr(
-                context,
-                en: 'View details',
-                zhHans: '查看详情',
-                zhHant: '查看詳情',
-                ja: '詳細を見る',
-              ),
-              icon: const Icon(Icons.chevron_right_rounded),
+            const Icon(
+              Icons.chevron_right_rounded,
               color: AuroraColors.muted,
             ),
           ],
+        ),
+        const Divider(height: 16),
+        _ExperimentActionButton(
+          label: AppLocaleText.tr(
+            context,
+            en: 'View details',
+            zhHans: '查看详情',
+            zhHant: '查看詳情',
+            ja: '詳細を見る',
+          ),
+          onTap: onOpenDetail,
         ),
       ],
     );
@@ -7780,53 +9650,34 @@ class _ExperimentLegendItem extends StatelessWidget {
 class _ExperimentActionButton extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
-  final bool filled;
 
   const _ExperimentActionButton({
     required this.label,
     required this.onTap,
-    this.filled = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       height: 46,
-      child: filled
-          ? FilledButton(
-              onPressed: onTap,
-              style: FilledButton.styleFrom(
-                backgroundColor: AuroraColors.purple,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-              ),
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            )
-          : OutlinedButton(
-              onPressed: onTap,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AuroraColors.purple,
-                side: BorderSide(
-                  color: AuroraColors.purple.withValues(alpha: 0.5),
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-              ),
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AuroraColors.purple,
+          side: BorderSide(
+            color: AuroraColors.purple.withValues(alpha: 0.5),
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
     );
   }
 }
@@ -7917,10 +9768,10 @@ class _UpcomingExperimentCard extends StatelessWidget {
                   Text(
                     AppLocaleText.tr(
                       context,
-                      en: 'You can record what actually happened once it starts.',
-                      zhHans: '开始后可以按天登记实际情况。',
-                      zhHant: '開始後可以按天登記實際情況。',
-                      ja: '開始後は日ごとに実際の様子を記録できます。',
+                      en: 'Once it starts, daily feedback will update its progress.',
+                      zhHans: '开始后，当天反馈会更新它的进度。',
+                      zhHant: '開始後，當天回饋會更新它的進度。',
+                      ja: '開始後は、その日のフィードバックで進捗が更新されます。',
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -7975,13 +9826,11 @@ class _ExperimentEmptyArchive extends StatelessWidget {
   final bool mainPageDensity;
   final bool historyLoaded;
   final _ExperimentFilter filter;
-  final VoidCallback onRecordToday;
 
   const _ExperimentEmptyArchive({
     required this.mainPageDensity,
     required this.historyLoaded,
     required this.filter,
-    required this.onRecordToday,
   });
 
   @override
@@ -8025,9 +9874,9 @@ class _ExperimentEmptyArchive extends StatelessWidget {
                   AppLocaleText.tr(
                     context,
                     en: 'After 3 eligible signals this week, AI can organize goals worth repeating for several days.',
-                    zhHans: '本周积累 3 条有效信号后，AI 会整理值得连续多日尝试的目标。',
-                    zhHant: '本週累積 3 條有效信號後，AI 會整理值得連續多日嘗試的目標。',
-                    ja: '今週の有効なシグナルが3件になると、AI が数日続ける目標を整理します。',
+                    zhHans: '本周积累 3 条有效信号后，智能助手会整理值得连续多日尝试的目标。',
+                    zhHant: '本週累積 3 條有效信號後，智慧助手會整理值得連續多日嘗試的目標。',
+                    ja: '今週の有効なシグナルが3件になると、人工知能が数日続ける目標を整理します。',
                   ),
                   textAlign: TextAlign.center,
                   maxLines: mainPageDensity ? 3 : null,
@@ -8038,21 +9887,6 @@ class _ExperimentEmptyArchive extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                       ),
                 ),
-              ),
-              SizedBox(height: mainPageDensity ? 10 : 18),
-              _ExperimentPrimaryButton(
-                key: mainPageDensity
-                    ? const ValueKey('experiment-empty-primary-action')
-                    : null,
-                compact: mainPageDensity,
-                label: AppLocaleText.tr(
-                  context,
-                  en: 'Record today',
-                  zhHans: '去记录今天',
-                  zhHant: '去記錄今天',
-                  ja: '今日を記録',
-                ),
-                onTap: onRecordToday,
               ),
             ],
           ],
@@ -8647,10 +10481,10 @@ class _ExperimentStatusBreakdownCard extends StatelessWidget {
               color: AuroraColors.muted,
               label: AppLocaleText.tr(
                 context,
-                en: 'Ended',
-                zhHans: '已结束',
-                zhHant: '已結束',
-                ja: '終了',
+                en: 'Completed',
+                zhHans: '已完成',
+                zhHant: '已完成',
+                ja: '完了',
               ),
               value: '${metrics.ended}',
             ),
@@ -8936,29 +10770,57 @@ class _GoalDefinitionRow extends StatelessWidget {
   }
 }
 
-class _GoalProgressDetailCard extends StatelessWidget {
+class _GoalWeeklySummaryCard extends StatelessWidget {
   final LifeExperimentModel experiment;
   final _ExperimentEvidence evidence;
-  final LifeExperimentOutcomeReviewModel? latestOutcome;
+  final List<LifeExperimentOutcomeReviewModel> reviews;
 
-  const _GoalProgressDetailCard({
+  const _GoalWeeklySummaryCard({
     required this.experiment,
     required this.evidence,
-    required this.latestOutcome,
+    required this.reviews,
   });
 
   @override
   Widget build(BuildContext context) {
     final completed = _completedGoalObservationDays(evidence);
     final enough = completed >= experiment.minimumObservationDays;
+    final entries = reviews
+        .map(
+          (review) => _FeedbackOverviewEntry(
+            id: 'weekly-review-${review.id}',
+            kindLabel: AppLocaleText.tr(
+              context,
+              en: 'Weekly summary',
+              zhHans: '周次总结',
+              zhHant: '週次總結',
+              ja: '週次まとめ',
+            ),
+            overallLabel: '${_goalOutcomeLabel(
+              context,
+              review.outcomeResult,
+              review.burden,
+            )} · ${_goalBurdenLabel(context, review.burden)}',
+            localDate: review.localDate,
+            content: _feedbackContentOrPlaceholder(context, review.reviewNote),
+            color: _goalOutcomeColor(review.outcomeResult),
+            icon: Icons.calendar_view_week_rounded,
+            sortAt: _feedbackSortTime(
+              review.localDate,
+              recordedAt: review.reviewedAt,
+            ),
+          ),
+        )
+        .toList(growable: false)
+      ..sort((a, b) => b.sortAt.compareTo(a.sortAt));
     return _ExperimentGlassCard(
-      key: const ValueKey('goal-progress-detail-card'),
+      key: const ValueKey('goal-weekly-summary-card'),
       title: AppLocaleText.tr(
         context,
-        en: 'Long-term progress',
-        zhHans: '长期进度',
-        zhHant: '長期進度',
-        ja: '長期の進捗',
+        en: 'Weekly summaries',
+        zhHans: '周次总结',
+        zhHant: '週次總結',
+        ja: '週次まとめ',
       ),
       trailing: _StatusPill(
         label: enough
@@ -8981,303 +10843,160 @@ class _GoalProgressDetailCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Observation progress',
+              zhHans: '本周观察进度',
+              zhHant: '本週觀察進度',
+              ja: '今週の観察状況',
+            ),
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 10),
           _GoalObservationTimeline(experiment: experiment, evidence: evidence),
           const SizedBox(height: 12),
-          if (latestOutcome == null)
+          if (entries.isEmpty)
             Text(
               enough
                   ? AppLocaleText.tr(
                       context,
-                      en: 'There is enough observation to summarize this round, but no outcome has been recorded yet.',
-                      zhHans: '观察天数已经足够，但还没有总结这一轮的变化。',
-                      zhHant: '觀察天數已經足夠，但還沒有總結這一輪的變化。',
-                      ja: '観察日数は足りていますが、今回の変化はまだまとめられていません。',
+                      en: 'The minimum observation days are complete. Add the weekly result from Weekly Review.',
+                      zhHans: '已经达到最低观察天数；周次结果需要从每周复盘登记。',
+                      zhHant: '已經達到最低觀察天數；週次結果需要從每週複盤登記。',
+                      ja: '最低観察日数に達しました。週次結果は毎週の振り返りから登録します。',
                     )
                   : AppLocaleText.tr(
                       context,
-                      en: 'Daily completion only shows what happened. It does not mean the goal has helped yet.',
-                      zhHans: '每日完成只表示发生了什么，还不能代表目标已经有效。',
-                      zhHant: '每日完成只表示發生了什麼，還不能代表目標已經有效。',
-                      ja: '毎日の完了は起きた事実だけを示し、効果を意味しません。',
+                      en: '$completed/${experiment.minimumObservationDays} observation days. Daily completion is a fact; it does not create a weekly conclusion automatically.',
+                      zhHans:
+                          '已观察 $completed/${experiment.minimumObservationDays} 天。每日完成只是事实，不会自动生成周次结论。',
+                      zhHant:
+                          '已觀察 $completed/${experiment.minimumObservationDays} 天。每日完成只是事實，不會自動生成週次結論。',
+                      ja: '$completed/${experiment.minimumObservationDays} 日観察。毎日の完了は事実であり、週次結論を自動生成しません。',
                     ),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AuroraColors.muted,
                     height: 1.42,
                   ),
-            )
-          else
-            _GoalDefinitionRow(
-              icon: Icons.insights_rounded,
-              color: _goalOutcomeColor(latestOutcome!.outcomeResult),
-              label: AppLocaleText.tr(
-                context,
-                en: 'Latest cycle summary',
-                zhHans: '最近一次周期总结',
-                zhHant: '最近一次週期總結',
-                ja: '直近の周期まとめ',
-              ),
-              value: _goalOutcomeLabel(
-                context,
-                latestOutcome!.outcomeResult,
-                latestOutcome!.burden,
-              ),
             ),
+          if (entries.isNotEmpty) ...[
+            for (var index = 0; index < entries.length; index++) ...[
+              _ExperimentFeedbackOverviewRow(entry: entries[index]),
+              if (index != entries.length - 1) const Divider(height: 18),
+            ],
+          ],
         ],
       ),
     );
   }
 }
 
-class _GoalDailyHistoryCard extends StatelessWidget {
+class _GoalFeedbackOverviewCard extends StatelessWidget {
   final List<LifeExperimentFeedbackModel> feedbacks;
-
-  const _GoalDailyHistoryCard({required this.feedbacks});
-
-  @override
-  Widget build(BuildContext context) {
-    final rows = [...feedbacks]
-      ..sort((a, b) => b.feedbackDate.compareTo(a.feedbackDate));
-    return _ExperimentGlassCard(
-      key: const ValueKey('goal-daily-history-card'),
-      title: AppLocaleText.tr(
-        context,
-        en: 'Daily records',
-        zhHans: '每日记录',
-        zhHant: '每日記錄',
-        ja: '毎日の記録',
-      ),
-      child: rows.isEmpty
-          ? Text(
-              AppLocaleText.tr(
-                context,
-                en: 'No daily records yet.',
-                zhHans: '还没有每日完成记录。',
-                zhHant: '還沒有每日完成記錄。',
-                ja: '毎日の完了記録はまだありません。',
-              ),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AuroraColors.muted,
-                  ),
-            )
-          : Column(
-              children: [
-                for (var index = 0; index < rows.length; index++)
-                  _GoalDailyHistoryRow(
-                    feedback: rows[index],
-                    showDivider: index != rows.length - 1,
-                  ),
-              ],
-            ),
-    );
-  }
-}
-
-enum _GoalReviewHistoryKind { weekly, overall }
-
-class _GoalReviewHistoryCard extends StatelessWidget {
   final List<LifeExperimentOutcomeReviewModel> reviews;
-  final _GoalReviewHistoryKind kind;
 
-  const _GoalReviewHistoryCard({
+  const _GoalFeedbackOverviewCard({
+    required this.feedbacks,
     required this.reviews,
-    required this.kind,
   });
 
   @override
   Widget build(BuildContext context) {
-    final rows = [...reviews]
-      ..sort((a, b) => b.reviewedAt.compareTo(a.reviewedAt));
-    return _ExperimentGlassCard(
-      key: ValueKey('goal-review-history-${kind.name}'),
-      title: kind == _GoalReviewHistoryKind.weekly
-          ? AppLocaleText.tr(
-              context,
-              en: 'Weekly summaries',
-              zhHans: '周次总结',
-              zhHant: '週次總結',
-              ja: '週ごとのまとめ',
-            )
-          : AppLocaleText.tr(
-              context,
-              en: 'Overall summaries',
-              zhHans: '整体总结',
-              zhHant: '整體總結',
-              ja: '全体まとめ',
-            ),
-      child: rows.isEmpty
-          ? Text(
-              kind == _GoalReviewHistoryKind.weekly
-                  ? AppLocaleText.tr(
-                      context,
-                      en: 'No weekly summary yet. Weekly summaries can only be added from Weekly Review.',
-                      zhHans: '还没有周次总结；周次总结只能从每周复盘登记。',
-                      zhHant: '還沒有週次總結；週次總結只能從每週回顧登記。',
-                      ja: '週ごとのまとめはまだありません。「毎週の振り返り」からのみ追加できます。',
-                    )
-                  : AppLocaleText.tr(
-                      context,
-                      en: 'No overall summary yet. Daily completion remains a fact record until you summarize the overall change.',
-                      zhHans: '还没有整体总结；每日完成只是事实，等你总结整体变化后才判断效果。',
-                      zhHant: '還沒有整體總結；每日完成只是事實，等你總結整體變化後才判斷效果。',
-                      ja: '全体まとめはまだありません。毎日の完了は、全体の変化をまとめるまでは事実記録です。',
-                    ),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AuroraColors.muted,
-                    height: 1.42,
-                  ),
-            )
-          : Column(
-              children: [
-                for (var index = 0; index < rows.length; index++)
-                  _GoalReviewHistoryRow(
-                    review: rows[index],
-                    showDivider: index != rows.length - 1,
-                  ),
-              ],
-            ),
-    );
-  }
-}
-
-class _GoalReviewHistoryRow extends StatelessWidget {
-  final LifeExperimentOutcomeReviewModel review;
-  final bool showDivider;
-
-  const _GoalReviewHistoryRow({
-    required this.review,
-    required this.showDivider,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _goalOutcomeColor(review.outcomeResult);
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 9),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AuroraSoftIconCircle(
-                icon: Icons.insights_rounded,
-                color: color,
-                size: 36,
-                iconSize: 18,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${review.localDate} · ${_goalOutcomeLabel(context, review.outcomeResult, review.burden)}',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: AuroraColors.ink,
-                            fontWeight: FontWeight.w700,
-                            height: 1.32,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      AppLocaleText.tr(
-                        context,
-                        en: '${review.completedDaysAtReview} completed days · ${_goalBurdenLabel(context, review.burden)}',
-                        zhHans:
-                            '截至总结已完成 ${review.completedDaysAtReview} 天 · ${_goalBurdenLabel(context, review.burden)}',
-                        zhHant:
-                            '截至總結已完成 ${review.completedDaysAtReview} 天 · ${_goalBurdenLabel(context, review.burden)}',
-                        ja: '振り返り時点で ${review.completedDaysAtReview} 日完了 · ${_goalBurdenLabel(context, review.burden)}',
-                      ),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AuroraColors.muted,
-                            height: 1.35,
-                          ),
-                    ),
-                    if (review.reviewNote?.trim().isNotEmpty == true) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        review.reviewNote!.trim(),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AuroraColors.ink,
-                              height: 1.4,
-                            ),
-                      ),
-                    ],
-                  ],
+    final entries = <_FeedbackOverviewEntry>[];
+    for (final feedback in feedbacks) {
+      final content = feedback.feedbackText?.trim() ?? '';
+      if (content.isEmpty) continue;
+      final completed = _feedbackCountsAsCompleted(feedback.completionStatus);
+      entries.add(
+        _FeedbackOverviewEntry(
+          id: 'daily-${feedback.id}',
+          kindLabel: AppLocaleText.tr(
+            context,
+            en: 'Daily feedback',
+            zhHans: '日常反馈',
+            zhHant: '日常回饋',
+            ja: '日々のフィードバック',
+          ),
+          overallLabel: completed
+              ? AppLocaleText.tr(
+                  context,
+                  en: 'Completed',
+                  zhHans: '已完成',
+                  zhHant: '已完成',
+                  ja: '完了',
+                )
+              : AppLocaleText.tr(
+                  context,
+                  en: 'Not completed',
+                  zhHans: '未完成',
+                  zhHant: '未完成',
+                  ja: '未完了',
                 ),
-              ),
-              const Icon(
-                Icons.lock_outline_rounded,
-                size: 16,
-                color: AuroraColors.muted,
-              ),
-            ],
+          localDate: feedback.localDate,
+          content: content,
+          color: completed ? AuroraColors.mint : AuroraColors.orange,
+          icon: completed ? Icons.check_rounded : Icons.horizontal_rule_rounded,
+          sortAt: _feedbackSortTime(
+            feedback.localDate,
+            recordedAt: feedback.updatedAt ??
+                feedback.createdAt ??
+                feedback.feedbackDate,
           ),
         ),
-        if (showDivider) const Divider(height: 1),
-      ],
-    );
-  }
-}
-
-class _GoalDailyHistoryRow extends StatelessWidget {
-  final LifeExperimentFeedbackModel feedback;
-  final bool showDivider;
-
-  const _GoalDailyHistoryRow({
-    required this.feedback,
-    required this.showDivider,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final completed = _feedbackCountsAsCompleted(feedback.completionStatus);
-    final color = completed ? AuroraColors.mint : AuroraColors.orange;
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AuroraSoftIconCircle(
-                icon: completed ? Icons.check_rounded : Icons.remove_rounded,
-                color: color,
-                size: 34,
-                iconSize: 17,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${feedback.localDate} · ${completed ? AppLocaleText.tr(context, en: 'Completed', zhHans: '已完成', zhHant: '已完成', ja: '完了') : AppLocaleText.tr(context, en: 'Not completed', zhHans: '未完成', zhHant: '未完成', ja: '未完了')}',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: AuroraColors.ink,
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    if (feedback.feedbackText?.trim().isNotEmpty == true) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        feedback.feedbackText!.trim(),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AuroraColors.muted,
-                              height: 1.35,
-                            ),
-                      ),
-                    ],
-                  ],
+      );
+    }
+    for (final review in reviews) {
+      final isWeekly = review.reviewType == GoalReviewType.weekly;
+      entries.add(
+        _FeedbackOverviewEntry(
+          id: 'review-${review.id}',
+          kindLabel: isWeekly
+              ? AppLocaleText.tr(
+                  context,
+                  en: 'Weekly summary',
+                  zhHans: '周次总评',
+                  zhHant: '週次總評',
+                  ja: '週次総評',
+                )
+              : AppLocaleText.tr(
+                  context,
+                  en: 'Overall summary',
+                  zhHans: '整体总评',
+                  zhHant: '整體總評',
+                  ja: '全体総評',
                 ),
-              ),
-              const Icon(Icons.lock_outline_rounded,
-                  size: 16, color: AuroraColors.muted),
-            ],
+          overallLabel: '${_goalOutcomeLabel(
+            context,
+            review.outcomeResult,
+            review.burden,
+          )} · ${_goalBurdenLabel(context, review.burden)}',
+          localDate: review.localDate,
+          content: _feedbackContentOrPlaceholder(context, review.reviewNote),
+          color: _goalOutcomeColor(review.outcomeResult),
+          icon: isWeekly
+              ? Icons.calendar_view_week_rounded
+              : Icons.insights_rounded,
+          sortAt: _feedbackSortTime(
+            review.localDate,
+            recordedAt: review.reviewedAt,
           ),
         ),
-        if (showDivider) const Divider(height: 1),
-      ],
+      );
+    }
+    return _ExperimentFeedbackOverviewCard(
+      overviewKey: const ValueKey('goal-feedback-overview'),
+      entries: entries,
+      emptyText: AppLocaleText.tr(
+        context,
+        en: 'No feedback has been registered yet. Daily completion without content remains in the progress timeline.',
+        zhHans: '还没有登记反馈。没有补充内容的每日完成情况仍保留在进度轨迹中。',
+        zhHant: '還沒有登記回饋。沒有補充內容的每日完成情況仍保留在進度軌跡中。',
+        ja: 'フィードバックはまだありません。内容のない毎日の完了は進捗軌跡に残ります。',
+      ),
     );
   }
 }
@@ -9329,8 +11048,6 @@ class _LifeExperimentDetailHeroCard extends StatelessWidget {
               children: [
                 Text(
                   experiment.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: AuroraColors.purple,
                         fontWeight: FontWeight.w700,
@@ -9361,8 +11078,6 @@ class _LifeExperimentDetailHeroCard extends StatelessWidget {
                               '已完成 $completedDays 天 · 至少觀察 ${experiment.minimumObservationDays} 天',
                           ja: '$completedDays 日完了 · 最低 ${experiment.minimumObservationDays} 日観察',
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: AuroraColors.ink.withValues(alpha: 0.68),
                           fontWeight: FontWeight.w800,
@@ -9780,7 +11495,7 @@ class _ExperimentOverviewTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final keywords = evidence.keywordsFor(experiment);
+    final keywords = evidence.keywordsFor(context, experiment);
     return Column(
       children: [
         _ExperimentRollupStatsCard(
@@ -9960,19 +11675,16 @@ class _ExperimentFeedbackTab extends StatelessWidget {
   final _ExperimentEvidence evidence;
   final List<_TrendPoint> points;
   final int triedCount;
-  final VoidCallback onRecordFeedback;
 
   const _ExperimentFeedbackTab({
     required this.experiment,
     required this.evidence,
     required this.points,
     required this.triedCount,
-    required this.onRecordFeedback,
   });
 
   @override
   Widget build(BuildContext context) {
-    final recordAvailability = _goalRecordAvailability(experiment);
     return Column(
       children: [
         _ExperimentGlassCard(
@@ -10073,8 +11785,8 @@ class _ExperimentFeedbackTab extends StatelessWidget {
                     context,
                     en: 'No feedback yet. Record one from Today to make this pattern more personal.',
                     zhHans: '还没有反馈。可以从今天记录一次，让这个模式更贴近你。',
-                    zhHant: '還沒有回饋。可以從 Today 記錄一次，讓這個模式更貼近你。',
-                    ja: 'まだ反応がありません。Todayから一つ残すと、より自分に近い読みになります。',
+                    zhHant: '還沒有回饋。可以從今天記錄一次，讓這個模式更貼近你。',
+                    ja: 'まだ反応がありません。今日から一つ残すと、より自分に近い読みになります。',
                   ),
                 )
               else
@@ -10084,7 +11796,10 @@ class _ExperimentFeedbackTab extends StatelessWidget {
                     score: evidence.valueForFeedback(feedback),
                     text: feedback.feedbackText?.trim().isNotEmpty == true
                         ? feedback.feedbackText!.trim()
-                        : _readableEvidenceLabel(feedback.completionStatus),
+                        : _readableEvidenceLabel(
+                            context,
+                            feedback.completionStatus,
+                          ),
                   ),
               if (evidence.feedbacks.isEmpty)
                 for (final point in points.reversed.take(3))
@@ -10104,20 +11819,6 @@ class _ExperimentFeedbackTab extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        if (recordAvailability == _SevenDayRecordAvailability.active)
-          _ExperimentPrimaryButton(
-            label: AppLocaleText.tr(
-              context,
-              en: 'Record new feedback',
-              zhHans: '记录新的反馈',
-              zhHant: '記錄新的回饋',
-              ja: '新しいフィードバック',
-            ),
-            onTap: onRecordFeedback,
-          )
-        else
-          _RecordAvailabilityNotice(availability: recordAvailability),
       ],
     );
   }
@@ -10161,7 +11862,7 @@ class _ExperimentConditionsTab extends StatelessWidget {
           ),
           child: Row(
             children: [
-              for (final item in evidence.conditionKeywords().take(4))
+              for (final item in evidence.conditionKeywords(context).take(4))
                 Expanded(
                   child: _ConditionTile(
                     icon: item.icon,
@@ -10185,7 +11886,8 @@ class _ExperimentConditionsTab extends StatelessWidget {
             spacing: 10,
             runSpacing: 10,
             children: [
-              for (final item in evidence.keywordsFor(experiment).take(5))
+              for (final item
+                  in evidence.keywordsFor(context, experiment).take(5))
                 _KeywordPill(
                   icon: item.icon,
                   label: item.label,
@@ -10214,7 +11916,7 @@ class _ExperimentConditionsTab extends StatelessWidget {
               Expanded(
                 child: Column(
                   children: [
-                    for (final bucket in evidence.durationBuckets())
+                    for (final bucket in evidence.durationBuckets(context))
                       _DurationLegend(
                         color: bucket.color,
                         text: bucket.label,
@@ -10250,9 +11952,9 @@ class _ExperimentConditionsTab extends StatelessWidget {
           title: AppLocaleText.tr(
             context,
             en: 'AI insight',
-            zhHans: 'AI 洞察',
-            zhHant: 'AI 洞察',
-            ja: 'AI洞察',
+            zhHans: '智能洞察',
+            zhHant: '智慧洞察',
+            ja: '人工知能による洞察',
           ),
           child: Text(
             evidence.insightText(context),
@@ -10430,6 +12132,11 @@ class _KeywordPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: BoxConstraints(
+        maxWidth: (MediaQuery.sizeOf(context).width - 96)
+            .clamp(150.0, 248.0)
+            .toDouble(),
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.58),
@@ -10441,11 +12148,15 @@ class _KeywordPill extends StatelessWidget {
         children: [
           _IconBubble(icon: icon, color: color, size: 30),
           const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: AuroraColors.ink.withValues(alpha: 0.74),
-              fontWeight: FontWeight.w800,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AuroraColors.ink.withValues(alpha: 0.74),
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ],
@@ -11130,8 +12841,6 @@ class _NextExperimentHeroCard extends StatelessWidget {
             children: [
               Text(
                 detail.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       color: AuroraColors.purple,
                       fontWeight: FontWeight.w700,
@@ -11141,8 +12850,6 @@ class _NextExperimentHeroCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 detail.description,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                       color: const Color(0xFF35415C),
                       height: 1.48,
@@ -12102,13 +13809,10 @@ class _ReviewLine extends StatelessWidget {
 class _ExperimentPrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
-  final bool compact;
 
   const _ExperimentPrimaryButton({
-    super.key,
     required this.label,
     required this.onTap,
-    this.compact = false,
   });
 
   @override
@@ -12117,11 +13821,11 @@ class _ExperimentPrimaryButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(compact ? 18 : 28),
+        borderRadius: BorderRadius.circular(28),
         child: Ink(
-          height: compact ? 48 : 62,
+          height: 62,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(compact ? 18 : 28),
+            borderRadius: BorderRadius.circular(28),
             gradient: const LinearGradient(
               colors: [Color(0xFF8D55FF), Color(0xFFB157E9), Color(0xFF6C8DFF)],
             ),
@@ -12144,15 +13848,14 @@ class _ExperimentPrimaryButton extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
-                        fontSize: compact ? 16 : null,
                       ),
                 ),
               ),
-              SizedBox(width: compact ? 8 : 18),
-              Icon(
+              const SizedBox(width: 18),
+              const Icon(
                 Icons.chevron_right_rounded,
                 color: Colors.white,
-                size: compact ? 20 : 34,
+                size: 34,
               ),
             ],
           ),

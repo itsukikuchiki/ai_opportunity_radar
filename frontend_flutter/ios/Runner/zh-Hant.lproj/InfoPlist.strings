@@ -1,7 +1,7 @@
-"NSCalendarsFullAccessUsageDescription" = "Signal Path 僅在你主動啟用日程提示時讀取本機日程密度，用於產生溫和的 Energy Budget 參考。活動標題、地點、參與者和備註不會儲存或上傳。";
-"NSCalendarsUsageDescription" = "Signal Path 僅在你主動啟用日程提示時讀取本機日程密度，用於產生溫和的 Energy Budget 參考。活動標題、地點、參與者和備註不會儲存或上傳。";
-"NSHealthShareUsageDescription" = "Signal Path 會讀取你選擇授權的睡眠、步數和運動資料，在本機為 Energy Budget 產生抽象恢復提示。原始健康資料不會上傳。";
-"NSHealthUpdateUsageDescription" = "Signal Path 不會向「健康」新增或修改資料。健康權限僅為可選的 Energy Budget 恢復提示提供唯讀支援。";
+"NSCalendarsFullAccessUsageDescription" = "Signal Path 僅在你主動啟用日程提示時讀取本機日程密度，用於產生溫和的能量預算參考。活動標題、地點、參與者和備註不會儲存或上傳。";
+"NSCalendarsUsageDescription" = "Signal Path 僅在你主動啟用日程提示時讀取本機日程密度，用於產生溫和的能量預算參考。活動標題、地點、參與者和備註不會儲存或上傳。";
+"NSHealthShareUsageDescription" = "Signal Path 會讀取你選擇授權的睡眠、步數和運動資料，在本機為能量預算產生抽象恢復提示。原始健康資料不會上傳。";
+"NSHealthUpdateUsageDescription" = "Signal Path 不會向「健康」新增或修改資料。健康權限僅為可選的能量預算恢復提示提供唯讀支援。";
 "NSMicrophoneUsageDescription" = "Signal Path 使用麥克風將你的語音轉換為可編輯的信號文字。音訊僅在辨識期間處理，不會儲存或上傳。";
 "NSPhotoLibraryUsageDescription" = "Signal Path 僅在你為「我的」頁面選擇頭像時存取照片。頭像儲存在本機，除非你主動分享。";
 "NSSpeechRecognitionUsageDescription" = "Signal Path 僅使用裝置端語音辨識，將你的語音轉換為可編輯的信號文字。如果裝置端辨識不可用，你仍可手動輸入。音訊不會儲存或上傳。";

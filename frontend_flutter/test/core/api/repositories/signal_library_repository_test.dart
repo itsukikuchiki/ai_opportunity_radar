@@ -8,6 +8,7 @@ import 'package:ai_opportunity_radar/core/api/repositories/signal_library_reposi
 import 'package:ai_opportunity_radar/core/eligibility/signal_eligibility_service.dart';
 import 'package:ai_opportunity_radar/core/local/local_capture_repository.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
+import 'package:ai_opportunity_radar/core/models/signal_library_illustration_catalog.dart';
 import 'package:ai_opportunity_radar/core/models/signal_library_models.dart';
 import 'package:ai_opportunity_radar/core/preferences/focus_domains.dart';
 
@@ -87,6 +88,63 @@ void main() {
     expect(japanese.first.title, '予定が詰まりすぎる週');
     expect(traditional.first.abstractPattern, isNot(contains('Some people')));
     expect(japanese.first.abstractPattern, isNot(contains('Some people')));
+  });
+
+  test('all curated cards use stable packaged behavior illustrations',
+      () async {
+    final repository = _buildRepository(dbPath);
+    final illustrationKeyByCanonicalId = <String, String>{};
+
+    for (final language in const ['en', 'zh-Hans', 'zh-Hant', 'ja']) {
+      final patterns = await repository.listCuratedPatterns(language: language);
+
+      for (final pattern in patterns) {
+        final definition =
+            SignalLibraryIllustrationCatalog.forPatternId(pattern.id);
+        expect(definition, isNotNull, reason: '$language / ${pattern.id}');
+        expect(
+          definition!.id,
+          startsWith('pattern.'),
+          reason: 'Signal Library must not reuse review feedback artwork',
+        );
+        expect(
+          File(p.join(Directory.current.path, definition.asset)).existsSync(),
+          isTrue,
+          reason: definition.asset,
+        );
+
+        final previous = illustrationKeyByCanonicalId[pattern.canonicalId];
+        if (previous == null) {
+          illustrationKeyByCanonicalId[pattern.canonicalId] = definition.id;
+        } else {
+          expect(
+            definition.id,
+            previous,
+            reason: 'localized variants must share one illustration',
+          );
+        }
+      }
+    }
+
+    expect(illustrationKeyByCanonicalId, hasLength(18));
+    expect(
+      SignalLibraryIllustrationCatalog.forPatternId(
+        'tension_without_a_big_event',
+      )?.asset,
+      'assets/weekly/weekly-pattern-tension-without-big-event.png',
+    );
+    expect(
+      SignalLibraryIllustrationCatalog.forPatternId(
+        'being_heard_before_advice',
+      )?.asset,
+      'assets/weekly/weekly-pattern-being-heard-before-advice.png',
+    );
+    expect(
+      SignalLibraryIllustrationCatalog.forPatternId(
+        'contribution_seen_restores_motivation',
+      )?.asset,
+      'assets/weekly/weekly-pattern-contribution-seen-restores-motivation.png',
+    );
   });
 
   test('unknown library language falls back to English curated patterns',
@@ -275,6 +333,14 @@ void main() {
     expect(signal.rawPayloadJson['library_pattern_id'], pattern.id);
     expect(signal.rawPayloadJson['focus_domain_id'], pattern.focusDomainId);
     expect(signal.rawPayloadJson['canonical_pattern_id'], pattern.id);
+    expect(
+      signal.rawPayloadJson['illustration_key'],
+      SignalLibraryIllustrationCatalog.keyForPatternId(pattern.id),
+    );
+    expect(
+      signal.rawPayloadJson['illustration_catalog_version'],
+      SignalLibraryIllustrationCatalog.version,
+    );
     expect(signal.rawPayloadJson['reference_type'], 'curated_signal_card');
     expect(signal.rawPayloadJson['generation_rule_version'],
         'signal_library_reference_v1');
@@ -284,7 +350,10 @@ void main() {
         signal.rawPayloadJson.keys,
         unorderedEquals([
           'library_pattern_id',
+          'canonical_pattern_id',
           'focus_domain_id',
+          'illustration_key',
+          'illustration_catalog_version',
           'title',
           'abstract_pattern',
           'common_scenes',
@@ -292,7 +361,6 @@ void main() {
           'energy_load_hint',
           'possible_positive_signal',
           'language',
-          'canonical_pattern_id',
           'reference_type',
           'generation_rule_version',
           'match_status',
@@ -363,27 +431,30 @@ void main() {
     );
     expect(actions, isEmpty);
 
-    final inaccurate = await repository.respondToPattern(
-      pattern: pattern,
-      status: 'inaccurate',
-      addToTimeline: true,
-    );
-    expect(inaccurate, isNull);
+    for (var attempt = 1; attempt <= 4; attempt += 1) {
+      final inaccurate = await repository.respondToPattern(
+        pattern: pattern,
+        status: 'inaccurate',
+        addToTimeline: true,
+      );
+      expect(inaccurate, isNull, reason: 'attempt $attempt');
 
-    actions = await db.query(
-      'signal_library_actions',
-      where: 'pattern_id = ?',
-      whereArgs: [pattern.id],
-    );
-    expect(actions, isEmpty);
-    expect(
-      await db.query(
-        'signal_cards',
-        where: 'source_type = ?',
-        whereArgs: ['library_saved'],
-      ),
-      isEmpty,
-    );
+      actions = await db.query(
+        'signal_library_actions',
+        where: 'pattern_id = ?',
+        whereArgs: [pattern.id],
+      );
+      expect(actions, isEmpty, reason: 'attempt $attempt');
+      expect(
+        await db.query(
+          'signal_cards',
+          where: 'source_type = ?',
+          whereArgs: ['library_saved'],
+        ),
+        isEmpty,
+        reason: 'attempt $attempt',
+      );
+    }
   });
 
   test('same pattern and day replays the immutable card without duplicating',

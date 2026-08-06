@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../app/app_router.dart';
 import '../../../core/di/app_dependencies.dart';
 import '../../../core/i18n/app_locale_text.dart';
-import '../../../core/i18n/energy_budget_text.dart';
+import '../../../core/i18n/weekly_report_text.dart';
 import '../../../core/models/energy_budget_models.dart';
 import '../../../core/models/deepening_observation_models.dart';
 import '../../../core/models/weekly_illustration_catalog.dart';
@@ -19,13 +19,16 @@ import '../../../core/notifications/signal_reminder_repository.dart';
 import '../../../core/notifications/signal_reminder_rule.dart';
 import '../../../core/readiness/report_readiness.dart';
 import '../../../shared/widgets/aurora_ui.dart';
+import '../../shell/main_tab_bottom_navigation.dart';
 
 class WeeklyReflectPage extends StatelessWidget {
   const WeeklyReflectPage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final scrollPadding = AuroraMainPageSpec.scrollPadding(context);
     return Scaffold(
+      extendBody: true,
       body: Stack(
         children: [
           AuroraPage(
@@ -46,8 +49,12 @@ class WeeklyReflectPage extends StatelessWidget {
                   final deep = _localizedWeeklyReflectCopy(
                     context,
                     result.reflect!,
+                    weekly: result.weekly!,
                   );
-                  final weekly = result.weekly!;
+                  final weekly = WeeklyReportText.localizeInsight(
+                    context,
+                    result.weekly!,
+                  );
                   final patternIllustration =
                       _patternIllustrationForWeekly(deep, weekly);
                   final reviewIllustration =
@@ -57,7 +64,7 @@ class WeeklyReflectPage extends StatelessWidget {
                   );
                   return ListView(
                     key: const ValueKey('weekly-reflect-scroll-view'),
-                    padding: AuroraMainPageSpec.scrollPadding(context),
+                    padding: scrollPadding,
                     children: [
                       _WeeklyReflectHero(
                         showStatus: true,
@@ -94,19 +101,16 @@ class WeeklyReflectPage extends StatelessWidget {
                         illustrationAsset: reviewIllustration?.definition.asset,
                         illustrationLabel: reviewIllustration?.definition.hint,
                       ),
-                      const SizedBox(height: AuroraMainPageSpec.sectionGap),
-                      _AnalysisScopeCard(
-                        weekly: weekly,
-                        scopeNote: _nonEmpty(
-                          deep.scopeNote,
-                          deep.riskNote,
+                      if (_hasExplainableReminderWindow(
+                        deep.timingSummary,
+                      )) ...[
+                        const SizedBox(
+                          height: AuroraMainPageSpec.sectionGap,
                         ),
-                      ),
-                      const SizedBox(height: AuroraMainPageSpec.sectionGap),
-                      if (_hasExplainableReminderWindow(deep.timingSummary))
                         _SignalReminderSuggestionCard(
                           suggestion: deep.timingSummary,
                         ),
+                      ],
                     ],
                   );
                 },
@@ -116,6 +120,7 @@ class WeeklyReflectPage extends StatelessWidget {
           const AuroraSafeTopMask(),
         ],
       ),
+      bottomNavigationBar: const MainTabBottomNavigation(selectedIndex: 1),
     );
   }
 
@@ -158,7 +163,6 @@ class _WeeklyReflectHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 360;
-    final largeText = MediaQuery.textScalerOf(context).scale(1) > 1.15;
     return AuroraCard(
       key: const ValueKey('weekly-reflect-hero'),
       padding: EdgeInsets.zero,
@@ -175,9 +179,7 @@ class _WeeklyReflectHero extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
         child: ConstrainedBox(
-          constraints: BoxConstraints(
-            minHeight: largeText ? (showStatus ? 216 : 198) : 188,
-          ),
+          constraints: const BoxConstraints(),
           child: Stack(
             children: [
               Positioned(
@@ -190,21 +192,10 @@ class _WeeklyReflectHero extends StatelessWidget {
                   child: AuroraReviewHeroPattern(),
                 ),
               ),
-              Positioned(
-                left: 4,
-                top: 4,
-                child: IconButton(
-                  key: const ValueKey('weekly-reflect-back'),
-                  tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-                  onPressed: () => context.popOrGo(AppRoutes.weekly),
-                  icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                  color: AuroraColors.ink,
-                ),
-              ),
               Padding(
                 padding: EdgeInsets.fromLTRB(
                   compact ? 14 : 16,
-                  54,
+                  8,
                   compact ? 14 : 16,
                   14,
                 ),
@@ -212,19 +203,35 @@ class _WeeklyReflectHero extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Padding(
-                      padding: EdgeInsets.only(right: compact ? 72 : 94),
-                      child: AuroraHeroTitle(
-                        text: AppLocaleText.tr(
-                          context,
-                          en: 'This Week’s Deep Analysis',
-                          zhHans: '本周深度分析',
-                          zhHant: '本週深度分析',
-                          ja: '今週の深掘りレビュー',
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        IconButton(
+                          key: const ValueKey('weekly-reflect-back'),
+                          tooltip: MaterialLocalizations.of(context)
+                              .backButtonTooltip,
+                          onPressed: () => context.popOrGo(AppRoutes.weekly),
+                          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                          color: AuroraColors.ink,
                         ),
-                        fontSize: compact ? 28 : 30,
-                        maxLines: 2,
-                      ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.only(right: compact ? 52 : 72),
+                            child: AuroraHeroTitle(
+                              text: AppLocaleText.tr(
+                                context,
+                                en: 'This Week’s Deep Analysis',
+                                zhHans: '本周深度分析',
+                                zhHant: '本週深度分析',
+                                ja: '今週の深掘りレビュー',
+                              ),
+                              fontSize: compact ? 28 : 30,
+                              maxLines: 2,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     Padding(
@@ -237,8 +244,6 @@ class _WeeklyReflectHero extends StatelessWidget {
                           zhHant: '基於你本週的 Signal，做一次更有結構的深讀。',
                           ja: '今週の Signal から、構造を少し深く読み解きます。',
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: AuroraColors.ink.withValues(alpha: 0.70),
                               height: 1.35,
@@ -295,8 +300,9 @@ class _WeeklyReflectLoad {
 
 WeeklyReflectModel _localizedWeeklyReflectCopy(
   BuildContext context,
-  WeeklyReflectModel source,
-) {
+  WeeklyReflectModel source, {
+  required WeeklyInsightModel weekly,
+}) {
   final replacement = switch (AppLocaleText.resolve(context)) {
     AppLanguage.english => 'Deep Analysis',
     AppLanguage.simplifiedChinese => '深度分析',
@@ -334,7 +340,107 @@ WeeklyReflectModel _localizedWeeklyReflectCopy(
     ),
   };
 
-  String localize(String value) {
+  final points = _sevenDayPoints(weekly);
+  final chartSignalCount = points.fold<int>(
+    0,
+    (sum, point) => sum + point.$2,
+  );
+  final signalCount = chartSignalCount > 0
+      ? chartSignalCount
+      : weekly.reportReadiness.signalCount;
+  final activeDays = points.where((point) => point.$2 > 0).length;
+  final peak = points.isEmpty
+      ? (DateTime.tryParse(weekly.weekStart) ?? DateTime(1970), 0)
+      : points.reduce((a, b) => a.$2 >= b.$2 ? a : b);
+  final signalWord = signalCount == 1 ? 'Signal' : 'Signals';
+  final dayWord = activeDays == 1 ? 'day' : 'days';
+  final overviewFallback = AppLocaleText.tr(
+    context,
+    en: 'This week’s $signalCount $signalWord were recorded across '
+        '$activeDays $dayWord. Repeated scenes and energy shifts are read '
+        'together as a weekly pattern, not as evidence that one caused another.',
+    zhHans:
+        '本周共记录 $signalCount 条 Signal，分布在 $activeDays 天。重复场景和能量变化会放在一起作为周度模式阅读，但不代表因果。',
+    zhHant:
+        '本週共記錄 $signalCount 條 Signal，分布在 $activeDays 天。重複場景和能量變化會放在一起作為週度模式閱讀，但不代表因果。',
+    ja: '今週は $activeDays 日に $signalCount 件の Signal が記録されました。'
+        '繰り返す場面とエネルギーの変化を週間パターンとして合わせて読みますが、因果関係を示すものではありません。',
+  );
+  final tensionFallback = AppLocaleText.tr(
+    context,
+    en: 'The useful tension to watch is the shift between trying to move '
+        'forward and needing enough room to recover.',
+    zhHans: '值得继续观察的是：想推进与需要恢复余地之间如何切换。',
+    zhHant: '值得繼續觀察的是：想推進與需要恢復餘地之間如何切換。',
+    ja: '進もうとすることと、回復のための余白を必要とすることの間で、どのように切り替わるかを観察します。',
+  );
+  final timingFallback = peak.$2 > 0
+      ? AppLocaleText.tr(
+          context,
+          en: 'Signal activity was highest on ${_monthDay(peak.$1)} with '
+              '${peak.$2} records. $activeDays of the seven days had at least '
+              'one Signal.',
+          zhHans:
+              '${_monthDay(peak.$1)} 的 Signal 最密，共 ${peak.$2} 条；七天中有 $activeDays 天留下了 Signal。',
+          zhHant:
+              '${_monthDay(peak.$1)} 的 Signal 最密，共 ${peak.$2} 條；七天中有 $activeDays 天留下了 Signal。',
+          ja: '${_monthDay(peak.$1)} は Signal が最も多く、${peak.$2} 件でした。'
+              '7 日間のうち $activeDays 日に Signal がありました。',
+        )
+      : AppLocaleText.tr(
+          context,
+          en: 'No Signal activity was recorded in this weekly range.',
+          zhHans: '这个周度范围内还没有 Signal 记录。',
+          zhHant: '這個週度範圍內還沒有 Signal 記錄。',
+          ja: 'この週間範囲には Signal の記録がありません。',
+        );
+  final nextObservationFallback = AppLocaleText.tr(
+    context,
+    en: 'When a similar scene appears again, notice whether it happens at '
+        'the beginning, middle, or end, and what changes after a Spot Try.',
+    zhHans: '类似场景再次出现时，留意它发生在开始、中段还是收尾，以及简单尝试之后有什么变化。',
+    zhHant: '類似場景再次出現時，留意它發生在開始、中段還是收尾，以及簡單嘗試之後有什麼變化。',
+    ja: '同じような場面が再び現れたら、開始時・途中・終盤のどこで起きたか、スポットトライの後に何が変わったかを観察します。',
+  );
+  final scopeFallback = AppLocaleText.tr(
+    context,
+    en: 'Use this as a weekly observation, not as evidence of cause, '
+        'personality, diagnosis, or a long-term conclusion.',
+    zhHans: '把它作为周度观察使用，不把它当作因果、人格、诊断或长期结论的证据。',
+    zhHant: '把它作為週度觀察使用，不把它當作因果、人格、診斷或長期結論的證據。',
+    ja: 'これは週間の観察として使い、因果・性格・診断・長期的な結論の根拠にはしません。',
+  );
+  final patternFallback = AppLocaleText.tr(
+    context,
+    en: 'Recurring weekly pattern',
+    zhHans: '本周重复模式',
+    zhHant: '本週重複模式',
+    ja: '繰り返す週間パターン',
+  );
+  final frictionFallback = AppLocaleText.tr(
+    context,
+    en: 'Main weekly friction',
+    zhHans: '本周主要摩擦',
+    zhHant: '本週主要摩擦',
+    ja: '今週の主な負担',
+  );
+  final impactFallback = weekly.actionReview.hasData
+      ? AppLocaleText.tr(
+          context,
+          en: 'Attempt feedback is available',
+          zhHans: '已有尝试反馈',
+          zhHant: '已有嘗試回饋',
+          ja: '試みのフィードバックあり',
+        )
+      : AppLocaleText.tr(
+          context,
+          en: 'Attempt feedback is still forming',
+          zhHans: '尝试反馈仍在形成',
+          zhHant: '嘗試回饋仍在形成',
+          ja: '試みのフィードバックは形成中',
+        );
+
+  String localize(String value, String fallback) {
     var result = value
         .replaceAll(
           RegExp(r'\bPro\s*L3(?:\s*Reflect)?\b', caseSensitive: false),
@@ -348,35 +454,50 @@ WeeklyReflectModel _localizedWeeklyReflectCopy(
           RegExp(r'\bL3\b', caseSensitive: false),
           replacement,
         );
-    result = EnergyBudgetText.localizeCopy(context, result);
     for (final entry in internalFieldLabels.entries) {
       result = result.replaceAll(
         RegExp('\\b${entry.key}\\b', caseSensitive: false),
         entry.value,
       );
     }
-    return result.replaceAll(
+    result = result.replaceAll(
       RegExp(r'\btension\b', caseSensitive: false),
       tensionLabel,
+    );
+    return WeeklyReportText.generatedCopyOrFallback(
+      context,
+      result,
+      fallback: fallback,
     );
   }
 
   return WeeklyReflectModel(
-    summary: localize(source.summary),
-    rootTension: localize(source.rootTension),
-    hiddenPattern: localize(source.hiddenPattern),
-    nextFocus: localize(source.nextFocus),
-    riskNote: localize(source.riskNote),
-    keyNodes: source.keyNodes.map(localize).toList(growable: false),
-    patternLabel: localize(source.patternLabel),
-    frictionLabel: localize(source.frictionLabel),
-    impactLabel: localize(source.impactLabel),
-    relationshipSummary: localize(source.relationshipSummary),
-    timingSummary: localize(source.timingSummary),
-    nextQuestion: localize(source.nextQuestion),
+    summary: localize(source.summary, overviewFallback),
+    rootTension: localize(source.rootTension, tensionFallback),
+    hiddenPattern: localize(source.hiddenPattern, timingFallback),
+    nextFocus: localize(source.nextFocus, nextObservationFallback),
+    riskNote: localize(source.riskNote, scopeFallback),
+    keyNodes: source.keyNodes.indexed
+        .map(
+          (entry) => localize(
+            entry.$2,
+            switch (entry.$1) {
+              0 => patternFallback,
+              1 => timingFallback,
+              _ => nextObservationFallback,
+            },
+          ),
+        )
+        .toList(growable: false),
+    patternLabel: localize(source.patternLabel, patternFallback),
+    frictionLabel: localize(source.frictionLabel, frictionFallback),
+    impactLabel: localize(source.impactLabel, impactFallback),
+    relationshipSummary: localize(source.relationshipSummary, overviewFallback),
+    timingSummary: localize(source.timingSummary, timingFallback),
+    nextQuestion: localize(source.nextQuestion, nextObservationFallback),
     illustrationHint: source.illustrationHint,
     sourceSignalCardIds: source.sourceSignalCardIds,
-    scopeNote: localize(source.scopeNote),
+    scopeNote: localize(source.scopeNote, scopeFallback),
   );
 }
 
@@ -440,10 +561,10 @@ class _WeeklyReflectUnavailable extends StatelessWidget {
                   context,
                   en: 'Weekly review and its same-week Deep Analysis start after 3 eligible Signal Cards in the current local Monday-Sunday week. Journey Pro compares natural calendar months; change synthesis appears after at least two months each reach 7 eligible Signals across 3 recording days.',
                   zhHans:
-                      '当前本地周一至周日达到 3 条有效 Signal Card 后，每周复盘和本周深度分析才开始显示。旅程 Pro 按自然月比较；至少两个月各达到 7 条有效 Signal、覆盖 3 个记录日后，才显示变化综合。',
+                      '当前本地周一至周日达到 3 条有效 Signal 卡片后，每周复盘和本周深度分析才开始显示。专业版旅程按自然月比较；至少两个月各达到 7 条有效 Signal、覆盖 3 个记录日后，才显示变化综合。',
                   zhHant:
-                      '當前本地週一至週日達到 3 條有效 Signal Card 後，每週復盤和本週深度分析才開始顯示。旅程 Pro 按自然月比較；至少兩個月各達到 7 條有效 Signal、覆蓋 3 個記錄日後，才顯示變化綜合。',
-                  ja: '現在のローカル月曜〜日曜で有効な Signal Card が3件になると、週間レビューと今週の詳細分析を表示します。旅程 Pro は暦月単位で比較し、2か月以上で各月Signal 7件・記録日3日を満たすと変化のまとめを表示します。',
+                      '當前本地週一至週日達到 3 條有效 Signal 卡片後，每週復盤和本週深度分析才開始顯示。專業版旅程按自然月比較；至少兩個月各達到 7 條有效 Signal、覆蓋 3 個記錄日後，才顯示變化綜合。',
+                  ja: '現在のローカル月曜〜日曜で有効な Signal カードが3件になると、週間レビューと今週の詳細分析を表示します。プロ版の旅程は暦月単位で比較し、2か月以上で各月Signal 7件・記録日3日を満たすと変化のまとめを表示します。',
                 ),
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -593,8 +714,6 @@ class _HeroInsightCard extends StatelessWidget {
                 ? deep.relationshipSummary
                 : deep.summary),
             key: const ValueKey('weekly-reflect-summary'),
-            maxLines: 4,
-            overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                   color: AuroraColors.ink,
                   fontSize: 16,
@@ -626,6 +745,41 @@ class _DeepPatternRelationshipCard extends StatelessWidget {
         corePattern == null || corePattern.supportDates.isEmpty
             ? null
             : _validDateOrNull(corePattern.supportDates.first);
+    final patternSupportDays = corePattern?.supportDates.toSet().length ?? 0;
+    final localizedPatternLabel = corePattern == null
+        ? ''
+        : WeeklyReportText.generatedCopyOrFallback(
+            context,
+            corePattern.label,
+            fallback: AppLocaleText.tr(
+              context,
+              en: 'Recurring weekly pattern',
+              zhHans: '本周重复模式',
+              zhHant: '本週重複模式',
+              ja: '繰り返す週間パターン',
+            ),
+          );
+    final localizedPatternSummary = corePattern == null
+        ? ''
+        : WeeklyReportText.generatedCopyOrFallback(
+            context,
+            corePattern.summary,
+            fallback: AppLocaleText.tr(
+              context,
+              en: patternSupportDays > 0
+                  ? 'This pattern was supported on $patternSupportDays recorded days this week.'
+                  : 'This pattern is supported by this week’s Signals.',
+              zhHans: patternSupportDays > 0
+                  ? '这个模式在本周 $patternSupportDays 个记录日得到支持。'
+                  : '这个模式由本周的 Signal 支持。',
+              zhHant: patternSupportDays > 0
+                  ? '這個模式在本週 $patternSupportDays 個記錄日得到支持。'
+                  : '這個模式由本週的 Signal 支持。',
+              ja: patternSupportDays > 0
+                  ? 'このパターンは今週 $patternSupportDays 日の記録で確認されました。'
+                  : 'このパターンは今週の Signal に基づいています。',
+            ),
+          );
     final energy = weekly.energyProjection;
     final primaryEnergy = _primaryEnergyState(energy?.totals ?? const {});
     final relationships = [
@@ -639,7 +793,7 @@ class _DeepPatternRelationshipCard extends StatelessWidget {
         ),
         corePattern == null
             ? _nonEmpty(deep.patternLabel, _legacyNodeValue(deep, 0))
-            : '${corePattern.label}\n${corePattern.summary}',
+            : '$localizedPatternLabel\n$localizedPatternSummary',
         Icons.account_tree_rounded,
         AuroraColors.purple,
         corePatternSourceDate,
@@ -875,8 +1029,6 @@ class _DeepRelationshipTile extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   body,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AuroraColors.ink,
                         fontWeight: FontWeight.w500,
@@ -901,7 +1053,13 @@ class _DeepRelationshipTile extends StatelessWidget {
     );
     return Semantics(
       button: true,
-      label: '$label，$sourceLabel',
+      label: AppLocaleText.tr(
+        context,
+        en: '$label, $sourceLabel',
+        zhHans: '$label，$sourceLabel',
+        zhHant: '$label，$sourceLabel',
+        ja: '$label、$sourceLabel',
+      ),
       onTapHint: sourceLabel,
       child: Tooltip(
         message: sourceLabel,
@@ -942,40 +1100,26 @@ class _WeeklyTimingChart extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const AuroraSectionIcon(
-                icon: Icons.bar_chart_rounded,
-                color: AuroraColors.blue,
-                size: 30,
+          _ResponsiveDeepSectionHeader(
+            icon: Icons.bar_chart_rounded,
+            color: AuroraColors.blue,
+            title: AppLocaleText.tr(
+              context,
+              en: 'Where it appeared this week',
+              zhHans: '本周出现位置',
+              zhHant: '本週出現位置',
+              ja: '今週どこで現れたか',
+            ),
+            trailing: AuroraChip(
+              label: AppLocaleText.tr(
+                context,
+                en: '$total Signals · $activeDays days',
+                zhHans: '$total 条 Signal · $activeDays 天',
+                zhHant: '$total 條 Signal · $activeDays 天',
+                ja: 'Signal $total 件・$activeDays 日',
               ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Where it appeared this week',
-                    zhHans: '本周出现位置',
-                    zhHant: '本週出現位置',
-                    ja: '今週どこで現れたか',
-                  ),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AuroraColors.ink,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-              AuroraChip(
-                label: AppLocaleText.tr(
-                  context,
-                  en: '$total Signals · $activeDays days',
-                  zhHans: '$total 条 Signal · $activeDays 天',
-                  zhHant: '$total 條 Signal · $activeDays 天',
-                  ja: 'Signal $total 件・$activeDays 日',
-                ),
-                color: AuroraColors.blue,
-              ),
-            ],
+              color: AuroraColors.blue,
+            ),
           ),
           const SizedBox(height: 14),
           SizedBox(
@@ -1092,8 +1236,7 @@ class _WeeklyTimingChart extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               _compactAnalysisText(timingSummary),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
+              key: const ValueKey('weekly-deep-timing-summary'),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AuroraColors.ink.withValues(alpha: 0.78),
                     height: 1.4,
@@ -1102,6 +1245,66 @@ class _WeeklyTimingChart extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _ResponsiveDeepSectionHeader extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final Widget trailing;
+
+  const _ResponsiveDeepSectionHeader({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final leading = Row(
+      children: [
+        AuroraSectionIcon(
+          icon: icon,
+          color: color,
+          size: 30,
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AuroraColors.ink,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+      ],
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stack = constraints.maxWidth < 330 ||
+            MediaQuery.textScalerOf(context).scale(1) > 1.15;
+        if (stack) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              leading,
+              const SizedBox(height: 8),
+              Align(alignment: Alignment.centerLeft, child: trailing),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: leading),
+            const SizedBox(width: 8),
+            trailing,
+          ],
+        );
+      },
     );
   }
 }
@@ -1153,48 +1356,34 @@ class _DeepWeeklyEnergyCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const AuroraSectionIcon(
-                icon: Icons.battery_charging_full_rounded,
-                color: AuroraColors.mint,
-                size: 30,
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'This week’s energy state',
-                    zhHans: '本周能量状态',
-                    zhHant: '本週能量狀態',
-                    ja: '今週のエネルギー状態',
-                  ),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AuroraColors.ink,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-              AuroraChip(
-                label: total == 0
-                    ? AppLocaleText.tr(
-                        context,
-                        en: 'Forming',
-                        zhHans: '形成中',
-                        zhHant: '形成中',
-                        ja: '形成中',
-                      )
-                    : AppLocaleText.tr(
-                        context,
-                        en: '$total Signals',
-                        zhHans: '$total 条 Signal',
-                        zhHant: '$total 條 Signal',
-                        ja: 'Signal $total 件',
-                      ),
-                color: AuroraColors.mint,
-              ),
-            ],
+          _ResponsiveDeepSectionHeader(
+            icon: Icons.battery_charging_full_rounded,
+            color: AuroraColors.mint,
+            title: AppLocaleText.tr(
+              context,
+              en: 'This week’s energy state',
+              zhHans: '本周能量状态',
+              zhHant: '本週能量狀態',
+              ja: '今週のエネルギー状態',
+            ),
+            trailing: AuroraChip(
+              label: total == 0
+                  ? AppLocaleText.tr(
+                      context,
+                      en: 'Forming',
+                      zhHans: '形成中',
+                      zhHant: '形成中',
+                      ja: '形成中',
+                    )
+                  : AppLocaleText.tr(
+                      context,
+                      en: '$total Signals',
+                      zhHans: '$total 条 Signal',
+                      zhHant: '$total 條 Signal',
+                      ja: 'Signal $total 件',
+                    ),
+              color: AuroraColors.mint,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
@@ -1522,6 +1711,18 @@ class _DeepLoadRecommendation extends StatelessWidget {
                 Icons.south_rounded,
               ),
           };
+    final localizedBody = WeeklyReportText.generatedCopyOrFallback(
+      context,
+      body,
+      fallback: AppLocaleText.tr(
+        context,
+        en: 'This recommendation reflects this week’s observed Signal '
+            'distribution and recorded attempt feedback.',
+        zhHans: '这项建议来自本周观察到的 Signal 分布与已记录的尝试反馈。',
+        zhHant: '這項建議來自本週觀察到的 Signal 分布與已記錄的嘗試回饋。',
+        ja: 'この提案は、今週観察された Signal の分布と記録済みの試みのフィードバックに基づいています。',
+      ),
+    );
     return Container(
       key: const ValueKey('weekly-deep-load-recommendation'),
       padding: const EdgeInsets.all(12),
@@ -1548,7 +1749,7 @@ class _DeepLoadRecommendation extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  body,
+                  localizedBody,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AuroraColors.ink,
                         height: 1.35,
@@ -1725,6 +1926,7 @@ class _NextValidationCardState extends State<_NextValidationCard> {
             const SizedBox(height: 14),
           ],
           _ValidationRow(
+            bodyKey: const ValueKey('weekly-deep-validation-body-0'),
             icon: Icons.link_rounded,
             color: AuroraColors.mint,
             label: AppLocaleText.tr(
@@ -1738,6 +1940,7 @@ class _NextValidationCardState extends State<_NextValidationCard> {
           ),
           const SizedBox(height: 9),
           _ValidationRow(
+            bodyKey: const ValueKey('weekly-deep-validation-body-1'),
             icon: Icons.edit_calendar_rounded,
             color: AuroraColors.orange,
             label: AppLocaleText.tr(
@@ -1751,6 +1954,7 @@ class _NextValidationCardState extends State<_NextValidationCard> {
           ),
           const SizedBox(height: 9),
           _ValidationRow(
+            bodyKey: const ValueKey('weekly-deep-validation-body-2'),
             icon: Icons.visibility_outlined,
             color: AuroraColors.blue,
             label: AppLocaleText.tr(
@@ -1762,7 +1966,7 @@ class _NextValidationCardState extends State<_NextValidationCard> {
             ),
             body: AppLocaleText.tr(
               context,
-              en: 'Notice which Signals recur, what changes after a small experiment, and which observations point to a different explanation.',
+              en: 'Notice which Signals recur, what changes after a Spot Try, and which observations point to a different explanation.',
               zhHans: '留意哪些 Signal 再次出现、小实验后有什么变化，以及哪些观察指向另一种解释。',
               zhHant: '留意哪些 Signal 再次出現、小實驗後有什麼變化，以及哪些觀察指向另一種解釋。',
               ja: 'どの Signal が繰り返され、小実験の後に何が変わり、別の見立てを支える観察が何かを見ます。',
@@ -1772,7 +1976,7 @@ class _NextValidationCardState extends State<_NextValidationCard> {
           Text(
             AppLocaleText.tr(
               context,
-              en: 'This is an observation direction, not a task. Related small experiments and goals are selected separately on the next-week page.',
+              en: 'This is an observation direction, not a task. Related Spot Tries and goals are selected separately on the next-week page.',
               zhHans: '这是一个观察方向，不是任务；相关的小实验和目标会在下周尝试页另行选择。',
               zhHant: '這是一個觀察方向，不是任務；相關的小實驗和目標會在下週嘗試頁另行選擇。',
               ja: 'これは観察の方向であり、タスクではありません。関連する小実験と目標は、来週の試みページで別に選びます。',
@@ -1816,12 +2020,14 @@ class _NextValidationCardState extends State<_NextValidationCard> {
 }
 
 class _ValidationRow extends StatelessWidget {
+  final Key? bodyKey;
   final IconData icon;
   final Color color;
   final String label;
   final String body;
 
   const _ValidationRow({
+    this.bodyKey,
     required this.icon,
     required this.color,
     required this.label,
@@ -1856,8 +2062,7 @@ class _ValidationRow extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   _compactAnalysisText(body),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
+                  key: bodyKey,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AuroraColors.ink,
                         height: 1.38,
@@ -2011,124 +2216,10 @@ class _PreviousObservationResult extends StatelessWidget {
   }
 }
 
-class _AnalysisScopeCard extends StatelessWidget {
-  final WeeklyInsightModel weekly;
-  final String scopeNote;
-
-  const _AnalysisScopeCard({
-    required this.weekly,
-    required this.scopeNote,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final readiness = weekly.reportReadiness;
-    final recordDays = weekly.chartData
-        .where((point) => point.signalCount > 0)
-        .map((point) => point.date)
-        .toSet()
-        .length;
-    return AuroraCard(
-      key: const ValueKey('weekly-analysis-scope-card'),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const AuroraSectionIcon(
-                icon: Icons.info_outline_rounded,
-                color: AuroraColors.gold,
-                size: 32,
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Analysis scope',
-                    zhHans: '分析范围',
-                    zhHant: '分析範圍',
-                    ja: '分析の範囲',
-                  ),
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: AuroraColors.ink,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-              AuroraChip(
-                label: AppLocaleText.tr(
-                  context,
-                  en: '${readiness.signalCount} Signals · $recordDays days',
-                  zhHans: '${readiness.signalCount} 条 Signal · $recordDays 天',
-                  zhHant: '${readiness.signalCount} 條 Signal · $recordDays 天',
-                  ja: 'Signal ${readiness.signalCount} 件・$recordDays 日',
-                ),
-                color: AuroraColors.gold,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _ScopeRow(
-            icon: Icons.check_circle_outline_rounded,
-            color: AuroraColors.mint,
-            label: AppLocaleText.tr(
-              context,
-              en: 'Can show',
-              zhHans: '能说明',
-              zhHant: '能說明',
-              ja: '分かること',
-            ),
-            value: AppLocaleText.tr(
-              context,
-              en: 'Relationships that repeatedly appeared together this week.',
-              zhHans: '本周反复同时出现的关系。',
-              zhHant: '本週反覆同時出現的關係。',
-              ja: '今週、繰り返し一緒に現れた関係。',
-            ),
-          ),
-          const SizedBox(height: 8),
-          _ScopeRow(
-            icon: Icons.remove_circle_outline_rounded,
-            color: AuroraColors.orange,
-            label: AppLocaleText.tr(
-              context,
-              en: 'Cannot show',
-              zhHans: '不能说明',
-              zhHant: '不能說明',
-              ja: '分からないこと',
-            ),
-            value: AppLocaleText.tr(
-              context,
-              en: 'Cause, personality, or a long-term conclusion.',
-              zhHans: '因果、人格或长期结论。',
-              zhHant: '因果、人格或長期結論。',
-              ja: '原因、性格、長期的な結論。',
-            ),
-          ),
-          if (scopeNote.trim().isNotEmpty) ...[
-            const SizedBox(height: 9),
-            Text(
-              _compactAnalysisText(scopeNote),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AuroraColors.muted,
-                    height: 1.35,
-                  ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Kept separate from analysis scope: scope explains the limits of a read,
-/// while a reminder is an optional user-controlled follow-up. Scheduling and
-/// persistence are wired by the reminder data flow; this card intentionally
-/// makes no claim that a notification itself writes a Signal.
+/// A reminder is an optional user-controlled follow-up to a reproducible time
+/// pattern. Scheduling and persistence are wired by the reminder data flow;
+/// this card intentionally makes no claim that a notification itself writes a
+/// Signal.
 class _SignalReminderSuggestionCard extends StatefulWidget {
   final String suggestion;
 
@@ -2425,47 +2516,6 @@ TimeOfDay? _timeFromSuggestion(String value) {
   final minute = int.tryParse(match.group(2) ?? '');
   if (hour == null || minute == null || hour > 23 || minute > 59) return null;
   return TimeOfDay(hour: hour, minute: minute);
-}
-
-class _ScopeRow extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String label;
-  final String value;
-
-  const _ScopeRow({
-    required this.icon,
-    required this.color,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 18, color: color),
-        const SizedBox(width: 8),
-        Text(
-          '$label：',
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: color,
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AuroraColors.ink,
-                  height: 1.35,
-                ),
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 WeeklyIllustrationDefinition? _patternIllustrationForWeekly(

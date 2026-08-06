@@ -488,10 +488,27 @@ class SevenDayProgressModel {
     required this.cells,
   });
 
+  /// Every valid feedback entry preserved by the projection.
+  ///
+  /// Quick experiments are append-only: several entries may belong to the
+  /// same local day. This is deliberately not an "attempt" count because a
+  /// user may also record that they did not try the experiment.
+  int get recordedEntries => cells.length;
+
+  /// Entries that confirm a real attempt happened.
+  ///
+  /// Legacy completion aliases are normalized by the repository before the
+  /// cells reach this model, so an old record can count even when it does not
+  /// contain the newer effect or difficulty evaluation.
   int get completedEntries =>
       cells.where((cell) => cell.state == ProgressCellState.completed).length;
 
   int get completedAttempts => completedEntries;
+
+  /// Valid feedback entries explicitly saying the experiment was not tried.
+  int get notAttemptedEntries => cells
+      .where((cell) => cell.state == ProgressCellState.notCompleted)
+      .length;
 
   /// Compatibility name used by goal/day-grid consumers.
   int get completedDays => completedEntries;

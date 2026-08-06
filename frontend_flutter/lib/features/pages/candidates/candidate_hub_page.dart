@@ -8,6 +8,8 @@ import '../../../core/di/app_dependencies.dart';
 import '../../../core/i18n/app_locale_text.dart';
 import '../../../core/local/local_candidate_planning_repository.dart';
 import '../../../core/models/candidate_models.dart';
+import '../../../core/models/phase3_plus_models.dart';
+import '../../../core/models/weekly_models.dart';
 import '../../../core/navigation/app_back_navigation.dart';
 import '../../../core/policies/planning_content_edit_policy.dart';
 import '../../../shared/widgets/aurora_ui.dart';
@@ -38,13 +40,18 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
   List<MicroActionCandidateModel> _nextWeekSmallTryCandidates = const [];
   List<ExperimentCandidateRecord> _experimentCandidates = const [];
   List<AdoptedMicroActionProgress> _activeActions = const [];
+  List<AdoptedMicroActionProgress> _continuableActions = const [];
   List<AdoptedLifeExperimentProgress> _continuableExperiments = const [];
+  List<MicroActionModel> _plannedNextWeekActions = const [];
+  List<LifeExperimentModel> _plannedNextWeekExperiments = const [];
   final Set<String> _selectedIds = {};
-  final Set<String> _selectedContinuationIds = {};
+  final Set<String> _selectedActionContinuationIds = {};
+  final Set<String> _selectedExperimentContinuationIds = {};
   StreamSubscription<CandidateGenerationState>? _generationSubscription;
   bool _initialized = false;
   bool _loading = true;
   bool _adopting = false;
+  String? _withdrawingPlanId;
   bool _refreshingFromInvalidation = false;
   String? _error;
 
@@ -196,10 +203,7 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
   }
 
   Future<void> _adoptSelected() async {
-    final hasSelection = _selectedIds.isNotEmpty ||
-        (widget.kind == CandidateKind.lifeExperiment &&
-            _selectedContinuationIds.isNotEmpty);
-    if (_adopting || !hasSelection || _repository == null) return;
+    if (_adopting || _selectedIds.isEmpty || _repository == null) return;
     setState(() => _adopting = true);
     try {
       if (widget.kind == CandidateKind.microAction) {
@@ -208,10 +212,6 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
         if (!mounted) return;
         _applyMicroSnapshot(snapshot);
       } else {
-        await _repository!.continueExperimentsForNextWeek(
-          experimentIds: _selectedContinuationIds,
-          day: _today,
-        );
         final smallTryIds = _selectedIds
             .where((id) => _nextWeekSmallTryCandidates
                 .any((candidate) => candidate.id == id))
@@ -241,7 +241,6 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
         });
       }
       _selectedIds.clear();
-      _selectedContinuationIds.clear();
       await _loadActiveProgress();
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -252,7 +251,7 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
               AppLocaleText.tr(
                 context,
                 en: widget.kind == CandidateKind.microAction
-                    ? 'Your small experiments are adopted. Progress starts today.'
+                    ? 'Your Spot Tries are adopted. Progress starts today.'
                     : 'Your selected next-week items are saved. Progress starts next Monday.',
                 zhHans: widget.kind == CandidateKind.microAction
                     ? '已采纳所选小实验，七日进度从今天开始。'
@@ -275,16 +274,50 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
     }
   }
 
-  Future<void> _considerSelected() async {
-    final hasSelection = _selectedIds.isNotEmpty ||
-        (widget.kind == CandidateKind.lifeExperiment &&
-            _selectedContinuationIds.isNotEmpty);
-    if (_adopting || !hasSelection || _repository == null) return;
+  Future<void> _confirmContinuations() async {
+    if (_adopting || _repository == null) return;
     setState(() => _adopting = true);
     try {
-      if (_selectedIds.isNotEmpty) {
-        await _repository!.markCandidatesConsidering(_selectedIds);
-      }
+      await _repository!.continueMicroActionsForNextWeek(
+        microActionIds: _selectedActionContinuationIds,
+        day: _today,
+      );
+      await _repository!.continueExperimentsForNextWeek(
+        experimentIds: _selectedExperimentContinuationIds,
+        day: _today,
+      );
+      _selectedActionContinuationIds.clear();
+      _selectedExperimentContinuationIds.clear();
+      await _loadActiveProgress();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Next week is confirmed. Selected items continue; unselected items complete after this week.',
+                zhHans: '下周续行已确认；所选项目继续，未选项目在本周结束后完成。',
+                zhHant: '下週續行已確認；所選項目繼續，未選項目在本週結束後完成。',
+                ja: '来週の継続を確定しました。選んだ項目は継続し、未選択の項目は今週末で完了します。',
+              ),
+            ),
+          ),
+        );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _adopting = false);
+    }
+  }
+
+  Future<void> _considerSelected() async {
+    if (_adopting || _selectedIds.isEmpty || _repository == null) return;
+    setState(() => _adopting = true);
+    try {
+      await _repository!.markCandidatesConsidering(_selectedIds);
       if (widget.kind == CandidateKind.microAction) {
         final snapshot = await _repository!.dailyCandidateSnapshot(_today);
         if (!mounted) return;
@@ -305,9 +338,6 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
         });
       }
       _selectedIds.clear();
-      // Continuations are already canonical goals. “Consider / observe”
-      // leaves this week's object untouched and does not clone it next week.
-      _selectedContinuationIds.clear();
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -341,17 +371,19 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
     final candidatesDisabled =
         generation?.status == CandidateGenerationStatus.regenerating ||
             generation?.status == CandidateGenerationStatus.stale;
-    final selectedCount = _selectedIds.length +
-        (isMicroAction ? 0 : _selectedContinuationIds.length);
+    final selectedCount = _selectedIds.length;
+    final selectedContinuationCount = _selectedActionContinuationIds.length +
+        _selectedExperimentContinuationIds.length;
+    final hasContinuations = !isMicroAction &&
+        (_continuableActions.isNotEmpty || _continuableExperiments.isNotEmpty);
     final showExperimentProposals = !isMicroAction &&
         gate?.isOpen == true &&
         (_experimentCandidates.isNotEmpty ||
             _nextWeekSmallTryCandidates.isNotEmpty ||
             candidatesDisabled ||
             _loading);
-    final showDecisionControls = isMicroAction
-        ? gate?.isOpen == true
-        : _continuableExperiments.isNotEmpty || showExperimentProposals;
+    final showCandidateDecisionControls =
+        isMicroAction ? gate?.isOpen == true : showExperimentProposals;
     final selectionBlockedByCandidateRefresh =
         candidatesDisabled && (isMicroAction || _selectedIds.isNotEmpty);
 
@@ -374,7 +406,15 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
                     onBack: () => context.popOrGo<bool>(fallbackRoute, true),
                   ),
                   const SizedBox(height: AuroraMainPageSpec.heroGap),
-                  if (!isMicroAction) _NextWeekPeriodCard(today: _today),
+                  if (!isMicroAction)
+                    _NextWeekPeriodCard(
+                      today: _today,
+                      plannedActions: _plannedNextWeekActions,
+                      plannedExperiments: _plannedNextWeekExperiments,
+                      withdrawingPlanId: _withdrawingPlanId,
+                      onWithdrawAction: _withdrawPlannedAction,
+                      onWithdrawExperiment: _withdrawPlannedExperiment,
+                    ),
                   if (!isMicroAction)
                     const SizedBox(height: AuroraMainPageSpec.sectionGap),
                   if (gate != null && (isMicroAction || gate.isOpen == false))
@@ -413,13 +453,58 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
                       onExperimentEdit: _editAdoptedExperiment,
                     ),
                   ],
-                  if (!isMicroAction && _continuableExperiments.isNotEmpty) ...[
+                  if (hasContinuations) ...[
                     const SizedBox(height: AuroraMainPageSpec.sectionGap),
-                    _ContinuingExperimentSection(
+                    _ContinuingPlanSection(
+                      actions: _continuableActions,
                       experiments: _continuableExperiments,
-                      selectedIds: _selectedContinuationIds,
+                      selectedActionIds: _selectedActionContinuationIds,
+                      selectedExperimentIds: _selectedExperimentContinuationIds,
                       disabled: _adopting,
-                      onSelected: _setContinuationSelected,
+                      onActionSelected: _setActionContinuationSelected,
+                      onExperimentSelected: _setExperimentContinuationSelected,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: '$selectedContinuationCount selected to continue',
+                        zhHans: '已选择 $selectedContinuationCount 项下周继续',
+                        zhHant: '已選擇 $selectedContinuationCount 項下週繼續',
+                        ja: '$selectedContinuationCount 件を来週も継続',
+                      ),
+                      key: const ValueKey(
+                        'candidate-continuation-selected-count',
+                      ),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AuroraColors.muted,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      key: const ValueKey('candidate-confirm-continuations'),
+                      onPressed: _adopting ? null : _confirmContinuations,
+                      icon: _adopting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.next_plan_outlined),
+                      label: Text(
+                        AppLocaleText.tr(
+                          context,
+                          en: 'Confirm next-week continuation',
+                          zhHans: '确认下周续行',
+                          zhHant: '確認下週續行',
+                          ja: '来週の継続を確定',
+                        ),
+                      ),
                     ),
                   ],
                   if (isMicroAction && gate?.isOpen == true ||
@@ -448,7 +533,7 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
                                 if (_nextWeekSmallTryCandidates.isNotEmpty) ...[
                                   Text(
                                     AppLocaleText.tr(context,
-                                        en: 'Small experiments',
+                                        en: 'Spot Tries',
                                         zhHans: '小实验提案',
                                         zhHant: '小實驗提案',
                                         ja: '小実験の提案'),
@@ -500,7 +585,7 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
                             ),
                     ),
                   ],
-                  if (showDecisionControls) ...[
+                  if (showCandidateDecisionControls) ...[
                     const SizedBox(height: 14),
                     Text(
                       AppLocaleText.tr(
@@ -602,12 +687,22 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
     });
   }
 
-  void _setContinuationSelected(String id, bool selected) {
+  void _setActionContinuationSelected(String id, bool selected) {
     setState(() {
       if (selected) {
-        _selectedContinuationIds.add(id);
+        _selectedActionContinuationIds.add(id);
       } else {
-        _selectedContinuationIds.remove(id);
+        _selectedActionContinuationIds.remove(id);
+      }
+    });
+  }
+
+  void _setExperimentContinuationSelected(String id, bool selected) {
+    setState(() {
+      if (selected) {
+        _selectedExperimentContinuationIds.add(id);
+      } else {
+        _selectedExperimentContinuationIds.remove(id);
       }
     });
   }
@@ -711,16 +806,129 @@ class _CandidateHubPageState extends State<CandidateHubPage> {
       if (!mounted) return;
       setState(() => _activeActions = actions);
     } else {
-      final experiments =
-          await repository.listContinuableExperimentsForNextWeek(_today);
+      final results = await Future.wait<Object>([
+        repository.listContinuableMicroActionsForNextWeek(_today),
+        repository.listContinuableExperimentsForNextWeek(_today),
+        repository.listPlannedMicroActionsForNextWeek(_today),
+        repository.listPlannedExperimentsForNextWeek(_today),
+      ]);
       if (!mounted) return;
       setState(() {
-        _continuableExperiments = experiments;
-        _selectedContinuationIds.removeWhere(
-          (id) => !experiments.any((item) => item.experiment.id == id),
+        _continuableActions = results[0] as List<AdoptedMicroActionProgress>;
+        _continuableExperiments =
+            results[1] as List<AdoptedLifeExperimentProgress>;
+        _plannedNextWeekActions = results[2] as List<MicroActionModel>;
+        _plannedNextWeekExperiments = results[3] as List<LifeExperimentModel>;
+        _selectedActionContinuationIds.removeWhere(
+          (id) => !_continuableActions.any((item) => item.action.id == id),
+        );
+        _selectedExperimentContinuationIds.removeWhere(
+          (id) =>
+              !_continuableExperiments.any((item) => item.experiment.id == id),
         );
       });
     }
+  }
+
+  Future<void> _withdrawPlannedAction(MicroActionModel action) async {
+    final repository = _repository;
+    if (repository == null || _withdrawingPlanId != null) return;
+    setState(() => _withdrawingPlanId = action.id);
+    try {
+      final removed = await repository.withdrawPlannedMicroActionForNextWeek(
+        microActionId: action.id,
+        day: _today,
+      );
+      if (!mounted) return;
+      if (!removed) {
+        _showWithdrawUnavailable();
+        return;
+      }
+      await _reloadNextWeekPlan();
+      if (!mounted) return;
+      _showWithdrawnMessage();
+    } finally {
+      if (mounted) setState(() => _withdrawingPlanId = null);
+    }
+  }
+
+  Future<void> _withdrawPlannedExperiment(
+    LifeExperimentModel experiment,
+  ) async {
+    final repository = _repository;
+    if (repository == null || _withdrawingPlanId != null) return;
+    setState(() => _withdrawingPlanId = experiment.id);
+    try {
+      final removed = await repository.withdrawPlannedExperimentForNextWeek(
+        experimentId: experiment.id,
+        day: _today,
+      );
+      if (!mounted) return;
+      if (!removed) {
+        _showWithdrawUnavailable();
+        return;
+      }
+      await _reloadNextWeekPlan();
+      if (!mounted) return;
+      _showWithdrawnMessage();
+    } finally {
+      if (mounted) setState(() => _withdrawingPlanId = null);
+    }
+  }
+
+  Future<void> _reloadNextWeekPlan() async {
+    final repository = _repository;
+    if (repository == null) return;
+    final snapshot = await repository.weeklyCandidateSnapshot(_today);
+    final nextWeekPlan = await repository.nextWeekPlanCandidateSnapshot(
+      _today,
+    );
+    if (!mounted) return;
+    _applyExperimentSnapshot(snapshot);
+    setState(() {
+      _nextWeekSmallTryCandidates = nextWeekPlan.smallTryCandidates
+          .where(
+            (candidate) => !candidate.isAdopted && !candidate.isConsidering,
+          )
+          .toList(growable: false);
+    });
+    await _loadActiveProgress();
+  }
+
+  void _showWithdrawnMessage() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocaleText.tr(
+              context,
+              en: 'Deleted from next week. This week’s history is unchanged.',
+              zhHans: '已从下周计划删除，本周历史记录不会改变。',
+              zhHant: '已從下週計畫刪除，本週歷史記錄不會改變。',
+              ja: '来週の計画から削除しました。今週の履歴は変わりません。',
+            ),
+          ),
+        ),
+      );
+  }
+
+  void _showWithdrawUnavailable() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocaleText.tr(
+              context,
+              en: 'This item has already started and can no longer be deleted here.',
+              zhHans: '这项内容已经开始，不能再从下周计划中删除。',
+              zhHant: '這項內容已經開始，不能再從下週計畫中刪除。',
+              ja: 'この項目はすでに開始しているため、ここでは削除できません。',
+            ),
+          ),
+        ),
+      );
   }
 
   Future<void> _recordActionProgress(
@@ -1101,8 +1309,20 @@ class _AdoptedProgressSection extends StatelessWidget {
 
 class _NextWeekPeriodCard extends StatelessWidget {
   final DateTime today;
+  final List<MicroActionModel> plannedActions;
+  final List<LifeExperimentModel> plannedExperiments;
+  final String? withdrawingPlanId;
+  final ValueChanged<MicroActionModel> onWithdrawAction;
+  final ValueChanged<LifeExperimentModel> onWithdrawExperiment;
 
-  const _NextWeekPeriodCard({required this.today});
+  const _NextWeekPeriodCard({
+    required this.today,
+    required this.plannedActions,
+    required this.plannedExperiments,
+    required this.withdrawingPlanId,
+    required this.onWithdrawAction,
+    required this.onWithdrawExperiment,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1124,52 +1344,224 @@ class _NextWeekPeriodCard extends StatelessWidget {
       border: Border.all(
         color: AuroraColors.purple.withValues(alpha: 0.22),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 4,
-            height: 54,
-            decoration: BoxDecoration(
-              color: AuroraColors.purple.withValues(alpha: 0.72),
-              borderRadius: BorderRadius.circular(99),
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 4,
+                height: 54,
+                decoration: BoxDecoration(
+                  color: AuroraColors.purple.withValues(alpha: 0.72),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'Next week · $range',
+                        zhHans: '下周 · $range',
+                        zhHant: '下週 · $range',
+                        ja: '来週 · $range',
+                      ),
+                      key: const ValueKey('next-week-period-label'),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: AuroraColors.ink,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      AppLocaleText.tr(
+                        context,
+                        en: 'Choose only what you want to continue or begin next week.',
+                        zhHans: '这里只选择下周要继续或开始的生活小实验。',
+                        zhHant: '這裡只選擇下週要繼續或開始的生活小實驗。',
+                        ja: '来週も続ける、または新しく始める生活実験だけを選びます。',
+                      ),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AuroraColors.muted,
+                            height: 1.4,
+                            fontWeight: FontWeight.w400,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
+          if (plannedActions.isNotEmpty || plannedExperiments.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Selected for next week',
+                zhHans: '已选下周计划',
+                zhHant: '已選下週計畫',
+                ja: '来週に選んだ内容',
+              ),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: AuroraColors.ink,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            for (final action in plannedActions) ...[
+              _NextWeekSelectedPlanRow(
+                key: ValueKey('next-week-selected-small-${action.id}'),
+                icon: Icons.spa_rounded,
+                accent: AuroraColors.mint,
+                typeLabel: AppLocaleText.tr(
+                  context,
+                  en: 'Spot Try',
+                  zhHans: '小实验',
+                  zhHant: '小實驗',
+                  ja: '小実験',
+                ),
+                title: action.title,
+                withdrawing: withdrawingPlanId == action.id,
+                withdrawKey: 'next-week-withdraw-small-${action.id}',
+                onWithdraw: () => onWithdrawAction(action),
+              ),
+              const SizedBox(height: 8),
+            ],
+            for (final experiment in plannedExperiments) ...[
+              _NextWeekSelectedPlanRow(
+                key: ValueKey('next-week-selected-goal-${experiment.id}'),
+                icon: Icons.science_rounded,
+                accent: AuroraColors.blue,
+                typeLabel: AppLocaleText.tr(
+                  context,
+                  en: 'Goal',
+                  zhHans: '目标',
+                  zhHant: '目標',
+                  ja: '目標',
+                ),
+                title: experiment.title,
+                withdrawing: withdrawingPlanId == experiment.id,
+                withdrawKey: 'next-week-withdraw-goal-${experiment.id}',
+                onWithdraw: () => onWithdrawExperiment(experiment),
+              ),
+              const SizedBox(height: 8),
+            ],
+            Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Delete only removes the next-week plan. This week’s history stays unchanged.',
+                zhHans: '删除只会移除下周计划，本周历史记录不会改变。',
+                zhHant: '刪除只會移除下週計畫，本週歷史記錄不會改變。',
+                ja: '削除しても来週の計画だけが外れ、今週の履歴は変わりません。',
+              ),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AuroraColors.muted,
+                    height: 1.4,
+                  ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _NextWeekSelectedPlanRow extends StatelessWidget {
+  final IconData icon;
+  final Color accent;
+  final String typeLabel;
+  final String title;
+  final bool withdrawing;
+  final String withdrawKey;
+  final VoidCallback onWithdraw;
+
+  const _NextWeekSelectedPlanRow({
+    super.key,
+    required this.icon,
+    required this.accent,
+    required this.typeLabel,
+    required this.title,
+    required this.withdrawing,
+    required this.withdrawKey,
+    required this.onWithdraw,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, size: 18, color: accent),
+          ),
+          const SizedBox(width: 9),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Next week · $range',
-                    zhHans: '下周 · $range',
-                    zhHant: '下週 · $range',
-                    ja: '来週 · $range',
-                  ),
-                  key: const ValueKey('next-week-period-label'),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  typeLabel,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: accent,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AuroraColors.ink,
                         fontWeight: FontWeight.w700,
                       ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  AppLocaleText.tr(
-                    context,
-                    en: 'Choose only what you want to continue or begin next week.',
-                    zhHans: '这里只选择下周要继续或开始的生活小实验。',
-                    zhHant: '這裡只選擇下週要繼續或開始的生活小實驗。',
-                    ja: '来週も続ける、または新しく始める生活実験だけを選びます。',
-                  ),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AuroraColors.muted,
-                        height: 1.4,
-                        fontWeight: FontWeight.w400,
-                      ),
-                ),
               ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          TextButton.icon(
+            key: ValueKey(withdrawKey),
+            style: TextButton.styleFrom(
+              minimumSize: const Size(44, 44),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              foregroundColor: AuroraColors.orange,
+            ),
+            onPressed: withdrawing ? null : onWithdraw,
+            icon: withdrawing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.delete_outline_rounded, size: 18),
+            label: Text(
+              AppLocaleText.tr(
+                context,
+                en: 'Delete',
+                zhHans: '删除',
+                zhHant: '刪除',
+                ja: '削除',
+              ),
             ),
           ),
         ],
@@ -1178,17 +1570,23 @@ class _NextWeekPeriodCard extends StatelessWidget {
   }
 }
 
-class _ContinuingExperimentSection extends StatelessWidget {
+class _ContinuingPlanSection extends StatelessWidget {
+  final List<AdoptedMicroActionProgress> actions;
   final List<AdoptedLifeExperimentProgress> experiments;
-  final Set<String> selectedIds;
+  final Set<String> selectedActionIds;
+  final Set<String> selectedExperimentIds;
   final bool disabled;
-  final void Function(String id, bool selected) onSelected;
+  final void Function(String id, bool selected) onActionSelected;
+  final void Function(String id, bool selected) onExperimentSelected;
 
-  const _ContinuingExperimentSection({
+  const _ContinuingPlanSection({
+    required this.actions,
     required this.experiments,
-    required this.selectedIds,
+    required this.selectedActionIds,
+    required this.selectedExperimentIds,
     required this.disabled,
-    required this.onSelected,
+    required this.onActionSelected,
+    required this.onExperimentSelected,
   });
 
   @override
@@ -1199,10 +1597,10 @@ class _ContinuingExperimentSection extends StatelessWidget {
         Text(
           AppLocaleText.tr(
             context,
-            en: 'Goals in progress',
-            zhHans: '进行中的目标',
-            zhHant: '進行中的目標',
-            ja: '進行中の目標',
+            en: 'Spot Tries and goals in progress',
+            zhHans: '进行中的小实验与目标',
+            zhHant: '進行中的小實驗與目標',
+            ja: '進行中の小実験と目標',
           ),
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: AuroraColors.ink,
@@ -1213,10 +1611,10 @@ class _ContinuingExperimentSection extends StatelessWidget {
         Text(
           AppLocaleText.tr(
             context,
-            en: 'Select the ones you want to continue next week. This week’s records stay unchanged.',
-            zhHans: '选择要延续到下周的项目；本周已经留下的记录不会改变。',
-            zhHant: '選擇要延續到下週的項目；本週已經留下的記錄不會改變。',
-            ja: '来週も続ける項目を選びます。今週の記録は変わりません。',
+            en: 'Select the items to continue next week. Unselected items complete after this week; this week’s history stays unchanged.',
+            zhHans: '勾选下周继续采纳的项目；未勾选的项目在本周结束后完成，本周历史不会改变。',
+            zhHant: '勾選下週繼續採納的項目；未勾選的項目在本週結束後完成，本週歷史不會改變。',
+            ja: '来週も続ける項目を選びます。未選択の項目は今週末で完了し、今週の履歴は変わりません。',
           ),
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: AuroraColors.muted,
@@ -1225,13 +1623,53 @@ class _ContinuingExperimentSection extends StatelessWidget {
               ),
         ),
         const SizedBox(height: AuroraMainPageSpec.sectionGap),
-        for (var index = 0; index < experiments.length; index++) ...[
-          _ContinuingExperimentCard(
-            item: experiments[index],
-            selected: selectedIds.contains(experiments[index].experiment.id),
+        for (var index = 0; index < actions.length; index++) ...[
+          _ContinuingPlanCard(
+            key: ValueKey(
+              'continuation-small-experiment-${actions[index].action.id}',
+            ),
+            title: actions[index].action.title,
+            description: actions[index].action.reason,
+            typeLabel: AppLocaleText.tr(
+              context,
+              en: 'Spot Try',
+              zhHans: '小实验',
+              zhHant: '小實驗',
+              ja: '小実験',
+            ),
+            accent: AuroraColors.mint,
+            completedCount: actions[index].progress.completedDays,
+            selected: selectedActionIds.contains(actions[index].action.id),
             disabled: disabled,
             onSelected: (selected) =>
-                onSelected(experiments[index].experiment.id, selected),
+                onActionSelected(actions[index].action.id, selected),
+          ),
+          if (index != actions.length - 1 || experiments.isNotEmpty)
+            const SizedBox(height: AuroraMainPageSpec.sectionGap),
+        ],
+        for (var index = 0; index < experiments.length; index++) ...[
+          _ContinuingPlanCard(
+            key: ValueKey(
+              'continuation-option-${experiments[index].experiment.id}',
+            ),
+            title: experiments[index].experiment.title,
+            description: experiments[index].experiment.suggestedAction,
+            typeLabel: AppLocaleText.tr(
+              context,
+              en: 'Goal',
+              zhHans: '目标',
+              zhHant: '目標',
+              ja: '目標',
+            ),
+            accent: AuroraColors.purple,
+            completedCount: experiments[index].progress.completedDays,
+            selected: selectedExperimentIds
+                .contains(experiments[index].experiment.id),
+            disabled: disabled,
+            onSelected: (selected) => onExperimentSelected(
+              experiments[index].experiment.id,
+              selected,
+            ),
           ),
           if (index != experiments.length - 1)
             const SizedBox(height: AuroraMainPageSpec.sectionGap),
@@ -1241,14 +1679,23 @@ class _ContinuingExperimentSection extends StatelessWidget {
   }
 }
 
-class _ContinuingExperimentCard extends StatelessWidget {
-  final AdoptedLifeExperimentProgress item;
+class _ContinuingPlanCard extends StatelessWidget {
+  final String title;
+  final String description;
+  final String typeLabel;
+  final Color accent;
+  final int completedCount;
   final bool selected;
   final bool disabled;
   final ValueChanged<bool> onSelected;
 
-  const _ContinuingExperimentCard({
-    required this.item,
+  const _ContinuingPlanCard({
+    super.key,
+    required this.title,
+    required this.description,
+    required this.typeLabel,
+    required this.accent,
+    required this.completedCount,
     required this.selected,
     required this.disabled,
     required this.onSelected,
@@ -1256,27 +1703,23 @@ class _ContinuingExperimentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final experiment = item.experiment;
     return Semantics(
-      key: ValueKey('continuation-option-${experiment.id}'),
       container: true,
       selected: selected,
       enabled: !disabled,
       label: AppLocaleText.tr(
         context,
-        en: '${experiment.title}. Continue next week.',
-        zhHans: '${experiment.title}。延续到下周。',
-        zhHant: '${experiment.title}。延續到下週。',
-        ja: '${experiment.title}。来週も続ける。',
+        en: '$typeLabel. $title. Continue next week.',
+        zhHans: '$typeLabel。$title。下周继续采纳。',
+        zhHant: '$typeLabel。$title。下週繼續採納。',
+        ja: '$typeLabel。$title。来週も継続。',
       ),
       child: AuroraCard(
         padding: AuroraMainPageSpec.comfortableCardPadding,
         borderRadius: BorderRadius.circular(AuroraMainPageSpec.cardRadiusLarge),
         color: Colors.white.withValues(alpha: 0.74),
         border: Border.all(
-          color: selected
-              ? AuroraColors.mint.withValues(alpha: 0.74)
-              : AuroraColors.line,
+          color: selected ? accent.withValues(alpha: 0.74) : AuroraColors.line,
           width: selected ? 1.8 : 1,
         ),
         child: Column(
@@ -1290,7 +1733,15 @@ class _ContinuingExperimentCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        experiment.title,
+                        typeLabel,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: accent,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        title,
                         style:
                             Theme.of(context).textTheme.titleMedium?.copyWith(
                                   color: AuroraColors.ink,
@@ -1299,7 +1750,7 @@ class _ContinuingExperimentCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        experiment.suggestedAction,
+                        description,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: AuroraColors.ink.withValues(alpha: 0.76),
                               height: 1.4,
@@ -1323,20 +1774,20 @@ class _ContinuingExperimentCard extends StatelessWidget {
             const SizedBox(height: 10),
             Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.insights_rounded,
                   size: 18,
-                  color: AuroraColors.mint,
+                  color: accent,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     AppLocaleText.tr(
                       context,
-                      en: 'This week ${item.progress.completedDays}/7 completed',
-                      zhHans: '本周已完成 ${item.progress.completedDays}/7',
-                      zhHant: '本週已完成 ${item.progress.completedDays}/7',
-                      ja: '今週 ${item.progress.completedDays}/7 完了',
+                      en: 'This week $completedCount completed',
+                      zhHans: '本周已完成 $completedCount 次',
+                      zhHant: '本週已完成 $completedCount 次',
+                      ja: '今週 $completedCount 回完了',
                     ),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: AuroraColors.muted,
@@ -1348,13 +1799,12 @@ class _ContinuingExperimentCard extends StatelessWidget {
                   AppLocaleText.tr(
                     context,
                     en: 'Continue next week',
-                    zhHans: '下周继续',
-                    zhHant: '下週繼續',
-                    ja: '来週も続ける',
+                    zhHans: '下周继续采纳',
+                    zhHant: '下週繼續採納',
+                    ja: '来週も継続',
                   ),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color:
-                            selected ? AuroraColors.mint : AuroraColors.muted,
+                        color: selected ? accent : AuroraColors.muted,
                         fontWeight: FontWeight.w700,
                       ),
                 ),
@@ -1545,7 +1995,7 @@ class _CandidateHubHeader extends StatelessWidget {
                   text: AppLocaleText.tr(
                     context,
                     en: isMicroAction
-                        ? 'Life Experiment · Small experiments'
+                        ? 'Life Experiment · Spot Tries'
                         : 'Next week’s tries',
                     zhHans: isMicroAction ? '生活小实验 · 小实验' : '下周尝试',
                     zhHant: isMicroAction ? '生活小實驗 · 小實驗' : '下週嘗試',
@@ -1558,16 +2008,16 @@ class _CandidateHubHeader extends StatelessWidget {
                   AppLocaleText.tr(
                     context,
                     en: isMicroAction
-                        ? 'Choose an immediate, low-cost behavior you can pause at any time.'
-                        : 'Choose next week’s small experiments and goals. Selected items begin next Monday.',
+                        ? 'Choose a Spot Try you can start right away, keep low-cost, and pause at any time.'
+                        : 'Choose next week’s Spot Tries and goals. Selected items begin next Monday.',
                     zhHans: isMicroAction
-                        ? '选择现在就能开始、成本很低、随时可以暂停的轻行为。'
+                        ? '选择现在就能开始、成本很低、随时可以暂停的简单尝试。'
                         : '在这里统一选择下周的小实验和目标；选定内容下周一开始出现在今天。',
                     zhHant: isMicroAction
-                        ? '選擇現在就能開始、成本很低、隨時可以暫停的輕行為。'
+                        ? '選擇現在就能開始、成本很低、隨時可以暫停的簡單嘗試。'
                         : '在這裡統一選擇下週的小實驗和目標；選定內容下週一開始出現在今天。',
                     ja: isMicroAction
-                        ? '今すぐ始められ、負担が少なく、いつでも止められる行動を選びます。'
+                        ? '今すぐ始められ、負担が少なく、いつでも止められるスポットトライを選びます。'
                         : '来週の小実験と目標をここで選びます。選んだ内容は月曜日から今日に表示されます。',
                   ),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -1632,7 +2082,7 @@ class _CandidateSectionIntro extends StatelessWidget {
           Text(
             AppLocaleText.tr(
               context,
-              en: 'Goals grounded in this week’s Signals. Small experiment proposals join this page when available.',
+              en: 'Goals grounded in this week’s Signals. Spot Try proposals join this page when available.',
               zhHans: '基于本周 Signal 的目标提案；小实验提案准备好后也会显示在这里。',
               zhHant: '基於本週 Signal 的目標提案；小實驗提案準備好後也會顯示在這裡。',
               ja: '今週の Signal に基づく目標の提案です。小実験の提案も準備でき次第ここに表示されます。',

@@ -12,6 +12,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:ai_opportunity_radar/core/di/app_dependencies.dart';
 import 'package:ai_opportunity_radar/core/local/local_database.dart';
 import 'package:ai_opportunity_radar/core/models/weekly_models.dart';
+import 'package:ai_opportunity_radar/features/pages/experiment/experiment_action_preference_report.dart';
 import 'package:ai_opportunity_radar/features/pages/experiment/experiment_page.dart';
 import 'package:ai_opportunity_radar/features/pages/today/today_experiment_feedback_page.dart';
 import 'package:ai_opportunity_radar/features/pages/weekly/weekly_view_model.dart';
@@ -25,6 +26,57 @@ void main() {
   setUpAll(() async {
     sqfliteFfiInit();
     await loadDesignQaFonts(_fontFamily);
+  });
+
+  testWidgets('captures the compact action preference hero at 390x844',
+      (tester) async {
+    _configureViewport(tester);
+    const report = ExperimentActionPreferenceReport(
+      totalEvaluatedFeedbackCount: 10,
+      distinctItemCount: 3,
+      distinctDayCount: 5,
+      smallExperimentFeedbackCount: 6,
+      goalReviewCount: 4,
+      positiveCount: 5,
+      partialPositiveCount: 3,
+      neutralOrNegativeCount: 2,
+      easyCount: 4,
+      acceptableCount: 4,
+      difficultCount: 2,
+      userCreatedFeedbackCount: 4,
+      suggestedFeedbackCount: 6,
+      themes: [
+        ExperimentActionThemeSummary(
+          theme: ExperimentActionTheme.recoveryAndBuffer,
+          evaluatedFeedbackCount: 6,
+          positiveFeedbackCount: 5,
+          manageableFeedbackCount: 5,
+          distinctItemCount: 2,
+        ),
+      ],
+    );
+    final captureKey = GlobalKey();
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: captureKey,
+        child: const _ReviewApp(
+          child: ExperimentActionPreferenceReportPage(report: report),
+        ),
+      ),
+    );
+    await _precacheHero(tester, captureKey);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('experiment-action-preference-hero')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    await _capture(
+      tester,
+      captureKey,
+      'design_qa/spacing-2026-08-01/action-preference-hero-final.png',
+    );
   });
 
   testWidgets('captures the Life Experiment feedback page at 390x844',
@@ -112,10 +164,31 @@ void main() {
     );
     await _precacheHero(tester, captureKey);
     await tester.pumpAndSettle();
+    final showGoalsSegment =
+        find.byKey(const ValueKey('experiment-track-switch-goals'));
+    final archiveScroll = find.byKey(const ValueKey('experiment-scroll-view'));
+    await tester.dragUntilVisible(
+      showGoalsSegment,
+      archiveScroll,
+      const Offset(0, -240),
+    );
+    await _capture(
+      tester,
+      captureKey,
+      'design_qa/experiment-track-switch-390x844-2026-07-29.png',
+    );
+    await tester.tap(showGoalsSegment);
+    await tester.pumpAndSettle();
     final detailCard = find.byKey(
       const ValueKey('experiment-archive-card-experiment_detail_fixture'),
     );
-    await tester.ensureVisible(detailCard);
+    await tester.dragUntilVisible(
+      detailCard,
+      archiveScroll,
+      const Offset(0, -240),
+    );
+    await tester.drag(archiveScroll, const Offset(0, -100));
+    await tester.pumpAndSettle();
     await tester.tap(detailCard);
     await tester.pumpAndSettle();
     expect(find.text('目标详情'), findsOneWidget);
@@ -123,12 +196,29 @@ void main() {
     expect(find.textContaining('life experiment'), findsNothing);
     expect(find.textContaining('进行中'), findsWidgets);
     expect(find.text('这个目标要观察什么'), findsOneWidget);
-    expect(find.text('长期进度'), findsOneWidget);
-    expect(find.text('概览'), findsNothing);
     expect(
       tester.getSize(find.text('午后十分钟离屏恢复')).height,
       lessThan(30),
     );
+    expect(find.text('长期进度'), findsNothing);
+    await tester.dragUntilVisible(
+      find.byKey(const ValueKey('goal-weekly-summary-card')),
+      find.byType(Scrollable).first,
+      const Offset(0, -240),
+    );
+    expect(find.text('周次总结'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('goal-weekly-summary-card')),
+        matching: find.byKey(
+          const ValueKey(
+            'goal-observation-timeline-experiment_detail_fixture',
+          ),
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('概览'), findsNothing);
     await _capture(
       tester,
       captureKey,
@@ -170,7 +260,9 @@ Future<void> _capture(
         captureKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
     final image = await boundary.toImage(pixelRatio: 2);
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    await File(path).writeAsBytes(bytes!.buffer.asUint8List(), flush: true);
+    final output = File(path);
+    await output.parent.create(recursive: true);
+    await output.writeAsBytes(bytes!.buffer.asUint8List(), flush: true);
     image.dispose();
   });
 }

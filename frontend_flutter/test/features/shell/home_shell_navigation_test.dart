@@ -12,6 +12,7 @@ import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 import 'package:ai_opportunity_radar/core/state/app_data_refresh_coordinator.dart';
 import 'package:ai_opportunity_radar/features/pages/today/today_view_model.dart';
 import 'package:ai_opportunity_radar/features/shell/home_shell_page.dart';
+import 'package:ai_opportunity_radar/features/shell/main_tab_bottom_navigation.dart';
 
 import '../../helpers/widget_test_helpers.dart';
 
@@ -94,11 +95,16 @@ void main() {
     expect(find.text('Today'), findsOneWidget);
     expect(find.text('Weekly'), findsOneWidget);
     expect(find.text('Journey'), findsOneWidget);
-    expect(find.text('Life Experiment'), findsOneWidget);
+    expect(find.text('Experiments'), findsOneWidget);
     expect(find.text('Me'), findsOneWidget);
+    expect(find.byType(MainTabBottomNavigation), findsOneWidget);
+    expect(
+      find.byKey(MainTabBottomNavigation.navigationKey),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
 
-    await tester.tap(find.text('Life Experiment'));
+    await tester.tap(find.text('Experiments'));
     await tester.pumpAndSettle();
 
     expect(find.text('experiment page'), findsOneWidget);
@@ -107,6 +113,67 @@ void main() {
     expect(find.text('Journey'), findsOneWidget);
     expect(find.text('Me'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'pushed Life Experiment page selects its tab while preserving back',
+      (tester) async {
+    final router = GoRouter(
+      initialLocation: AppRoutes.today,
+      routes: [
+        ShellRoute(
+          builder: (_, __, child) => HomeShellPage(child: child),
+          routes: [
+            GoRoute(
+              path: AppRoutes.today,
+              builder: (context, _) => Scaffold(
+                body: Center(
+                  child: FilledButton(
+                    key: const ValueKey('today-open-all-experiments'),
+                    onPressed: () => context.push(AppRoutes.experiment),
+                    child: const Text('View all experiments'),
+                  ),
+                ),
+              ),
+            ),
+            _testRoute(AppRoutes.weekly, 'weekly page'),
+            _testRoute(AppRoutes.experiment, 'experiment page'),
+            _testRoute(AppRoutes.memory, 'journey page'),
+            _testRoute(AppRoutes.signalLibrary, 'library page'),
+            _testRoute(AppRoutes.me, 'me page'),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<MainTabBottomNavigation>(
+            find.byType(MainTabBottomNavigation),
+          )
+          .selectedIndex,
+      0,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('today-open-all-experiments')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('experiment page'), findsOneWidget);
+    expect(router.canPop(), isTrue);
+    expect(find.byType(MainTabBottomNavigation), findsOneWidget);
+    expect(
+      tester
+          .widget<MainTabBottomNavigation>(
+            find.byType(MainTabBottomNavigation),
+          )
+          .selectedIndex,
+      2,
+    );
   });
 
   testWidgets(
@@ -273,8 +340,8 @@ void main() {
     addTearDown(tester.view.reset);
 
     const cases = <(Locale, List<String>)>[
-      (Locale('en'), ['Today', 'Weekly', 'Life Experiment', 'Journey', 'Me']),
-      (Locale('ja'), ['今日', '週間レビュー', '生活実験', 'Journey', 'マイ']),
+      (Locale('en'), ['Today', 'Weekly', 'Experiments', 'Journey', 'Me']),
+      (Locale('ja'), ['今日', '週間レビュー', '生活実験', '旅程', 'マイ']),
       (
         Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
         ['今天', '每周复盘', '生活小实验', '旅程', '我的'],

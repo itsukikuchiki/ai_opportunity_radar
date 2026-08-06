@@ -51,7 +51,11 @@ def test_save_first_keeps_signal_card_when_parser_and_reply_fail():
                 timezone_name="Asia/Tokyo",
             )
 
-            assert "保存" in result.acknowledgement
+            assert result.acknowledgement.strip()
+            assert not any(
+                "a" <= char.lower() <= "z"
+                for char in result.acknowledgement
+            )
             assert db.scalar(select(func.count()).select_from(Capture)) == 1
             assert db.scalar(select(func.count()).select_from(RawMemory)) == 1
             assert db.scalar(select(func.count()).select_from(SignalCard)) == 1

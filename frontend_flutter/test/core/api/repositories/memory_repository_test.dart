@@ -16,6 +16,7 @@ import 'package:ai_opportunity_radar/core/local/local_life_experiment_repository
 import 'package:ai_opportunity_radar/core/local/local_weekly_snapshot_repository.dart';
 import 'package:ai_opportunity_radar/core/models/phase3_plus_models.dart';
 import 'package:ai_opportunity_radar/core/models/memory_models.dart';
+import 'package:ai_opportunity_radar/core/preferences/focus_domains.dart';
 import 'package:ai_opportunity_radar/core/readiness/report_readiness.dart';
 
 const _testReadyJourneyRule = ReportReadinessRule(
@@ -91,6 +92,100 @@ void main() {
         isNull,
       );
 
+      await harness.close();
+    });
+
+    test('2a) 底层 Signal 修正会改变月度主题与能量序列', () async {
+      final now = DateTime.now();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: FakeJourneyAiRepository(),
+        installationDate: now.subtract(const Duration(days: 1)),
+        journeyReadinessRule: _testReadyJourneyRule,
+      );
+      await harness.seedSignalCard(
+        id: 'mutable_journey_chart_source',
+        content: '月度图表的真实底层记录',
+        createdAt: now,
+        userConfirmation: 'accurate',
+        rawPayloadJson: const {
+          'focus_domain_id': 'emotional_stability',
+          'energy_state': 'draining',
+        },
+      );
+
+      final before = await harness.repository.fetchMemorySummaryResult();
+      final beforeThemeSeries = before.summary!.journeyTraces
+          .map((trace) => '${trace.localDate}:${trace.cluster}')
+          .toList(growable: false);
+      final beforeEnergySeries = before.summary!.periodFacts!.days
+          .map((day) => Map<String, int>.from(day.energyStateCounts))
+          .toList(growable: false);
+
+      final db = await harness.localDatabase.database;
+      await db.update(
+        'signal_cards',
+        {
+          'raw_payload_json': jsonEncode({
+            'focus_domain_id': 'relationship_connection',
+            'energy_state': 'recovery',
+          }),
+          'updated_at':
+              now.add(const Duration(minutes: 1)).toUtc().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: const ['mutable_journey_chart_source'],
+      );
+
+      final after = await harness.repository.fetchMemorySummaryResult();
+      final afterThemeSeries = after.summary!.journeyTraces
+          .map((trace) => '${trace.localDate}:${trace.cluster}')
+          .toList(growable: false);
+      final afterEnergySeries = after.summary!.periodFacts!.days
+          .map((day) => Map<String, int>.from(day.energyStateCounts))
+          .toList(growable: false);
+
+      expect(beforeThemeSeries.single, contains('emotional_stability'));
+      expect(afterThemeSeries.single, contains('relationship_connection'));
+      expect(afterThemeSeries, isNot(beforeThemeSeries));
+      expect(beforeEnergySeries.single['draining'], 1);
+      expect(afterEnergySeries.single['draining'], 0);
+      expect(afterEnergySeries.single['recovery'], 1);
+      expect(afterEnergySeries, isNot(beforeEnergySeries));
+      expect(
+        after.summary!.journeyThemes.map((theme) => theme.id),
+        contains('relationship_connection'),
+      );
+      await harness.close();
+    });
+
+    test(
+        '2b) English Journey Pro rejects Chinese generated prose even when source metadata contains Chinese',
+        () async {
+      final now = DateTime.now();
+      final harness = await _createHarness(
+        dbPath: dbPath,
+        aiRepository: EnglishLeakingJourneyAiRepository(),
+        installationDate: now.subtract(const Duration(days: 1)),
+        journeyReadinessRule: _testReadyJourneyRule,
+      );
+      await harness.seedSignalCard(
+        id: 'english_journey_language_guard',
+        content: 'A short walk made the afternoon easier.',
+        createdAt: now,
+        userConfirmation: 'accurate',
+      );
+
+      final result = await harness.repository.fetchMemorySummaryResult();
+      final generatedCopy = [
+        ...result.summary!.patterns,
+        ...result.summary!.frictions,
+        ...result.summary!.desires,
+        ...result.summary!.experiments,
+      ].expand((item) => [item.name, item.summary]).join(' ');
+
+      expect(generatedCopy, contains('Recurring theme'));
+      expect(generatedCopy, isNot(matches(RegExp(r'[\u3400-\u9fff]'))));
       await harness.close();
     });
 
@@ -472,6 +567,9 @@ void main() {
         content: '这个月有一条真实信号',
         createdAt: now,
         localDate: todayKey,
+        rawPayloadJson: const {
+          'focus_domain_id': 'relationship_connection',
+        },
       );
       await harness.seedWeeklySnapshot(
         weekStart: weekStartKey,
@@ -499,6 +597,7 @@ void main() {
         suggestedAction: '午后留 10 分钟',
         linkedSignalCardIds: const ['journey_input_signal'],
         status: 'saved',
+        focusAreaId: 'self_boundary',
       );
       await harness.lifeExperimentRepository.recordFeedback(
         experimentId: experiment.id,
@@ -545,8 +644,40 @@ void main() {
       expect(sourceTypes, contains('goal_feedback'));
       expect(sourceTypes, isNot(contains('weekly_review')));
       expect(sourceTypes, isNot(contains('life_experiment_rollup')));
+      final canonicalDomainIds =
+          FocusDomains.options.map((option) => option.id).toSet();
+      final traces = result.summary!.journeyTraces;
       expect(
-        result.summary!.journeyTraces
+        traces.map((trace) => trace.cluster),
+        everyElement(isIn(canonicalDomainIds)),
+      );
+      expect(
+        traces
+            .firstWhere((trace) => trace.id == 'journey_input_signal')
+            .cluster,
+        'relationship_connection',
+      );
+      expect(
+        traces
+            .firstWhere(
+              (trace) => trace.sourceType == 'life_experiment_feedback',
+            )
+            .cluster,
+        'self_boundary',
+      );
+      expect(
+        result.summary!.journeyThemes.map((theme) => theme.id),
+        everyElement(isIn(canonicalDomainIds)),
+      );
+      expect(
+        result.summary!.journeyThemes.map((theme) => theme.count).fold<int>(
+              0,
+              (sum, count) => sum + count,
+            ),
+        traces.length,
+      );
+      expect(
+        traces
             .firstWhere((trace) => trace.sourceType == 'goal_feedback')
             .metadata['is_effective'],
         true,
@@ -700,40 +831,42 @@ void main() {
     test(
         '9) Journey inclusion 排除 legacy / inaccurate / sync failed / privacy excluded，保留 unconfirmed 小观察',
         () async {
+      final now = DateTime.now();
+      final currentMonthAnchor = DateTime(now.year, now.month, now.day, 12);
       final recordingAi = RecordingJourneyAiRepository();
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: recordingAi,
-        installationDate: DateTime.now().subtract(const Duration(days: 5)),
+        installationDate: now.subtract(const Duration(days: 5)),
       );
 
       await harness.seedSignalCard(
         id: 'legacy_card',
         content: '旧记录作为低置信背景',
-        createdAt: DateTime.now().subtract(const Duration(days: 4)),
+        createdAt: currentMonthAnchor.subtract(const Duration(minutes: 4)),
         isLegacy: true,
       );
       await harness.seedSignalCard(
         id: 'unconfirmed_card',
         content: '还没确认，但可以小观察',
-        createdAt: DateTime.now().subtract(const Duration(days: 3)),
+        createdAt: currentMonthAnchor.subtract(const Duration(minutes: 3)),
       );
       await harness.seedSignalCard(
         id: 'inaccurate_card',
         content: '用户说不准',
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
+        createdAt: currentMonthAnchor.subtract(const Duration(minutes: 2)),
         userConfirmation: 'inaccurate',
       );
       await harness.seedSignalCard(
         id: 'failed_card',
         content: '同步失败先不分析',
-        createdAt: DateTime.now().subtract(const Duration(days: 1)),
+        createdAt: currentMonthAnchor.subtract(const Duration(minutes: 1)),
         syncFailed: true,
       );
       await harness.seedSignalCard(
         id: 'private_excluded_card',
         content: '隐私排除不分析',
-        createdAt: DateTime.now(),
+        createdAt: currentMonthAnchor,
         privacyLevel: 'excluded',
       );
 
@@ -770,16 +903,18 @@ void main() {
     test(
         '10) Journey 读取 Life Experiment feedback，skipped/not_helpful 也保留为 Review & Adjust 证据',
         () async {
+      final now = DateTime.now();
+      final currentMonthAnchor = DateTime(now.year, now.month, now.day, 12);
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeJourneyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 8)),
+        installationDate: now.subtract(const Duration(days: 8)),
       );
 
       await harness.seedSignalCard(
         id: 'supporting_card',
         content: '晚上切换太多，想减少一点',
-        createdAt: DateTime.now().subtract(const Duration(days: 3)),
+        createdAt: currentMonthAnchor,
       );
       await harness.seedExperiment(
         id: 'exp_not_helpful',
@@ -795,22 +930,24 @@ void main() {
       expect(result.summary!.experiments.first.name, '最近一次实验调整');
       expect(result.summary!.experiments.first.summary, contains('帮助不明显'));
       expect(result.summary!.experiments.first.summary, contains('晚上还是太满'));
-      expect(result.summary!.experiments.first.summary, contains('生活设计'));
+      expect(result.summary!.experiments.first.summary, contains('设计'));
 
       await harness.close();
     });
 
     test('11) skipped / adjusted 都用 Review & Adjust 文案，不写成失败', () async {
+      final now = DateTime.now();
+      final currentMonthAnchor = DateTime(now.year, now.month, now.day, 12);
       final harness = await _createHarness(
         dbPath: dbPath,
         aiRepository: FakeJourneyAiRepository(),
-        installationDate: DateTime.now().subtract(const Duration(days: 8)),
+        installationDate: now.subtract(const Duration(days: 8)),
       );
 
       await harness.seedSignalCard(
         id: 'experiment_context',
         content: '最近晚上容易被新任务拉走',
-        createdAt: DateTime.now().subtract(const Duration(days: 3)),
+        createdAt: currentMonthAnchor.subtract(const Duration(minutes: 1)),
       );
       await harness.seedExperiment(
         id: 'exp_skipped',
@@ -826,7 +963,7 @@ void main() {
       await harness.seedSignalCard(
         id: 'experiment_context_2',
         content: '后来把实验调小了一点',
-        createdAt: DateTime.now(),
+        createdAt: currentMonthAnchor,
       );
       await harness.seedExperiment(
         id: 'exp_adjusted',
@@ -1869,6 +2006,7 @@ class FakeJourneyAiRepository extends AiRepository {
             baseUrl: 'https://example.invalid',
             userId: 'test-user',
           ),
+          languageLoader: () => 'zh-Hans',
         );
 
   @override
@@ -1908,6 +2046,38 @@ class FakeJourneyAiRepository extends AiRepository {
           signalLevel: 'weak_signal',
         ),
       ],
+    );
+  }
+}
+
+class EnglishLeakingJourneyAiRepository extends AiRepository {
+  EnglishLeakingJourneyAiRepository()
+      : super(
+          ApiClient(
+            baseUrl: 'https://example.invalid',
+            userId: 'test-user',
+          ),
+          languageLoader: () => 'en',
+        );
+
+  @override
+  Future<MemorySummaryModel> generateJourneySummary({
+    required String snapshotDate,
+    required List<Map<String, dynamic>> entries,
+    required List<String> topTokens,
+    required int totalDays,
+    String? focusArea,
+  }) async {
+    const leaked = JourneySignalItemModel(
+      name: '中文专业版标题',
+      summary: '这段专业版内容没有遵循英文显示语言。',
+      signalLevel: 'repeated_pattern',
+    );
+    return MemorySummaryModel(
+      patterns: [leaked],
+      frictions: [leaked],
+      desires: [leaked],
+      experiments: [leaked],
     );
   }
 }
@@ -2101,6 +2271,7 @@ class PressureJourneyAiRepository extends AiRepository {
             baseUrl: 'https://example.invalid',
             userId: 'test-user',
           ),
+          languageLoader: () => 'zh-Hans',
         );
 
   @override

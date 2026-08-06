@@ -25,6 +25,7 @@ class FollowupQuestionSchema(BaseModel):
 class CaptureReplyRequest(BaseModel):
     content: str
     recent_assistant_texts: list[str] = Field(default_factory=list)
+    language: Optional[str] = None
     focus_area: Optional[str] = None
     response_style: Optional[ResponseStyleLiteral] = None
 
@@ -57,6 +58,7 @@ class TodaySummaryRequest(BaseModel):
     date: date | str
     entry_count: int = 0
     entries: list[AiTimelineEntry] = Field(default_factory=list)
+    language: Optional[str] = None
     focus_area: Optional[str] = None
     response_style: Optional[ResponseStyleLiteral] = None
 
@@ -89,6 +91,7 @@ class WeeklyGenerateRequest(BaseModel):
     entries: list[AiTimelineEntry] = Field(default_factory=list)
     day_counts: dict[str, int] = Field(default_factory=dict)
     top_tokens: list[str] = Field(default_factory=list)
+    language: Optional[str] = None
     focus_area: Optional[str] = None
     illustration_taxonomy: dict[str, Any] = Field(default_factory=dict)
 
@@ -111,6 +114,7 @@ class JourneyGenerateRequest(BaseModel):
     entries: list[AiTimelineEntry] = Field(default_factory=list)
     top_tokens: list[str] = Field(default_factory=list)
     total_days: int = 0
+    language: Optional[str] = None
     focus_area: Optional[str] = None
 
 
@@ -133,6 +137,7 @@ class MonthlyGenerateRequest(BaseModel):
     entries: list[AiTimelineEntry] = Field(default_factory=list)
     top_tokens: list[str] = Field(default_factory=list)
     total_days: int = 0
+    language: Optional[str] = None
     focus_area: Optional[str] = None
 
 
@@ -152,6 +157,7 @@ class FollowupGenerateRequest(BaseModel):
     patterns: list[dict[str, Any]] = Field(default_factory=list)
     frictions: list[dict[str, Any]] = Field(default_factory=list)
     opportunities: list[dict[str, Any]] = Field(default_factory=list)
+    language: Optional[str] = None
 
 
 class FollowupGenerateResponse(BaseModel):
@@ -185,6 +191,7 @@ class LightDialogResponse(BaseModel):
 class DeepWeeklyRequest(BaseModel):
     week_start: str
     week_end: str
+    language: Optional[str] = None
     key_insight: Optional[str] = None
     patterns: list[dict[str, Any]] = Field(default_factory=list)
     frictions: list[dict[str, Any]] = Field(default_factory=list)

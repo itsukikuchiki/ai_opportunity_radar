@@ -10,6 +10,9 @@ from app.schemas.ai_schema import (
     JourneyGenerateRequest,
     JourneyGenerateResponse,
     LightDialogResponse,
+    MonthlyBridgeWeekSchema,
+    MonthlyGenerateRequest,
+    MonthlyGenerateResponse,
     OpportunitySnapshotSchema,
     TodaySummaryRequest,
     TodaySummaryResponse,
@@ -24,6 +27,21 @@ class AiGenerationService:
     def __init__(self) -> None:
         self.classification_service = ClassificationService()
 
+    def _request_language(
+        self,
+        requested_language: str | None,
+        entries: list[Any] | None = None,
+    ) -> str:
+        content = " ".join(
+            str(getattr(entry, "content", "") or "").strip()
+            for entry in (entries or [])
+            if str(getattr(entry, "content", "") or "").strip()
+        )
+        return self.classification_service.normalize_language(
+            requested_language,
+            content=content,
+        )
+
     def generate_capture_reply(self, payload: dict[str, Any]) -> CaptureReplyResponse:
         content = (payload.get("content") or "").strip()
         recent_assistant_texts = payload.get("recent_assistant_texts") or []
@@ -31,11 +49,16 @@ class AiGenerationService:
         if not content:
             raise ValueError("content is required")
 
+        language = self.classification_service.normalize_language(
+            payload.get("language"),
+            content=content,
+        )
         if self._is_immediate_safety_risk(content):
+            safety_copy = self._capture_safety_copy(language)
             return CaptureReplyResponse(
-                acknowledgement=self._immediate_safety_reply(),
-                observation="先确认你现在是否处于立即危险中。",
-                try_next="请先联系当地紧急服务，或一个能马上到你身边的可信任的人。",
+                acknowledgement=self._immediate_safety_reply(language),
+                observation=safety_copy["observation"],
+                try_next=safety_copy["try_next"],
                 emotion="negative",
                 intensity="high",
                 scene_tags=[],
@@ -53,6 +76,7 @@ class AiGenerationService:
             intent_tags=analysis["intent_tags"],
             recent_assistant_texts=recent_assistant_texts,
             response_style=response_style,
+            language=language,
         )
 
         return CaptureReplyResponse(
@@ -73,24 +97,84 @@ class AiGenerationService:
         entries = request.entries
         count = request.entry_count or len(entries)
         response_style = request.response_style or 'gentle'
+        language = self._request_language(request.language, entries)
 
         if count <= 0 or not entries:
+            empty_copy = {
+                "zh-Hans": (
+                    "今天还没有记录，先留下一件真实发生的小事就好。",
+                    "今天先记下一件让你停顿了一下的小事就好。",
+                ),
+                "zh-Hant": (
+                    "今天還沒有記錄，先留下一件真實發生的小事就好。",
+                    "今天先記下一件讓你停頓了一下的小事就好。",
+                ),
+                "ja": (
+                    "今日はまだ記録がありません。実際にあった小さな出来事を一つだけ残してみましょう。",
+                    "今日、少し立ち止まった出来事を一つだけ記録してみましょう。",
+                ),
+                "en": (
+                    "There are no entries today yet. Start with one small thing that actually happened.",
+                    "For today, note one moment that made you pause.",
+                ),
+            }[language]
             return TodaySummaryResponse(
-                observation="今天还没有记录，先留下一件真实发生的小事就好。",
-                suggestion="今天先记下一件让你停顿了一下的小事就好。",
+                observation=empty_copy[0],
+                suggestion=empty_copy[1],
             )
 
         contents = [e.content.strip() for e in entries if e.content and e.content.strip()]
         if not contents:
+            empty_content_copy = {
+                "zh-Hans": (
+                    "今天先把一件真实发生的小事留在这里就好。",
+                    "不用急着整理，先记住今天最让你停顿的一下。",
+                ),
+                "zh-Hant": (
+                    "今天先把一件真實發生的小事留在這裡就好。",
+                    "不用急著整理，先記住今天最讓你停頓的一下。",
+                ),
+                "ja": (
+                    "今日は、実際にあった小さな出来事を一つ残すだけで十分です。",
+                    "今は整理せず、今日いちばん立ち止まった瞬間だけ覚えておきましょう。",
+                ),
+                "en": (
+                    "For today, it is enough to leave one small thing that actually happened.",
+                    "There is no need to organize it yet; remember the moment that made you pause most.",
+                ),
+            }[language]
             return TodaySummaryResponse(
-                observation="今天先把一件真实发生的小事留在这里就好。",
-                suggestion="不用急着整理，先记住今天最让你停顿的一下。",
+                observation=empty_content_copy[0],
+                suggestion=empty_content_copy[1],
             )
 
         analyses = [self._analyze_capture(content) for content in contents]
         dominant_emotion = self._dominant_emotion(analyses)
         scene_focus = self._top_scene_tag(analyses)
         top_theme = self._top_theme(contents)
+
+        if language != "zh-Hans":
+            observation, suggestion = self._localized_today_summary(
+                language=language,
+                count=count,
+                dominant_emotion=dominant_emotion,
+                scene_focus=scene_focus,
+                top_theme=top_theme,
+            )
+            return TodaySummaryResponse(
+                observation=self._style_text(
+                    observation,
+                    response_style,
+                    kind='observation',
+                    language=language,
+                ).strip(),
+                suggestion=self._style_text(
+                    suggestion,
+                    response_style,
+                    kind='suggestion',
+                    language=language,
+                ).strip(),
+            )
 
         if count == 1:
             if dominant_emotion == "positive":
@@ -120,14 +204,157 @@ class AiGenerationService:
                 suggestion = "先不用整理完整，只要继续把重复出现的那类瞬间记下来。"
 
         return TodaySummaryResponse(
-            observation=self._style_text(observation, response_style, kind='observation').strip(),
-            suggestion=self._style_text(suggestion, response_style, kind='suggestion').strip(),
+            observation=self._style_text(
+                observation,
+                response_style,
+                kind='observation',
+                language=language,
+            ).strip(),
+            suggestion=self._style_text(
+                suggestion,
+                response_style,
+                kind='suggestion',
+                language=language,
+            ).strip(),
         )
+
+    def _localized_today_summary(
+        self,
+        *,
+        language: str,
+        count: int,
+        dominant_emotion: str,
+        scene_focus: str | None,
+        top_theme: str,
+    ) -> tuple[str, str]:
+        focus = scene_focus or top_theme
+        if language == "zh-Hant":
+            if count == 1:
+                copy = {
+                    "positive": (
+                        f"今天記錄了 1 條，你留下一個真正讓自己感覺變好的片段，Signal 落在「{top_theme}」。",
+                        "先記住那個讓你感覺不錯的具體部分，之後會很有參考價值。",
+                    ),
+                    "mixed": (
+                        f"今天記錄了 1 條，感受不是單純的好或不好，而是在「{top_theme}」附近來回拉扯。",
+                        "先不用總結整天，只記住是什麼讓你後來稍微緩了回來。",
+                    ),
+                    "negative": (
+                        f"今天記錄了 1 條，比情緒更明顯的是「{focus}」這個場景正在消耗你。",
+                        "下次它再出現時，只補一句發生在什麼場景就好。",
+                    ),
+                    "neutral": (
+                        f"今天記錄了 1 條，你已經留下一個值得注意的 Signal，最明顯的是「{top_theme}」。",
+                        "先留意它之後會不會再出現，不用急著解釋。",
+                    ),
+                }
+            else:
+                copy = {
+                    "positive": (
+                        f"今天記錄了 {count} 條，幾條 Signal 都較偏向恢復，最明顯的主題是「{top_theme}」。",
+                        "今天先記住哪一類小事最容易把你帶回較好的狀態。",
+                    ),
+                    "mixed": (
+                        f"今天記錄了 {count} 條，幾條 Signal 並非同向變化，而是在「{top_theme}」附近來回拉扯。",
+                        "今天先留意哪些場景會拉低你，哪些小事又會把你拉回來。",
+                    ),
+                    "negative": (
+                        f"今天記錄了 {count} 條，幾條 Signal 開始集中到「{focus}」這個消耗點。",
+                        f"下次再出現「{focus}」時，用一句話補記它發生在什麼場景。",
+                    ),
+                    "neutral": (
+                        f"今天記錄了 {count} 條，幾條 Signal 已經開始往「{top_theme}」聚集。",
+                        "先不用完整整理，只要繼續記下反覆出現的那類瞬間。",
+                    ),
+                }
+            return copy.get(dominant_emotion, copy["neutral"])
+
+        if language == "ja":
+            if count == 1:
+                copy = {
+                    "positive": (
+                        f"今日は 1 件記録しました。「{top_theme}」に、自分の調子がよくなった具体的な瞬間があります。",
+                        "よい感覚につながった具体的な点だけ覚えておくと、あとで役立ちます。",
+                    ),
+                    "mixed": (
+                        f"今日は 1 件記録しました。単純によい、悪いではなく、「{top_theme}」の周辺で気持ちが揺れています。",
+                        "一日をまとめず、少し持ち直せたきっかけだけ覚えておきましょう。",
+                    ),
+                    "negative": (
+                        f"今日は 1 件記録しました。感情そのものより、「{focus}」という場面が負担になっていることが見えます。",
+                        "次に同じことが起きたら、どんな場面だったかを一言だけ足してみましょう。",
+                    ),
+                    "neutral": (
+                        f"今日は 1 件記録しました。「{top_theme}」に、あとで見返したい Signal が残っています。",
+                        "今は説明せず、また現れるかだけ見てみましょう。",
+                    ),
+                }
+            else:
+                copy = {
+                    "positive": (
+                        f"今日は {count} 件記録しました。複数の Signal が回復につながる方向を示し、中心は「{top_theme}」です。",
+                        "どのような小さな出来事がよい状態へ戻してくれたか、覚えておきましょう。",
+                    ),
+                    "mixed": (
+                        f"今日は {count} 件記録しました。複数の Signal は同じ方向ではなく、「{top_theme}」の周辺で揺れています。",
+                        "負担になる場面と、少し持ち直せる出来事の両方を見てみましょう。",
+                    ),
+                    "negative": (
+                        f"今日は {count} 件記録しました。複数の Signal が「{focus}」という負担に集まり始めています。",
+                        f"次に「{focus}」が起きたら、どんな場面だったかを一言だけ残してみましょう。",
+                    ),
+                    "neutral": (
+                        f"今日は {count} 件記録しました。複数の Signal が「{top_theme}」に集まり始めています。",
+                        "今はまとめず、同じ種類の瞬間を引き続き残してみましょう。",
+                    ),
+                }
+            return copy.get(dominant_emotion, copy["neutral"])
+
+        if count == 1:
+            copy = {
+                "positive": (
+                    f"You recorded 1 entry today. A genuinely restorative moment appears around “{top_theme}.”",
+                    "Remember the specific detail that felt good; it may be useful later.",
+                ),
+                "mixed": (
+                    f"You recorded 1 entry today. It is not simply good or bad; the tension sits around “{top_theme}.”",
+                    "Do not summarize the whole day yet. Remember what helped you recover a little.",
+                ),
+                "negative": (
+                    f"You recorded 1 entry today. More than the emotion itself, the “{focus}” situation seems to be draining you.",
+                    "If it happens again, add one sentence about the situation.",
+                ),
+                "neutral": (
+                    f"You recorded 1 entry today. A Signal worth watching appears around “{top_theme}.”",
+                    "See whether it returns before trying to explain it.",
+                ),
+            }
+        else:
+            copy = {
+                "positive": (
+                    f"You recorded {count} entries today. Several Signals point toward recovery, especially around “{top_theme}.”",
+                    "Notice which small experiences most reliably bring you back toward a better state.",
+                ),
+                "mixed": (
+                    f"You recorded {count} entries today. The Signals move in different directions around “{top_theme}.”",
+                    "Notice which situations drain you and which small moments help you recover.",
+                ),
+                "negative": (
+                    f"You recorded {count} entries today. Several Signals are gathering around the drain of “{focus}.”",
+                    f"When “{focus}” appears again, add one sentence about the situation.",
+                ),
+                "neutral": (
+                    f"You recorded {count} entries today. Several Signals are beginning to gather around “{top_theme}.”",
+                    "There is no need for a full summary yet; keep noting similar moments.",
+                ),
+            }
+        return copy.get(dominant_emotion, copy["neutral"])
 
     def generate_weekly_summary(
         self,
         request: WeeklyGenerateRequest,
     ) -> WeeklyGenerateResponse:
+        language = self._request_language(request.language, request.entries)
         if request.entry_count <= 0 or not request.entries:
             return WeeklyGenerateResponse(
                 week_start=request.week_start,
@@ -142,8 +369,20 @@ class AiGenerationService:
             )
 
         contents = [entry.content.strip() for entry in request.entries if entry.content and entry.content.strip()]
-        top_token = self._evidence_topic(contents=contents, top_tokens=request.top_tokens)
+        top_token = self._evidence_topic(
+            contents=contents,
+            top_tokens=request.top_tokens,
+            language=language,
+        )
         peak_day = self._peak_day(request.day_counts)
+        if language != "zh-Hans":
+            return self._localized_weekly_summary(
+                request=request,
+                language=language,
+                contents=contents,
+                top_token=top_token,
+                peak_day=peak_day,
+            )
         behavior_hint = self._weekly_illustration_hint(
             " ".join([top_token, *contents]),
             fallback="只是观察也有帮助",
@@ -198,7 +437,109 @@ class AiGenerationService:
             feedback_submitted=False,
         )
 
-    def _weekly_illustration_hint(self, text: str, *, fallback: str) -> str:
+    def _localized_weekly_summary(
+        self,
+        *,
+        request: WeeklyGenerateRequest,
+        language: str,
+        contents: list[str],
+        top_token: str,
+        peak_day: str,
+    ) -> WeeklyGenerateResponse:
+        text = " ".join([top_token, *contents])
+        if language == "zh-Hant":
+            early = "基於目前少量 Signal，先把它當成暫時觀察。"
+            ready = "這週已經有足夠 Signal，可以先看它反覆出現的方式。"
+            confidence = early if request.entry_count < 4 else ready
+            pattern_name = f"本週小觀察：{top_token}"
+            pattern_summary = f"{confidence} 記錄裡最先浮出來的是「{top_token}」，先看它在哪些場景回來。"
+            friction_name = "本週可能的消耗點"
+            friction_summary = f"目前先看「{top_token}」帶來的負擔；其中 {peak_day} 的 Signal 較集中，但還不需要當成結論。"
+            action = f"這週先試一步：下次再出現「{top_token}」時，用一句話補記它發生在什麼場景。"
+            snapshot_name = "把反覆出現的 Signal 固定下來"
+            snapshot_summary = f"如果「{top_token}」之後還會回來，適合先結構化記錄，再決定是否調整。"
+            insight = f"{confidence} 這週先看「{top_token}」，{peak_day} 的 Signal 較密集。"
+            behavior_fallback = "只是觀察也有幫助"
+            friction_fallback = "事情堆積，開始變得困難"
+        elif language == "ja":
+            early = "今は Signal がまだ少ないため、まずは暫定的な観察として見ます。"
+            ready = "今週は十分な Signal があり、繰り返し方を見始められます。"
+            confidence = early if request.entry_count < 4 else ready
+            pattern_name = f"今週の小さな観察：{top_token}"
+            pattern_summary = f"{confidence} 最初に見えてきたのは「{top_token}」です。どの場面で戻ってくるかを見ます。"
+            friction_name = "今週の負担になりそうな点"
+            friction_summary = f"今は「{top_token}」による負担を見ます。{peak_day} に Signal が多いものの、まだ結論にはしません。"
+            action = f"今週は、「{top_token}」が再び現れたときに、どんな場面だったかを一文だけ残してみましょう。"
+            snapshot_name = "繰り返す Signal を記録する"
+            snapshot_summary = f"「{top_token}」がまた現れるなら、まず整理して記録し、その後で調整が必要かを考えます。"
+            insight = f"{confidence} 今週は「{top_token}」を見ます。{peak_day} に Signal が多くなっています。"
+            behavior_fallback = "観察するだけでも役に立つ"
+            friction_fallback = "予定が重なり、始めにくくなる"
+        else:
+            early = "There are only a few Signals so far, so treat this as a tentative observation."
+            ready = "There are enough Signals this week to begin looking at how the pattern repeats."
+            confidence = early if request.entry_count < 4 else ready
+            pattern_name = f"This week’s observation: {top_token}"
+            pattern_summary = f"{confidence} “{top_token}” appears first; watch which situations bring it back."
+            friction_name = "A possible drain this week"
+            friction_summary = f"For now, watch the load around “{top_token}.” Signals are denser on {peak_day}, but this is not a conclusion."
+            action = f"This week, when “{top_token}” appears again, add one sentence about the situation."
+            snapshot_name = "Make the repeating Signal visible"
+            snapshot_summary = f"If “{top_token}” returns, record it in a structured way before deciding whether to adjust anything."
+            insight = f"{confidence} Watch “{top_token}” first; Signals are denser on {peak_day}."
+            behavior_fallback = "Observation alone can help"
+            friction_fallback = "Tasks pile up and starting becomes harder"
+
+        patterns = [
+            WeeklyInsightItem(
+                name=pattern_name,
+                summary=pattern_summary,
+                illustration_hint=self._weekly_illustration_hint(
+                    text,
+                    fallback=behavior_fallback,
+                    language=language,
+                ),
+                trigger=self._weekly_pattern_trigger(
+                    day_counts=request.day_counts,
+                    top_token=top_token,
+                    language=language,
+                ),
+            )
+        ]
+        frictions = [
+            WeeklyInsightItem(
+                name=friction_name,
+                summary=friction_summary,
+                illustration_hint=self._weekly_illustration_hint(
+                    " ".join([top_token, peak_day, *contents]),
+                    fallback=friction_fallback,
+                    language=language,
+                ),
+            )
+        ]
+        return WeeklyGenerateResponse(
+            week_start=request.week_start,
+            week_end=request.week_end,
+            status="ready",
+            key_insight=insight,
+            patterns=patterns,
+            frictions=frictions,
+            best_action=action,
+            opportunity_snapshot=OpportunitySnapshotSchema(
+                name=snapshot_name,
+                summary=snapshot_summary,
+                illustration_hint=behavior_fallback,
+            ),
+            feedback_submitted=False,
+        )
+
+    def _weekly_illustration_hint(
+        self,
+        text: str,
+        *,
+        fallback: str,
+        language: str = "zh-Hans",
+    ) -> str:
         source = text.lower()
         rules = [
             (["任务", "堆", "太多", "todo"], "任务堆积，开始变困难"),
@@ -228,7 +569,29 @@ class AiGenerationService:
         ]
         for tokens, hint in rules:
             if any(token in source for token in tokens):
-                return hint
+                if language == "zh-Hans":
+                    return hint
+                localized = {
+                    "zh-Hant": {
+                        "任務堆積，開始變困難": "任務堆積，開始變得困難",
+                        "會議密集，注意力被切碎": "會議密集，注意力被切碎",
+                        "臨時變化打斷原本節奏": "臨時變化打斷原本節奏",
+                        "休息時間被任務擠掉": "休息時間被任務擠掉",
+                    },
+                    "ja": {
+                        "任务堆积，开始变困难": "予定が重なり、始めにくくなる",
+                        "会议密集，注意力被切碎": "会議が続き、集中が細切れになる",
+                        "临时变化打断原本节奏": "急な変更で流れが中断される",
+                        "休息时间被任务挤掉": "予定に押されて休む時間が減る",
+                    },
+                    "en": {
+                        "任务堆积，开始变困难": "Tasks pile up and starting becomes harder",
+                        "会议密集，注意力被切碎": "Dense meetings fragment attention",
+                        "临时变化打断原本节奏": "Unexpected changes interrupt the original rhythm",
+                        "休息时间被任务挤掉": "Tasks crowd out time to rest",
+                    },
+                }
+                return localized.get(language, {}).get(hint, fallback)
         return fallback
 
     def generate_light_dialog(self, request) -> LightDialogResponse:
@@ -275,14 +638,31 @@ class AiGenerationService:
         source_analysis = self._analyze_capture(capture_content)
         source_emotion = source_analysis["emotion"]
         source_axis = self.classification_service._detect_axis(capture_content)
-        source_acknowledgement = self._dialog_source_acknowledgement(
-            capture_content=capture_content,
+        turn_analysis = self._analyze_capture(user_message)
+        turn_emotion = turn_analysis["emotion"]
+        turn_axis = self.classification_service._detect_axis(user_message)
+        turn_acknowledgement = self._dialog_source_acknowledgement(
+            capture_content=user_message,
             language=language,
-            axis=source_axis,
-            emotion=source_emotion,
+            axis=turn_axis,
+            emotion=turn_emotion,
             recent_assistant_texts=recent_assistant_texts,
         )
         intent = self._dialog_turn_intent(user_message)
+        if intent == "repair":
+            answer = self._dialog_repair_reply(
+                language=language,
+                source_axis=source_axis,
+            )
+            response_style = "gentle"
+            return LightDialogResponse(
+                reply=self._style_dialog_reply(
+                    answer,
+                    response_style,
+                    language,
+                ),
+                suggested_prompts=[],
+            )
         light_followup = self._dialog_light_followup(
             language=language,
             intent=intent,
@@ -290,7 +670,9 @@ class AiGenerationService:
             emotion=source_emotion,
         )
         response_style = request.response_style or 'gentle'
-        answer = f"{source_acknowledgement} {light_followup}".strip()
+        if turn_emotion == "negative":
+            response_style = "gentle"
+        answer = f"{turn_acknowledgement} {light_followup}".strip()
         return LightDialogResponse(
             reply=self._style_dialog_reply(answer, response_style, language),
             suggested_prompts=[],
@@ -338,6 +720,7 @@ class AiGenerationService:
         acknowledgement = self.classification_service.generate_acknowledgement(
             content=capture_content,
             recent_assistant_texts=recent_assistant_texts,
+            language=language,
         ).strip()
         if language == "zh-Hant":
             return self._to_traditional_chinese(acknowledgement)
@@ -355,6 +738,8 @@ class AiGenerationService:
             "repetition": "repetition",
             "confirmation": "confirmation",
             "overload": "overload",
+            "no_break": "no_break",
+            "fatigue": "fatigue",
             "confusion": "confusion",
             "pleasant_moment": "positive",
         }
@@ -365,54 +750,71 @@ class AiGenerationService:
                 "interruption": "你写下了节奏一直被打断和切换。",
                 "repetition": "你写下了又要重来一遍。",
                 "confirmation": "你写下了反复确认和对齐。",
-                "overload": "你写下了事情太多、太杂。",
-                "confusion": "你写下了现在还不知道怎么办。",
-                "positive": "你写下了这个开心或轻松的片刻。",
-                "negative": "我听见你说这一刻很难受。",
+                "overload": "一下子有这么多事压过来，确实很容易让人喘不过气。",
+                "no_break": "一整段时间都没能停下来，听起来连喘口气的余地都没有。",
+                "fatigue": "听起来你现在真的很累，这份疲惫值得被好好看见。",
+                "confusion": "现在不知道从哪里开始，这种卡住的感觉确实不好受。",
+                "positive": "听得出来，今天这份开心很真切，也值得好好留住。",
+                "negative": "听起来这一刻真的不好受，这份感受值得被认真对待。",
                 "mixed": "你写下了几种交在一起的感受。",
-                "general": "你写下的这件事已经留在这里了。",
+                "general": "我听见你刚才说的这件事了，先不替你的感受下结论。",
             },
             "zh-Hant": {
                 "unfairness": "你寫下了本不該由你承擔的事情落到了你這裡。",
                 "interruption": "你寫下了節奏一直被打斷和切換。",
                 "repetition": "你寫下了又要重來一遍。",
                 "confirmation": "你寫下了反覆確認和對齊。",
-                "overload": "你寫下了事情太多、太雜。",
-                "confusion": "你寫下了現在還不知道怎麼辦。",
-                "positive": "你寫下了這個開心或輕鬆的片刻。",
-                "negative": "我聽見你說這一刻很難受。",
+                "overload": "一下子有這麼多事壓過來，確實很容易讓人喘不過氣。",
+                "no_break": "一整段時間都沒能停下來，聽起來連喘口氣的餘地都沒有。",
+                "fatigue": "聽起來你現在真的很累，這份疲憊值得被好好看見。",
+                "confusion": "現在不知道從哪裡開始，這種卡住的感覺確實不好受。",
+                "positive": "聽得出來，今天這份開心很真切，也值得好好留住。",
+                "negative": "聽起來這一刻真的不好受，這份感受值得被認真對待。",
                 "mixed": "你寫下了幾種交在一起的感受。",
-                "general": "你寫下的這件事已經留在這裡了。",
+                "general": "我聽見你剛才說的這件事了，先不替你的感受下結論。",
             },
             "ja": {
                 "unfairness": "本来あなたが引き受けるはずではないことが来た、と書いてくれましたね。",
                 "interruption": "流れが何度も中断され、切り替えが続いたと書いてくれましたね。",
                 "repetition": "またやり直すことになった、と書いてくれましたね。",
                 "confirmation": "確認や調整を何度も繰り返した、と書いてくれましたね。",
-                "overload": "やることが多く、いろいろ重なっていると書いてくれましたね。",
-                "confusion": "今はどうしたらよいかわからない、と書いてくれましたね。",
-                "positive": "嬉しい、楽しいと感じたこの瞬間を、ここに残します。",
-                "negative": "今つらい、しんどいと感じていることを、ここに残します。",
+                "overload": "いろいろなことが一度に重なると、息をつく余裕もなくなるほど苦しくなりますよね。",
+                "no_break": "ずっと立ち止まる余裕がなかったのですね。息をつく間もないのは本当に消耗しますよね。",
+                "fatigue": "今、本当に疲れているのですね。その疲れはきちんと受け止めたいです。",
+                "confusion": "今はどこから手をつければよいかわからず、立ち止まってしまう感覚なのですね。",
+                "positive": "今日の嬉しさがまっすぐ伝わってきます。大切に残しておきたい瞬間ですね。",
+                "negative": "今この瞬間が本当につらいのですね。その気持ちを軽く扱わずに受け止めます。",
                 "mixed": "いくつかの気持ちが混ざっていることを、そのまま残します。",
-                "general": "書いてくれたことを、そのままここに残します。",
+                "general": "今話してくれたことを聞いています。こちらで意味を決めつけずに受け止めます。",
             },
             "en": {
                 "unfairness": "You wrote that something you should not have had to carry landed on you.",
                 "interruption": "You wrote that your flow kept being interrupted and switched.",
                 "repetition": "You wrote that you had to do it over again.",
                 "confirmation": "You wrote that you had to check and align things repeatedly.",
-                "overload": "You wrote that there are too many things at once.",
-                "confusion": "You wrote that you do not know what to do right now.",
-                "positive": "You wrote that this moment felt happy or light.",
-                "negative": "I hear that this moment felt hard.",
+                "overload": "Having so many things land at once can feel genuinely overwhelming.",
+                "no_break": "Going that long without a chance to stop can leave no room even to catch your breath.",
+                "fatigue": "You sound genuinely tired, and that exhaustion deserves to be noticed.",
+                "confusion": "Not knowing where to begin can leave you feeling genuinely stuck.",
+                "positive": "The happiness in this moment comes through clearly, and it is worth holding onto.",
+                "negative": "This moment sounds genuinely hard, and I do not want to brush that feeling aside.",
                 "mixed": "You wrote down several mixed feelings.",
-                "general": "I am keeping what you wrote here as it is.",
+                "general": "I hear what you just said without deciding what it means for you.",
             },
         }
         return messages[language][key]
 
     def _dialog_turn_intent(self, user_message: str) -> str:
         normalized = user_message.strip().lower()
+        if any(token in normalized for token in [
+            "太无情", "太無情", "太冷", "冷漠", "没接住", "沒接住",
+            "没理解", "沒理解", "像机器人", "像機器人", "敷衍",
+            "冷たい", "よそよそしい", "分かってくれない", "わかってくれない",
+            "heartless", "uncaring", "too cold", "felt cold",
+            "did not hear me", "didn't hear me", "did not understand me",
+            "didn't understand me", "like a robot",
+        ]):
+            return "repair"
         # An explicit request for a way forward wins over a simultaneous
         # "why".  That preserves the user's confirmed exception: default L1
         # chat only acknowledges, while an explicit advice request may receive
@@ -433,6 +835,21 @@ class AiGenerationService:
             return "clarify"
         return "share"
 
+    def _dialog_repair_reply(self, *, language: str, source_axis: str) -> str:
+        if source_axis == "overload":
+            return {
+                "zh-Hans": "你说得对，刚才那句没有接住你一下子被很多事压着的感受。",
+                "zh-Hant": "你說得對，剛才那句沒有接住你一下子被很多事壓著的感受。",
+                "ja": "その通りです。さっきの言葉は、いろいろなことに押されている苦しさを受け止められていませんでした。",
+                "en": "You are right; my last reply did not meet the feeling of having so many things pressing on you.",
+            }[language]
+        return {
+            "zh-Hans": "你说得对，刚才那句太像在处理一条记录，没有接住你当时的感受。",
+            "zh-Hant": "你說得對，剛才那句太像在處理一條記錄，沒有接住你當時的感受。",
+            "ja": "その通りです。さっきの言葉は記録を処理するようで、あなたの気持ちを受け止められていませんでした。",
+            "en": "You are right; my last reply sounded like it was processing a record instead of meeting what you were feeling.",
+        }[language]
+
     def _dialog_light_followup(
         self,
         *,
@@ -449,12 +866,7 @@ class AiGenerationService:
                 "en": "This one entry is not enough to decide the reason, but I hear that you are wondering why this keeps feeling this way.",
             }[language]
         if intent == "clarify":
-            return {
-                "zh-Hans": "你补的这句让此刻的重点更清楚了一点，我接到了。",
-                "zh-Hant": "你補的這句讓此刻的重點更清楚了一點，我接到了。",
-                "ja": "今の一言で大事なところが少しはっきりしたことを、そのまま受け取りました。",
-                "en": "What you added makes the important part a little clearer, and I hear it.",
-            }[language]
+            return ""
         if intent == "advice":
             advice_key = axis if axis in {
                 "unfairness", "interruption", "repetition", "confirmation",
@@ -503,12 +915,7 @@ class AiGenerationService:
                 },
             }
             return advice[language][advice_key]
-        return {
-            "zh-Hans": "你刚补充的这一句，我也接住了。",
-            "zh-Hant": "你剛補充的這一句，我也接住了。",
-            "ja": "今付け加えてくれた一言も、そのまま受け取りました。",
-            "en": "I hear what you just added, too.",
-        }[language]
+        return ""
 
     def _dialog_safety_reply(self, language: str) -> str:
         return {
@@ -574,12 +981,49 @@ class AiGenerationService:
     def _is_immediate_safety_risk(self, text: str) -> bool:
         return self.classification_service.is_immediate_safety_risk(text)
 
-    def _immediate_safety_reply(self) -> str:
-        return self.classification_service.immediate_safety_acknowledgement()
+    def _immediate_safety_reply(self, language: str = "zh-Hans") -> str:
+        return self.classification_service.immediate_safety_acknowledgement(
+            language
+        )
+
+    def _capture_safety_copy(self, language: str) -> dict[str, str]:
+        return {
+            "zh-Hans": {
+                "observation": "先确认你现在是否处于立即危险中。",
+                "try_next": "请先联系当地紧急服务，或一个能马上到你身边的可信任的人。",
+            },
+            "zh-Hant": {
+                "observation": "先確認你現在是否處於立即危險中。",
+                "try_next": "請先聯絡當地緊急服務，或一個能馬上到你身邊的可信任的人。",
+            },
+            "ja": {
+                "observation": "まず、今すぐ危険な状態にあるかを確認してください。",
+                "try_next": "地域の緊急窓口か、すぐそばに来られる信頼できる人へ連絡してください。",
+            },
+            "en": {
+                "observation": "First, confirm whether you are in immediate danger.",
+                "try_next": "Contact local emergency services or a trusted person who can be with you now.",
+            },
+        }[language]
 
     def generate_deep_weekly(self, request: DeepWeeklyRequest) -> DeepWeeklyResponse:
+        language = self._request_language(request.language)
         pattern_name = self._pick_name(request.patterns, fallback="这周反复回来的主题")
         friction_name = self._pick_name(request.frictions, fallback="这周最稳定的消耗点")
+        if language != "zh-Hans":
+            fallback_names = {
+                "zh-Hant": ("這週反覆出現的主題", "這週最穩定的消耗點"),
+                "ja": ("今週繰り返し現れたテーマ", "今週続いた主な負担"),
+                "en": ("this week’s recurring theme", "this week’s most consistent drain"),
+            }[language]
+            pattern_name = self._pick_name(request.patterns, fallback=fallback_names[0])
+            friction_name = self._pick_name(request.frictions, fallback=fallback_names[1])
+            return self._generate_localized_deep_weekly(
+                request=request,
+                language=language,
+                pattern_name=pattern_name,
+                friction_name=friction_name,
+            )
         illustration_hint = self._pick_illustration_hint(
             request.patterns
         ) or self._pick_illustration_hint(request.frictions)
@@ -657,6 +1101,159 @@ class AiGenerationService:
             scope_note=scope_note,
         )
 
+    def _generate_localized_deep_weekly(
+        self,
+        *,
+        request: DeepWeeklyRequest,
+        language: str,
+        pattern_name: str,
+        friction_name: str,
+    ) -> DeepWeeklyResponse:
+        illustration_hint = self._pick_illustration_hint(
+            request.patterns
+        ) or self._pick_illustration_hint(request.frictions)
+        peak_day = {
+            "zh-Hant": "這週中段",
+            "ja": "週の半ば",
+            "en": "the middle of the week",
+        }[language]
+        low_day = {
+            "zh-Hant": "這週某個低點",
+            "ja": "今週のある低い日",
+            "en": "a lower point this week",
+        }[language]
+        rebounded = False
+        chart_data = request.chart_data or []
+        if chart_data:
+            peak = max(chart_data, key=lambda item: item.get("signal_count", 0))
+            low = min(chart_data, key=lambda item: item.get("mood_score", 0))
+            last = chart_data[-1]
+            peak_day = str(peak.get("date") or peak_day)
+            low_day = str(low.get("date") or low_day)
+            if len(peak_day) >= 10 and "-" in peak_day:
+                peak_day = peak_day[5:]
+            if len(low_day) >= 10 and "-" in low_day:
+                low_day = low_day[5:]
+            rebounded = last.get("mood_score", 0) > low.get("mood_score", 0)
+
+        key_insight = (request.key_insight or "").strip()
+        if not key_insight:
+            key_insight = {
+                "zh-Hant": f"這週的 Signal 逐漸聚集在「{pattern_name}」附近。",
+                "ja": f"今週の Signal は「{pattern_name}」の周辺に集まり始めています。",
+                "en": f"This week’s Signals are beginning to gather around “{pattern_name}.”",
+            }[language]
+        relationship = {
+            "zh-Hant": f"「{pattern_name}」與「{friction_name}」在本週同一範圍內反覆同時出現，值得繼續看它們如何牽動節奏。",
+            "ja": f"「{pattern_name}」と「{friction_name}」は今週同じ範囲で繰り返し現れました。両者が流れにどう関わるかを引き続き見ます。",
+            "en": f"“{pattern_name}” and “{friction_name}” repeatedly appeared within the same range this week. Keep watching how they shape the rhythm.",
+        }[language]
+        root_tension = {
+            "zh-Hant": f"內在拉扯：想推進「{pattern_name}」時，「{friction_name}」也會反覆出現。",
+            "ja": f"内側の揺れ：「{pattern_name}」を進めようとすると、「{friction_name}」も繰り返し現れます。",
+            "en": f"Internal tension: as “{pattern_name}” moves forward, “{friction_name}” also keeps returning.",
+        }[language]
+        timing = {
+            "zh-Hant": f"{peak_day} 的 Signal 較密，{low_day} 較像狀態低點；" + (
+                "後半段有一點回收，顯示狀態曾被拉回來一些。"
+                if rebounded else
+                "後半段還沒有足夠 Signal 顯示已經回彈。"
+            ),
+            "ja": f"{peak_day} は Signal が多く、{low_day} は状態の低い点に見えます。" + (
+                "後半には少し持ち直した動きがあります。"
+                if rebounded else
+                "後半に持ち直したと判断できるほどの Signal はまだありません。"
+            ),
+            "en": f"Signals are denser on {peak_day}, while {low_day} looks like a lower point. " + (
+                "The later part shows some recovery."
+                if rebounded else
+                "There are not yet enough later Signals to show a rebound."
+            ),
+        }[language]
+        question = {
+            "zh-Hant": f"「{friction_name}」再次出現時，它發生在「{pattern_name}」的開始、推進，還是收尾？",
+            "ja": f"「{friction_name}」が再び現れるとき、それは「{pattern_name}」の開始、進行中、終わりのどこですか？",
+            "en": f"When “{friction_name}” appears again, is it at the beginning, middle, or end of “{pattern_name}”?",
+        }[language]
+        scope = {
+            "zh-Hant": "這份深度分析只說明本週 Signal 中反覆同時出現的關係，用於確定下週觀察點，不代表因果、人格判斷或長期結論。",
+            "ja": "この深度分析が示すのは、今週の Signal で繰り返し同時に現れた関係だけです。来週の観察点を決めるためのもので、因果関係、人格判断、長期的な結論ではありません。",
+            "en": "This deep analysis only describes relationships that repeatedly co-occurred in this week’s Signals. It helps set next week’s observation point and does not establish causation, personality, or a long-term conclusion.",
+        }[language]
+        if request.completed_attempt_day_count > 0:
+            impact = {
+                "zh-Hant": f"已有 {request.completed_attempt_day_count} 個完成日",
+                "ja": f"完了日 {request.completed_attempt_day_count} 日",
+                "en": f"{request.completed_attempt_day_count} completed days",
+            }[language]
+        elif request.recorded_attempt_day_count > 0:
+            impact = {
+                "zh-Hant": f"已有 {request.recorded_attempt_day_count} 個回饋日",
+                "ja": f"記録日 {request.recorded_attempt_day_count} 日",
+                "en": f"{request.recorded_attempt_day_count} feedback days",
+            }[language]
+        elif request.attempt_count > 0:
+            impact = {
+                "zh-Hant": f"已參與 {request.attempt_count} 項嘗試",
+                "ja": f"{request.attempt_count} 件の試みを実施",
+                "en": f"{request.attempt_count} attempts joined",
+            }[language]
+        else:
+            impact = {
+                "zh-Hant": "嘗試回饋仍在形成",
+                "ja": "試行の反応はまだ形成中です",
+                "en": "Attempt feedback is still forming",
+            }[language]
+        if request.dominant_feedback_pattern:
+            impact = request.dominant_feedback_pattern.strip() or impact
+        summary_prefix = {
+            "zh-Hant": "深度分析看到：",
+            "ja": "深度分析で見えること：",
+            "en": "Deep analysis: ",
+        }[language]
+        next_focus = {
+            "zh-Hant": f"下週只驗證一個問題：{question}",
+            "ja": f"来週は一つの問いだけを確かめます：{question}",
+            "en": f"Test one question next week: {question}",
+        }[language]
+        nodes = {
+            "zh-Hant": [
+                f"反覆主題：{pattern_name}",
+                f"主要摩擦：{friction_name}",
+                f"Signal 密集點：{peak_day}",
+                f"走勢低點：{low_day}",
+            ],
+            "ja": [
+                f"繰り返すテーマ：{pattern_name}",
+                f"主な負担：{friction_name}",
+                f"Signal が多い日：{peak_day}",
+                f"状態の低い日：{low_day}",
+            ],
+            "en": [
+                f"Recurring theme: {pattern_name}",
+                f"Main friction: {friction_name}",
+                f"Signal peak: {peak_day}",
+                f"Lower point: {low_day}",
+            ],
+        }[language]
+        return DeepWeeklyResponse(
+            summary=f"{key_insight} {summary_prefix}{relationship}",
+            root_tension=root_tension,
+            hidden_pattern=timing,
+            next_focus=next_focus,
+            risk_note=scope,
+            key_nodes=nodes,
+            pattern_label=pattern_name,
+            friction_label=friction_name,
+            impact_label=impact,
+            relationship_summary=relationship,
+            timing_summary=timing,
+            next_question=question,
+            illustration_hint=illustration_hint,
+            source_signal_card_ids=request.source_signal_card_ids,
+            scope_note=scope,
+        )
+
     def _pick_name(self, items, fallback: str) -> str:
         if not items:
             return fallback
@@ -682,48 +1279,178 @@ class AiGenerationService:
         request: JourneyGenerateRequest,
     ) -> JourneyGenerateResponse:
         contents = [entry.content.strip() for entry in request.entries if entry.content and entry.content.strip()]
-        top_token = self._evidence_topic(contents=contents, top_tokens=request.top_tokens)
+        language = self._request_language(request.language, request.entries)
+        top_token = self._evidence_topic(
+            contents=contents,
+            top_tokens=request.top_tokens,
+            language=language,
+        )
         total_days = max(request.total_days, 1)
-        confidence = "还只是早期生活轨迹" if request.entry_count < 6 else "已经开始有长期线索"
+        if language == "zh-Hans":
+            confidence = "还只是早期生活轨迹" if request.entry_count < 6 else "已经开始有长期线索"
+            copy = {
+                "pattern_name": "正在形成的生活路径",
+                "pattern_summary": f"{confidence}：目前最清楚的是“{top_token}”。先看它是偶尔出现，还是慢慢变成重复结构。",
+                "friction_name": "可能的长期消耗",
+                "friction_summary": f"如果“{top_token}”继续出现，它可能是后面要回看的消耗来源；现在先保持轻观察。",
+                "desire_name": "还在浮现的方向",
+                "desire_summary": f"记录已经跨越 {total_days} 天，先从真实记录里看哪些事让你想恢复、期待或离开消耗。",
+                "experiment_name": "尝试反馈",
+                "experiment_summary": "后续尝试反馈会和这些记录放在一起看：有帮助、偏难或跳过都只是反馈，不是失败。",
+            }
+        else:
+            copy = {
+                "zh-Hant": {
+                    "pattern_name": "正在形成的生活路徑",
+                    "pattern_summary": f"{'目前仍是早期生活軌跡' if request.entry_count < 6 else '已經開始出現長期線索'}：現在最清楚的是「{top_token}」。先看它是偶爾出現，還是逐漸成為反覆結構。",
+                    "friction_name": "可能的長期消耗",
+                    "friction_summary": f"如果「{top_token}」持續出現，它可能是之後值得回看的消耗來源；現在先保持輕量觀察。",
+                    "desire_name": "還在浮現的方向",
+                    "desire_summary": f"記錄已跨越 {total_days} 天，先從真實記錄中看哪些事讓你想恢復、期待，或離開消耗。",
+                    "experiment_name": "嘗試回饋",
+                    "experiment_summary": "之後的嘗試回饋會和這些記錄放在一起看：有幫助、偏難或跳過都只是回饋，不是失敗。",
+                },
+                "ja": {
+                    "pattern_name": "形になり始めた生活の道筋",
+                    "pattern_summary": f"{'まだ初期の生活軌跡です' if request.entry_count < 6 else '長期的な手がかりが見え始めています'}。今もっとも明確なのは「{top_token}」です。偶発的なものか、繰り返す構造になるかを見ていきます。",
+                    "friction_name": "長く続く可能性のある負担",
+                    "friction_summary": f"「{top_token}」が続くなら、あとで振り返るべき負担の源かもしれません。今は軽く観察します。",
+                    "desire_name": "見え始めた方向",
+                    "desire_summary": f"記録は {total_days} 日にわたっています。回復したいこと、楽しみなこと、離れたい負担を実際の記録から見ていきます。",
+                    "experiment_name": "試したことへの反応",
+                    "experiment_summary": "これからの反応は記録と合わせて見ます。役立った、難しかった、見送ったという結果は、失敗ではなく反応です。",
+                },
+                "en": {
+                    "pattern_name": "An emerging life path",
+                    "pattern_summary": f"{'This is still an early life trajectory' if request.entry_count < 6 else 'Longer-term clues are beginning to emerge'}. The clearest theme is “{top_token}.” Watch whether it is occasional or slowly becomes a recurring structure.",
+                    "friction_name": "A possible longer-term drain",
+                    "friction_summary": f"If “{top_token}” keeps returning, it may be a drain worth revisiting later. For now, observe it lightly.",
+                    "desire_name": "A direction still emerging",
+                    "desire_summary": f"The entries span {total_days} days. Use the actual records to see what makes you want to recover, look forward, or step away from a drain.",
+                    "experiment_name": "Attempt feedback",
+                    "experiment_summary": "Future attempt feedback will be read alongside these records. Helpful, difficult, or skipped are all feedback, not failure.",
+                },
+            }[language]
 
         return JourneyGenerateResponse(
             patterns=[
                 WeeklyInsightItem(
-                    name="正在形成的生活路径",
-                    summary=f"{confidence}：目前最清楚的是“{top_token}”。先看它是偶尔出现，还是慢慢变成重复结构。",
+                    name=copy["pattern_name"],
+                    summary=copy["pattern_summary"],
                 )
             ],
             frictions=[
                 WeeklyInsightItem(
-                    name="可能的长期消耗",
-                    summary=f"如果“{top_token}”继续出现，它可能是后面要回看的消耗来源；现在先保持轻观察。",
+                    name=copy["friction_name"],
+                    summary=copy["friction_summary"],
                 )
             ],
             desires=[
                 WeeklyInsightItem(
-                    name="还在浮现的方向",
-                    summary=f"记录已经跨越 {total_days} 天，先从真实记录里看哪些事让你想恢复、期待或离开消耗。",
+                    name=copy["desire_name"],
+                    summary=copy["desire_summary"],
                 )
             ],
             experiments=[
                 WeeklyInsightItem(
-                    name="Review & Adjust 入口",
-                    summary="后续实验反馈会和这些记录放在一起看：有效、偏难、跳过都只是证据，不是失败。",
+                    name=copy["experiment_name"],
+                    summary=copy["experiment_summary"],
                 )
             ],
         )
 
     def generate_followup_question(self, payload: dict[str, Any]) -> dict[str, Any]:
+        language = self.classification_service.normalize_language(payload.get("language"))
+        copy = {
+            "zh-Hans": ("你最烦的是找资料，还是整理结构？", ["找资料", "整理结构", "重新写", "先跳过"]),
+            "zh-Hant": ("你最困擾的是找資料，還是整理結構？", ["找資料", "整理結構", "重新寫", "先跳過"]),
+            "ja": ("いちばん負担なのは、情報を探すことですか、それとも構成を整えることですか？", ["情報を探す", "構成を整える", "書き直す", "今は見送る"]),
+            "en": ("What is more frustrating: finding information or organizing the structure?", ["Find information", "Organize the structure", "Rewrite", "Skip for now"]),
+        }[language]
         return {
             "question_type": "information_friction_detail",
-            "question_text": "你最烦的是找资料，还是整理结构？",
+            "question_text": copy[0],
             "options": [
-                {"label": "找资料", "value": "find_info"},
-                {"label": "整理结构", "value": "organize_structure"},
-                {"label": "重新写", "value": "rewrite"},
-                {"label": "先跳过", "value": "skip"},
+                {"label": copy[1][0], "value": "find_info"},
+                {"label": copy[1][1], "value": "organize_structure"},
+                {"label": copy[1][2], "value": "rewrite"},
+                {"label": copy[1][3], "value": "skip"},
             ],
         }
+
+    def generate_monthly_summary(
+        self,
+        request: MonthlyGenerateRequest,
+    ) -> MonthlyGenerateResponse:
+        language = self._request_language(request.language, request.entries)
+        contents = [
+            entry.content.strip()
+            for entry in request.entries
+            if entry.content and entry.content.strip()
+        ]
+        if request.entry_count <= 0 or not contents:
+            return MonthlyGenerateResponse(
+                month_start=request.month_start,
+                month_end=request.month_end,
+                status="insufficient_data",
+            )
+
+        topic = self._evidence_topic(
+            contents=contents,
+            top_tokens=request.top_tokens,
+            language=language,
+        )
+        total_days = max(request.total_days, 1)
+        copy = {
+            "zh-Hans": {
+                "summary": f"这个月的记录主要围绕“{topic}”展开，共覆盖 {total_days} 个记录日。",
+                "theme": f"“{topic}”在这个月反复出现。",
+                "improving": "已经能从具体记录中看见一些恢复片段。",
+                "unresolved": f"“{topic}”何时更容易出现，仍需要继续观察。",
+                "watch": f"下个月继续留意“{topic}”出现时的场景与变化。",
+                "bridge": "本月 Signal 已开始形成可回看的轨迹。",
+            },
+            "zh-Hant": {
+                "summary": f"這個月的記錄主要圍繞「{topic}」展開，共涵蓋 {total_days} 個記錄日。",
+                "theme": f"「{topic}」在這個月反覆出現。",
+                "improving": "已經能從具體記錄中看見一些恢復片段。",
+                "unresolved": f"「{topic}」何時更容易出現，仍需要繼續觀察。",
+                "watch": f"下個月繼續留意「{topic}」出現時的場景與變化。",
+                "bridge": "本月 Signal 已開始形成可回看的軌跡。",
+            },
+            "ja": {
+                "summary": f"今月の記録は主に「{topic}」を中心に広がり、{total_days} 日分の記録があります。",
+                "theme": f"「{topic}」が今月繰り返し現れました。",
+                "improving": "具体的な記録から、少し回復した場面が見え始めています。",
+                "unresolved": f"「{topic}」が起こりやすい条件は、まだ観察が必要です。",
+                "watch": f"来月も「{topic}」が現れる場面と変化を見ていきます。",
+                "bridge": "今月の Signal が、振り返れる軌跡になり始めています。",
+            },
+            "en": {
+                "summary": f"This month’s entries mainly center on “{topic}” across {total_days} recorded days.",
+                "theme": f"“{topic}” returned repeatedly this month.",
+                "improving": "Specific entries are beginning to show moments of recovery.",
+                "unresolved": f"The conditions that make “{topic}” more likely still need observation.",
+                "watch": f"Next month, keep watching the situations and changes around “{topic}.”",
+                "bridge": "This month’s Signals are beginning to form a trajectory you can revisit.",
+            },
+        }[language]
+        return MonthlyGenerateResponse(
+            month_start=request.month_start,
+            month_end=request.month_end,
+            status="ready",
+            monthly_summary=copy["summary"],
+            repeated_themes=[copy["theme"]],
+            improving_signals=[copy["improving"]],
+            unresolved_points=[copy["unresolved"]],
+            next_month_watch=copy["watch"],
+            weekly_bridges=[
+                MonthlyBridgeWeekSchema(
+                    label=f"{request.month_start}–{request.month_end}",
+                    summary=copy["bridge"],
+                )
+            ],
+        )
 
     def _analyze_capture(self, content: str) -> dict[str, Any]:
         normalized = self._normalize_text(content)
@@ -839,6 +1566,7 @@ class AiGenerationService:
         intent_tags: list[str],
         recent_assistant_texts: list[str] | None = None,
         response_style: str = 'gentle',
+        language: str = "zh-Hans",
     ) -> dict[str, str]:
         recent_assistant_texts = recent_assistant_texts or []
 
@@ -846,6 +1574,7 @@ class AiGenerationService:
             acknowledgement = self.classification_service.generate_acknowledgement(
                 content=content,
                 recent_assistant_texts=recent_assistant_texts,
+                language=language,
             )
             if not isinstance(acknowledgement, str) or not acknowledgement.strip():
                 raise ValueError("empty acknowledgement")
@@ -855,33 +1584,51 @@ class AiGenerationService:
                 emotion=emotion,
                 intensity=intensity,
                 scene_tags=scene_tags,
+                language=language,
             )
 
         observation = self._fallback_observation(
             content=content,
             emotion=emotion,
             scene_tags=scene_tags,
+            language=language,
         )
         try_next = self._fallback_try_next(
             content=content,
             emotion=emotion,
             scene_tags=scene_tags,
             intent_tags=intent_tags,
+            language=language,
         )
         topic = self.classification_service._topic_hint(content)
-        if topic:
+        if topic and language == "zh-Hans":
             observation = self._topic_observation(topic=topic)
             try_next = self._topic_try_next(topic=topic)
 
         return {
-            "acknowledgement": self._style_text(acknowledgement.strip(), response_style, kind='acknowledgement'),
-            "observation": self._style_text(observation.strip(), response_style, kind='observation'),
-            "try_next": self._style_text(try_next.strip(), response_style, kind='suggestion'),
+            "acknowledgement": self._style_text(
+                acknowledgement.strip(),
+                response_style,
+                kind='acknowledgement',
+                language=language,
+            ),
+            "observation": self._style_text(
+                observation.strip(),
+                response_style,
+                kind='observation',
+                language=language,
+            ),
+            "try_next": self._style_text(
+                try_next.strip(),
+                response_style,
+                kind='suggestion',
+                language=language,
+            ),
         }
 
     def _topic_observation(self, *, topic: str) -> str:
         if topic == "cost":
-            return "这条更像是成本提醒：当 token 或 AI 使用成本变得显眼，它会影响你对工具是否值得继续用的判断。"
+            return "这条更像是成本提醒：当模型用量或智能助手的使用成本变得显眼，它会影响你对工具是否值得继续用的判断。"
         if topic == "horse_expectation":
             return "这条的恢复线索很明确：骑马不是普通安排，而是你这周少数真正期待的事情。"
         if topic == "tomorrow_uncertainty":
@@ -914,27 +1661,75 @@ class AiGenerationService:
         return "先看看它之后还会不会再回来。"
 
 
-    def _style_text(self, text: str, response_style: str, kind: str = 'reply') -> str:
+    def _style_text(
+        self,
+        text: str,
+        response_style: str,
+        kind: str = 'reply',
+        language: str = "zh-Hans",
+    ) -> str:
         text = (text or '').strip()
         if not text:
             return text
 
         if response_style == 'direct':
-            if kind == 'acknowledgement':
-                direct_prefix = '先说重点：'
-            elif kind == 'suggestion':
-                direct_prefix = '下一步：'
-            else:
-                direct_prefix = '重点是：'
+            direct_prefix = {
+                "zh-Hans": {
+                    "acknowledgement": "先说重点：",
+                    "suggestion": "下一步：",
+                    "reply": "重点是：",
+                },
+                "zh-Hant": {
+                    "acknowledgement": "先說重點：",
+                    "suggestion": "下一步：",
+                    "reply": "重點是：",
+                },
+                "ja": {
+                    "acknowledgement": "要点を先に言うと、",
+                    "suggestion": "次の一歩：",
+                    "reply": "要点は、",
+                },
+                "en": {
+                    "acknowledgement": "The main point: ",
+                    "suggestion": "Next step: ",
+                    "reply": "The main point: ",
+                },
+            }[language].get(kind, {
+                "zh-Hans": "重点是：",
+                "zh-Hant": "重點是：",
+                "ja": "要点は、",
+                "en": "The main point: ",
+            }[language])
             return f"{direct_prefix}{text}" if not text.startswith(direct_prefix) else text
 
         if response_style == 'clear':
-            if kind == 'suggestion':
-                clear_prefix = '更清楚地说，'
-            elif kind == 'acknowledgement':
-                clear_prefix = '换句话说，'
-            else:
-                clear_prefix = '更具体一点，'
+            clear_prefix = {
+                "zh-Hans": {
+                    "acknowledgement": "换句话说，",
+                    "suggestion": "更清楚地说，",
+                    "reply": "更具体一点，",
+                },
+                "zh-Hant": {
+                    "acknowledgement": "換句話說，",
+                    "suggestion": "更清楚地說，",
+                    "reply": "更具體一點，",
+                },
+                "ja": {
+                    "acknowledgement": "言い換えると、",
+                    "suggestion": "もう少し明確に言うと、",
+                    "reply": "もう少し具体的に言うと、",
+                },
+                "en": {
+                    "acknowledgement": "In other words, ",
+                    "suggestion": "More clearly, ",
+                    "reply": "More specifically, ",
+                },
+            }[language].get(kind, {
+                "zh-Hans": "更具体一点，",
+                "zh-Hant": "更具體一點，",
+                "ja": "もう少し具体的に言うと、",
+                "en": "More specifically, ",
+            }[language])
             return f"{clear_prefix}{text}" if not text.startswith(clear_prefix) else text
 
         return text
@@ -945,7 +1740,30 @@ class AiGenerationService:
         emotion: str,
         intensity: str,
         scene_tags: list[str],
+        language: str = "zh-Hans",
     ) -> str:
+        if language != "zh-Hans":
+            key = emotion if emotion in {"positive", "mixed", "negative"} else "neutral"
+            return {
+                "zh-Hant": {
+                    "positive": "聽得出來，這一刻的感覺很好，也值得好好留住。",
+                    "mixed": "你寫下了幾種交在一起的感受，先原樣留在這裡。",
+                    "negative": "聽起來這一刻真的不好受，這份感受值得被認真對待。",
+                    "neutral": "這一條已經按你寫下的內容記下來了。",
+                },
+                "ja": {
+                    "positive": "今のよい気持ちが伝わってきます。大切に残しておきたい瞬間ですね。",
+                    "mixed": "いくつかの気持ちが混ざっていることを、そのまま残します。",
+                    "negative": "今この瞬間が本当につらいのですね。その気持ちを軽く扱わずに受け止めます。",
+                    "neutral": "書いてくれたことを、そのままここに残します。",
+                },
+                "en": {
+                    "positive": "This moment sounds good, and it is worth holding onto.",
+                    "mixed": "I am keeping these mixed feelings here as you described them.",
+                    "negative": "This moment sounds genuinely hard, and that feeling deserves care.",
+                    "neutral": "I am keeping what you wrote here as it is.",
+                },
+            }[language][key]
         if emotion == "positive":
             return "我听见你说这一刻感觉不错，先把它留在这里。"
 
@@ -962,7 +1780,30 @@ class AiGenerationService:
         content: str,
         emotion: str,
         scene_tags: list[str],
+        language: str = "zh-Hans",
     ) -> str:
+        if language != "zh-Hans":
+            key = emotion if emotion in {"positive", "mixed", "negative"} else "neutral"
+            return {
+                "zh-Hant": {
+                    "positive": "這條記錄顯示，一些具體的小好事確實能幫你補回狀態。",
+                    "mixed": "這條裡最值得留意的是拉扯感：有消耗，也有一些片刻把你接住。",
+                    "negative": "這條裡較明顯的線索是，某個具體場景正在持續消耗你。",
+                    "neutral": "這更像是一條狀態線索，而不是一股很強的情緒。",
+                },
+                "ja": {
+                    "positive": "この記録から、具体的な小さな出来事が気持ちを少し回復させていることが見えます。",
+                    "mixed": "この記録では、消耗する感覚と少し持ち直す感覚の両方が大切な手がかりです。",
+                    "negative": "この記録では、ある具体的な場面が継続して負担になっていることが見えます。",
+                    "neutral": "これは強い感情というより、今の状態を示す手がかりに近そうです。",
+                },
+                "en": {
+                    "positive": "This entry suggests that a specific small moment helped restore some energy.",
+                    "mixed": "The tension between feeling drained and feeling restored is the clearest clue here.",
+                    "negative": "The clearest clue is that a specific situation is steadily wearing you down.",
+                    "neutral": "This reads more like a clue about your state than a strong emotion.",
+                },
+            }[language][key]
         scene = scene_tags[0] if scene_tags else "daily_life"
 
         if emotion == "positive":
@@ -992,7 +1833,30 @@ class AiGenerationService:
         emotion: str,
         scene_tags: list[str],
         intent_tags: list[str],
+        language: str = "zh-Hans",
     ) -> str:
+        if language != "zh-Hans":
+            key = emotion if emotion in {"positive", "mixed", "negative"} else "neutral"
+            return {
+                "zh-Hant": {
+                    "positive": "先記下是哪個具體片刻帶來了好一點的感覺，不用寫多。",
+                    "mixed": "先不用總結整天，只記下是什麼讓你稍微緩了回來。",
+                    "negative": "先記下最卡你的那個瞬間，其他暫時不用整理。",
+                    "neutral": "先把這一條留著，看看它之後會不會再出現。",
+                },
+                "ja": {
+                    "positive": "少しよい気持ちにつながった具体的な点だけ、短く残しておきましょう。",
+                    "mixed": "一日全体をまとめず、少し持ち直せたきっかけだけ残してみてください。",
+                    "negative": "いちばん引っかかった瞬間だけ残し、ほかは今すぐ整理しなくて大丈夫です。",
+                    "neutral": "この記録をいったん残し、また同じことが起きるか見てみましょう。",
+                },
+                "en": {
+                    "positive": "Note the specific detail that helped this moment feel better.",
+                    "mixed": "For now, note only what helped you recover a little later.",
+                    "negative": "Note the moment that felt most difficult; the rest can wait.",
+                    "neutral": "Keep this entry and see whether the same clue returns.",
+                },
+            }[language][key]
         scene = scene_tags[0] if scene_tags else "daily_life"
 
         if emotion == "positive":
@@ -1055,40 +1919,90 @@ class AiGenerationService:
                 return token
         return "最近的记录"
 
-    def _evidence_topic(self, *, contents: list[str], top_tokens: list[str]) -> str:
+    def _evidence_topic(
+        self,
+        *,
+        contents: list[str],
+        top_tokens: list[str],
+        language: str = "zh-Hans",
+    ) -> str:
         joined = " ".join(contents).lower()
         topic = self.classification_service._topic_hint(joined)
-        if topic == "cost":
-            return "token 成本"
-        if topic == "horse_expectation":
-            return "骑马带来的期待和恢复"
-        if topic == "tomorrow_uncertainty":
-            return "明天不可控与活在当下"
-        if topic == "retirement_wish":
-            return "想离开工作消耗"
-        if topic == "weather_good":
-            return "天气带来的轻一点的状态"
-        if topic == "rest_wish":
-            return "想停下来休息"
-        if topic == "money":
-            return "钱和成本压力"
-        return self._safe_top_token(top_tokens)
+        labels = {
+            "zh-Hans": {
+                "cost": "模型用量成本",
+                "horse_expectation": "骑马带来的期待和恢复",
+                "tomorrow_uncertainty": "明天不可控与活在当下",
+                "retirement_wish": "想离开工作消耗",
+                "weather_good": "天气带来的轻一点的状态",
+                "rest_wish": "想停下来休息",
+                "money": "钱和成本压力",
+            },
+            "zh-Hant": {
+                "cost": "模型用量成本",
+                "horse_expectation": "騎馬帶來的期待和恢復",
+                "tomorrow_uncertainty": "明天不可控與活在當下",
+                "retirement_wish": "想離開工作消耗",
+                "weather_good": "天氣帶來較輕鬆的狀態",
+                "rest_wish": "想停下來休息",
+                "money": "金錢和成本壓力",
+            },
+            "ja": {
+                "cost": "モデル利用量の費用",
+                "horse_expectation": "乗馬への期待と回復",
+                "tomorrow_uncertainty": "明日の不確かさと今を生きること",
+                "retirement_wish": "仕事の消耗から離れたい気持ち",
+                "weather_good": "天気がもたらす軽やかな状態",
+                "rest_wish": "立ち止まって休みたい気持ち",
+                "money": "お金と費用の負担",
+            },
+            "en": {
+                "cost": "model usage cost",
+                "horse_expectation": "anticipation and recovery from riding",
+                "tomorrow_uncertainty": "tomorrow’s uncertainty and staying present",
+                "retirement_wish": "wanting to leave work-related drain",
+                "weather_good": "a lighter state brought by the weather",
+                "rest_wish": "wanting to stop and rest",
+                "money": "money and cost pressure",
+            },
+        }
+        if topic in labels[language]:
+            return labels[language][topic]
+        fallback = self._safe_top_token(top_tokens)
+        if fallback == "最近的记录":
+            return {
+                "zh-Hans": fallback,
+                "zh-Hant": "最近的記錄",
+                "ja": "最近の記録",
+                "en": "recent entries",
+            }[language]
+        return fallback
 
     def _weekly_pattern_trigger(
         self,
         *,
         day_counts: dict[str, int],
         top_token: str,
+        language: str = "zh-Hans",
     ) -> str | None:
         supported_parts: list[str] = []
         if day_counts:
             peak_day, peak_count = max(day_counts.items(), key=lambda item: item[1])
-            supported_parts.append(
-                f"{peak_day} 记录了 {peak_count} 条 Signal，是本周较密集的日子"
-            )
+            supported_parts.append({
+                "zh-Hans": f"{peak_day} 记录了 {peak_count} 条 Signal，是本周较密集的日子",
+                "zh-Hant": f"{peak_day} 記錄了 {peak_count} 條 Signal，是本週較密集的日子",
+                "ja": f"{peak_day} は {peak_count} 件の Signal があり、今週では比較的多い日です",
+                "en": f"{peak_day} has {peak_count} Signals, making it one of the denser days this week",
+            }[language])
         if top_token and top_token != "最近的记录":
-            supported_parts.append(f"本周 Signal 主题集中在“{top_token}”")
-        return "；".join(supported_parts) or None
+            supported_parts.append({
+                "zh-Hans": f"本周 Signal 主题集中在“{top_token}”",
+                "zh-Hant": f"本週 Signal 主題集中在「{top_token}」",
+                "ja": f"今週の Signal は「{top_token}」に集まっています",
+                "en": f"This week’s Signals cluster around “{top_token}”",
+            }[language])
+        separator = "；" if language in {"zh-Hans", "zh-Hant"} else "。"
+        return separator.join(supported_parts) or None
 
     def _peak_day(self, day_counts: dict[str, int]) -> str:
         if not day_counts:

@@ -61,11 +61,11 @@ void main() {
       ),
     );
 
-    expect(find.text('已完成 · unclear'), findsOneWidget);
+    expect(find.text('已完成 · 尚不明确'), findsOneWidget);
     expect(find.text('未完成'), findsOneWidget);
     expect(find.text('no conclusion yet'), findsOneWidget);
     expect(find.text('生活小实验 · 小实验反馈'), findsOneWidget);
     expect(find.text('生活小实验 · 目标反馈'), findsOneWidget);
-    expect(find.text('Signal Card'), findsOneWidget);
+    expect(find.text('信号卡'), findsOneWidget);
   });
 }

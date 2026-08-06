@@ -44,9 +44,8 @@ abstract final class EvaluationEffort {
 abstract final class SmallTryNextAdjustment {
   static const keep = 'keep';
   static const makeLighter = 'make_lighter';
-  static const end = 'end';
 
-  static const values = {keep, makeLighter, end};
+  static const values = {keep, makeLighter};
 }
 
 class MicroActionReviewEventModel {

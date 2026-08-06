@@ -68,10 +68,6 @@ void main() {
         final signalCards =
             await harness.localCaptureRepository.listSignalCards(limit: 20);
         expect(signalCards, isNotEmpty);
-        final signalCard = signalCards.firstWhere(
-          (signal) => (signal.signalCardId ?? signal.id) == 'sig_core_1',
-        );
-        final signalCardId = signalCard.signalCardId ?? signalCard.id;
 
         final db = await harness.localDatabase.database;
         expect(await _rowCount(db, 'signal_cards'), greaterThan(0));
@@ -79,8 +75,9 @@ void main() {
         final judgement =
             await harness.todayRepository.createAiJudgementForToday();
         expect(judgement, isNotNull);
+        expect(judgement!.sourceSignalCardIds, isNotEmpty);
         await harness.todayRepository.respondToAiJudgement(
-          judgementId: judgement!.id,
+          judgementId: judgement.id,
           status: 'confirmed',
         );
 
@@ -106,7 +103,7 @@ void main() {
             'observation',
             observationId,
             'signal_card',
-            signalCardId,
+            judgement.sourceSignalCardIds.first,
           ],
         );
         expect(observationTraceRows, isNotEmpty);
@@ -243,7 +240,7 @@ void main() {
           evidence.any(
             (item) =>
                 item.sourceType == 'signal_card' &&
-                item.sourceId == signalCardId,
+                item.sourceId == judgement.sourceSignalCardIds.first,
           ),
           isTrue,
         );
@@ -376,7 +373,10 @@ void main() {
 
         try {
           final upgradedDb = await upgraded.database;
-          expect(await _userVersion(upgradedDb), 40);
+          expect(
+            await _userVersion(upgradedDb),
+            LocalDatabase.schemaVersion,
+          );
 
           final candidates = await upgradedDb.query('experiment_candidates');
           expect(candidates, hasLength(1));
@@ -681,6 +681,7 @@ class CoreDataChainAiRepository extends AiRepository {
   Future<AiCaptureReplyResult> generateCaptureReply({
     required String content,
     required List<String> recentAssistantTexts,
+    String? language,
     String? focusArea,
     String? responseStyle,
   }) async {

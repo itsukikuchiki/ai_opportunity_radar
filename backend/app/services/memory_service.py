@@ -24,7 +24,7 @@ FRICTION_NAMES = {
     'emotional': '情绪消耗明显',
 }
 DESIRE_NAME = '希望省掉前置整理与重复准备'
-OPPORTUNITY_NAME = '资料预整理 Copilot'
+OPPORTUNITY_NAME = '资料预整理助手'
 
 
 class MemoryService:

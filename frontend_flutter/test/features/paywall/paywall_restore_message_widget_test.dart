@@ -92,9 +92,9 @@ final _scenarios = <_RestoreScenario>[
     expected: (locale) => _localized(
       locale,
       en: 'This TestFlight build can only restore Pro purchased in TestFlight. A production App Store subscription can be restored only in the App Store version.',
-      zhHans: 'TestFlight 版只能恢复在 TestFlight 中购买的测试订阅；App Store 正式订阅需要在正式版中恢复。',
-      zhHant: 'TestFlight 版只能恢復在 TestFlight 中購買的測試訂閱；App Store 正式訂閱需要在正式版中恢復。',
-      ja: 'TestFlight 版では TestFlight 内で購入したテスト用サブスクリプションのみ復元できます。App Store の正式な購読は正式版で復元してください。',
+      zhHans: '内部测试版只能恢复在内部测试中购买的测试订阅；正式订阅需要在正式版中恢复。',
+      zhHant: '內部測試版只能恢復在內部測試中購買的測試訂閱；正式訂閱需要在正式版中恢復。',
+      ja: '内部テスト版では、内部テストで購入したテスト用サブスクリプションのみ復元できます。正式な購読は正式版で復元してください。',
     ),
   ),
   _RestoreScenario(
@@ -103,9 +103,9 @@ final _scenarios = <_RestoreScenario>[
     expected: (locale) => _localized(
       locale,
       en: 'This development build can only restore purchases made in the same StoreKit test environment.',
-      zhHans: '开发测试版只能恢复同一个 StoreKit 测试环境中的购买。',
-      zhHant: '開發測試版只能恢復同一個 StoreKit 測試環境中的購買。',
-      ja: '開発用ビルドでは、同じ StoreKit テスト環境で行った購入のみ復元できます。',
+      zhHans: '开发测试版只能恢复同一个购买测试环境中的购买。',
+      zhHant: '開發測試版只能恢復同一個購買測試環境中的購買。',
+      ja: '開発用ビルドでは、同じ購入テスト環境で行った購入のみ復元できます。',
     ),
   ),
   _RestoreScenario(
@@ -114,9 +114,9 @@ final _scenarios = <_RestoreScenario>[
     expected: (locale) => _localized(
       locale,
       en: 'Pro was verified in another or unknown StoreKit environment. Access stays active while the entitlement is reconciled.',
-      zhHans: 'Pro 权益来自另一个或尚未识别的 StoreKit 环境；对账期间会继续保留访问权限。',
-      zhHant: 'Pro 權益來自另一個或尚未識別的 StoreKit 環境；對帳期間會繼續保留存取權限。',
-      ja: 'Pro は別の、または未確認の StoreKit 環境で検証されています。照合中もアクセスは維持されます。',
+      zhHans: '专业版权益来自另一个或尚未识别的购买环境；对账期间会继续保留访问权限。',
+      zhHant: '專業版權益來自另一個或尚未識別的購買環境；對帳期間會繼續保留存取權限。',
+      ja: 'プロ版は別の、または未確認の購入環境で検証されています。照合中もアクセスは維持されます。',
     ),
   ),
 ];

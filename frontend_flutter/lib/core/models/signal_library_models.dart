@@ -1,3 +1,5 @@
+import 'signal_library_illustration_catalog.dart';
+
 class LibraryPatternModel {
   final String id;
   final String focusDomainId;
@@ -25,10 +27,21 @@ class LibraryPatternModel {
     required this.updatedAt,
   });
 
+  String get canonicalId =>
+      SignalLibraryIllustrationCatalog.canonicalPatternId(id);
+
+  String? get illustrationKey =>
+      SignalLibraryIllustrationCatalog.keyForPatternId(id);
+
   Map<String, dynamic> toPayloadJson() {
     return {
       'library_pattern_id': id,
+      'canonical_pattern_id': canonicalId,
       'focus_domain_id': focusDomainId,
+      if (illustrationKey != null) 'illustration_key': illustrationKey,
+      if (illustrationKey != null)
+        'illustration_catalog_version':
+            SignalLibraryIllustrationCatalog.version,
       'title': title,
       'abstract_pattern': abstractPattern,
       'common_scenes': commonScenes,
