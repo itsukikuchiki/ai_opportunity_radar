@@ -1,5 +1,9 @@
 # Design QA — primary app pages
 
+> Repository cleanup note (2026-08-07): historical raster outputs under
+> `design_qa/` are no longer checked into Git. The render tests recreate these
+> files when needed; filenames below remain as historical QA references.
+
 ## Onboarding first three pages — 2026-07-29
 
 This pass rebuilds the opening product story from the current final feature
