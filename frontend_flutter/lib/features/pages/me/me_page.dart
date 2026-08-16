@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/i18n/app_locale_text.dart';
+import '../../../core/ads/app_open_ad_controller.dart';
 import '../../../core/preferences/focus_domains.dart';
 import '../../../core/purchases/purchase_controller.dart';
 import '../../../core/state/app_bootstrap_state.dart';
@@ -86,6 +87,7 @@ class MePage extends StatelessWidget {
                   const SizedBox(height: AuroraMainPageSpec.sectionGap),
                   _MeDataSection(
                     onOpenPrivacy: () => _openPrivacy(context),
+                    onOpenAdPrivacy: () => _openAdPrivacy(context),
                     onDeleteData: vm.deletingData
                         ? null
                         : () => _confirmDeleteData(context, vm),
@@ -247,6 +249,24 @@ class MePage extends StatelessWidget {
             zhHans: '暂时无法打开隐私政策。',
             zhHant: '暫時無法開啟隱私政策。',
             ja: 'プライバシーポリシーを開けませんでした。',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openAdPrivacy(BuildContext context) async {
+    final error = await AppOpenAdController.showPrivacyOptions();
+    if (!context.mounted || error == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocaleText.tr(
+            context,
+            en: 'Advertising privacy choices are not required in your region.',
+            zhHans: '你所在地区目前不需要广告隐私选项。',
+            zhHant: '你所在區域目前不需要廣告隱私選項。',
+            ja: 'お住まいの地域では広告のプライバシー設定は現在必要ありません。',
           ),
         ),
       ),
@@ -1014,11 +1034,13 @@ class _FocusDomainMoreChip extends StatelessWidget {
 
 class _MeDataSection extends StatelessWidget {
   final VoidCallback onOpenPrivacy;
+  final VoidCallback onOpenAdPrivacy;
   final VoidCallback? onDeleteData;
   final bool hasCloudAccount;
 
   const _MeDataSection({
     required this.onOpenPrivacy,
+    required this.onOpenAdPrivacy,
     required this.onDeleteData,
     required this.hasCloudAccount,
   });
@@ -1068,6 +1090,25 @@ class _MeDataSection extends StatelessWidget {
             ja: 'Signal Path のデータ取り扱いを確認',
           ),
           onTap: onOpenPrivacy,
+        ),
+        _MeListRowData(
+          icon: Icons.ads_click_outlined,
+          iconColor: AuroraColors.blue,
+          title: AppLocaleText.tr(
+            context,
+            en: 'Advertising privacy choices',
+            zhHans: '广告隐私选项',
+            zhHant: '廣告隱私選項',
+            ja: '広告のプライバシー設定',
+          ),
+          subtitle: AppLocaleText.tr(
+            context,
+            en: 'Review consent choices used for ads',
+            zhHans: '查看广告使用的同意选项',
+            zhHant: '查看廣告使用的同意選項',
+            ja: '広告に使用される同意設定を確認',
+          ),
+          onTap: onOpenAdPrivacy,
         ),
         _MeListRowData(
           icon: Icons.delete_forever_outlined,

@@ -24,6 +24,8 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-2306489052221082~3992737355</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
@@ -42,6 +44,13 @@
 	<string>Signal Path lets you choose a profile photo for your Me page. The photo stays on this device unless you choose to share it elsewhere.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Signal Path uses only on-device speech recognition to turn your voice into editable signal text. If on-device recognition is unavailable, you can still type. Audio is not saved or uploaded.</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

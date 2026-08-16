@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import 'app_router.dart';
+import '../core/ads/app_open_ad_controller.dart';
 import '../core/config/build_environment.dart';
 import '../core/di/app_dependencies.dart';
 import '../core/i18n/app_locale_text.dart';
@@ -52,6 +53,8 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
   AppDataRefreshCoordinator? _dataRefreshCoordinator;
   String? _purchaseEntitlementSignature;
   bool _trackedAppOpen = false;
+  final AppOpenAdController _appOpenAdController = AppOpenAdController();
+  bool _scheduledAppOpenAd = false;
 
   @override
   void initState() {
@@ -127,6 +130,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _disposeAppObjects();
+    _appOpenAdController.dispose();
     _router.dispose();
     super.dispose();
   }
@@ -165,6 +169,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
   void _handlePurchaseStateChanged() {
     final controller = _purchaseController;
     if (controller == null) return;
+    _scheduleAppOpenAdIfEligible();
     final next = _entitlementSignature(controller);
     final previous = _purchaseEntitlementSignature;
     _purchaseEntitlementSignature = next;
@@ -173,6 +178,21 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
       kind: AppDataMutationKind.entitlement,
       reason: 'pro_entitlement_changed',
     );
+  }
+
+  void _scheduleAppOpenAdIfEligible() {
+    final purchase = _purchaseController;
+    if (_scheduledAppOpenAd || purchase == null || purchase.loading) return;
+    _scheduledAppOpenAd = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+        _appOpenAdController.startIfEligible(
+          onboardingCompleted: widget.bootstrapState.onboardingCompleted,
+          isPremium: purchase.isPremium,
+        ),
+      );
+    });
   }
 
   String _entitlementSignature(PurchaseController controller) => [
@@ -202,6 +222,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
         }
 
         _ensureAppObjectsInitialized();
+        _scheduleAppOpenAdIfEligible();
 
         final dependencies = _dependencies!;
         return MultiProvider(
