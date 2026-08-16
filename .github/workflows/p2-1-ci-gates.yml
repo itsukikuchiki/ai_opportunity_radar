@@ -195,6 +195,7 @@ jobs:
           test/shared/widgets/aurora_ui_test.dart
           test/shared/widgets/editable_timeline_decision_dialog_test.dart
           test/shared/widgets/experiment_feedback_sheets_test.dart
+          test/shared/widgets/keyboard_dismiss_scope_test.dart
 
   ci-backend-core:
     name: ci-backend-core
