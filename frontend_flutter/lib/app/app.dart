@@ -22,6 +22,7 @@ import '../features/pages/today/today_view_model.dart';
 import '../features/pages/weekly/weekly_view_model.dart';
 import '../features/system/initialization_failure_page.dart';
 import '../shared/widgets/aurora_ui.dart';
+import '../shared/widgets/keyboard_dismiss_scope.dart';
 
 class RadarApp extends StatefulWidget {
   final AppBootstrapState bootstrapState;
@@ -251,6 +252,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
       ],
       localeResolutionCallback: _resolveLocale,
       theme: _buildTheme(),
+      builder: _withKeyboardDismiss,
       home: showOnboarding
           ? const OnboardingLaunchPage()
           : const _BrandLaunchScreen(),
@@ -274,6 +276,7 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
       ],
       localeResolutionCallback: _resolveLocale,
       theme: _buildTheme(),
+      builder: _withKeyboardDismiss,
       home: InitializationFailurePage(
         referenceId: bootstrap.initErrorEventId,
         onRetry: bootstrap.retryInitialization,
@@ -298,7 +301,14 @@ class _RadarAppState extends State<RadarApp> with WidgetsBindingObserver {
       ],
       localeResolutionCallback: _resolveLocale,
       theme: _buildTheme(),
+      builder: _withKeyboardDismiss,
       routerConfig: router,
+    );
+  }
+
+  Widget _withKeyboardDismiss(BuildContext context, Widget? child) {
+    return KeyboardDismissScope(
+      child: child ?? const SizedBox.shrink(),
     );
   }
 
